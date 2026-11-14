@@ -3791,13 +3791,14 @@ dependencies = [
 
 [[package]]
 name = "longrange"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "bevy",
  "bevy_egui",
  "bincode",
  "gltf",
  "image",
+ "libm",
  "serde",
  "serde_json",
  "wgpu",

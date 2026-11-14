@@ -8,6 +8,7 @@ use longrange::ai::{Ai, Ais};
 use longrange::data::{asset_root, Defs};
 use longrange::map::*;
 use longrange::net::*;
+use longrange::netplay::{ClientSim, HostSim};
 use longrange::sim::*;
 use longrange::sim::Command;
 use longrange::view::{self, terrain::MainCamera, LocalCommands, ViewState};
@@ -82,8 +83,8 @@ struct ClientLobby {
 }
 
 enum Role {
-    Host { host: Host, remote: Vec<(u32, u8)> },
-    Client { client: Client },
+    Host { host: Host, remote: Vec<(u32, u8)>, sim: HostSim },
+    Client { client: Client, sim: ClientSim },
 }
 
 struct Session {
@@ -152,9 +153,7 @@ fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
         let name = if s.kind == 3 { format!("AI {}", k + 1) } else { s.name.clone() };
         setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, faction: s.faction });
     }
-    for (conn, idx) in &remote {
-        l.host.send_msg(*conn, &S2C::Start { map: map.clone(), you: *idx });
-    }
+    let sent_map = map.clone();
     setup_game(world, map, &setup);
     world.insert_resource(Ais(ais));
     // LR_DUEL=1 stages a tank fight next to the first start (visual testing of combat).
@@ -184,19 +183,29 @@ fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
         world.flush();
         world.insert_resource(game);
     }
+    // Clients get the map and the complete starting state; from then on only commands travel.
+    if !remote.is_empty() {
+        let state = frame(TAG_SNAP, bincode::serialize(&make_snapshot(world)).map_err(|e| e.to_string())?);
+        for (conn, idx) in &remote {
+            l.host.send_msg(*conn, &S2C::Start { map: sent_map.clone(), you: *idx });
+            l.host.send(*conn, &state);
+        }
+    }
+    let sim = HostSim::new(world);
     *l.host.info.lock().unwrap() = "(game in progress)".into();
     view::start_view(world, 0, true);
-    Ok(Session { role: Role::Host { host: l.host, remote }, acc: 0.0 })
+    Ok(Session { role: Role::Host { host: l.host, remote, sim }, acc: 0.0 })
 }
 
 fn leave_game(world: &mut World) {
     view::stop_view(world);
     clear_game(world);
     world.remove_resource::<Ais>();
-    world.insert_resource(Replicas::default());
+    world.remove_resource::<TurnLog>();
 }
 
-/// Runs the simulation (host) or applies snapshots (client), once per frame before rendering.
+/// Runs the simulation once per frame before rendering: the host at its own pace, a client
+/// predicting ahead of the turns the host confirms (`netplay.rs`).
 fn session_update(world: &mut World) {
     let Some(mut app) = world.remove_non_send::<AppState>() else { return };
     let mut over: Option<String> = None;
@@ -204,13 +213,25 @@ fn session_update(world: &mut World) {
         let me = world.get_resource::<ViewState>().map_or(0, |v| v.me);
         let local: Vec<Command> = world.get_resource_mut::<LocalCommands>().map(|mut c| c.0.drain(..).collect()).unwrap_or_default();
         match &mut s.role {
-            Role::Host { host, remote } => {
+            Role::Host { host, remote, sim } => {
                 let mut cmds: Vec<(u8, Command)> = local.into_iter().map(|c| (me, c)).collect();
                 while let Ok(ev) = host.events.try_recv() {
                     match ev {
-                        HostEvent::Msg(id, C2S::Cmd(c)) => {
+                        HostEvent::Msg(id, C2S::Cmd { tick, seq, cmd }) => {
                             if let Some((_, p)) = remote.iter().find(|r| r.0 == id) {
-                                cmds.push((*p, c));
+                                sim.command(world, *p, tick, seq, cmd);
+                            }
+                        }
+                        HostEvent::Msg(id, C2S::Ping(t)) => host.send_msg(id, &S2C::Pong(t)),
+                        HostEvent::Msg(id, C2S::Hash { tick, hash }) => {
+                            if let Some((_, p)) = remote.iter().find(|r| r.0 == id) {
+                                if !sim.matches(tick, hash) {
+                                    // That machine computed something else: hand it our state.
+                                    warn!("player {p} diverged at tick {tick}; sending the full state");
+                                    if let Ok(data) = bincode::serialize(&make_snapshot(world)) {
+                                        host.send(id, &frame(TAG_SNAP, data));
+                                    }
+                                }
                             }
                         }
                         HostEvent::Left(id) => {
@@ -223,7 +244,6 @@ fn session_update(world: &mut World) {
                         _ => {}
                     }
                 }
-                world.resource_mut::<CommandQueue>().0.extend(cmds);
                 // LR_SPEED=4 fast-forwards a hosted game (testing, watching AIs).
                 let speed = std::env::var("LR_SPEED").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).clamp(0.1, 20.0);
                 let dt = world.resource::<Time>().delta_secs().min(0.25);
@@ -233,11 +253,10 @@ fn session_update(world: &mut World) {
                 while s.acc >= DT && n < cap {
                     s.acc -= DT;
                     n += 1;
-                    world.run_schedule(SimTick);
+                    let turn = sim.tick(world, std::mem::take(&mut cmds), !remote.is_empty());
                     if !remote.is_empty() {
-                        let snap = make_snapshot(world);
-                        if let Ok(data) = bincode::serialize(&snap) {
-                            let f = frame(TAG_SNAP, data);
+                        if let Ok(data) = bincode::serialize(&turn) {
+                            let f = frame(TAG_MSG, data);
                             for (conn, _) in remote.iter() {
                                 host.send(*conn, &f);
                             }
@@ -247,24 +266,41 @@ fn session_update(world: &mut World) {
                 if n == cap {
                     s.acc = 0.0;
                 }
+                // Commands given while no tick was due wait for the next frame.
+                if !cmds.is_empty() {
+                    if let Some(mut lc) = world.get_resource_mut::<LocalCommands>() {
+                        lc.0.extend(cmds.into_iter().map(|c| c.1));
+                    }
+                }
             }
-            Role::Client { client } => {
-                for c in local {
-                    client.send(&C2S::Cmd(c));
+            Role::Client { client, sim } => {
+                for m in sim.issue(world, local) {
+                    client.send(&m);
                 }
                 loop {
                     match client.frames.try_recv() {
-                        Ok(Some((TAG_SNAP, data))) => {
-                            if let Ok(snap) = bincode::deserialize::<Snapshot>(&data) {
-                                apply_snapshot(world, snap);
+                        Ok(Some((tag, data))) => {
+                            if let Err(why) = sim.receive(tag, &data) {
+                                over = Some(why);
+                                break;
                             }
                         }
-                        Ok(Some(_)) => {}
                         Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                             over = Some("Connection to the host was lost.".into());
                             break;
                         }
                         Err(_) => break,
+                    }
+                }
+                if over.is_none() {
+                    let dt = world.resource::<Time>().delta_secs().min(0.25);
+                    match sim.update(world, dt) {
+                        Ok(out) => {
+                            for m in out {
+                                client.send(&m);
+                            }
+                        }
+                        Err(why) => over = Some(why),
                     }
                 }
             }
@@ -527,25 +563,21 @@ fn menu_ui(world: &mut World) {
                 }
                 Screen::ClientLobby(l) => {
                     let mut lost: Option<String> = None;
-                    let mut started = false;
+                    let mut started: Option<ClientSim> = None;
                     loop {
                         match l.client.frames.try_recv() {
                             Ok(Some((TAG_MSG, data))) => match bincode::deserialize::<S2C>(&data) {
                                 Ok(S2C::Lobby(i)) => l.info = Some(i),
                                 Ok(S2C::Start { map, you }) => l.pending = Some((map, you)),
                                 Ok(S2C::Kicked(why)) => lost = Some(why),
+                                Ok(_) => {}
                                 Err(_) => lost = Some("Protocol mismatch - are both players on the same version?".into()),
                             },
                             Ok(Some((_, data))) => {
-                                if let (Some((mut map, you)), Ok(snap)) = (l.pending.take(), bincode::deserialize::<Snapshot>(&data)) {
-                                    map.rebuild_blocked();
-                                    clear_game(world);
-                                    world.insert_resource(map);
-                                    world.insert_resource(Replicas::default());
-                                    world.insert_resource(FxLog::default());
-                                    apply_snapshot(world, snap);
+                                if let (Some((map, you)), Ok(snap)) = (l.pending.take(), bincode::deserialize::<Snapshot>(&data)) {
+                                    join_game(world, map, &snap);
                                     view::start_view(world, you, true);
-                                    started = true;
+                                    started = Some(ClientSim::new(you, snap));
                                     break;
                                 }
                             }
@@ -573,9 +605,9 @@ fn menu_ui(world: &mut World) {
                     }
                     ui.add_space(10.0);
                     let back = ui.add_sized([480.0, 34.0], egui::Button::new("Leave")).clicked();
-                    if started {
+                    if let Some(sim) = started {
                         if let Screen::ClientLobby(l) = std::mem::replace(&mut app.screen, Screen::Menu) {
-                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client }, acc: 0.0 }));
+                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim }, acc: 0.0 }));
                         }
                     } else if let Some(why) = lost {
                         app.message = why;
@@ -665,7 +697,7 @@ fn selftest() {
         if t % 3000 == 0 || game.winner.is_some() {
             let snap = make_snapshot(world);
             let bytes = bincode::serialize(&snap).map(|b| b.len()).unwrap_or(0);
-            println!("t={:5}s units={} projectiles={} wrecks={} snapshot={}B wall={:?}", t / 10, snap.units.len(), snap.projectiles.len(), snap.wrecks.len(), bytes, t0.elapsed());
+            println!("t={:5}s units={} projectiles={} wrecks={} state={}B hash={:016x} wall={:?}", t / 10, snap.units.len(), snap.projectiles.len(), snap.wrecks.len(), bytes, state_hash(&snap), t0.elapsed());
             for (k, p) in game.players.iter().enumerate() {
                 let mine: Vec<&UnitSnap> = snap.units.iter().filter(|u| u.unit.owner as usize == k).collect();
                 let top = mine.iter().map(|u| defs.get(u.unit.def).tier).max().unwrap_or(0);
@@ -905,8 +937,13 @@ fn combattest() {
     }
 }
 
-/// Loopback check of discovery, handshake, snapshots and remote commands.
+/// Loopback check of discovery, the handshake and the netplay: a host with three AIs and a client
+/// that predicts ahead play for ten minutes of game time (`LR_TICKS` to change); the client's
+/// confirmed state must stay identical to the host's although the client rolls back and
+/// re-simulates on every turn. In the second half the client predicts too little, so its commands
+/// reach the host late and are corrected.
 fn nettest() {
+    use longrange::netplay::{ClientSim, HostSim};
     use std::time::Duration;
     let defs = load_defs();
     let host = Host::start("testhost").expect("host");
@@ -926,46 +963,144 @@ fn nettest() {
         }
     }
     let mut happ = headless(defs.clone());
-    let map = MapData::generate(128, 7, 2);
+    let ticks: u32 = std::env::var("LR_TICKS").ok().and_then(|s| s.parse().ok()).unwrap_or(6000);
+    let map = MapData::generate(128, 7, 4);
     let faction = defs.playable_factions()[0] as u8;
-    let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+    let setup: Vec<PlayerSetup> = (0..4).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, faction }).collect();
     host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1 });
-    setup_game(happ.world_mut(), map, &setup);
-    happ.world_mut().run_schedule(SimTick);
-    let snap = make_snapshot(happ.world_mut());
-    host.send(conn, &frame(TAG_SNAP, bincode::serialize(&snap).unwrap()));
+    let hw = happ.world_mut();
+    setup_game(hw, map, &setup);
+    hw.insert_resource(Ais(vec![Ai::new(0, 7), Ai::new(2, 7), Ai::new(3, 7)]));
+    let mut hsim = HostSim::new(hw);
+    host.send(conn, &frame(TAG_SNAP, bincode::serialize(&make_snapshot(hw)).unwrap()));
+
     let mut capp = headless(defs.clone());
-    for _ in 0..2 {
+    let cw = capp.world_mut();
+    let mut start: Option<MapData> = None;
+    let mut csim: Option<ClientSim> = None;
+    while csim.is_none() {
         let (tag, data) = client.frames.recv_timeout(Duration::from_secs(5)).expect("frame").expect("open");
         if tag == TAG_MSG {
             if let Ok(S2C::Start { map, you }) = bincode::deserialize::<S2C>(&data) {
                 println!("client got Start: map {} cells ({} bytes), you={you}", map.n, data.len());
-                capp.world_mut().insert_resource(map);
+                start = Some(map);
             }
         } else {
-            let s: Snapshot = bincode::deserialize(&data).expect("snapshot");
-            println!("client got snapshot tick {} with {} units ({} bytes)", s.game.tick, s.units.len(), data.len());
-            apply_snapshot(capp.world_mut(), s);
+            let s: Snapshot = bincode::deserialize(&data).expect("state");
+            println!("client got the starting state: tick {} with {} units ({} bytes)", s.game.tick, s.units.len(), data.len());
+            join_game(cw, start.take().expect("Start first"), &s);
+            csim = Some(ClientSim::new(1, s));
         }
     }
-    let cw = capp.world_mut();
-    let com = cw.query::<(&Unit, &Body)>().iter(cw).find(|(u, _)| u.owner == 1).map(|(u, b)| (u.id, b.pos)).expect("replicated commander");
-    client.send(&C2S::Cmd(Command::Orders { ids: vec![com.0], orders: vec![Order::Move(com.1 + v2(15.0, 0.0))], queue: false }));
-    match host.events.recv_timeout(Duration::from_secs(2)).expect("cmd") {
-        HostEvent::Msg(_, C2S::Cmd(c)) => happ.world_mut().resource_mut::<CommandQueue>().0.push((1, c)),
-        _ => panic!("expected command"),
+    let mut csim = csim.unwrap();
+    csim.lead = 3;
+    let com = cw.query::<(&Unit, &Body)>().iter(cw).find(|(u, _)| u.owner == 1).map(|(u, b)| (u.id, b.pos)).expect("own commander");
+
+    let (mut mismatches, mut turn_bytes, mut late, mut shots, mut most_units) = (0, 0usize, 0, 0u32, 0usize);
+    for t in 0..ticks {
+        csim.lead = if t < ticks / 2 { 3 } else { 1 };
+        // The client orders its units around every few seconds.
+        if t % 50 == 7 {
+            let to = com.1 + v2(15.0 * ((t / 50) % 3) as f32, 6.0 * ((t / 50) % 2) as f32);
+            let ids: Vec<u32> = cw.query::<&Unit>().iter(cw).filter(|u| u.owner == 1).map(|u| u.id).collect();
+            for m in csim.issue(cw, vec![Command::Orders { ids, orders: vec![Order::Move(to)], queue: false }]) {
+                client.send(&m);
+            }
+        }
+        std::thread::sleep(Duration::from_micros(300));
+        while let Ok(ev) = host.events.try_recv() {
+            match ev {
+                HostEvent::Msg(_, C2S::Cmd { tick, seq, cmd }) => {
+                    if tick <= hw.resource::<Game>().tick {
+                        late += 1;
+                    }
+                    hsim.command(hw, 1, tick, seq, cmd)
+                }
+                HostEvent::Msg(_, C2S::Hash { tick, hash }) => {
+                    if !hsim.matches(tick, hash) {
+                        mismatches += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let turn = bincode::serialize(&hsim.tick(hw, vec![], true)).unwrap();
+        shots += hw.resource::<FxLog>().tick.iter().filter(|f| f.kind == FX_MUZZLE).count() as u32;
+        if t % 100 == 0 {
+            most_units = most_units.max(hw.query::<&Unit>().iter(hw).count());
+        }
+        turn_bytes += turn.len();
+        host.send(conn, &frame(TAG_MSG, turn));
+        // Jitter: the client does not look at the network on every third tick; in the second half
+        // it goes deaf for five ticks out of eight, so the orders above are stamped too early.
+        if if t < ticks / 2 { t % 3 != 0 } else { t % 8 < 3 } {
+            while let Ok(Some((tag, data))) = client.frames.recv_timeout(Duration::from_micros(300)) {
+                csim.receive(tag, &data).expect("frame");
+            }
+        }
+        for m in csim.update(cw, DT).expect("client update") {
+            if !matches!(m, C2S::Ping(_)) {
+                client.send(&m);
+            }
+        }
     }
-    for _ in 0..80 {
-        happ.world_mut().run_schedule(SimTick);
+    // Let the client catch up with everything the host sent.
+    let end = hw.resource::<Game>().tick;
+    while csim.confirmed_tick() < end {
+        let (tag, data) = client.frames.recv_timeout(Duration::from_secs(5)).expect("frame").expect("open");
+        csim.receive(tag, &data).expect("frame");
+        csim.update(cw, 0.0).expect("client update");
     }
-    let hw = happ.world_mut();
-    let after = hw.query::<(&Unit, &Body)>().iter(hw).find(|(u, _)| u.id == com.0).map(|(_, b)| b.pos).unwrap();
-    println!("remote commander moved {:.1} units toward its order", com.1.dist(after));
-    assert!(com.1.dist(after) > 5.0);
+    let hs = make_snapshot(hw);
+    println!("host tick {end}: {} units, {} projectiles; full state {} bytes, turns averaged {} bytes", hs.units.len(), hs.projectiles.len(), bincode::serialize(&hs).unwrap().len(), turn_bytes / ticks as usize);
+    println!("during the game: {shots} shots fired, up to {most_units} units, next id {}", hs.game.next_id);
+    println!("{late} of the client's commands reached the host late; its shown tick {} is {} ahead of the confirmed one", cw.resource::<Game>().tick, cw.resource::<Game>().tick - csim.confirmed_tick());
+    println!("state hash host {:016x} client {:016x}, mismatches reported during the game: {mismatches}", state_hash(&hs), csim.confirmed_hash());
+    assert!(late > 0, "the late-command path was not exercised");
+    assert_eq!(state_hash(&hs), csim.confirmed_hash(), "host and client diverged");
+    assert_eq!(mismatches, 0);
+
+    // Divergence repair: change the host's state behind the client's back. The client's next
+    // fingerprint is wrong, the host answers with its full state, and they agree again.
+    hw.resource_mut::<Game>().players[0].mass += 1.0;
+    for _ in 0..3 * longrange::netplay::HASH_EVERY {
+        std::thread::sleep(Duration::from_micros(300));
+        while let Ok(ev) = host.events.try_recv() {
+            if let HostEvent::Msg(_, C2S::Hash { tick, hash }) = ev {
+                if !hsim.matches(tick, hash) {
+                    mismatches += 1;
+                    host.send(conn, &frame(TAG_SNAP, bincode::serialize(&make_snapshot(hw)).unwrap()));
+                }
+            }
+        }
+        host.send(conn, &frame(TAG_MSG, bincode::serialize(&hsim.tick(hw, vec![], true)).unwrap()));
+        while let Ok(Some((tag, data))) = client.frames.recv_timeout(Duration::from_micros(300)) {
+            csim.receive(tag, &data).expect("frame");
+        }
+        for m in csim.update(cw, DT).expect("client update") {
+            if !matches!(m, C2S::Ping(_)) {
+                client.send(&m);
+            }
+        }
+    }
+    let end = hw.resource::<Game>().tick;
+    while csim.confirmed_tick() < end {
+        let (tag, data) = client.frames.recv_timeout(Duration::from_secs(5)).expect("frame").expect("open");
+        csim.receive(tag, &data).expect("frame");
+        csim.update(cw, 0.0).expect("client update");
+    }
+    println!("after tampering with the host: {mismatches} mismatch(es) reported, {} full state(s) sent, hashes equal again: {}", csim.resyncs, state_hash(&make_snapshot(hw)) == csim.confirmed_hash());
+    assert!(mismatches > 0 && csim.resyncs > 0);
+    assert_eq!(state_hash(&make_snapshot(hw)), csim.confirmed_hash(), "the full state did not repair the client");
     drop(client);
-    match host.events.recv_timeout(Duration::from_secs(2)).expect("left") {
-        HostEvent::Left(id) => println!("conn {id} left cleanly"),
-        _ => panic!("expected Left"),
+    loop {
+        match host.events.recv_timeout(Duration::from_secs(2)).expect("left") {
+            HostEvent::Left(id) => {
+                println!("conn {id} left cleanly");
+                break;
+            }
+            _ => {}
+        }
     }
     println!("nettest OK");
 }

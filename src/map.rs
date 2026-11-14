@@ -64,10 +64,10 @@ impl V2 {
         v2(-self.y, self.x)
     }
     pub fn from_angle(a: f32) -> V2 {
-        v2(a.cos(), a.sin())
+        v2(fm::cos(a), fm::sin(a))
     }
     pub fn angle(self) -> f32 {
-        self.y.atan2(self.x)
+        fm::atan2(self.y, self.x)
     }
     pub fn lerp(self, o: V2, t: f32) -> V2 {
         self + (o - self) * t
@@ -142,6 +142,28 @@ pub fn turn_toward(from: f32, to: f32, max: f32) -> f32 {
     }
 }
 
+/// Trigonometry for the simulation. The system maths library gives slightly different results on
+/// Windows and Linux, which would make the same game diverge between machines; these are computed
+/// in software and are identical everywhere.
+pub mod fm {
+    pub fn sin(x: f32) -> f32 {
+        libm::sinf(x)
+    }
+    pub fn cos(x: f32) -> f32 {
+        libm::cosf(x)
+    }
+    pub fn atan(x: f32) -> f32 {
+        libm::atanf(x)
+    }
+    pub fn atan2(y: f32, x: f32) -> f32 {
+        libm::atan2f(y, x)
+    }
+    pub fn acos(x: f32) -> f32 {
+        libm::acosf(x)
+    }
+}
+
+#[derive(Clone)]
 pub struct Rng(pub u64);
 impl Rng {
     pub fn next(&mut self) -> u64 {

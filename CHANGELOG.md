@@ -3,6 +3,27 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.3.0
+
+Netcode
+- Multiplayer now sends only commands instead of the whole game state ten times a second (about 20 bytes per
+  tick instead of about 30 KB with 250 units). Every machine runs the same simulation.
+- Rollback: your own orders take effect immediately on your screen. The game shows a prediction a few ticks
+  ahead of the host and corrects it when the other players' orders arrive.
+- If a machine ever computes a different result, the host notices within two seconds and sends it the full
+  state, so games repair themselves instead of drifting apart.
+- Not compatible with earlier versions in multiplayer: everybody needs this version.
+
+Good to know
+- An effect shown from a wrong prediction (a muzzle flash, an explosion) is not taken back when the game
+  corrects itself.
+- Every player's machine now holds the whole game state, so fog of war is not cheat-proof.
+- Rejoining a running game is not possible yet.
+
+Internals
+- The simulation is deterministic across Linux and Windows (`--selftest` prints state hashes to compare,
+  `--nettest` plays a host against a predicting client and checks that they agree).
+
 ## v0.2.3
 
 Fixes

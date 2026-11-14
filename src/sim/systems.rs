@@ -1,4 +1,9 @@
-//! Simulation systems, run in order once per tick (host only).
+//! Simulation systems, run in order once per tick on every machine in the game.
+//!
+//! The simulation must be deterministic: every query loop that allocates ids, uses the random
+//! generator, spends a shared budget or queues effects iterates in unit-id order (the ECS's own
+//! order depends on each machine's entity layout), and angles go through `map::fm` (same results
+//! on every platform, unlike the system maths library).
 use super::*;
 use crate::data::{Defs, MoveKind, WeaponDef, WeaponKind};
 use std::f32::consts::PI;
@@ -48,7 +53,7 @@ fn census_build(
     wq: Query<&Wreck>,
 ) {
     census.clear();
-    for (e, u, b, h, i, uc, hosted, builder, factory, upgrading, paused) in &q {
+    for (e, u, b, h, i, uc, hosted, builder, factory, upgrading, paused) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         census.push(Cen {
             e,
@@ -78,11 +83,13 @@ fn census_build(
     }
     wrecks.0.clear();
     wrecks.0.extend(wq.iter().map(|w| (w.id, w.pos, w.mass)));
+    wrecks.0.sort_by_key(|w| w.0);
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn apply_commands(
     mut queue: ResMut<CommandQueue>,
+    log: Option<ResMut<TurnLog>>,
     census: Res<Census>,
     defs: Res<Defs>,
     map: Res<MapData>,
@@ -91,6 +98,9 @@ fn apply_commands(
     mut commands: Commands,
     mut q: Query<(&Unit, &Body, &mut Orders, Option<&mut Factory>, Option<&mut Mover>, Option<&mut Weapons>, Has<Upgrading>, Has<UnderConstruction>)>,
 ) {
+    if let Some(mut log) = log {
+        log.0 = queue.0.clone();
+    }
     for (pl, c) in queue.0.drain(..) {
         if !game.players.get(pl as usize).map_or(false, |p| p.alive) {
             continue;
@@ -345,7 +355,7 @@ fn think(
     mut effects: ResMut<Effects>,
     mut commands: Commands,
 ) {
-    for (u, body, mut orders, mut mover, mut builder, mut weapons) in &mut q {
+    for (u, body, mut orders, mut mover, mut builder, mut weapons) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         if df.is_factory() {
             continue;
@@ -601,7 +611,7 @@ fn factories(
     mut game: ResMut<Game>,
     mut commands: Commands,
 ) {
-    for (u, body, mut f, mut builder, upgrading) in &mut q {
+    for (u, body, mut f, mut builder, upgrading) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         builder.work = 0;
         if f.building != 0 {
@@ -660,7 +670,7 @@ fn build_progress(
 ) {
     // (payer, target entity, build rate)
     let mut jobs: Vec<(u8, Entity, f32)> = vec![];
-    for (e, u, _, builder, uc, up) in q.iter() {
+    for (e, u, _, builder, uc, up) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         if uc.is_some() || census.get(u.id).map_or(false, |c| c.paused) {
             continue;
         }
@@ -781,7 +791,7 @@ fn locomotion(
 ) {
     let world = map.world();
     let n = map.n as i32;
-    for (u, mut body, mut m, mut orders) in &mut q {
+    for (u, mut body, mut m, mut orders) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         let mv = &df.mv;
         let old = body.pos;
@@ -949,7 +959,7 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
     }
     let mut items: Vec<It> = vec![];
     let mut grid: HashMap<(i32, i32, bool), Vec<usize>> = HashMap::new();
-    for (e, u, b, m) in q.iter() {
+    for (e, u, b, m) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         if d.is_plane() {
             continue;
@@ -999,22 +1009,23 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
 pub fn ballistic(d: f32, h: f32, v: f32, g: f32, high: bool, boost: bool) -> Option<(f32, f32, f32)> {
     let d = d.max(0.3);
     let mut v = v.max(1.0);
-    let mut disc = v.powi(4) - g * (g * d * d + 2.0 * h * v * v);
+    let mut disc = (v * v) * (v * v) - g * (g * d * d + 2.0 * h * v * v);
     if disc < 0.0 {
         if !boost {
             return None;
         }
         v = (g * (h + (h * h + d * d).sqrt())).max(1.0).sqrt() * 1.01;
-        disc = (v.powi(4) - g * (g * d * d + 2.0 * h * v * v)).max(0.0);
+        disc = ((v * v) * (v * v) - g * (g * d * d + 2.0 * h * v * v)).max(0.0);
     }
     let root = disc.sqrt();
     let tan = (v * v + if high { root } else { -root }) / (g * d);
-    let pitch = tan.atan();
-    Some((pitch, d / (v * pitch.cos()).max(0.01), v))
+    let pitch = fm::atan(tan);
+    Some((pitch, d / (v * fm::cos(pitch)).max(0.01), v))
 }
 
 fn dir_from(yaw: f32, pitch: f32) -> Vec3 {
-    Vec3::new(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos())
+    let (cp, sp) = (fm::cos(pitch), fm::sin(pitch));
+    Vec3::new(fm::cos(yaw) * cp, sp, fm::sin(yaw) * cp)
 }
 
 struct Solution {
@@ -1030,9 +1041,9 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
     for _ in 0..3 {
         let to = point - origin;
         let d = Vec2::new(to.x, to.z).length();
-        let yaw = to.z.atan2(to.x);
+        let yaw = fm::atan2(to.z, to.x);
         let (pitch, t, speed) = match w.kind {
-            WeaponKind::Direct => ballistic(d, to.y, w.speed, g, false, false).unwrap_or((to.y.atan2(d.max(0.1)), d / w.speed.max(1.0), w.speed)),
+            WeaponKind::Direct => ballistic(d, to.y, w.speed, g, false, false).unwrap_or((fm::atan2(to.y, d.max(0.1)), d / w.speed.max(1.0), w.speed)),
             WeaponKind::Arc => ballistic(d, to.y, w.speed, g, false, true).unwrap(),
             // Mortars and howitzers pick a charge for a steep (about 65 degree) arc instead of
             // always lobbing at full power, which would keep shells in the air for ages.
@@ -1065,7 +1076,7 @@ fn weapons(
 ) {
     let g = defs.rules.gravity;
     let tick = game.tick;
-    for (u, body, mut ws, mut mover) in &mut q {
+    for (u, body, mut ws, mut mover) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         let team = game.team_of(u.owner);
         let origin = body.pos.at(body.y + df.height() * 0.8);
@@ -1208,7 +1219,7 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
     };
     fx.push(pos, FX_MUZZLE, (w.damage.sqrt() * 0.05).clamp(0.12, 1.2));
     let id = game.alloc();
-    commands.spawn(Projectile {
+    let shot = Projectile {
         id,
         pos: pos.into(),
         vel: vel.into(),
@@ -1226,7 +1237,8 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
         turn: w.turn_rate,
         hits_land: w.hits_land,
         hits_air: w.hits_air,
-    });
+    };
+    spawn_projectile(commands, shot);
 }
 
 /// Moves projectiles under gravity and resolves hits against terrain and unit volumes.
@@ -1242,7 +1254,7 @@ fn projectiles(
 ) {
     let g = defs.rules.gravity;
     let ff = defs.rules.friendly_fire;
-    for (e, mut p) in &mut q {
+    for (e, mut p) in q.iter_mut().sort_by_key::<&Projectile, _>(|p| p.id) {
         let team = game.team_of(p.owner);
         p.life -= DT;
         let a = p.pos.v();
@@ -1253,7 +1265,7 @@ fn projectiles(
             if let Some(t) = census.get(p.target).filter(|t| t.hp > 0.0) {
                 let want = (t.center() - a).normalize_or_zero();
                 let cur = vel / speed;
-                let ang = cur.dot(want).clamp(-1.0, 1.0).acos();
+                let ang = fm::acos(cur.dot(want).clamp(-1.0, 1.0));
                 let max = p.turn.to_radians() * DT;
                 let nd = if ang <= max || ang < 1e-4 { want } else { cur.lerp(want, max / ang).normalize_or_zero() };
                 vel = nd * speed;
@@ -1342,7 +1354,7 @@ fn apply_reclaim(mut q: Query<(Entity, &mut Wreck)>, mut effects: ResMut<Effects
         return;
     }
     let jobs: Vec<(u32, f32, u8)> = effects.reclaim.drain(..).collect();
-    for (e, mut w) in &mut q {
+    for (e, mut w) in q.iter_mut().sort_by_key::<&Wreck, _>(|w| w.id) {
         for (id, amount, player) in &jobs {
             if *id == w.id && w.mass > 0.0 {
                 let take = amount.min(w.mass);
@@ -1380,7 +1392,7 @@ fn deaths(
     let tick = game.tick;
     let mut blasts: Vec<(V2, f32, f32, f32, u8)> = vec![];
     let mut new_wrecks = 0;
-    for (e, u, b, mut h, uc, hosted) in &mut q {
+    for (e, u, b, mut h, uc, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         let player_dead = game.players.get(u.owner as usize).map_or(false, |p| !p.alive);
         if player_dead && (u.id + tick) % 6 == 0 {
@@ -1412,14 +1424,15 @@ fn deaths(
             game.players[u.owner as usize].alive = false;
         } else if d.wreck && !d.is_air() && d.cost.mass * defs.rules.wreck_mass_fraction >= 5.0 {
             let id = game.alloc();
-            commands.spawn(Wreck { id, def: u.def, mass: d.cost.mass * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw });
+            spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: d.cost.mass * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw });
             new_wrecks += 1;
         }
     }
     for (pos, y, damage, radius, owner) in blasts {
         let team = game.team_of(owner);
         census.near(pos, radius + 4.0, |c| {
-            let d = ((c.pos.dist(pos) - c.radius * 0.7).max(0.0).powi(2) + (c.y - y).powi(2)).sqrt();
+            let flat = (c.pos.dist(pos) - c.radius * 0.7).max(0.0);
+            let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
             if d < radius && c.hp > 0.0 && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
                 effects.damage.push((c.id, damage * (1.0 - 0.6 * d / radius), 3.min(defs.rules.damage_types.len() - 1)));
             }

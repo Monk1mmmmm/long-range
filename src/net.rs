@@ -1,5 +1,5 @@
-//! LAN networking: TCP for the game (host authoritative, state snapshots),
-//! UDP broadcast for finding hosts on the local network.
+//! LAN networking: TCP for the game (the host orders everybody's commands into turns, see
+//! `netplay.rs`), UDP broadcast for finding hosts on the local network.
 use crate::map::MapData;
 use crate::sim::Command;
 use serde::{Deserialize, Serialize};
@@ -12,11 +12,13 @@ use std::time::Duration;
 
 pub const TCP_PORT: u16 = 47800;
 pub const UDP_PORT: u16 = 47801;
-const MAGIC_Q: &[u8] = b"LRT2?";
-const MAGIC_A: &[u8] = b"LRT2!";
+const MAGIC_Q: &[u8] = b"LRT3?";
+const MAGIC_A: &[u8] = b"LRT3!";
 /// Frame tags.
 pub const TAG_MSG: u8 = 0;
 pub const TAG_SNAP: u8 = 1;
+/// Frames waiting to be written to one client before it is given up on.
+const QUEUE: usize = 600;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct SlotInfo {
@@ -40,14 +42,23 @@ pub enum C2S {
     Hello { name: String, data_hash: u64 },
     /// Lobby: the client asks for another faction.
     Faction(u8),
-    Cmd(Command),
+    /// A command the client applied (in its prediction) at `tick`. `seq` counts up per client.
+    Cmd { tick: u32, seq: u32, cmd: Command },
+    /// State fingerprint after a confirmed tick, so the host can spot a diverged client.
+    Hash { tick: u32, hash: u64 },
+    /// Echoed back as `Pong`; the client measures the round trip with it.
+    Ping(u32),
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum S2C {
     Lobby(LobbyInfo),
+    /// Followed by a `TAG_SNAP` frame with the starting state.
     Start { map: MapData, you: u8 },
     Kicked(String),
+    /// Every command of one simulation tick: (player, the sender's `seq` or 0, command).
+    Turn { tick: u32, cmds: Vec<(u8, u32, Command)> },
+    Pong(u32),
 }
 
 fn write_frame(s: &mut TcpStream, tag: u8, data: &[u8]) -> std::io::Result<()> {
@@ -116,7 +127,7 @@ impl Host {
                             stream.set_nodelay(true).ok();
                             let id = next_id;
                             next_id += 1;
-                            let (tx, rx) = sync_channel::<Arc<(u8, Vec<u8>)>>(8);
+                            let (tx, rx) = sync_channel::<Arc<(u8, Vec<u8>)>>(QUEUE);
                             conns.lock().unwrap().push(Conn { id, tx });
                             // Writer.
                             if let Ok(mut ws) = stream.try_clone() {
@@ -175,17 +186,14 @@ impl Host {
         Ok(Host { events: erx, conns, stop, info })
     }
 
-    /// Queues a frame for one client. Snapshots are dropped if the client is lagging.
+    /// Queues a frame for one client. Every frame matters (a client that misses a turn cannot
+    /// continue), so a client whose queue is full - a minute behind - is dropped.
     pub fn send(&self, id: u32, f: &Arc<(u8, Vec<u8>)>) {
         let mut conns = self.conns.lock().unwrap();
         let mut dead = None;
         if let Some(c) = conns.iter().find(|c| c.id == id) {
-            match c.tx.try_send(f.clone()) {
-                Err(TrySendError::Full(_)) if f.0 == TAG_MSG => {
-                    c.tx.send(f.clone()).ok();
-                }
-                Err(TrySendError::Disconnected(_)) => dead = Some(id),
-                _ => {}
+            if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) = c.tx.try_send(f.clone()) {
+                dead = Some(id);
             }
         }
         if let Some(id) = dead {

@@ -34,7 +34,7 @@ cargo run --release
 cargo run -- --skirmish           # straight into a game vs 3 AIs
 cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
-cargo run -- --nettest            # loopback discovery + snapshot + remote command test
+cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
 cargo run --bin lr-editor         # map editor
 cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns -> assets/maps
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
@@ -92,12 +92,24 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - World units = SupCom units (a tank is ~0.7 wide, ranges 15-300). Y is up. Model forward is -Z.
   Unit yaw `a` means facing `(cos a, sin a)` in the XZ plane; `view::yaw_quat` converts to a rotation.
 - Build/navigation grid cell = 2 world units (`map::CELL`). Structure footprints are in cells.
-- Simulation: 10 ticks/s, host only, in schedule `SimTick` (run manually from `main.rs::session_update`).
-  Clients never run it; they apply `Snapshot`s onto the same components (`sim::apply_snapshot`), so every
-  view system works identically on host and client. Anything the view needs must be in `UnitSnap`.
+- Simulation: 10 ticks/s in schedule `SimTick`, run on EVERY machine (`netplay.rs`, called from
+  `main.rs::session_update`). Only commands cross the network: the host bundles each tick's commands (its own,
+  the AI's, the clients') into a `Turn`; clients show a prediction `lead` ticks ahead, apply their own commands
+  at once, and on every turn roll back to the last confirmed state (`sim::restore`) and re-simulate.
+- The simulation must stay deterministic, on Linux and Windows alike (`--selftest` prints state hashes that
+  must be equal on both; `--nettest` compares host and client):
+  - query loops that allocate ids, use `SimRng`, spend a budget or queue effects iterate with
+    `.sort_by_key::<&Unit, _>(|u| u.id)` - plain ECS order differs per machine and after a rollback;
+  - `sin/cos/atan2/acos/atan/powf...` only through `map::fm` (libm); `sqrt`, `+ - * /`, `floor` are fine;
+  - never iterate a `HashMap`, never read `Entity` values, wall-clock time or view state in a sim system;
+  - anything that survives from one tick to the next must be in `sim::Snapshot` (`make_snapshot`/`restore`),
+    which is also the state a client joins with and the repair sent when a client's state hash differs;
+  - new simulation objects are created with `spawn_unit` / `spawn_projectile` / `spawn_wreck` (they reuse the
+    entity a rolled-back object had, so models do not flicker), never with `commands.spawn`.
+- The AI runs on the host only; its commands reach clients inside the turns.
 - Units refer to each other by network id (`u32`), never by `Entity`.
 - ECS layout: one entity per unit with `Unit`, `Body`, `Health`, `Orders`, `Intel` plus optional `Weapons`,
-  `Builder`, `Factory`, `Mover` (host only), marker/state components `UnderConstruction`, `Upgrading`,
+  `Builder`, `Factory`, `Mover`, marker/state components `UnderConstruction`, `Upgrading`,
   `Hosted` (still inside its factory), `Structure`. Projectiles and wrecks are entities too.
 - Systems read other units through the per-tick `Census` resource (plain copies + spatial grid) and queue
   cross-entity effects in `Effects` (damage, reclaim) instead of holding conflicting mutable queries.
@@ -118,10 +130,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 |---|---|
 | `src/data.rs` | JSON schema (`UnitDef`, `WeaponDef`, `Rules`...), loading, validation, data hash |
 | `src/map.rs` | `V2`/`V3`, heightmap `MapData`, generator, save/load, line of sight, raycast, A* |
-| `src/sim/mod.rs` | components, resources, `Order`/`Command`, spawning, snapshots |
+| `src/sim/mod.rs` | components, resources, `Order`/`Command`, spawning, state save/restore |
 | `src/sim/systems.rs` | tick systems: commands, visibility, economy, orders, factories, build, movement, weapons, projectiles, deaths |
 | `src/ai.rs` | skirmish AI and formation assignment |
-| `src/net.rs` | TCP host/client, UDP LAN discovery |
+| `src/net.rs` | TCP host/client, UDP LAN discovery, message types |
+| `src/netplay.rs` | `HostSim` (turn scheduling, hash check) and `ClientSim` (prediction, rollback, resync) |
 | `src/view/mod.rs` | view state, unit visuals, interpolation, turret animation |
 | `src/view/hud.rs` | camera, selection, orders, overlays, HUD panels (one egui pass) |
 | `src/view/intel.rs` | fog grid, terrain-shadowed radar coverage, contact memory (ghosts/blips) |
@@ -185,5 +198,7 @@ model: the commander reuses the trooper mesh at 3x scale, the radar tower is a J
 - No sound, navy, transports, air staging or shields. One playable faction (the format supports more).
 - Vision is not blocked by terrain (only radar is). No friendly-fire by default (`rules.friendly_fire`).
 - The hostile side only holds positions; it has no AI. Neutral buildings cannot be captured.
-- Snapshots are full state every tick (fine on LAN, ~30 KB at 250 units); no delta compression.
+- Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
+  is not cheat-proof. No reconnect or joining a running game yet (the full-state message would allow it).
+- Mispredicted effects are not undone: a muzzle flash or explosion the rollback corrected away has still been shown.
 - Balance numbers are first-pass.

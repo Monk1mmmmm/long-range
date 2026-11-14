@@ -1,6 +1,7 @@
 //! The simulation as ECS data: components, resources, commands and snapshots.
-//! Systems live in `systems.rs`. The host runs schedule `SimTick` ten times a second;
-//! clients never run it and instead apply `Snapshot`s to the same components.
+//! Systems live in `systems.rs`. Every machine runs schedule `SimTick` for the same ticks with the
+//! same commands (see `netplay.rs`); a `Snapshot` is the complete state, used to join a game, to
+//! roll a client back to the last tick the host confirmed, and to repair a diverged client.
 use crate::data::{DefId, Defs, MoveKind};
 use crate::map::*;
 use bevy::ecs::schedule::ScheduleLabel;
@@ -56,6 +57,10 @@ pub enum Command {
 #[derive(Resource, Default)]
 pub struct CommandQueue(pub Vec<(u8, Command)>);
 
+/// Host only: the commands the last tick applied, AI orders included, for sending to the clients.
+#[derive(Resource, Default)]
+pub struct TurnLog(pub Vec<(u8, Command)>);
+
 // ---------------------------------------------------------------------------- components
 
 /// Identity of every unit and structure. `id` is the stable network id.
@@ -107,11 +112,10 @@ pub struct WeaponState {
     pub burst_cd: f32,
     pub target: u32,
     /// Muzzle speed of the current firing solution (indirect weapons vary their charge).
-    #[serde(skip)]
     pub speed: f32,
 }
 
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Weapons {
     pub list: Vec<WeaponState>,
     /// Target requested by an attack order.
@@ -121,7 +125,7 @@ pub struct Weapons {
 }
 
 /// Anything with build power. `work` is the unit or wreck being worked on.
-#[derive(Component, Clone, Copy, Debug, Default)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug, Default)]
 pub struct Builder {
     pub work: u32,
 }
@@ -154,8 +158,8 @@ pub struct Paused;
 #[derive(Component)]
 pub struct Structure;
 
-/// Host-only movement state.
-#[derive(Component, Default)]
+/// Movement state.
+#[derive(Component, Clone, Serialize, Deserialize, Default)]
 pub struct Mover {
     pub goal: Option<V2>,
     pub path: Vec<V2>,
@@ -266,7 +270,7 @@ pub struct Fx {
     pub size: f32,
 }
 
-/// Visual events. `tick` holds this tick's events (for snapshots), `pending` is drained by the view.
+/// Visual events. `tick` holds this tick's events, `pending` is drained by the view.
 #[derive(Resource, Default)]
 pub struct FxLog {
     pub tick: Vec<Fx>,
@@ -497,6 +501,7 @@ pub struct SimRng(pub Rng);
 
 // ---------------------------------------------------------------------------- spawning
 
+#[derive(Clone)]
 pub struct PlayerSetup {
     pub name: String,
     pub team: u8,
@@ -511,33 +516,23 @@ pub fn spawn_unit(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
     let id = game.alloc();
     let team = game.team_of(owner);
     let y = map.h(pos) + d.mv.altitude;
-    let mut e = commands.spawn((
-        Unit { id, def, owner },
-        Body { pos, y, yaw, vel: v2(0.0, 0.0) },
-        Health(if complete { d.hp } else { d.hp * 0.05 }),
-        Orders::default(),
-        Intel { seen: 1 << team, radar: 1 << team },
-    ));
-    if !complete {
-        e.insert(UnderConstruction(0.0));
-    }
-    if d.armed() {
-        e.insert(Weapons { list: d.weapons.iter().map(|_| WeaponState { yaw, ..default() }).collect(), ..default() });
-    }
-    if d.build.is_some() {
-        e.insert(Builder::default());
-    }
-    if d.is_factory() {
-        e.insert(Factory::default());
-    }
-    if hosted != 0 {
-        e.insert(Hosted(hosted));
-    }
-    if d.mv.kind == MoveKind::None {
-        e.insert(Structure);
-    } else {
-        e.insert(Mover { anchor: pos, path_goal: pos, ..default() });
-    }
+    let hp = if complete { d.hp } else { d.hp * 0.05 };
+    let weapons = d.armed().then(|| Weapons { list: d.weapons.iter().map(|_| WeaponState { yaw, ..default() }).collect(), ..default() });
+    let (builder, factory, structure) = (d.build.is_some(), d.is_factory(), d.mv.kind == MoveKind::None);
+    commands.queue(move |world: &mut World| {
+        let e = claim(world, KIND_UNIT, id);
+        let mut em = world.entity_mut(e);
+        em.insert((Unit { id, def, owner }, Body { pos, y, yaw, vel: v2(0.0, 0.0) }, Health(hp), Orders::default(), Intel { seen: 1 << team, radar: 1 << team }));
+        put(&mut em, (!complete).then_some(UnderConstruction(0.0)));
+        put(&mut em, None::<Upgrading>);
+        put(&mut em, weapons);
+        put(&mut em, builder.then(Builder::default));
+        put(&mut em, factory.then(Factory::default));
+        put(&mut em, (hosted != 0).then_some(Hosted(hosted)));
+        put(&mut em, None::<Paused>);
+        put(&mut em, structure.then_some(Structure));
+        put(&mut em, (!structure).then(|| Mover { anchor: pos, path_goal: pos, ..default() }));
+    });
     id
 }
 
@@ -597,6 +592,7 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
     world.insert_resource(Effects::default());
     world.insert_resource(FxLog::default());
     world.insert_resource(CommandQueue::default());
+    world.insert_resource(Limbo::default());
 }
 
 /// Removes every simulation entity (used when leaving a game).
@@ -607,7 +603,7 @@ pub fn clear_game(world: &mut World) {
     }
 }
 
-// ---------------------------------------------------------------------------- snapshots
+// ---------------------------------------------------------------------------- state save / restore
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UnitSnap {
@@ -617,26 +613,31 @@ pub struct UnitSnap {
     pub built: Option<f32>,
     pub upg: Option<f32>,
     pub orders: Vec<Order>,
-    pub weapons: Vec<WeaponState>,
-    pub work: Option<u32>,
+    pub weapons: Option<Weapons>,
+    pub builder: Option<Builder>,
     pub factory: Option<Factory>,
+    pub mover: Option<Mover>,
     pub hosted: Option<u32>,
     pub intel: Intel,
     pub paused: bool,
+    pub structure: bool,
 }
 
-/// Complete game state sent to clients every tick.
+/// The complete simulation state between two ticks, in id order. It is what a joining or
+/// diverged client receives, what a client rolls back to, and what the state hash is taken of.
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Snapshot {
     pub game: Game,
+    pub rng: u64,
+    /// Damage queued for the next tick (death blasts).
+    pub damage: Vec<(u32, f32, usize)>,
     pub units: Vec<UnitSnap>,
     pub projectiles: Vec<Projectile>,
     pub wrecks: Vec<Wreck>,
-    pub fx: Vec<Fx>,
 }
 
 pub fn make_snapshot(world: &mut World) -> Snapshot {
-    let mut s = Snapshot { game: world.resource::<Game>().clone(), fx: world.resource::<FxLog>().tick.clone(), ..default() };
+    let mut s = Snapshot { game: world.resource::<Game>().clone(), rng: world.get_resource::<SimRng>().map_or(1, |r| r.0 .0), damage: world.get_resource::<Effects>().map(|e| e.damage.clone()).unwrap_or_default(), ..default() };
     let mut q = world.query::<(
         &Unit,
         &Body,
@@ -647,11 +648,13 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
         Option<&Weapons>,
         Option<&Builder>,
         Option<&Factory>,
+        Option<&Mover>,
         Option<&Hosted>,
         &Intel,
         Has<Paused>,
+        Has<Structure>,
     )>();
-    for (u, b, h, uc, up, o, w, bl, f, ho, i, paused) in q.iter(world) {
+    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure) in q.iter(world) {
         s.units.push(UnitSnap {
             unit: *u,
             body: *b,
@@ -659,149 +662,165 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
             built: uc.map(|x| x.0),
             upg: up.map(|x| x.0),
             orders: o.0.clone(),
-            weapons: w.map(|w| w.list.clone()).unwrap_or_default(),
-            work: bl.map(|b| b.work),
+            weapons: w.cloned(),
+            builder: bl.copied(),
             factory: f.cloned(),
+            mover: m.cloned(),
             hosted: ho.map(|h| h.0),
             intel: *i,
             paused,
+            structure,
         });
     }
+    s.units.sort_by_key(|u| u.unit.id);
     let mut q = world.query::<&Projectile>();
     s.projectiles = q.iter(world).cloned().collect();
+    s.projectiles.sort_by_key(|p| p.id);
     let mut q = world.query::<&Wreck>();
     s.wrecks = q.iter(world).cloned().collect();
+    s.wrecks.sort_by_key(|w| w.id);
     s
 }
 
-/// Maps network ids to entities on a client.
+/// Fingerprint of a state; machines that simulated the same ticks get the same value.
+pub fn state_hash(s: &Snapshot) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in bincode::serialize(s).unwrap_or_default() {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Entities that exist in the world but not in the state a client just rolled back to. They are
+/// kept (without their simulation components) while the client re-simulates: a unit or shell that
+/// is created again with the same id takes its old entity back, so its model does not flicker.
 #[derive(Resource, Default)]
-pub struct Replicas {
+pub struct Limbo {
     pub units: HashMap<u32, Entity>,
     pub projectiles: HashMap<u32, Entity>,
     pub wrecks: HashMap<u32, Entity>,
 }
 
-/// Client side: makes the ECS world match a snapshot.
-pub fn apply_snapshot(world: &mut World, s: Snapshot) {
-    let mut rep = world.remove_resource::<Replicas>().unwrap_or_default();
-    let defs = world.resource::<Defs>().clone();
-    let mut alive = std::collections::HashSet::new();
-    for u in s.units {
-        alive.insert(u.unit.id);
-        let e = match rep.units.get(&u.unit.id).copied().filter(|e| world.get_entity(*e).is_ok()) {
-            Some(e) => e,
-            None => {
-                let e = world.spawn_empty().id();
-                if defs.get(u.unit.def).is_structure() {
-                    world.entity_mut(e).insert(Structure);
-                }
-                rep.units.insert(u.unit.id, e);
-                e
-            }
-        };
+const KIND_UNIT: u8 = 0;
+const KIND_PROJECTILE: u8 = 1;
+const KIND_WRECK: u8 = 2;
+
+/// The entity a new simulation object should use: its old one from `Limbo`, or a fresh one.
+fn claim(world: &mut World, kind: u8, id: u32) -> Entity {
+    let old = world.get_resource_mut::<Limbo>().and_then(|mut l| match kind {
+        KIND_UNIT => l.units.remove(&id),
+        KIND_PROJECTILE => l.projectiles.remove(&id),
+        _ => l.wrecks.remove(&id),
+    });
+    match old.filter(|e| world.get_entity(*e).is_ok()) {
+        Some(e) => e,
+        None => world.spawn_empty().id(),
+    }
+}
+
+pub fn spawn_projectile(commands: &mut Commands, p: Projectile) {
+    commands.queue(move |world: &mut World| {
+        let e = claim(world, KIND_PROJECTILE, p.id);
+        world.entity_mut(e).insert(p);
+    });
+}
+
+pub fn spawn_wreck(commands: &mut Commands, w: Wreck) {
+    commands.queue(move |world: &mut World| {
+        let e = claim(world, KIND_WRECK, w.id);
+        world.entity_mut(e).insert(w);
+    });
+}
+
+/// Despawns what a re-simulation did not create again.
+pub fn flush_limbo(world: &mut World) {
+    let Some(mut limbo) = world.get_resource_mut::<Limbo>() else { return };
+    let limbo = &mut *limbo;
+    let doomed: Vec<Entity> = limbo.units.drain().chain(limbo.projectiles.drain()).chain(limbo.wrecks.drain()).map(|(_, e)| e).collect();
+    for e in doomed {
+        if world.get_entity(e).is_ok() {
+            world.despawn(e);
+        }
+    }
+}
+
+fn put<C: Component>(em: &mut EntityWorldMut, c: Option<C>) {
+    match c {
+        Some(c) => {
+            em.insert(c);
+        }
+        None => {
+            em.remove::<C>();
+        }
+    }
+}
+
+/// Makes the world match a saved state. Existing entities are updated in place (they keep their
+/// models), missing ones are created, and surplus ones go to `Limbo` until `flush_limbo`.
+pub fn restore(world: &mut World, s: &Snapshot) {
+    let mut limbo = world.remove_resource::<Limbo>().unwrap_or_default();
+    let mut q = world.query::<(Entity, &Unit)>();
+    let mut have: HashMap<u32, Entity> = q.iter(world).map(|(e, u)| (u.id, e)).collect();
+    for u in &s.units {
+        let e = have.remove(&u.unit.id).or_else(|| limbo.units.remove(&u.unit.id)).filter(|e| world.get_entity(*e).is_ok()).unwrap_or_else(|| world.spawn_empty().id());
         let mut em = world.entity_mut(e);
-        em.insert((u.unit, u.body, Health(u.hp), Orders(u.orders), u.intel));
-        match u.built {
-            Some(p) => {
-                em.insert(UnderConstruction(p));
-            }
-            None => {
-                em.remove::<UnderConstruction>();
-            }
-        }
-        match u.upg {
-            Some(p) => {
-                em.insert(Upgrading(p));
-            }
-            None => {
-                em.remove::<Upgrading>();
-            }
-        }
-        if u.paused {
-            em.insert(Paused);
-        } else {
-            em.remove::<Paused>();
-        }
-        match u.hosted {
-            Some(h) => {
-                em.insert(Hosted(h));
-            }
-            None => {
-                em.remove::<Hosted>();
-            }
-        }
-        if !u.weapons.is_empty() {
-            em.insert(Weapons { list: u.weapons, ..default() });
-        }
-        if let Some(w) = u.work {
-            em.insert(Builder { work: w });
-        }
-        if let Some(f) = u.factory {
-            em.insert(f);
-        }
+        em.insert((u.unit, u.body, Health(u.hp), Orders(u.orders.clone()), u.intel));
+        put(&mut em, u.built.map(UnderConstruction));
+        put(&mut em, u.upg.map(Upgrading));
+        put(&mut em, u.weapons.clone());
+        put(&mut em, u.builder);
+        put(&mut em, u.factory.clone());
+        put(&mut em, u.mover.clone());
+        put(&mut em, u.hosted.map(Hosted));
+        put(&mut em, u.paused.then_some(Paused));
+        put(&mut em, u.structure.then_some(Structure));
     }
-    rep.units.retain(|id, e| {
-        if alive.contains(id) {
-            true
-        } else {
-            if world.get_entity(*e).is_ok() {
-                world.despawn(*e);
-            }
-            false
-        }
-    });
-    let mut alive = std::collections::HashSet::new();
-    for p in s.projectiles {
-        alive.insert(p.id);
-        match rep.projectiles.get(&p.id).copied().filter(|e| world.get_entity(*e).is_ok()) {
-            Some(e) => {
-                world.entity_mut(e).insert(p);
-            }
-            None => {
-                let id = p.id;
-                rep.projectiles.insert(id, world.spawn(p).id());
-            }
-        }
+    for (id, e) in have {
+        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure)>();
+        limbo.units.insert(id, e);
     }
-    rep.projectiles.retain(|id, e| {
-        if alive.contains(id) {
-            true
-        } else {
-            if world.get_entity(*e).is_ok() {
-                world.despawn(*e);
-            }
-            false
-        }
-    });
-    let mut alive = std::collections::HashSet::new();
-    for w in s.wrecks {
-        alive.insert(w.id);
-        match rep.wrecks.get(&w.id).copied().filter(|e| world.get_entity(*e).is_ok()) {
-            Some(e) => {
-                world.entity_mut(e).insert(w);
-            }
-            None => {
-                let id = w.id;
-                rep.wrecks.insert(id, world.spawn(w).id());
-            }
-        }
+    let mut q = world.query::<(Entity, &Projectile)>();
+    let mut have: HashMap<u32, Entity> = q.iter(world).map(|(e, p)| (p.id, e)).collect();
+    for p in &s.projectiles {
+        let e = have.remove(&p.id).or_else(|| limbo.projectiles.remove(&p.id)).filter(|e| world.get_entity(*e).is_ok()).unwrap_or_else(|| world.spawn_empty().id());
+        world.entity_mut(e).insert(p.clone());
     }
-    rep.wrecks.retain(|id, e| {
-        if alive.contains(id) {
-            true
-        } else {
-            if world.get_entity(*e).is_ok() {
-                world.despawn(*e);
-            }
-            false
-        }
-    });
-    world.insert_resource(rep);
-    world.insert_resource(s.game);
-    if let Some(mut log) = world.get_resource_mut::<FxLog>() {
-        log.pending.extend(s.fx);
+    for (id, e) in have {
+        world.entity_mut(e).remove::<Projectile>();
+        limbo.projectiles.insert(id, e);
     }
+    let mut q = world.query::<(Entity, &Wreck)>();
+    let mut have: HashMap<u32, Entity> = q.iter(world).map(|(e, w)| (w.id, e)).collect();
+    for w in &s.wrecks {
+        let e = have.remove(&w.id).or_else(|| limbo.wrecks.remove(&w.id)).filter(|e| world.get_entity(*e).is_ok()).unwrap_or_else(|| world.spawn_empty().id());
+        world.entity_mut(e).insert(w.clone());
+    }
+    for (id, e) in have {
+        world.entity_mut(e).remove::<Wreck>();
+        limbo.wrecks.insert(id, e);
+    }
+    world.insert_resource(limbo);
+    world.insert_resource(s.game.clone());
+    world.insert_resource(SimRng(Rng(s.rng)));
+    world.insert_resource(Effects { damage: s.damage.clone(), ..default() });
+    world.resource_mut::<CommandQueue>().0.clear();
+    // The occupancy grid is rebuilt from the structures at the start of the next tick.
+    world.resource_mut::<Nav>().dirty = true;
+}
+
+/// Client side: sets up the simulation for `map` and loads the host's state into it.
+pub fn join_game(world: &mut World, mut map: MapData, s: &Snapshot) {
+    clear_game(world);
+    map.rebuild_blocked();
+    world.insert_resource(Nav { occ: map.blocked.clone(), ..default() });
+    world.insert_resource(map);
+    world.insert_resource(Census::default());
+    world.insert_resource(WreckList::default());
+    world.insert_resource(FxLog::default());
+    world.insert_resource(CommandQueue::default());
+    world.insert_resource(Limbo::default());
+    restore(world, s);
+    flush_limbo(world);
 }
 
 /// Registers the simulation schedule and its systems.
@@ -809,7 +828,7 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_schedule(SimTick);
-        app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Replicas>();
+        app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>();
         systems::register(app);
     }
 }
