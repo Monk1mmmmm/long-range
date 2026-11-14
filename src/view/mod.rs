@@ -80,15 +80,14 @@ pub fn settings() -> serde_json::Value {
 /// path (compute preprocessing, depth pyramid, multisampled depth) fails on their DX12 drivers.
 /// So by default we run a conservative configuration:
 /// - Windows uses DirectX 12 instead of Vulkan;
-/// - compute shaders are switched off, which makes Bevy fall back to CPU mesh preprocessing
-///   and skip the occlusion-culling depth pyramid;
+/// - GPU occlusion culling is switched off, so the depth-pyramid compute pipelines are never created;
 /// - no MSAA (see `camera_aa`).
 ///
 /// Overrides, from the environment or `settings.json` next to the assets folder:
 /// - `LR_BACKEND` / `"backend"`: `vulkan`, `dx12`, `gl`, `metal` or `auto`
 /// - `LR_RENDERER` / `"renderer"`: `compat` (default) or `full` (Bevy's defaults)
 pub fn render_plugin() -> bevy::render::RenderPlugin {
-    use bevy::render::settings::{Backends, RenderCreation, WgpuLimits, WgpuSettings};
+    use bevy::render::settings::{Backends, RenderCreation, WgpuFeatures, WgpuSettings};
     let cfg = settings();
     let pick = |env: &str, key: &str| std::env::var(env).ok().or_else(|| cfg[key].as_str().map(str::to_string)).map(|s| s.to_lowercase());
     let mut w = WgpuSettings::default();
@@ -103,15 +102,11 @@ pub fn render_plugin() -> bevy::render::RenderPlugin {
         _ => {}
     }
     if !full_renderer() {
-        w.constrained_limits = Some(WgpuLimits {
-            max_compute_workgroup_storage_size: 0,
-            max_compute_invocations_per_workgroup: 0,
-            max_compute_workgroup_size_x: 0,
-            max_compute_workgroup_size_y: 0,
-            max_compute_workgroup_size_z: 0,
-            max_compute_workgroups_per_dimension: 0,
-            ..WgpuLimits::default()
-        });
+        // Without this feature Bevy reports "some GPU preprocessing is limited": it keeps the simple
+        // mesh preprocessing but drops indirect/occlusion culling and with it the depth-pyramid
+        // compute pipelines (read-write R32Float storage textures) that fail on these GPUs.
+        // (Zeroing the compute limits instead is not an option: the atmosphere plugin then fails.)
+        w.disabled_features = Some(WgpuFeatures::INDIRECT_FIRST_INSTANCE);
     }
     bevy::render::RenderPlugin { render_creation: RenderCreation::Automatic(Box::new(w)), ..default() }
 }

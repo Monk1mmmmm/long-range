@@ -7,9 +7,8 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 Fixes
 - Start-up crash or black window on older Intel integrated graphics (HD 520 / HD 530 class) on Windows.
-  The game and the editor now use DirectX 12 instead of Vulkan on Windows, no longer use compute shaders
-  (mesh preprocessing runs on the CPU and the occlusion-culling depth pyramid is skipped) and render
-  without MSAA. Set `"renderer": "full"` or `"backend": "vulkan"` in `settings.json` (or `LR_RENDERER` /
+  The game and the editor now use DirectX 12 instead of Vulkan on Windows, no longer use GPU
+  occlusion culling (its depth-pyramid compute passes failed on these GPUs) and render without MSAA. Set `"renderer": "full"` or `"backend": "vulkan"` in `settings.json` (or `LR_RENDERER` /
   `LR_BACKEND`) to get the previous behaviour back on hardware that handles it.
 - An economy whose energy upkeep exceeded its income could no longer build anything. Construction, pumps
   and radars now share the available energy proportionally, so a stalled base slows down instead of
