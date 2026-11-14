@@ -14,8 +14,10 @@ pub const DT: f32 = 0.1;
 /// Owner ids of the two non-player sides.
 pub const NEUTRAL: u8 = 250;
 pub const HOSTILE: u8 = 251;
-pub const TEAM_NEUTRAL: u8 = 6;
-pub const TEAM_HOSTILE: u8 = 7;
+/// Most players a game can have.
+pub const MAX_PLAYERS: usize = 10;
+pub const TEAM_NEUTRAL: u8 = 14;
+pub const TEAM_HOSTILE: u8 = 15;
 
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 pub struct SimTick;
@@ -45,6 +47,7 @@ pub enum Command {
     Produce { factory: u32, def: DefId, count: i16 },
     Repeat { ids: Vec<u32>, on: bool },
     Upgrade { ids: Vec<u32> },
+    SelfDestruct { ids: Vec<u32> },
     Resign,
 }
 
@@ -134,11 +137,12 @@ pub struct Factory {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Hosted(pub u32);
 
-/// Team bitmasks: who sees this unit, who has it on radar.
+/// Team bitmasks (bit = team number, up to 14 player teams plus neutral and hostile):
+/// who sees this unit, who has it on radar.
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug, Default)]
 pub struct Intel {
-    pub seen: u8,
-    pub radar: u8,
+    pub seen: u16,
+    pub radar: u16,
 }
 
 #[derive(Component)]
@@ -372,8 +376,8 @@ pub struct Cen {
     pub structure: bool,
     pub radius: f32,
     pub height: f32,
-    pub seen: u8,
-    pub radar: u8,
+    pub seen: u16,
+    pub radar: u16,
     pub work: u32,
     pub building: u32,
     pub upgrading: bool,

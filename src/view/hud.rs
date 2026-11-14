@@ -87,7 +87,6 @@ struct Seen {
     def: Option<DefId>,
     owner: u8,
     pos: V2,
-    y: f32,
     sp: Pos2,
     on_screen: bool,
     rpx: f32,
@@ -175,13 +174,10 @@ struct Frame<'a> {
     map: &'a MapData,
     infos: &'a HashMap<u32, Info>,
     seen: &'a [Seen],
-    wrecks: &'a [(u32, V2, f32)],
     team: u8,
     sw: f32,
     sh: f32,
     mouse: Pos2,
-    shift: bool,
-    alt: bool,
 }
 
 impl Frame<'_> {
@@ -325,6 +321,49 @@ impl Frame<'_> {
     }
 }
 
+/// FAF-style hotbuild class of a unit: which key builds it in the alternative preset.
+fn hot_key(d: &UnitDef) -> Option<KeyCode> {
+    use crate::data::WeaponKind as K;
+    if d.is_station() {
+        Some(KeyCode::KeyM)
+    } else if d.is_factory() || d.is_engineer() {
+        Some(KeyCode::KeyZ)
+    } else if d.needs_deposit || d.eco.store_mass > 0.0 {
+        Some(KeyCode::KeyX)
+    } else if d.eco.energy > 0.0 || d.eco.store_energy > 0.0 {
+        Some(KeyCode::KeyC)
+    } else if let Some(w) = d.weapons.first() {
+        Some(if w.hits_air && !w.hits_land {
+            KeyCode::KeyD
+        } else {
+            match w.kind {
+                K::Missile => KeyCode::KeyY,
+                K::Arc | K::HighArc | K::Bomb => KeyCode::KeyS,
+                K::Direct => KeyCode::KeyG,
+            }
+        })
+    } else if d.radar > 0.0 || d.vision >= 45.0 {
+        Some(KeyCode::KeyV)
+    } else {
+        None
+    }
+}
+
+fn key_letter(k: KeyCode) -> &'static str {
+    match k {
+        KeyCode::KeyZ => "Z",
+        KeyCode::KeyX => "X",
+        KeyCode::KeyC => "C",
+        KeyCode::KeyV => "V",
+        KeyCode::KeyD => "D",
+        KeyCode::KeyS => "S",
+        KeyCode::KeyG => "G",
+        KeyCode::KeyM => "M",
+        KeyCode::KeyY => "Y",
+        _ => "",
+    }
+}
+
 /// Local occupancy grid for placement previews (works on clients too, which have no `Nav`).
 fn local_occ(map: &MapData, defs: &Defs, infos: &HashMap<u32, Info>) -> Vec<u8> {
     let mut occ = map.blocked.clone();
@@ -431,8 +470,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let pitch = (50.0 + 34.0 * t).to_radians();
         let target = view.cam_target.at(map.h(view.cam_target).max(map.water));
         view.cam_pos = target + Vec3::new(0.0, d * pitch.sin(), d * pitch.cos());
-        let proj = Mat4::perspective_rh(FOV, sw / sh, 0.5, 6000.0);
-        view.vp = proj * Mat4::look_at_rh(view.cam_pos, target, Vec3::Y);
+        view.vp = view_proj(FOV, sw / sh, view.cam_pos, target);
         view.inv = view.vp.inverse();
         target
     };
@@ -499,7 +537,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
 
     // ---------------------------------------------------------------- what we can see
     let mut seen: Vec<Seen> = Vec::with_capacity(infos.len());
-    let mut project = |pos: V2, y: f32, d: Option<&UnitDef>| -> (Pos2, bool, f32) {
+    let project = |pos: V2, y: f32, d: Option<&UnitDef>| -> (Pos2, bool, f32) {
         let h = d.map_or(0.5, |d| d.height() * 0.5);
         match w2s(view, pos.at(y + h)) {
             Some((sp, depth)) => (sp, sp.x > -30.0 && sp.y > -30.0 && sp.x < sw + 30.0 && sp.y < sh + 30.0, d.map_or(0.6, |d| d.radius()) * px_per_unit(depth)),
@@ -514,7 +552,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let d = defs.get(u.def);
         if ut == team || reveal {
             let (sp, on_screen, rpx) = project(u.pos, u.y, Some(d));
-            seen.push(Seen { id: u.id, def: Some(u.def), owner: u.owner, pos: u.pos, y: u.y, sp, on_screen, rpx, contact: Contact::Visible, mine: u.owner == me, enemy: hostile(team, ut), fade: 1.0 });
+            seen.push(Seen { id: u.id, def: Some(u.def), owner: u.owner, pos: u.pos, sp, on_screen, rpx, contact: Contact::Visible, mine: u.owner == me, enemy: hostile(team, ut), fade: 1.0 });
         }
     }
     if !reveal {
@@ -534,12 +572,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let fade = if g.live || g.structure { 1.0 } else { (1.0 - (game.tick.saturating_sub(g.last_tick)) as f32 / fade_ticks).clamp(0.0, 1.0) };
             let (sp, on_screen, rpx) = project(pos, y, d);
             let shown_def = if contact == Contact::Visible { infos.get(&g.id).map(|u| u.def).or(g.def) } else { g.def };
-            seen.push(Seen { id: g.id, def: shown_def, owner: g.owner, pos, y, sp, on_screen, rpx, contact, mine: false, enemy: hostile(team, game.team_of(g.owner)), fade });
+            seen.push(Seen { id: g.id, def: shown_def, owner: g.owner, pos, sp, on_screen, rpx, contact, mine: false, enemy: hostile(team, game.team_of(g.owner)), fade });
         }
     }
-    drop(project);
 
-    let fr = Frame { defs, game, map, infos: &infos, seen: &seen, wrecks: &wrecks, team, sw, sh, mouse, shift, alt };
+    let fr = Frame { defs, game, map, infos: &infos, seen: &seen, team, sw, sh, mouse };
     let _ = (fr.team, fr.sw, fr.sh, fr.game);
     let hover = fr.hover(over_hud);
     let out = &mut p.out.0;
@@ -553,8 +590,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if !view.menu_open {
         if lmb_down && !over_hud {
             match view.mode {
-                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim => view.drag_start = Some(ground),
-                Mode::AttackMove | Mode::Patrol => {
+                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim | Mode::Assist => view.drag_start = Some(ground),
+                Mode::AttackMove | Mode::Patrol | Mode::Move => {
                     view.path = vec![ground];
                     view.pathing = Some(0);
                 }
@@ -576,6 +613,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
                                     out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Build { def: d, pos: pt }], queue: shift || !first });
                                     first = false;
                                 }
+                            }
+                        }
+                    }
+                    Mode::Assist => {
+                        if let Some(h) = hover.filter(|h| !seen[*h].enemy && seen[*h].contact == Contact::Visible) {
+                            let ids: Vec<u32> = view.sel.iter().copied().filter(|id| *id != seen[h].id).collect();
+                            if !ids.is_empty() {
+                                out.push(Command::Orders { ids, orders: vec![Order::Assist(seen[h].id)], queue: shift });
                             }
                         }
                     }
@@ -606,7 +651,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 }
             } else if view.pathing == Some(0) {
                 view.pathing = None;
-                let kind = if view.mode == Mode::Patrol { MoveKind::Patrol } else { MoveKind::AttackMove };
+                let kind = match view.mode {
+                    Mode::Patrol => MoveKind::Patrol,
+                    Mode::Move => MoveKind::Move,
+                    _ => MoveKind::AttackMove,
+                };
                 let path = std::mem::take(&mut view.path);
                 let enemy = hover.filter(|h| seen[*h].enemy && seen[*h].contact != Contact::Stale && path_len(&path) < 2.5);
                 if let (Some(h), MoveKind::AttackMove) = (enemy, kind) {
@@ -721,14 +770,25 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
 
     // ---------------------------------------------------------------- keyboard
+    let has_sel = !view.sel.is_empty();
+    let mut do_stop = false;
+    let mut do_upgrade = false;
+    let mut do_repeat = false;
+    let faf = view.preset == 1;
     if p.keys.just_pressed(KeyCode::Escape) {
         if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
             view.mode = Mode::None;
             view.pathing = None;
             view.drag_start = None;
+        } else if faf && has_sel && !view.menu_open {
+            // FAF alternative preset: Esc is "stop"; the menu is on F10.
+            do_stop = true;
         } else {
             view.menu_open = !view.menu_open;
         }
+    }
+    if p.keys.just_pressed(KeyCode::F10) {
+        view.menu_open = !view.menu_open;
     }
     if p.keys.just_pressed(KeyCode::F1) {
         view.show_help = !view.show_help;
@@ -736,53 +796,158 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if p.keys.just_pressed(KeyCode::F6) {
         view.shadows = !view.shadows;
     }
-    let has_sel = !view.sel.is_empty();
-    let mut do_stop = false;
-    let mut do_upgrade = false;
-    let mut do_repeat = false;
     if !view.menu_open && !ctx.egui_wants_keyboard_input() {
-        if has_sel {
-            if p.keys.just_pressed(KeyCode::KeyA) {
-                view.mode = Mode::AttackMove;
+        let jp = |k: KeyCode| p.keys.just_pressed(k);
+        // --- selection shortcuts (same in both presets, FAF bindings)
+        let pick = |f: &dyn Fn(&UnitDef) -> bool, on_screen: bool| -> Vec<u32> {
+            seen.iter().filter(|s| s.mine && (!on_screen || s.on_screen) && s.def.map_or(false, |d| f(defs.get(d)))).map(|s| s.id).collect()
+        };
+        let mobile = |d: &UnitDef| !d.is_structure();
+        if ctrl && !shift {
+            if jp(KeyCode::KeyA) {
+                view.sel = pick(&|d| d.is_air(), false);
             }
-            if p.keys.just_pressed(KeyCode::KeyP) {
-                view.mode = Mode::Patrol;
+            if jp(KeyCode::KeyD) {
+                view.sel = pick(&|d| mobile(d) && !d.is_air() && !d.is_engineer(), false);
             }
-            if p.keys.just_pressed(KeyCode::KeyG) {
-                view.mode = Mode::GroundAttack;
+            if jp(KeyCode::KeyB) {
+                view.sel = pick(&|d| d.is_engineer(), false);
             }
-            if p.keys.just_pressed(KeyCode::KeyE) {
-                view.mode = Mode::Reclaim;
+            if jp(KeyCode::KeyX) {
+                view.sel = pick(&mobile, false);
             }
-            do_stop = p.keys.just_pressed(KeyCode::KeyS);
-            do_upgrade = p.keys.just_pressed(KeyCode::KeyU);
-            do_repeat = p.keys.just_pressed(KeyCode::KeyR);
+            if jp(KeyCode::KeyC) {
+                view.sel = pick(&mobile, true);
+            }
+            if jp(KeyCode::KeyH) {
+                view.sel = pick(&|d| d.is_factory(), true);
+            }
+            if jp(KeyCode::Period) {
+                view.sel = pick(&|d| d.is_engineer(), true);
+            }
+            if jp(KeyCode::KeyZ) && has_sel {
+                let types: Vec<DefId> = fr.selected(view).iter().map(|u| u.def).collect();
+                view.sel = pick(&|d| types.contains(&d.idx), false);
+            }
+            if jp(KeyCode::KeyK) && has_sel {
+                out.push(Command::SelfDestruct { ids: view.sel.clone() });
+            }
         }
-        if p.keys.just_pressed(KeyCode::Period) {
-            let idle: Vec<&Info> = infos.values().filter(|u| u.owner == me && fr.d(u.def).is_engineer() && u.built.is_none() && u.orders.is_empty()).collect();
-            if !idle.is_empty() {
-                let mut ids: Vec<(u32, V2)> = idle.iter().map(|u| (u.id, u.pos)).collect();
+        if ctrl && shift {
+            for (key, cat) in [(KeyCode::KeyD, "land"), (KeyCode::KeyA, "air")] {
+                if jp(key) {
+                    let near = seen
+                        .iter()
+                        .filter(|s| s.mine && s.def.map_or(false, |d| defs.get(d).is_factory() && defs.get(d).build.as_ref().map_or(false, |b| b.categories.iter().any(|c| c == cat))))
+                        .min_by(|a, b| a.pos.dist(view.cam_target).partial_cmp(&b.pos.dist(view.cam_target)).unwrap());
+                    if let Some(f) = near {
+                        view.sel = vec![f.id];
+                    }
+                }
+            }
+        }
+        // --- commands
+        if has_sel && !ctrl {
+            if faf {
+                if jp(KeyCode::KeyQ) {
+                    view.mode = Mode::Reclaim;
+                }
+                if jp(KeyCode::KeyW) {
+                    view.mode = if alt { Mode::Patrol } else { Mode::Move };
+                }
+                if jp(KeyCode::KeyI) || jp(KeyCode::KeyT) {
+                    view.mode = Mode::Assist;
+                }
+                if jp(KeyCode::KeyR) {
+                    view.mode = Mode::GroundAttack;
+                }
+                do_repeat = jp(KeyCode::Backquote);
+                do_upgrade = jp(KeyCode::KeyO);
+                // Hotbuild: one key per building/unit class, repeated presses cycle through the class.
+                for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC, KeyCode::KeyV, KeyCode::KeyD, KeyCode::KeyS, KeyCode::KeyG, KeyCode::KeyM, KeyCode::KeyY] {
+                    if !jp(key) {
+                        continue;
+                    }
+                    let units = fr.selected(view);
+                    let Some(lead) = units.iter().find(|u| !fr.d(u.def).builds.is_empty()).copied() else { continue };
+                    let ld = fr.d(lead.def);
+                    let mut cands: Vec<DefId> = ld.builds.iter().copied().filter(|d| hot_key(fr.d(*d)) == Some(key)).collect();
+                    cands.sort_by_key(|d| std::cmp::Reverse(fr.d(*d).tier));
+                    if cands.is_empty() {
+                        continue;
+                    }
+                    let cycling = view.hot.0 == Some(key) && now - view.hot.2 < 1.2;
+                    let idx = if cycling { (view.hot.1 + 1) % cands.len() } else { 0 };
+                    let d = cands[idx];
+                    if ld.is_factory() {
+                        let n: i16 = if shift { 5 } else { 1 };
+                        for f in units.iter().filter(|u| u.def == lead.def) {
+                            if cycling && view.hot.3 != d {
+                                // Swap the unit queued by the previous press for the next one in the class.
+                                out.push(Command::Produce { factory: f.id, def: view.hot.3, count: -n });
+                            }
+                            out.push(Command::Produce { factory: f.id, def: d, count: n });
+                        }
+                    } else {
+                        view.mode = Mode::Place(d);
+                    }
+                    view.hot = (Some(key), idx, now, d);
+                }
+            } else {
+                if jp(KeyCode::KeyA) {
+                    view.mode = Mode::AttackMove;
+                }
+                if jp(KeyCode::KeyP) {
+                    view.mode = Mode::Patrol;
+                }
+                if jp(KeyCode::KeyG) {
+                    view.mode = Mode::GroundAttack;
+                }
+                if jp(KeyCode::KeyE) {
+                    view.mode = Mode::Reclaim;
+                }
+                do_stop |= jp(KeyCode::KeyS);
+                do_upgrade = jp(KeyCode::KeyU);
+                do_repeat = jp(KeyCode::KeyR);
+            }
+        }
+        if jp(KeyCode::Period) && !ctrl {
+            let mut ids: Vec<(u32, V2)> = infos.values().filter(|u| u.owner == me && fr.d(u.def).is_engineer() && u.built.is_none() && u.orders.is_empty()).map(|u| (u.id, u.pos)).collect();
+            if !ids.is_empty() {
                 ids.sort_by_key(|x| x.0);
                 view.idle_cycle = (view.idle_cycle + 1) % ids.len();
                 view.sel = vec![ids[view.idle_cycle].0];
-                view.cam_target = ids[view.idle_cycle].1;
+                if !alt {
+                    view.cam_target = ids[view.idle_cycle].1;
+                }
             }
         }
-        if p.keys.just_pressed(KeyCode::Comma) || p.keys.just_pressed(KeyCode::Home) {
+        if jp(KeyCode::Comma) || jp(KeyCode::Home) {
             let com = defs.factions[player.faction as usize].commander;
             if let Some(c) = infos.values().find(|u| u.owner == me && Some(u.def) == com) {
                 view.sel = vec![c.id];
-                view.cam_target = c.pos;
+                if !alt {
+                    view.cam_target = c.pos;
+                }
             }
         }
         let digits = [KeyCode::Digit0, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9];
         for (g, k) in digits.iter().enumerate() {
-            if p.keys.just_pressed(*k) {
+            if jp(*k) {
                 if ctrl {
                     view.groups[g] = view.sel.clone();
                 } else if !view.groups[g].is_empty() {
                     view.groups[g].retain(|id| infos.contains_key(id));
-                    view.sel = view.groups[g].clone();
+                    if shift {
+                        // Shift: add the group to the current selection.
+                        for id in view.groups[g].clone() {
+                            if !view.sel.contains(&id) {
+                                view.sel.push(id);
+                            }
+                        }
+                    } else {
+                        view.sel = view.groups[g].clone();
+                    }
                     if view.last_group.1 == g && now - view.last_group.0 < 0.4 {
                         let us = fr.selected(view);
                         if !us.is_empty() {
@@ -1213,6 +1378,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     }
                 };
                 text(r.min.x + 3.0, r.max.y - 15.0, &format!("{:.0}", bd.cost.mass), 11.0, rgba(190, 215, 240, 255));
+                if let (true, Some(k)) = (faf, hot_key(bd)) {
+                    hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 30.0), Align2::RIGHT_TOP, key_letter(k), font(10.5), rgba(150, 230, 255, 255));
+                }
                 if bd.tier > 1 {
                     hud.text(Pos2::new(r.max.x - 3.0, r.min.y + 1.0), Align2::RIGHT_TOP, format!("T{}", bd.tier), font(10.5), rgba(255, 200, 120, 255));
                 }
@@ -1251,29 +1419,29 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let any_mobile = units.iter().any(|u| !fr.d(u.def).is_structure());
         let any_armed = units.iter().any(|u| fr.d(u.def).armed());
         if any_mobile {
-            if action("Attack-move A", view.mode == Mode::AttackMove) {
+            if action(if faf { "Attack-move" } else { "Attack-move A" }, view.mode == Mode::AttackMove) {
                 new_mode = Some(Mode::AttackMove);
             }
-            if action("Patrol P", view.mode == Mode::Patrol) {
+            if action(if faf { "Patrol Alt+W" } else { "Patrol P" }, view.mode == Mode::Patrol) {
                 new_mode = Some(Mode::Patrol);
             }
         }
-        if any_armed && action("Ground fire G", view.mode == Mode::GroundAttack) {
+        if any_armed && action(if faf { "Attack R" } else { "Ground fire G" }, view.mode == Mode::GroundAttack) {
             new_mode = Some(Mode::GroundAttack);
         }
-        if units.iter().any(|u| fr.d(u.def).can_assist()) && action("Reclaim E", view.mode == Mode::Reclaim) {
+        if units.iter().any(|u| fr.d(u.def).can_assist()) && action(if faf { "Reclaim Q" } else { "Reclaim E" }, view.mode == Mode::Reclaim) {
             new_mode = Some(Mode::Reclaim);
         }
-        if action("Stop S", false) {
+        if action(if faf { "Stop Esc" } else { "Stop S" }, false) {
             do_stop = true;
         }
         if is_factory {
             let on = lead.factory.as_ref().map_or(false, |f| f.repeat);
-            if action(if on { "Repeat ON R" } else { "Repeat off R" }, on) {
+            if action(if on { "Repeat ON" } else { "Repeat off" }, on) {
                 do_repeat = true;
             }
         }
-        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("Upgrade U", false) {
+        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action(if faf { "Upgrade O" } else { "Upgrade U" }, false) {
             do_upgrade = true;
         }
     } else {
@@ -1355,6 +1523,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
         Mode::Patrol => "PATROL: left-click a point".to_string(),
         Mode::GroundAttack => "GROUND FIRE: click a spot or a unit, or drag a circle to shell an area".to_string(),
         Mode::Reclaim => "RECLAIM: click a wreck, or drag a circle to collect everything inside".to_string(),
+        Mode::Move => "MOVE: left-click, or drag a line to spread out".to_string(),
+        Mode::Assist => "ASSIST / REPAIR: left-click a friendly unit or building".to_string(),
         Mode::Place(d) if fr.d(d).needs_deposit => format!("BUILD {}: click a deposit, or drag a circle to queue every deposit inside", fr.d(d).name),
         Mode::Place(d) => format!("BUILD {}: click, or drag for a row. Shift keeps placing.", fr.d(d).name),
         Mode::None => String::new(),
@@ -1377,15 +1547,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
             "Left click / drag: select, box select.  Double-click: all of that type on screen.  Shift: add.",
             "Right click: move / attack enemy / assist or repair friend / reclaim wreck.  Shift: queue.",
             "Right-drag a line: spread the selected units along it (Alt: attack-move).",
-            "A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)",
-            "U upgrade (pumps, factories)    R factory repeat    . idle builder    , commander",
+            if faf { "FAF alternative keys:  W move   Alt+W patrol   R attack / ground fire (drag = area)   Q reclaim (drag = area)" } else { "A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)" },
+            if faf { "I / T assist, repair   Esc stop   O upgrade   ` factory repeat   F10 menu   Alt+right-click attack-move" } else { "U upgrade (pumps, factories)    R factory repeat    . idle builder    , commander" },
+            if faf { "Hotbuild (press again to cycle): Z builders/factories  X mass  C power  V radar/scouts  G direct fire" } else { "Hotkey preset can be switched to FAF alternative in the Esc menu." },
+            if faf { "                                 S artillery  D anti-air  Y missiles  M engineering station" } else { "Ctrl+K self-destruct.  Shift+0-9 adds a group to the selection." },
+            "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
+            "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
             "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
             "Factory menu: left-click queues (Shift x5), right-click removes.",
             "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
             "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.",
             "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
         ];
-        let (w, h) = (760.0, lines.len() as f32 * 20.0 + 20.0);
+        let (w, h) = (820.0, lines.len() as f32 * 20.0 + 20.0);
         let r = rect(sw * 0.5 - w * 0.5, TOP + 50.0, w, h);
         top.rect_filled(r, 4.0, rgba(12, 15, 20, 240));
         for (k, l) in lines.iter().enumerate() {
@@ -1394,12 +1568,13 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     if view.menu_open {
         top.rect_filled(rect(0.0, 0.0, sw, sh), 0.0, rgba(0, 0, 0, 130));
-        let (w, h) = (260.0, 200.0);
+        let (w, h) = (300.0, 246.0);
         let (x, y) = (sw * 0.5 - w * 0.5, sh * 0.5 - h * 0.5);
         top.rect_filled(rect(x, y, w, h), 5.0, rgba(20, 24, 31, 252));
         top.rect_stroke(rect(x, y, w, h), 5.0, Stroke::new(1.5, line_c), StrokeKind::Inside);
         top.text(Pos2::new(sw * 0.5, y + 26.0), Align2::CENTER_CENTER, "MENU", font(22.0), Color32::WHITE);
-        for (k, l) in ["Resume", "Resign", "Quit to main menu"].iter().enumerate() {
+        let keys_label = if faf { "Hotkeys: FAF alternative" } else { "Hotkeys: default" };
+        for (k, l) in ["Resume", keys_label, "Resign", "Quit to main menu"].iter().enumerate() {
             let r = rect(x + 30.0, y + 52.0 + k as f32 * 46.0, w - 60.0, 36.0);
             let hov = r.contains(mouse);
             top.rect_filled(r, 3.0, if hov { rgba(64, 76, 94, 255) } else { rgba(34, 40, 50, 255) });
@@ -1409,6 +1584,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 match k {
                     0 => view.menu_open = false,
                     1 => {
+                        view.preset = 1 - view.preset.min(1);
+                        super::save_preset(view.preset);
+                    }
+                    2 => {
                         out.push(Command::Resign);
                         view.menu_open = false;
                     }

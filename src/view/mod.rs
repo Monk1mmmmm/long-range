@@ -25,6 +25,9 @@ pub enum Mode {
     Patrol,
     GroundAttack,
     Reclaim,
+    /// Explicit move / assist commands (FAF-style hotkeys).
+    Move,
+    Assist,
     Place(DefId),
 }
 
@@ -55,6 +58,27 @@ pub struct ViewState {
     pub tick_time: f64,
     pub shadows: bool,
     pub show_help: bool,
+    /// Hotkey preset: 0 = default, 1 = FAF alternative.
+    pub preset: u8,
+    /// Hotbuild cycling: (key, index, time, last definition).
+    pub hot: (Option<KeyCode>, usize, f64, DefId),
+}
+
+fn settings_path() -> std::path::PathBuf {
+    crate::data::asset_root().parent().map(|p| p.to_path_buf()).unwrap_or_default().join("settings.json")
+}
+
+/// Reads the saved hotkey preset (`settings.json` next to the assets folder).
+pub fn load_preset() -> u8 {
+    std::fs::read_to_string(settings_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .map_or(0, |v| if v["hotkeys"] == "faf_alternative" { 1 } else { 0 })
+}
+
+pub fn save_preset(preset: u8) {
+    let v = serde_json::json!({ "hotkeys": if preset == 1 { "faf_alternative" } else { "default" } });
+    let _ = std::fs::write(settings_path(), serde_json::to_string_pretty(&v).unwrap_or_default());
 }
 
 impl ViewState {
@@ -83,6 +107,8 @@ impl ViewState {
             tick_time: 0.0,
             shadows: true,
             show_help: false,
+            preset: load_preset(),
+            hot: (None, 0, 0.0, DefId::MAX),
         }
     }
 }

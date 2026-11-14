@@ -1,7 +1,7 @@
 //! Long Range map editor.
 //!
 //!   lr-editor                       interactive editor
-//!   lr-editor --generate NAME CELLS SEED   write a generated map with settlements to assets/maps/NAME
+//!   lr-editor --generate NAME CELLS SEED [PLAYERS]   write a generated map with settlements to assets/maps/NAME
 //!
 //! Maps are stored as `assets/maps/<name>/map.json` plus a 16-bit `height.png`.
 use bevy::input::mouse::MouseWheel;
@@ -34,6 +34,7 @@ struct Editor {
     cam_dist: f32,
     name: String,
     new_cells: usize,
+    players: usize,
     seed: u64,
     start_index: usize,
     prop: DefId,
@@ -58,18 +59,18 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     let c = map.center();
     let n = map.n;
     let mut occ = map.blocked.clone();
+    let kk = map.starts.len().max(1);
+    let step = std::f32::consts::TAU / kk as f32;
     let rot = |p: V2, k: usize| {
-        let mut q = p - c;
-        for _ in 0..k {
-            q = v2(-q.y, q.x);
-        }
-        q + c
+        let q = p - c;
+        let (sn, cs) = (step * k as f32).sin_cos();
+        v2(q.x * cs - q.y * sn, q.x * sn + q.y * cs) + c
     };
-    let mut place = |map: &mut MapData, occ: &mut Vec<u8>, name: &str, pos: V2, owner: u8, yaw: f32| -> bool {
+    let place = |map: &mut MapData, occ: &mut Vec<u8>, name: &str, pos: V2, owner: u8, yaw: f32| -> bool {
         let Some(d) = defs.id(name) else { return false };
         let f = defs.get(d).footprint.max(1);
         // All four rotated copies must fit.
-        let spots: Vec<V2> = (0..4).map(|k| longrange::sim::snap(defs, map, d, rot(pos, k))).collect();
+        let spots: Vec<V2> = (0..kk).map(|k| longrange::sim::snap(defs, map, d, rot(pos, k))).collect();
         for s in &spots {
             let (x0, y0) = foot_origin(*s, f);
             for y in y0 - 1..y0 + f + 1 {
@@ -90,7 +91,7 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
                     occ[y as usize * n + x as usize] = 2;
                 }
             }
-            map.props.push(Prop { def: name.into(), pos: *s, yaw: yaw + k as f32 * std::f32::consts::FRAC_PI_2, owner });
+            map.props.push(Prop { def: name.into(), pos: *s, yaw: yaw + k as f32 * step, owner });
         }
         true
     };
@@ -101,7 +102,7 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     let mut tries = 0;
     while made < towns && tries < 400 {
         tries += 1;
-        let center = v2(rng.range(30.0, w * 0.5 - 20.0), rng.range(30.0, w * 0.5 - 20.0));
+        let center = v2(rng.range(30.0, w - 30.0), rng.range(30.0, w - 30.0));
         let (cx, cy) = map.cell_of(center);
         if map.blocked[cy as usize * n + cx as usize] != 0 || map.starts.iter().any(|s| s.dist(center) < 70.0) {
             continue;
@@ -214,20 +215,21 @@ fn editor_ui(
                 }
             });
         });
+        ui.add(egui::Slider::new(&mut ed.players, 2..=longrange::sim::MAX_PLAYERS).text("players"));
         ui.horizontal(|ui| {
             ui.label("Seed");
             ui.add(egui::DragValue::new(&mut ed.seed));
         });
         ui.horizontal(|ui| {
             if ui.button("Generate").clicked() {
-                *map = MapData::generate(ed.new_cells, ed.seed);
+                *map = MapData::generate(ed.new_cells, ed.seed, ed.players);
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
             if ui.button("Flat").clicked() {
                 let n = ed.new_cells;
                 let w = n as f32 * CELL;
-                *map = MapData { name: ed.name.clone(), n, heights: vec![3.0; (n + 1) * (n + 1)], water: 0.0, starts: vec![v2(w * 0.14, w * 0.14), v2(w * 0.86, w * 0.14), v2(w * 0.86, w * 0.86), v2(w * 0.14, w * 0.86)], ..Default::default() };
+                *map = MapData { name: ed.name.clone(), n, heights: vec![3.0; (n + 1) * (n + 1)], water: 0.0, starts: (0..ed.players).map(|k| v2(w * 0.5, w * 0.5) + V2::from_angle(k as f32 / ed.players as f32 * 6.2832 - 2.356) * (w * 0.38)).collect(), ..Default::default() };
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
@@ -258,7 +260,11 @@ fn editor_ui(
             ui.selectable_value(&mut ed.tool, Tool::Erase, "Erase");
         });
         if ed.tool == Tool::Start {
-            ui.add(egui::Slider::new(&mut ed.start_index, 0..=3).text("player slot"));
+            ui.add(egui::Slider::new(&mut ed.start_index, 0..=longrange::sim::MAX_PLAYERS - 1).text("start number (0 = first)"));
+            ui.label(format!("{} start positions. Click the map to place or move one; a new number adds it.", map.starts.len()));
+            if map.starts.len() > 2 && ui.button("Remove last start").clicked() {
+                map.starts.pop();
+            }
         }
         if ed.tool == Tool::Prop {
             egui::ComboBox::from_id_salt("prop").selected_text(defs.get(ed.prop).name.clone()).height(360.0).show_ui(ui, |ui| {
@@ -310,7 +316,7 @@ fn editor_ui(
         *t = Transform::from_translation(cam_pos).looking_at(target, Vec3::Y);
     }
     let fov = longrange::view::hud::FOV;
-    let inv = (Mat4::perspective_rh(fov, sw / sh, 0.5, 6000.0) * Mat4::look_at_rh(cam_pos, target, Vec3::Y)).inverse();
+    let inv = view_proj(fov, sw / sh, cam_pos, target).inverse();
     let far = inv.project_point3(Vec3::new(2.0 * mouse.x / sw - 1.0, 1.0 - 2.0 * mouse.y / sh, 0.5));
     let hit = map.raycast(cam_pos, far - cam_pos).map(|p| map.clamp(flat(p)));
 
@@ -388,10 +394,13 @@ fn editor_ui(
                     }
                 }
                 Tool::Start => {
-                    while map.starts.len() <= ed.start_index {
+                    // A number past the end appends the next start (no gaps).
+                    let k = ed.start_index.min(map.starts.len());
+                    if k == map.starts.len() {
                         map.starts.push(p);
+                    } else {
+                        map.starts[k] = p;
                     }
-                    map.starts[ed.start_index] = p;
                 }
                 Tool::Prop => {
                     let d = defs.get(ed.prop);
@@ -437,7 +446,8 @@ fn main() {
         let name = args.get(i + 1).cloned().unwrap_or_else(|| "generated".into());
         let cells: usize = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(256);
         let seed: u64 = args.get(i + 3).and_then(|s| s.parse().ok()).unwrap_or(1);
-        let mut map = MapData::generate(cells, seed);
+        let players: usize = args.get(i + 4).and_then(|s| s.parse().ok()).unwrap_or(4);
+        let mut map = MapData::generate(cells, seed, players);
         map.name = name.clone();
         add_settlements(&mut map, &defs, seed);
         let dir = asset_root().join("maps").join(&name);
@@ -447,7 +457,7 @@ fn main() {
         }
         return;
     }
-    let map = MapData::generate(192, 1);
+    let map = MapData::generate(192, 1, 4);
     let first_prop = defs.id("house").unwrap_or(0);
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -464,6 +474,7 @@ fn main() {
             cam_dist: 140.0,
             name: "my_map".into(),
             new_cells: 192,
+            players: 4,
             seed: 1,
             start_index: 0,
             prop: first_prop,

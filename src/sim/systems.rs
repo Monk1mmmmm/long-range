@@ -1,6 +1,6 @@
 //! Simulation systems, run in order once per tick (host only).
 use super::*;
-use crate::data::{Defs, MoveKind, UnitDef, WeaponDef, WeaponKind};
+use crate::data::{Defs, MoveKind, WeaponDef, WeaponKind};
 use std::f32::consts::PI;
 
 pub fn register(app: &mut App) {
@@ -212,6 +212,13 @@ fn apply_commands(
                     }
                 }
             }
+            Command::SelfDestruct { ids } => {
+                for id in ids {
+                    if owned(id).is_some() {
+                        effects.damage.push((id, 1.0e9, 0));
+                    }
+                }
+            }
             Command::Resign => {
                 let com = defs.factions[game.players[pl as usize].faction as usize].commander;
                 for c in &census.list {
@@ -253,11 +260,11 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         });
     }
     for c in census.list.iter_mut() {
-        let own = 1u8 << c.team;
+        let own = 1u16 << c.team;
         let (mut seen, mut radar) = (own, own);
         let head = c.pos.at(c.y + c.height + 0.5);
         for v in &viewers {
-            let bit = 1u8 << v.team;
+            let bit = 1u16 << v.team;
             if seen & bit != 0 && radar & bit != 0 {
                 continue;
             }
@@ -1081,7 +1088,7 @@ fn weapons(
                 if st.burst_cd <= 0.0 {
                     st.burst -= 1;
                     st.burst_cd += w.salvo_delay;
-                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, target, g);
+                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st);
                 }
             }
 
@@ -1111,7 +1118,7 @@ fn weapons(
                     st.cd = w.reload;
                     st.burst = w.salvo.saturating_sub(1);
                     st.burst_cd = w.salvo_delay;
-                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, target, g);
+                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st);
                     if let Some(m) = mover.as_mut() {
                         m.extend = 3.5;
                     }
@@ -1152,13 +1159,13 @@ fn weapons(
             st.cd = w.reload;
             st.burst = w.salvo.saturating_sub(1);
             st.burst_cd = w.salvo_delay;
-            fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, target, g);
+            fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st);
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &WeaponState, target: Option<&Cen>, g: f32) {
+fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &WeaponState) {
     let spread = w.spread.to_radians();
     let (vel, kind, pos) = match w.kind {
         WeaponKind::Bomb => (body.vel.at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
@@ -1414,9 +1421,4 @@ fn victory(mut game: ResMut<Game>) {
     } else if teams.is_empty() {
         game.winner = Some(255);
     }
-}
-
-/// Used by tests and the AI: all definitions a unit type can currently build.
-pub fn builds_of(defs: &Defs, d: &UnitDef) -> Vec<DefId> {
-    d.builds.clone()
 }

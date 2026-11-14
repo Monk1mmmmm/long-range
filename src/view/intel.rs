@@ -102,7 +102,7 @@ pub fn update_intel(
     }
     mem.tick = game.tick;
     let team = game.team_of(view.me);
-    let bit = 1u8 << team;
+    let bit = 1u16 << team;
     let reveal = reveal(&game, view.me);
     let n = map.n;
 

@@ -10,7 +10,7 @@ unwieldy tanks with long guns, slow turrets and long reloads, where scouting and
 - Fog of war, radar blocked by terrain, radar blips that fade, remembered enemy buildings
 - Command queues, attack-move, patrol, ground fire, area reclaim, area extractor placement,
   drag a line to spread units along it
-- Skirmish AI and LAN multiplayer for up to 4 players (free-for-all or teams)
+- Skirmish AI and LAN multiplayer for 2-10 players (free-for-all or teams)
 - Units, weapons, factions and rules are JSON files; maps are a JSON file plus a heightmap PNG
 - Map editor (`lr-editor`) with neutral and hostile pre-placed buildings
 
@@ -37,7 +37,8 @@ type the host's IP (shown in the lobby) into **Or by IP**. Allow the game throug
 networks (TCP 47800, UDP 47801). Everyone needs the same `assets/data` files - the game checks this on join.
 
 In the lobby the host clicks a slot to switch it between Open / AI / Closed, sets teams (same number = allies),
-factions and the map (random in three sizes, or any map from `assets/maps`).
+factions and the map: random (three sizes, 2-10 players) or any map from `assets/maps`, which brings its own
+number of start positions.
 
 ## Controls
 
@@ -62,6 +63,30 @@ factions and the map (random in three sizes, or any map from `assets/maps`).
 | Wheel, arrows, middle-drag, minimap | Camera |
 | F1 / F6 / F11 / Esc | Help / shadows / fullscreen / menu |
 
+### FAF alternative hotkeys
+
+Esc menu -> **Hotkeys** switches between the default keys above and a preset modelled on FAF's
+"alternative" layout (saved in `settings.json`). In that preset:
+
+| Key | Action |
+|---|---|
+| W / Alt+W | Move / patrol |
+| R | Attack: click a unit, click the ground to shell it, drag a circle for an area |
+| Q | Reclaim (drag for an area) |
+| I, T | Assist / repair |
+| Esc | Stop (cancels a pending command first; the menu moves to F10) |
+| O / ` | Upgrade / factory repeat |
+| Z X C V | Hotbuild: builders and factories / mass / power / radar and scouts |
+| G S D Y M | Hotbuild: direct fire / artillery / anti-air / missiles / engineering station |
+
+Hotbuild keys work on a selected engineer (starts placing that building) or factory (queues that unit, Shift = 5).
+Pressing the same key again within a second cycles to the next unit of that class; the letter is shown on each
+build button.
+
+Both presets: Ctrl+A air, Ctrl+D land army, Ctrl+B engineers, Ctrl+X everything, Ctrl+C everything on screen,
+Ctrl+Z all of the selected types, Ctrl+H factories on screen, Ctrl+Shift+D / A nearest land / air factory,
+Shift+0-9 add a group to the selection, Ctrl+K self-destruct.
+
 Things to know: most guns out-range their unit's sight, so they only fire at what a scout or radar reveals.
 Radar does not see through hills. Enemy buildings you have seen stay marked on the map until you look at the
 spot again. The bars over a unit are health (green), main gun reload (orange, blue when ready) and
@@ -80,7 +105,24 @@ construction (cyan).
 
 The editor: `cargo run --release --bin lr-editor`. Raise/lower/smooth/flatten terrain, set the water level,
 place deposits, start positions and buildings or units for the neutral or hostile side, then Save.
-`lr-editor --generate NAME CELLS SEED` writes a generated map with towns without opening a window.
+Start positions are placed with the **Start** tool (2 to 10 per map; pick the next number to add one).
+`lr-editor --generate NAME CELLS SEED [PLAYERS]` writes a generated map with towns without opening a window.
+
+## Releases
+
+`scripts/release.sh` (Linux, also Git Bash) and `scripts/release.ps1` (Windows PowerShell) build the game and
+the editor in release mode, bundle them with `assets/`, and publish the archives as a GitHub release with `gh`:
+
+    scripts/release.sh                 # Linux + Windows bundles, upload both to release v<Cargo version>
+    scripts/release.sh --only linux    # just one platform (linux | windows)
+    scripts/release.sh --no-upload     # build only; archives stay in dist/
+    scripts/release.sh --tag v0.3.0 --draft
+
+    scripts\release.ps1 -Only windows -NoUpload
+
+On Linux the Windows bundle is cross-compiled (`rustup target add x86_64-pc-windows-gnu` plus MinGW-w64).
+On Windows the Linux bundle is built through WSL if it is installed. Uploading needs a clean, pushed commit;
+running again for the same tag replaces the files.
 
 ## Command line
 

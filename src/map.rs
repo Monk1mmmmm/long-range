@@ -102,6 +102,22 @@ impl From<Vec3> for V3 {
     }
 }
 
+/// View-projection matrix of a perspective camera looking at `target` (used for picking and overlays).
+pub fn view_proj(fov: f32, aspect: f32, eye: Vec3, target: Vec3) -> bevy::math::Mat4 {
+    use bevy::math::{Mat4, Vec4};
+    let (near, far) = (0.5, 6000.0);
+    // Right-handed look-at.
+    let f = (target - eye).normalize();
+    let s = f.cross(Vec3::Y).normalize();
+    let u = s.cross(f);
+    let view = Mat4::from_cols(Vec4::new(s.x, u.x, -f.x, 0.0), Vec4::new(s.y, u.y, -f.y, 0.0), Vec4::new(s.z, u.z, -f.z, 0.0), Vec4::new(-s.dot(eye), -u.dot(eye), f.dot(eye), 1.0));
+    // Right-handed perspective with depth 0..1.
+    let h = 1.0 / (fov * 0.5).tan();
+    let r = far / (near - far);
+    let proj = Mat4::from_cols(Vec4::new(h / aspect, 0.0, 0.0, 0.0), Vec4::new(0.0, h, 0.0, 0.0), Vec4::new(0.0, 0.0, r, -1.0), Vec4::new(0.0, 0.0, r * near, 0.0));
+    proj * view
+}
+
 /// Wrap an angle to (-PI, PI].
 pub fn wrap(mut a: f32) -> f32 {
     use std::f32::consts::PI;
@@ -341,8 +357,10 @@ impl MapData {
         None
     }
 
-    /// Procedural map with 4-fold rotational symmetry (every corner start is equal).
-    pub fn generate(n: usize, seed: u64) -> MapData {
+    /// Procedural map for 2-10 players with rotational symmetry (every start is equal).
+    pub fn generate(n: usize, seed: u64, players: usize) -> MapData {
+        let kk = players.clamp(2, 10);
+        let step = std::f32::consts::TAU / kk as f32;
         let mut rng = Rng(seed.wrapping_mul(0x2545F4914F6CDD1D) | 1);
         for _ in 0..8 {
             rng.next();
@@ -350,23 +368,22 @@ impl MapData {
         let w = n as f32 * CELL;
         let c = v2(w * 0.5, w * 0.5);
         let rot = |p: V2, k: usize| -> V2 {
-            let mut q = p - c;
-            for _ in 0..k {
-                q = v2(-q.y, q.x);
-            }
-            q + c
+            let q = p - c;
+            let (sn, cs) = (step * k as f32).sin_cos();
+            v2(q.x * cs - q.y * sn, q.x * sn + q.y * cs) + c
         };
         // Averaging a noise field over the four rotations makes it symmetric and seamless.
         let sym = |p: V2, freq: f32, s: u64| -> f32 {
             let mut acc = 0.0;
-            for k in 0..4 {
+            for k in 0..kk {
                 let q = rot(p, k);
                 acc += fbm(q.x * freq + 300.0, q.y * freq + 300.0, s);
             }
-            ((acc * 0.25 - 0.5) * 2.4 + 0.5).clamp(0.0, 1.0)
+            ((acc / kk as f32 - 0.5) * 1.2 * (kk as f32).sqrt() + 0.5).clamp(0.0, 1.0)
         };
-        let start0 = v2(w * 0.14, w * 0.14);
-        let starts: Vec<V2> = (0..4).map(|k| rot(start0, k)).collect();
+        // Two and four players sit in the corners, other counts on a circle.
+        let start0 = if kk == 2 || kk == 4 { v2(w * 0.14, w * 0.14) } else { c + V2::from_angle(-2.356) * (w * 0.38) };
+        let starts: Vec<V2> = (0..kk).map(|k| rot(start0, k)).collect();
         let seg_dist = |p: V2, a: V2, b: V2| -> f32 {
             let ab = b - a;
             let t = ((p - a).dot(ab) / ab.len2().max(1e-6)).clamp(0.0, 1.0);
@@ -384,8 +401,8 @@ impl MapData {
                 // Open lanes: start <-> centre and start <-> neighbouring starts.
                 let mut lane = f32::MAX;
                 let mut base_d = f32::MAX;
-                for k in 0..4 {
-                    lane = lane.min(seg_dist(p, starts[k], c)).min(seg_dist(p, starts[k], starts[(k + 1) % 4]));
+                for k in 0..kk {
+                    lane = lane.min(seg_dist(p, starts[k], c)).min(seg_dist(p, starts[k], starts[(k + 1) % kk]));
                     base_d = base_d.min(p.dist(starts[k]));
                 }
                 let open = smooth(22.0, 10.0, lane).max(smooth(48.0, 30.0, base_d)).max(smooth(30.0, 18.0, p.dist(c)));
@@ -407,11 +424,17 @@ impl MapData {
         for (dx, dy) in [(7.0, 3.0), (-3.0, 7.0), (-7.0, -5.0), (5.0, -7.0)] {
             q.push(start0 + v2(dx, dy));
         }
-        let want = 7 + n / 48;
+        // Roughly the same total number of deposits whatever the player count.
+        let want = ((7 + n / 48) * 4 / kk).max(3);
         let mut tries = 0;
         while q.len() < 4 + want && tries < 6000 {
             tries += 1;
-            let p = v2(rng.range(10.0, w * 0.5 - 6.0), rng.range(10.0, w * 0.5 - 6.0));
+            let p = v2(rng.range(10.0, w - 10.0), rng.range(10.0, w - 10.0));
+            // Keep only points in the first player's sector; the rotations fill the rest.
+            let rel = wrap((p - c).angle() - (start0 - c).angle());
+            if rel.abs() > step * 0.5 {
+                continue;
+            }
             let (cx, cy) = m.cell_of(p);
             if m.blocked[cy as usize * n + cx as usize] != 0 || p.dist(start0) < 30.0 {
                 continue;
@@ -422,7 +445,7 @@ impl MapData {
             q.push(p);
         }
         q.push(c + v2(-9.0, -9.0));
-        for k in 0..4 {
+        for k in 0..kk {
             for p in &q {
                 let r = rot(*p, k);
                 let (cx, cy) = m.cell_of(r);
@@ -470,6 +493,11 @@ impl MapData {
         let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, props: f.props, seed: f.seed, blocked: vec![] };
         m.rebuild_blocked();
         Ok(m)
+    }
+
+    /// Number of start positions of a saved map, without loading the heightmap.
+    pub fn start_count(dir: &Path) -> usize {
+        std::fs::read_to_string(dir.join("map.json")).ok().and_then(|t| serde_json::from_str::<MapFile>(&t).ok()).map_or(0, |f| f.starts.len())
     }
 
     /// Names of the maps in `assets/maps`.

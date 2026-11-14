@@ -1,3 +1,20 @@
+# Rust build output
 /target
+
+# Release bundles made by scripts/release.sh / release.ps1
+/dist
+
+# Local player settings (hotkey preset)
+/settings.json
+
+# Converter scratch output and Python caches
 /tools/out
 __pycache__/
+*.pyc
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

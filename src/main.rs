@@ -12,7 +12,6 @@ use longrange::sim::*;
 use longrange::sim::Command;
 use longrange::view::{self, terrain::MainCamera, LocalCommands, ViewState};
 
-const CORNERS: [&str; 4] = ["North-West", "North-East", "South-East", "South-West"];
 const SIZES: [(usize, &str); 3] = [(192, "small"), (256, "medium"), (384, "large")];
 
 struct Slot {
@@ -29,6 +28,8 @@ struct HostLobby {
     /// 0..SIZES.len() are random maps, the rest index into `maps`.
     map_choice: usize,
     maps: Vec<String>,
+    /// Player count for random maps (premade maps bring their own start positions).
+    players: usize,
     dirty: bool,
     lan_ip: String,
 }
@@ -39,6 +40,31 @@ impl HostLobby {
             Some((n, name)) => format!("Random, {name} ({} x {})", *n as f32 * CELL, *n as f32 * CELL),
             None => self.maps.get(self.map_choice - SIZES.len()).cloned().unwrap_or_default(),
         }
+    }
+    /// Number of start positions of the chosen map.
+    fn start_count(&self) -> usize {
+        match SIZES.get(self.map_choice) {
+            Some(_) => self.players,
+            None => MapData::start_count(&asset_root().join("maps").join(&self.maps[self.map_choice - SIZES.len()])),
+        }
+        .clamp(2, MAX_PLAYERS)
+    }
+    /// Makes the slot list match the map: one slot per start position.
+    fn resize_slots(&mut self, faction: u8) {
+        let n = self.start_count();
+        while self.slots.len() > n {
+            if let Some(s) = self.slots.pop() {
+                if s.conn != 0 {
+                    self.host.send_msg(s.conn, &S2C::Kicked("The map changed and your slot was removed.".into()));
+                    self.host.kick(s.conn);
+                }
+            }
+        }
+        while self.slots.len() < n {
+            let k = self.slots.len() as u8;
+            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, conn: 0 });
+        }
+        self.dirty = true;
     }
     fn info(&self, you: i8) -> LobbyInfo {
         LobbyInfo {
@@ -99,13 +125,13 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     slots[0].kind = 2;
     slots[0].name = name.to_string();
     slots[2].kind = 3;
-    Ok(HostLobby { host, slots, map_choice: 1, maps: MapData::list(&asset_root()), dirty: true, lan_ip: local_ip() })
+    Ok(HostLobby { host, slots, map_choice: 1, maps: MapData::list(&asset_root()), players: 4, dirty: true, lan_ip: local_ip() })
 }
 
 fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(1) | 1;
     let map = match SIZES.get(l.map_choice) {
-        Some((n, _)) => MapData::generate(*n, seed),
+        Some((n, _)) => MapData::generate(*n, seed, l.slots.len()),
         None => MapData::load(&asset_root().join("maps").join(&l.maps[l.map_choice - SIZES.len()]))?,
     };
     let mut setup = vec![];
@@ -122,7 +148,7 @@ fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
         } else if s.conn != 0 {
             remote.push((s.conn, idx));
         }
-        let name = if s.kind == 3 { format!("AI {}", CORNERS[k]) } else { s.name.clone() };
+        let name = if s.kind == 3 { format!("AI {}", k + 1) } else { s.name.clone() };
         setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, faction: s.faction });
     }
     for (conn, idx) in &remote {
@@ -260,7 +286,7 @@ fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editab
     egui::Grid::new("slots").num_columns(4).spacing([12.0, 8.0]).show(ui, |ui| {
         for (k, s) in slots.iter().enumerate() {
             let c = defs.rules.player_colors[k % defs.rules.player_colors.len()];
-            ui.colored_label(egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8), CORNERS[k]);
+            ui.colored_label(egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8), format!("Start {}", k + 1));
             let label = match s.kind {
                 0 => "Open".to_string(),
                 1 => "Closed".to_string(),
@@ -320,6 +346,10 @@ fn menu_ui(world: &mut World) {
                 if let Ok(m) = std::env::var("LR_MAP") {
                     if let Some(k) = l.maps.iter().position(|x| *x == m) {
                         l.map_choice = SIZES.len() + k;
+                        l.resize_slots(0);
+                        for s in l.slots.iter_mut().skip(1) {
+                            s.kind = 3;
+                        }
                     }
                 }
                 match start_game(world, l) {
@@ -436,7 +466,7 @@ fn menu_ui(world: &mut World) {
                     ui.add_space(12.0);
                     if let Some((k, col)) = slot_rows(ui, &defs, &l.info(0).slots, 0, true) {
                         match col {
-                            1 => l.slots[k].team = (l.slots[k].team + 1) % 4,
+                            1 => l.slots[k].team = (l.slots[k].team + 1) % l.slots.len() as u8,
                             2 => l.slots[k].faction = next_faction(l.slots[k].faction),
                             _ if k != 0 => {
                                 let s = &mut l.slots[k];
@@ -462,7 +492,11 @@ fn menu_ui(world: &mut World) {
                     ui.add_space(10.0);
                     if ui.add_sized([480.0, 36.0], egui::Button::new(format!("Map: {}", l.map_label()))).clicked() {
                         l.map_choice = (l.map_choice + 1) % (SIZES.len() + l.maps.len());
-                        l.dirty = true;
+                        l.resize_slots(playable.first().copied().unwrap_or(0) as u8);
+                    }
+                    if l.map_choice < SIZES.len() && ui.add_sized([480.0, 30.0], egui::Button::new(format!("Players: {}", l.players))).clicked() {
+                        l.players = if l.players >= MAX_PLAYERS { 2 } else { l.players + 1 };
+                        l.resize_slots(playable.first().copied().unwrap_or(0) as u8);
                     }
                     if l.dirty {
                         l.dirty = false;
@@ -594,12 +628,14 @@ fn selftest() {
     let defs = load_defs();
     println!("loaded {} unit definitions in {} factions", defs.units.len(), defs.factions.len());
     let mut app = headless(defs.clone());
-    let map = MapData::generate(192, 12345);
+    // LR_PLAYERS=10 runs the self-test with that many AIs (2-10).
+    let n = std::env::var("LR_PLAYERS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4).clamp(2, MAX_PLAYERS);
+    let map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345, n);
     let faction = defs.playable_factions()[0] as u8;
-    let setup: Vec<PlayerSetup> = (0..4).map(|i| PlayerSetup { name: format!("AI {i}"), team: i as u8, is_ai: true, slot: i, faction }).collect();
+    let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i}"), team: i as u8, is_ai: true, slot: i, faction }).collect();
     let world = app.world_mut();
     setup_game(world, map, &setup);
-    world.insert_resource(Ais((0..4).map(|i| Ai::new(i as u8, 99)).collect()));
+    world.insert_resource(Ais((0..n).map(|i| Ai::new(i as u8, 99)).collect()));
     let t0 = std::time::Instant::now();
     for t in 0..36000u32 {
         world.run_schedule(SimTick);
@@ -628,13 +664,13 @@ fn combattest() {
     let faction = defs.playable_factions()[0] as u8;
     let run = |title: &str, n: usize, place: &dyn Fn(&mut World, &MapData), ticks: u32, report: &dyn Fn(&mut World, u32)| {
         let mut app = headless(defs.clone());
-        let mut map = MapData::generate(n, 4242);
+        let mut map = MapData::generate(n, 4242, 2);
         // A flat test range.
         for h in map.heights.iter_mut() {
             *h = 2.0;
         }
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i * 2, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         place(world, &map);
@@ -792,14 +828,14 @@ fn combattest() {
     // 4. Radar line of sight: a ridge between the radar and the target hides it.
     for ridge in [false, true] {
         let mut app = headless(defs.clone());
-        let mut map = MapData::generate(128, 4242);
+        let mut map = MapData::generate(128, 4242, 2);
         let n = map.n;
         for (i, h) in map.heights.iter_mut().enumerate() {
             let x = (i % (n + 1)) as f32 * CELL;
             *h = if ridge && (x - 125.0).abs() < 6.0 { 22.0 } else { 2.0 };
         }
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i * 2, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         spawn(world, &map, "radar_tower", 0, v2(101.0, 101.0), 0.0);
@@ -835,9 +871,9 @@ fn nettest() {
         }
     }
     let mut happ = headless(defs.clone());
-    let map = MapData::generate(128, 7);
+    let map = MapData::generate(128, 7, 2);
     let faction = defs.playable_factions()[0] as u8;
-    let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i * 2, faction }).collect();
+    let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
     host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1 });
     setup_game(happ.world_mut(), map, &setup);
     happ.world_mut().run_schedule(SimTick);

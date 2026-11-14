@@ -35,14 +35,15 @@ cargo run -- --selftest           # headless 4-AI match, prints economy/tier sta
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
 cargo run -- --nettest            # loopback discovery + snapshot + remote command test
 cargo run --bin lr-editor         # map editor
-cargo run --bin lr-editor -- --generate NAME CELLS SEED   # write a generated map with towns to assets/maps
+cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns -> assets/maps
+scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
 python3 tools/convert_assets.py "<mod folder>"            # re-import models/textures/portraits from the mod
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
 ```
 
 Debug environment variables: `LR_SPEED=8` (fast-forward a hosted game), `LR_WATCH=1` (an AI also plays the local
 slot), `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmish`), `LR_DUEL=1` (stages a tank
-fight at the first start).
+fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`).
 
 ### Testing the window without a desktop
 
@@ -69,7 +70,14 @@ The first xdotool mouse move lands at the window centre - do a throwaway move be
   cross-entity effects in `Effects` (damage, reclaim) instead of holding conflicting mutable queries.
 - All content lives in JSON under `assets/data`. Never hard-code unit stats or unit names in Rust; the AI finds
   units by role (extractor, generator, factory...).
-- Owners 250/251 are the neutral and hostile sides (teams 6/7). Neutral units are never auto-targeted.
+- Owners 250/251 are the neutral and hostile sides (teams 14/15). Neutral units are never auto-targeted.
+- 2-10 players (`sim::MAX_PLAYERS`). `Intel.seen/radar` are `u16` team bitmasks. A map's number of start
+  positions decides the lobby slot count; `MapData::generate(cells, seed, players)` is k-fold symmetric.
+- Hotkeys: two presets in `view/hud.rs` (`ViewState.preset`, saved to `settings.json` next to `assets/`):
+  default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
+  with hotbuild keys chosen by unit role in `hud::hot_key`.
+- Releases: `scripts/release.sh` / `release.ps1` bundle exe + editor + assets into `dist/` and publish with `gh`.
+  The user commits and pushes themselves; do not commit, push or publish without being asked.
 
 ## Source map
 
