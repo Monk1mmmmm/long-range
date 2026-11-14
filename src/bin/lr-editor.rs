@@ -10,7 +10,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use longrange::data::{asset_root, DefId, Defs};
 use longrange::map::*;
 use longrange::view::models::{spawn_model, ModelCache};
-use longrange::view::terrain::{spawn_scene, GameScene, MainCamera};
+use longrange::view::terrain::{spawn_scene, update_chunks, GameScene, GroundSnap, MainCamera, TerrainChunk, WaterPlane};
 use longrange::view::yaw_quat;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -41,7 +41,6 @@ struct Editor {
     prop_hostile: bool,
     prop_yaw: f32,
     dirty: bool,
-    rebuild_timer: f32,
     flatten_height: Option<f32>,
     status: String,
     maps: Vec<String>,
@@ -141,7 +140,7 @@ fn rebuild(commands: &mut Commands, ed: &mut Editor, map: &mut MapData, defs: &D
         let (ci, rgb) = if p.owner == PROP_HOSTILE { (201, defs.rules.hostile_color) } else { (200, defs.rules.neutral_color) };
         let root = spawn_model(commands, cache, defs, d, ci, rgb, false, None, meshes, images, materials);
         let h = map.h(p.pos);
-        commands.spawn((Transform::from_translation(p.pos.at(h)).with_rotation(yaw_quat(p.yaw)), Visibility::Visible, GameScene)).add_child(root);
+        commands.spawn((Transform::from_translation(p.pos.at(h)).with_rotation(yaw_quat(p.yaw)), Visibility::Visible, GroundSnap(0.0), GameScene)).add_child(root);
     }
     ed.dirty = false;
 }
@@ -163,7 +162,12 @@ fn editor_ui(
     mut wheel: MessageReader<MouseWheel>,
     time: Res<Time>,
     mut gizmos: Gizmos,
-    mut camera: Query<&mut Transform, With<MainCamera>>,
+    mut camera: Query<&mut Transform, (With<MainCamera>, Without<WaterPlane>, Without<GroundSnap>)>,
+    (chunks, mut water, mut snapped): (
+        Query<(&TerrainChunk, &Mesh3d)>,
+        Query<&mut Transform, (With<WaterPlane>, Without<MainCamera>, Without<GroundSnap>)>,
+        Query<(&mut Transform, &GroundSnap), (Without<MainCamera>, Without<WaterPlane>)>,
+    ),
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let ed = &mut *ed;
@@ -249,7 +253,10 @@ fn editor_ui(
         ui.add(egui::Slider::new(&mut ed.radius, 2.0..=60.0).text("radius"));
         ui.add(egui::Slider::new(&mut ed.strength, 0.5..=20.0).text("strength"));
         if ui.add(egui::Slider::new(&mut map.water, -5.0..=10.0).text("water level")).changed() {
-            ed.dirty = true;
+            // Move the existing water plane instead of rebuilding the scene.
+            for mut t in &mut water {
+                t.translation.y = map.water;
+            }
         }
         ui.separator();
         ui.label("Objects");
@@ -381,7 +388,14 @@ fn editor_ui(
                     }
                 }
             }
-            ed.dirty = true;
+            // Update only the touched terrain chunks, in place, and keep markers on the ground.
+            // (Rebuilding the whole scene on every stroke made the map flicker.)
+            update_chunks(map, &mut meshes, &chunks, p, ed.radius);
+            for (mut t, snap) in &mut snapped {
+                if flat(t.translation).dist(p) < ed.radius + 8.0 {
+                    t.translation.y = map.height(t.translation.x, t.translation.z) + snap.0;
+                }
+            }
         }
         if buttons.just_pressed(MouseButton::Left) {
             match ed.tool {
@@ -418,10 +432,8 @@ fn editor_ui(
             }
         }
     }
-    // Terrain edits rebuild the meshes a few times per second while painting.
-    ed.rebuild_timer -= dt;
-    if full_rebuild || (ed.dirty && (ed.rebuild_timer <= 0.0 || !buttons.pressed(MouseButton::Left))) {
-        ed.rebuild_timer = 0.2;
+    // Only structural changes (new map, load, objects, deposits) respawn the scene.
+    if full_rebuild || ed.dirty {
         rebuild(&mut commands, ed, map, &defs, &old, &mut cache, &mut meshes, &mut materials, &mut images);
     }
     Ok(())
@@ -429,7 +441,7 @@ fn editor_ui(
 
 fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>) {
     cache.init(&mut materials);
-    commands.spawn((Camera3d::default(), longrange::view::camera_aa(), Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
+    commands.spawn((Camera3d::default(), Msaa::Off, Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
     ed.dirty = true;
 }
 
@@ -464,7 +476,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window { title: "Long Range - map editor".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
             ..default()
-        }).set(longrange::view::render_plugin()))
+        }).set(longrange::settings::render_plugin(&longrange::settings::Settings::load())))
         .add_plugins(bevy_egui::EguiPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
         .insert_resource(Editor {
@@ -482,7 +494,6 @@ fn main() {
             prop_hostile: false,
             prop_yaw: 0.0,
             dirty: true,
-            rebuild_timer: 0.0,
             flatten_height: None,
             status: String::new(),
             maps: MapData::list(&asset_root()),
@@ -492,6 +503,6 @@ fn main() {
         .init_resource::<ModelCache>()
         .add_systems(Startup, setup)
         .add_systems(EguiPrimaryContextPass, editor_ui);
-    longrange::view::tolerate_render_errors(&mut app);
+    longrange::settings::tolerate_render_errors(&mut app);
     app.run();
 }

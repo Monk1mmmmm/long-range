@@ -3,7 +3,6 @@
 // people need when the game fails to start on their GPU (`longrange.exe > log.txt 2>&1`).
 
 use bevy::prelude::*;
-use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 use bevy_egui::egui;
 use longrange::ai::{Ai, Ais};
 use longrange::data::{asset_root, Defs};
@@ -107,6 +106,7 @@ struct AppState {
     message: String,
     discovery: Discovery,
     skirmish: bool,
+    settings_open: bool,
 }
 
 fn local_ip() -> String {
@@ -416,6 +416,10 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(14.0);
+                    if ui.add_sized([440.0, 34.0], egui::Button::new("Settings")).clicked() {
+                        app.settings_open = true;
+                    }
+                    ui.add_space(6.0);
                     if ui.add_sized([440.0, 34.0], egui::Button::new("Quit")).clicked() {
                         world.write_message(AppExit::Success);
                     }
@@ -584,6 +588,23 @@ fn menu_ui(world: &mut World) {
             }
         });
     });
+    if app.settings_open && next.is_none() {
+        use longrange::settings::{settings_ui, RenderErrors, Settings, StartSettings};
+        let mut s = world.resource::<Settings>().clone();
+        let started = world.resource::<StartSettings>().0.clone();
+        let errors = world.get_resource::<RenderErrors>().map(|e| e.0.clone()).unwrap_or_default();
+        let adapter = longrange::settings::adapter_line(world);
+        let mut close = false;
+        egui::Window::new("settings").title_bar(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(&ctx, |ui| {
+            close = settings_ui(ui, &mut s, &started, &adapter, &errors, false);
+        });
+        if s != *world.resource::<Settings>() {
+            world.insert_resource(s);
+        }
+        if close {
+            app.settings_open = false;
+        }
+    }
     if let Some(n) = next {
         app.screen = n;
     }
@@ -593,18 +614,17 @@ fn menu_ui(world: &mut World) {
 fn setup(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
-        view::camera_aa(),
+        Msaa::Off,
         Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y),
         DistanceFog { color: Color::srgb(0.55, 0.62, 0.7), falloff: FogFalloff::Linear { start: 900.0, end: 4000.0 }, ..default() },
         MainCamera,
     ));
 }
 
-fn fullscreen_toggle(keys: Res<ButtonInput<KeyCode>>, mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+fn fullscreen_toggle(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<longrange::settings::Settings>) {
     if keys.just_pressed(KeyCode::F11) {
-        for mut w in &mut windows {
-            w.mode = if matches!(w.mode, WindowMode::Windowed) { WindowMode::BorderlessFullscreen(MonitorSelection::Current) } else { WindowMode::Windowed };
-        }
+        settings.fullscreen = !settings.fullscreen;
+        settings.save();
     }
 }
 
@@ -964,20 +984,23 @@ fn main() {
     let defs = load_defs();
     let mut name = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into());
     name.truncate(16);
+    let settings = longrange::settings::Settings::load();
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window { title: "Long Range".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
         ..default()
-    }).set(view::render_plugin()))
+    }).set(longrange::settings::render_plugin(&settings)))
     .add_plugins(bevy_egui::EguiPlugin::default())
     .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
     .insert_resource(defs)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), discovery: Discovery::new(), skirmish: args.iter().any(|a| a == "--skirmish") })
+    .insert_resource(longrange::settings::StartSettings(settings.clone()))
+    .insert_resource(settings)
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), discovery: Discovery::new(), skirmish: args.iter().any(|a| a == "--skirmish"), settings_open: false })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)
-    .add_systems(Update, fullscreen_toggle)
+    .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
     .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
-    view::tolerate_render_errors(&mut app);
+    longrange::settings::tolerate_render_errors(&mut app);
     app.run();
 }

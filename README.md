@@ -28,7 +28,9 @@ You get `target/release/longrange` and `target/release/lr-editor` (`.exe` on Win
 **The executables need the `assets` folder next to them** (or run them through `cargo run`).
 To give the game to someone else, copy the exe together with `assets/`.
 
-A Vulkan/DirectX 12 capable GPU is required. F6 turns shadows off if the game is slow.
+A Vulkan, DirectX 12 or OpenGL capable GPU is required. **Settings** (main menu or Esc menu) lets you pick
+the graphics API, shadows, anti-aliasing, v-sync and fullscreen; if the 3D view is black or broken, try
+another graphics API there. Graphics errors are written to `render-errors.log` next to the game.
 
 ## LAN play
 

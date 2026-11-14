@@ -56,18 +56,25 @@ The first xdotool mouse move lands at the window centre - do a throwaway move be
 
 ### Building on this machine
 
+**Do not compile here.** The user builds themselves: do not run `cargo build/check/run/test` or the release
+scripts on this laptop. Make the changes, then ask the user to run the command and send back the output.
+The notes below are for them (and for reading build logs).
+
 Link one binary at a time (`cargo build --bin longrange`, then `--bin lr-editor`). `cargo build --bins` links
 both in parallel, which filled 8 GB RAM + 8 GB swap and thrashed for half an hour without finishing. The release
 scripts already build sequentially. Compiling the crate itself takes about a minute.
 
 ### Renderer compatibility (old Intel iGPUs)
 
-`view::render_plugin()` / `camera_aa()` / `tolerate_render_errors()` are used by both binaries:
+`settings::render_plugin(&Settings)` / `tolerate_render_errors()` / `apply_settings` (in `src/settings.rs`, which
+also holds the `Settings` resource saved to `settings.json` and the shared settings window) are used by both binaries:
 Windows defaults to DX12 (the Intel Vulkan driver `igvk64.dll` crashes at start-up on HD 520/530),
 `INDIRECT_FIRST_INSTANCE` is disabled so Bevy skips GPU occlusion culling and its depth-pyramid compute passes,
 MSAA is off, and validation errors are logged instead of quitting (Bevy 0.20's default handler exits the app).
 Do NOT zero the compute limits to force CPU preprocessing: the atmosphere plugin then fails validation at start.
-Overrides: `LR_BACKEND` / `"backend"` and `LR_RENDERER=full` / `"renderer"` in `settings.json`.
+Windows builds link the DXC shader compiler statically (`statically-linked-dxc`): with FXC the 3D view stayed
+black while the UI rendered. The OpenGL backend comes from a direct `wgpu` dependency with the `gles` feature.
+Render errors go to `render-errors.log` and the settings window. Overrides: `LR_BACKEND`, `LR_RENDERER=full`.
 Wine's DX12 (vkd3d) panics inside wgpu's format query (`wgpu-hal dx12/adapter.rs`, CheckFeatureSupport) no matter
 what we do; test Windows builds under Wine with `LR_BACKEND=vulkan`.
 Never replace the camera `Projection` wholesale each frame: it resets `aspect_ratio` and frustum culling then

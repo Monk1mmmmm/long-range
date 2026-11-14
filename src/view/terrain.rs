@@ -26,6 +26,36 @@ pub struct FogTexture(pub Handle<Image>);
 
 const CHUNK: usize = 32;
 
+/// A terrain mesh chunk starting at cell (cx, cy).
+#[derive(Component)]
+pub struct TerrainChunk {
+    pub cx: usize,
+    pub cy: usize,
+}
+
+#[derive(Component)]
+pub struct WaterPlane;
+
+/// Sits on the terrain at this height offset (deposit markers, editor objects).
+#[derive(Component)]
+pub struct GroundSnap(pub f32);
+
+/// Rewrites the meshes of the chunks touched by a terrain edit, in place. Replacing the mesh
+/// data keeps the entities and GPU resources, so nothing flickers (unlike respawning the scene).
+pub fn update_chunks(map: &MapData, meshes: &mut Assets<Mesh>, chunks: &Query<(&TerrainChunk, &Mesh3d)>, center: V2, radius: f32) {
+    let r = radius + CELL * 2.0;
+    for (c, mesh) in chunks.iter() {
+        let (x0, y0) = (c.cx as f32 * CELL, c.cy as f32 * CELL);
+        let size = CHUNK as f32 * CELL;
+        if center.x + r < x0 || center.y + r < y0 || center.x - r > x0 + size || center.y - r > y0 + size {
+            continue;
+        }
+        if let Some(m) = meshes.get_mut(&mesh.0) {
+            *m.into_inner() = chunk_mesh(map, c.cx, c.cy);
+        }
+    }
+}
+
 /// Terrain colour by height, slope and a little noise.
 pub fn terrain_color(map: &MapData, x: f32, z: f32) -> [f32; 3] {
     let h = map.height(x, z);
@@ -134,7 +164,7 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     for cy in (0..map.n).step_by(CHUNK) {
         for cx in (0..map.n).step_by(CHUNK) {
             let mesh = meshes.add(chunk_mesh(map, cx, cy));
-            commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(ground.clone()), Transform::IDENTITY, GameScene));
+            commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(ground.clone()), Transform::IDENTITY, TerrainChunk { cx, cy }, GameScene));
             if with_fog {
                 commands.spawn((Mesh3d(mesh), MeshMaterial3d(fog_mat.clone()), Transform::from_xyz(0.0, 0.06, 0.0), NotShadowCaster, FogOverlay, GameScene));
             }
@@ -162,6 +192,7 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         Transform::from_xyz(world * 0.5, map.water, world * 0.5),
         NotShadowCaster,
         NotShadowReceiver,
+        WaterPlane,
         GameScene,
     ));
     spawn_deposits(commands, map, meshes, materials);
@@ -185,8 +216,8 @@ pub fn spawn_deposits(commands: &mut Commands, map: &MapData, meshes: &mut Asset
     let m2 = materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.8, 0.85), metallic: 0.9, perceptual_roughness: 0.25, ..default() });
     for d in &map.deposits {
         let y = map.h(*d);
-        commands.spawn((Mesh3d(disc.clone()), MeshMaterial3d(m1.clone()), Transform::from_xyz(d.x, y + 0.03, d.y), NotShadowCaster, DepositMarker, GameScene));
-        commands.spawn((Mesh3d(core.clone()), MeshMaterial3d(m2.clone()), Transform::from_xyz(d.x, y + 0.05, d.y), NotShadowCaster, DepositMarker, GameScene));
+        commands.spawn((Mesh3d(disc.clone()), MeshMaterial3d(m1.clone()), Transform::from_xyz(d.x, y + 0.03, d.y), NotShadowCaster, DepositMarker, GroundSnap(0.03), GameScene));
+        commands.spawn((Mesh3d(core.clone()), MeshMaterial3d(m2.clone()), Transform::from_xyz(d.x, y + 0.05, d.y), NotShadowCaster, DepositMarker, GroundSnap(0.05), GameScene));
     }
 }
 

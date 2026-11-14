@@ -3,5 +3,6 @@ pub mod ai;
 pub mod data;
 pub mod map;
 pub mod net;
+pub mod settings;
 pub mod sim;
 pub mod view;

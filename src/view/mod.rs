@@ -56,7 +56,7 @@ pub struct ViewState {
     pub mmb_last: Option<Vec2>,
     pub last_tick: u32,
     pub tick_time: f64,
-    pub shadows: bool,
+    pub settings_open: bool,
     pub show_help: bool,
     /// Hotkey preset: 0 = default, 1 = FAF alternative.
     pub preset: u8,
@@ -64,103 +64,9 @@ pub struct ViewState {
     pub hot: (Option<KeyCode>, usize, f64, DefId),
 }
 
-fn settings_path() -> std::path::PathBuf {
-    crate::data::asset_root().parent().map(|p| p.to_path_buf()).unwrap_or_default().join("settings.json")
-}
-
-/// Parsed `settings.json` (empty object when missing).
-pub fn settings() -> serde_json::Value {
-    std::fs::read_to_string(settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}))
-}
-
-/// Renderer setup shared by the game and the editor.
-///
-/// Old integrated GPUs (Intel HD 5xx and similar) crash or show a black window with Bevy's
-/// default pipeline: the Intel Vulkan driver on Windows faults at start-up, and the GPU-driven
-/// path (compute preprocessing, depth pyramid, multisampled depth) fails on their DX12 drivers.
-/// So by default we run a conservative configuration:
-/// - Windows uses DirectX 12 instead of Vulkan;
-/// - GPU occlusion culling is switched off, so the depth-pyramid compute pipelines are never created;
-/// - no MSAA (see `camera_aa`).
-///
-/// Overrides, from the environment or `settings.json` next to the assets folder:
-/// - `LR_BACKEND` / `"backend"`: `vulkan`, `dx12`, `gl`, `metal` or `auto`
-/// - `LR_RENDERER` / `"renderer"`: `compat` (default) or `full` (Bevy's defaults)
-pub fn render_plugin() -> bevy::render::RenderPlugin {
-    use bevy::render::settings::{Backends, RenderCreation, WgpuFeatures, WgpuSettings};
-    let cfg = settings();
-    let pick = |env: &str, key: &str| std::env::var(env).ok().or_else(|| cfg[key].as_str().map(str::to_string)).map(|s| s.to_lowercase());
-    let mut w = WgpuSettings::default();
-    match pick("LR_BACKEND", "backend").as_deref() {
-        Some("vulkan") => w.backends = Some(Backends::VULKAN),
-        Some("dx12") => w.backends = Some(Backends::DX12),
-        Some("gl") => w.backends = Some(Backends::GL),
-        Some("metal") => w.backends = Some(Backends::METAL),
-        Some("auto") => w.backends = Some(Backends::all()),
-        // WGPU_BACKEND is still honoured (handled by `WgpuSettings::default`).
-        // Under Wine, DX12 goes through vkd3d, where wgpu's format queries panic; Vulkan works there.
-        _ if cfg!(windows) && std::env::var("WGPU_BACKEND").is_err() => {
-            let wine = ["WINELOADER", "WINEDLLDIR0", "WINEDATADIR", "WINEUSERNAME", "WINEPREFIX"].iter().any(|k| std::env::var_os(k).is_some());
-            w.backends = Some(if wine { Backends::VULKAN } else { Backends::DX12 });
-        }
-        _ => {}
-    }
-    if !full_renderer() {
-        // Without this feature Bevy reports "some GPU preprocessing is limited": it keeps the simple
-        // mesh preprocessing but drops indirect/occlusion culling and with it the depth-pyramid
-        // compute pipelines (read-write R32Float storage textures) that fail on these GPUs.
-        // (Zeroing the compute limits instead is not an option: the atmosphere plugin then fails.)
-        w.disabled_features = Some(WgpuFeatures::INDIRECT_FIRST_INSTANCE);
-    }
-    bevy::render::RenderPlugin { render_creation: RenderCreation::Automatic(Box::new(w)), ..default() }
-}
-
-/// Keeps the app running after wgpu validation errors.
-///
-/// Bevy 0.20 quits on any render error, which on GPUs with partial feature support turns one
-/// failed optional pipeline into "black window, then the program closes". Validation errors are
-/// logged (once each) and rendering continues; device loss and out-of-memory still quit.
-pub fn tolerate_render_errors(app: &mut App) {
-    use bevy::render::error_handler::{ErrorType, RenderErrorHandler, RenderErrorPolicy};
-    app.insert_resource(RenderErrorHandler(|error, main_world, _| {
-        if matches!(error.ty, ErrorType::Validation) {
-            RenderErrorPolicy::Ignore
-        } else {
-            error!("Quitting because of a fatal render error: {:?}", error.ty);
-            main_world.write_message(AppExit::error());
-            RenderErrorPolicy::StopRendering
-        }
-    }));
-}
-
-/// True when the user asked for Bevy's full default renderer.
-pub fn full_renderer() -> bool {
-    let cfg = settings();
-    std::env::var("LR_RENDERER").ok().or_else(|| cfg["renderer"].as_str().map(str::to_string)).map_or(false, |s| s.eq_ignore_ascii_case("full"))
-}
-
-/// Anti-aliasing for the main camera: MSAA only with the full renderer
-/// (multisampled depth is one of the things old integrated GPUs choke on).
-pub fn camera_aa() -> Msaa {
-    if full_renderer() {
-        Msaa::Sample4
-    } else {
-        Msaa::Off
-    }
-}
-
-/// Reads the saved hotkey preset (`settings.json` next to the assets folder).
+/// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
 pub fn load_preset() -> u8 {
-    std::fs::read_to_string(settings_path())
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .map_or(0, |v| if v["hotkeys"] == "faf_alternative" { 1 } else { 0 })
-}
-
-pub fn save_preset(preset: u8) {
-    let mut v = settings();
-    v["hotkeys"] = serde_json::json!(if preset == 1 { "faf_alternative" } else { "default" });
-    let _ = std::fs::write(settings_path(), serde_json::to_string_pretty(&v).unwrap_or_default());
+    (crate::settings::Settings::load().hotkeys == "faf_alternative") as u8
 }
 
 impl ViewState {
@@ -187,7 +93,7 @@ impl ViewState {
             mmb_last: None,
             last_tick: u32::MAX,
             tick_time: 0.0,
-            shadows: true,
+            settings_open: false,
             show_help: false,
             preset: load_preset(),
             hot: (None, 0, 0.0, DefId::MAX),
@@ -425,9 +331,9 @@ fn wreck_visuals(
 }
 
 /// Moves the sun's shadow range with the zoom level and applies the shadow toggle.
-fn light_follow(view: Res<ViewState>, mut q: Query<(&mut DirectionalLight, &mut bevy::light::CascadeShadowConfig), With<Sun>>) {
+fn light_follow(view: Res<ViewState>, settings: Res<crate::settings::Settings>, mut q: Query<(&mut DirectionalLight, &mut bevy::light::CascadeShadowConfig), With<Sun>>) {
     for (mut light, mut cfg) in &mut q {
-        let on = view.shadows && view.cam_dist < 420.0;
+        let on = settings.shadows > 0 && view.cam_dist < 420.0;
         if light.shadow_maps_enabled != on {
             light.shadow_maps_enabled = on;
         }

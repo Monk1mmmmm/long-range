@@ -3,6 +3,23 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.2.3
+
+Fixes
+- Black 3D view (UI and minimap visible, no terrain or units) on Windows with DirectX 12: the game fell
+  back to the old FXC shader compiler when `dxcompiler.dll` was not present. The DXC compiler is now built
+  into the Windows executables.
+- Minimap flickering in game (its fog overlay was a texture re-uploaded twice a second).
+- The whole map flickering in the editor while sculpting terrain: brushes now update only the touched
+  terrain pieces in place.
+
+New
+- Settings window (main menu and Esc menu): graphics API (Automatic / DirectX 12 / Vulkan / OpenGL),
+  renderer (Compatible / Full), shadows, anti-aliasing (Off / FXAA / MSAA 4x), v-sync, fullscreen and
+  hotkey preset. API and renderer changes apply after a restart ("Restart now" button).
+- Graphics errors are written to `render-errors.log` next to the game and shown in the settings window.
+  If the 3D view is black or broken, try another graphics API and send that file.
+
 ## v0.2.2
 
 Fixes

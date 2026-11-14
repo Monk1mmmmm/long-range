@@ -28,8 +28,6 @@ pub struct HudAssets {
     blip: Option<TextureHandle>,
     orders: HashMap<&'static str, TextureHandle>,
     minimap: Option<TextureHandle>,
-    fogmap: Option<TextureHandle>,
-    fog_tick: u32,
 }
 
 impl HudAssets {
@@ -135,6 +133,10 @@ pub struct UiParams<'w, 's> {
     units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Has<Hosted>, Has<Paused>)>,
     wrecks: Query<'w, 's, &'static Wreck>,
     camera: Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<MainCamera>>,
+    settings: ResMut<'w, crate::settings::Settings>,
+    started: Res<'w, crate::settings::StartSettings>,
+    render_errors: Res<'w, crate::settings::RenderErrors>,
+    adapter: Option<Res<'w, bevy::render::renderer::RenderAdapterInfo>>,
 }
 
 fn rgb(c: [f32; 3]) -> Color32 {
@@ -472,7 +474,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // ---------------------------------------------------------------- HUD geometry
     let mm = rect(8.0, sh - MM - 8.0, MM, MM);
     let panel = rect(MM + 18.0, sh - PANEL_H - 8.0, sw - MM - 26.0, PANEL_H);
-    let over_hud = mouse.y < TOP || mm.contains(mouse) || (!view.sel.is_empty() && panel.contains(mouse)) || view.menu_open;
+    let over_hud = mouse.y < TOP || mm.contains(mouse) || (!view.sel.is_empty() && panel.contains(mouse)) || view.menu_open
+        || view.settings_open
+        || ctx.is_pointer_over_egui();
 
     // ---------------------------------------------------------------- camera
     let world = map.world();
@@ -797,6 +801,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let mut do_stop = false;
     let mut do_upgrade = false;
     let mut do_repeat = false;
+    view.preset = (p.settings.hotkeys == "faf_alternative") as u8;
     let faf = view.preset == 1;
     if p.keys.just_pressed(KeyCode::Escape) {
         if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
@@ -818,7 +823,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     let mut do_pause = !view.menu_open && has_sel && p.keys.just_pressed(KeyCode::Tab);
     if p.keys.just_pressed(KeyCode::F6) {
-        view.shadows = !view.shadows;
+        p.settings.shadows = if p.settings.shadows > 0 { 0 } else { 2 };
+        p.settings.save();
     }
     if !view.menu_open && !ctx.egui_wants_keyboard_input() {
         let jp = |k: KeyCode| p.keys.just_pressed(k);
@@ -1247,22 +1253,30 @@ pub fn ui_system(mut p: UiParams) -> Result {
 
     // --- minimap
     let mini = p.assets.minimap.get_or_insert_with(|| ctx.load_texture("minimap", egui::ColorImage::from_rgba_unmultiplied([map.n, map.n], &minimap_pixels(map)), egui::TextureOptions::LINEAR)).clone();
-    if p.assets.fogmap.is_none() || game.tick.wrapping_sub(p.assets.fog_tick) >= 5 {
-        p.assets.fog_tick = game.tick;
-        let mut px = vec![0u8; map.n * map.n * 4];
-        for (i, a) in p.fog.alpha.iter().enumerate() {
-            px[i * 4 + 3] = *a;
-        }
-        let img = egui::ColorImage::from_rgba_unmultiplied([map.n, map.n], &px);
-        match &mut p.assets.fogmap {
-            Some(t) => t.set(img, egui::TextureOptions::LINEAR),
-            None => p.assets.fogmap = Some(ctx.load_texture("fogmap", img, egui::TextureOptions::LINEAR)),
-        }
-    }
     hud.rect_filled(mm.expand(2.0), 0.0, rgba(0, 0, 0, 240));
     hud.image(mini.id(), mm, UV, Color32::WHITE);
-    if let Some(f) = &p.assets.fogmap {
-        hud.image(f.id(), mm, UV, Color32::WHITE);
+    // Fog of war on the minimap: a coarse vertex-coloured grid. (A texture that was re-uploaded
+    // every few ticks made the whole minimap flicker.)
+    if !reveal {
+        const G: usize = 48;
+        let n = map.n;
+        let mut mesh = egui::Mesh::default();
+        for gy in 0..=G {
+            for gx in 0..=G {
+                let (cx, cy) = ((gx * (n - 1) / G).min(n - 1), (gy * (n - 1) / G).min(n - 1));
+                let a = p.fog.alpha[cy * n + cx];
+                mesh.colored_vertex(Pos2::new(mm.min.x + gx as f32 / G as f32 * MM, mm.min.y + gy as f32 / G as f32 * MM), rgba(0, 0, 0, a));
+            }
+        }
+        for gy in 0..G {
+            for gx in 0..G {
+                let i = (gy * (G + 1) + gx) as u32;
+                let w = G as u32 + 1;
+                mesh.add_triangle(i, i + 1, i + w);
+                mesh.add_triangle(i + 1, i + w + 1, i + w);
+            }
+        }
+        hud.add(egui::Shape::mesh(mesh));
     }
     let to_mm = |pt: V2| Pos2::new(mm.min.x + pt.x / world * MM, mm.min.y + pt.y / world * MM);
     for s in &seen {
@@ -1634,8 +1648,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         top.rect_filled(rect(x, y, w, h), 5.0, rgba(20, 24, 31, 252));
         top.rect_stroke(rect(x, y, w, h), 5.0, Stroke::new(1.5, line_c), StrokeKind::Inside);
         top.text(Pos2::new(sw * 0.5, y + 26.0), Align2::CENTER_CENTER, "MENU", font(22.0), Color32::WHITE);
-        let keys_label = if faf { "Hotkeys: FAF alternative" } else { "Hotkeys: default" };
-        for (k, l) in ["Resume", keys_label, "Resign", "Quit to main menu"].iter().enumerate() {
+        for (k, l) in ["Resume", "Settings", "Resign", "Quit to main menu"].iter().enumerate() {
             let r = rect(x + 30.0, y + 52.0 + k as f32 * 46.0, w - 60.0, 36.0);
             let hov = r.contains(mouse);
             top.rect_filled(r, 3.0, if hov { rgba(64, 76, 94, 255) } else { rgba(34, 40, 50, 255) });
@@ -1645,8 +1658,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 match k {
                     0 => view.menu_open = false,
                     1 => {
-                        view.preset = 1 - view.preset.min(1);
-                        super::save_preset(view.preset);
+                        view.settings_open = true;
+                        view.menu_open = false;
                     }
                     2 => {
                         out.push(Command::Resign);
@@ -1655,6 +1668,17 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     _ => view.quit = true,
                 }
             }
+        }
+    }
+    // Settings window (opened from the Esc menu).
+    if view.settings_open {
+        let adapter = p.adapter.as_ref().map_or("unknown".to_string(), |a| format!("{} ({:?})", a.name, a.backend));
+        let mut close = false;
+        egui::Window::new("settings").title_bar(false).resizable(false).anchor(Align2::CENTER_CENTER, [0.0, 0.0]).show(&ctx, |ui| {
+            close = crate::settings::settings_ui(ui, &mut p.settings, &p.started.0, &adapter, &p.render_errors.0, true);
+        });
+        if close || p.keys.just_pressed(KeyCode::Escape) {
+            view.settings_open = false;
         }
     }
     let _ = bcol;
