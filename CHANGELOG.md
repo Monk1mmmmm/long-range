@@ -7,8 +7,8 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 Fixes
 - Black 3D view (UI and minimap visible, no terrain or units) on Windows with DirectX 12: the game fell
-  back to the old FXC shader compiler when `dxcompiler.dll` was not present. The DXC compiler is now built
-  into the Windows executables.
+  back to the old FXC shader compiler when `dxcompiler.dll` was not present. The DXC compiler now always
+  comes with the game: built into the executables, or as `dxcompiler.dll` next to them (keep that file).
 - Minimap flickering in game (its fog overlay was a texture re-uploaded twice a second).
 - The whole map flickering in the editor while sculpting terrain: brushes now update only the touched
   terrain pieces in place.

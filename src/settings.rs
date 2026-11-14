@@ -87,7 +87,33 @@ pub fn render_plugin(s: &Settings) -> bevy::render::RenderPlugin {
         // (Zeroing the compute limits instead is not an option: the atmosphere plugin then fails.)
         w.disabled_features = Some(WgpuFeatures::INDIRECT_FIRST_INSTANCE);
     }
-    bevy::render::RenderPlugin { render_creation: RenderCreation::Automatic(Box::new(w)), ..default() }
+    // DX12 shader compiler. MSVC builds have DXC linked in (Bevy selects it). Other Windows builds
+    // (MinGW cross build) look for dxcompiler.dll next to the executable: Bevy only checks the
+    // current directory, and falls back to FXC, with which the 3D view stays black.
+    if cfg!(all(windows, not(target_env = "msvc"))) && std::env::var_os("WGPU_DX12_COMPILER").is_none() {
+        use bevy::render::settings::Dx12Compiler;
+        let dll = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("dxcompiler.dll"))).filter(|p| p.is_file());
+        w.dx12_shader_compiler = match dll {
+            Some(p) => Dx12Compiler::DynamicDxc { dxc_path: p.to_string_lossy().into_owned() },
+            None => {
+                eprintln!("dxcompiler.dll not found next to the executable: DirectX 12 uses the old FXC shader compiler");
+                Dx12Compiler::Fxc
+            }
+        };
+    }
+    // OpenGL has one context guarded by a lock: pipelines compiled on Bevy's background threads
+    // time out waiting for it ("Could not lock adapter context") and take the program down.
+    let gl = w.backends == Some(Backends::GL);
+    bevy::render::RenderPlugin { render_creation: RenderCreation::Automatic(Box::new(w)), synchronous_pipeline_compilation: gl, ..default() }
+}
+
+/// Log configuration shared by the game and the editor.
+///
+/// wgpu's OpenGL backend reports the same harmless texture-view "heuristics" message several times
+/// per frame (thousands of lines a minute); that module is silenced, its shader errors are kept.
+pub fn log_plugin() -> bevy::log::LogPlugin {
+    let filter = format!("{},wgpu_hal::gles=off,wgpu_hal::gles::device=error", bevy::log::DEFAULT_FILTER);
+    bevy::log::LogPlugin { filter, ..default() }
 }
 
 /// Render errors seen so far (also appended to `render-errors.log`), for the settings window.
@@ -97,8 +123,8 @@ pub struct RenderErrors(pub Vec<String>);
 /// Keeps the app running after wgpu validation errors and records them.
 ///
 /// Bevy 0.20 quits on any render error, which on GPUs with partial feature support turns one
-/// failed pipeline into "black window, then the program closes". Validation errors are logged,
-/// written to `render-errors.log` and shown in Settings; device loss and out-of-memory still quit.
+/// failed pipeline into "black window, then the program closes". Validation and internal (driver, shader compiler) errors are
+/// logged, written to `render-errors.log` and shown in Settings; device loss and out-of-memory still quit.
 pub fn tolerate_render_errors(app: &mut App) {
     use bevy::render::error_handler::{ErrorType, RenderErrorHandler, RenderErrorPolicy};
     app.init_resource::<RenderErrors>();
@@ -113,7 +139,9 @@ pub fn tolerate_render_errors(app: &mut App) {
             }
             log.0.push(text);
         }
-        if matches!(error.ty, ErrorType::Validation) {
+        // Internal = a driver refused something, typically one shader (the OpenGL backend cannot compile
+        // Bevy's ambient-occlusion shader, which the game never uses). Only that pipeline is lost.
+        if matches!(error.ty, ErrorType::Validation | ErrorType::Internal) {
             RenderErrorPolicy::Ignore
         } else {
             error!("Quitting because of a fatal render error: {:?}", error.ty);

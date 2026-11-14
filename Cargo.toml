@@ -15,10 +15,17 @@ bincode = "1.3"
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
-# Windows: build the DXC shader compiler in. Without it DirectX 12 falls back to the old FXC
-# compiler, which is extremely slow on (or fails) Bevy's PBR shaders: black 3D view, working UI.
-[target.'cfg(windows)'.dependencies]
+# Windows (MSVC builds): build the DXC shader compiler in. Without it DirectX 12 falls back to the old
+# FXC compiler, which is extremely slow on (or fails) Bevy's PBR shaders: black 3D view, working UI.
+# wgpu can only link DXC statically with MSVC. The MinGW cross build from Linux ships dxcompiler.dll
+# next to the exe instead (scripts/release.sh), which settings::render_plugin picks up.
+[target.'cfg(all(windows, target_env = "msvc"))'.dependencies]
 bevy = { version = "0.20", default-features = false, features = ["3d", "statically-linked-dxc"] }
+
+[features]
+# Development only: `cargo run --features dev` links Bevy as a shared library, so a change to our code
+# relinks in seconds instead of relinking the whole engine. Never use it for release builds.
+dev = ["bevy/dynamic_linking"]
 
 # Fast-ish incremental builds of our code, fully optimised engine.
 [profile.dev]

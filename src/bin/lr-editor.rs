@@ -157,8 +157,7 @@ fn editor_ui(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    (keys, buttons): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>),
     mut wheel: MessageReader<MouseWheel>,
     time: Res<Time>,
     mut gizmos: Gizmos,
@@ -476,7 +475,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window { title: "Long Range - map editor".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
             ..default()
-        }).set(longrange::settings::render_plugin(&longrange::settings::Settings::load())))
+        }).set(longrange::settings::render_plugin(&longrange::settings::Settings::load())).set(longrange::settings::log_plugin()))
         .add_plugins(bevy_egui::EguiPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
         .insert_resource(Editor {

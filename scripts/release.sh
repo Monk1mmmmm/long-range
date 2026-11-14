@@ -8,7 +8,8 @@
 #   scripts/release.sh --draft            create the GitHub release as a draft
 #
 # Requirements: Rust (rustup). For the Windows bundle on Linux: the cross target and MinGW
-#   rustup target add x86_64-pc-windows-gnu      and the package mingw-w64-gcc (x86_64-w64-mingw32-gcc)
+#   rustup target add x86_64-pc-windows-gnu      and the package mingw-w64-gcc (x86_64-w64-mingw32-gcc),
+#   plus curl and unzip (the bundle ships Microsoft's dxcompiler.dll, downloaded once into target/dxc)
 # For the upload: the GitHub CLI `gh`, logged in (`gh auth login`), and the commit you build pushed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -38,6 +39,23 @@ build_bins() {
     cargo build --release --bin lr-editor "$@"
 }
 
+# The MinGW build cannot link Microsoft's DXC shader compiler statically (wgpu supports that with MSVC
+# only), so its bundle ships dxcompiler.dll. Without DXC, DirectX 12 falls back to FXC: black 3D view.
+DXC_URL=https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip
+DXC_DIR=""
+fetch_dxc() {
+    local d=target/dxc
+    if [ -s "$d/dxcompiler.dll" ] && [ -s "$d/dxil.dll" ]; then return; fi
+    echo "== downloading the DXC shader compiler"
+    mkdir -p "$d"
+    curl -fsSL -o "$d/dxc.zip" "$DXC_URL"
+    unzip -p "$d/dxc.zip" 'bin?x64?dxcompiler.dll' > "$d/dxcompiler.dll"
+    unzip -p "$d/dxc.zip" 'bin?x64?dxil.dll' > "$d/dxil.dll"
+    unzip -p "$d/dxc.zip" LICENSE-MS.txt > "$d/LICENSE-DXC-MS.txt"
+    unzip -p "$d/dxc.zip" LICENSE-LLVM.txt > "$d/LICENSE-DXC-LLVM.txt"
+    unlink "$d/dxc.zip"
+}
+
 bundle() { # <platform name> <cargo output dir> <exe suffix>
     local name="longrange-$VERSION-$1" out
     local dir="dist/${name:?}"
@@ -47,6 +65,9 @@ bundle() { # <platform name> <cargo output dir> <exe suffix>
     fi
     mkdir -p "$dir"
     cp "$2/longrange$3" "$2/lr-editor$3" "$dir/"
+    if [ -n "$DXC_DIR" ]; then
+        cp "$DXC_DIR/dxcompiler.dll" "$DXC_DIR/dxil.dll" "$DXC_DIR"/LICENSE-DXC-*.txt "$dir/"
+    fi
     cp -r assets "$dir/assets"
     cp README.md CHANGELOG.md "$dir/"
     if [ -f LICENSE ]; then cp LICENSE "$dir/"; fi
@@ -79,6 +100,8 @@ if [ -z "$ONLY" ] || [ "$ONLY" = windows ]; then
                 exit 1
             fi
             build_bins --target x86_64-pc-windows-gnu
+            fetch_dxc
+            DXC_DIR=target/dxc
             bundle windows-x86_64 target/x86_64-pc-windows-gnu/release .exe ;;
     esac
 fi

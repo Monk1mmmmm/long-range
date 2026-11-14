@@ -29,6 +29,7 @@ reused here. Do not copy stock SupCom names or art beyond what is in the mod fol
 
 ```
 cargo run                         # game (dev profile: our code opt 1, dependencies opt 3)
+cargo run --features dev          # same, Bevy linked dynamically: much faster rebuilds (never for releases)
 cargo run --release
 cargo run -- --skirmish           # straight into a game vs 3 AIs
 cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats
@@ -72,8 +73,14 @@ Windows defaults to DX12 (the Intel Vulkan driver `igvk64.dll` crashes at start-
 `INDIRECT_FIRST_INSTANCE` is disabled so Bevy skips GPU occlusion culling and its depth-pyramid compute passes,
 MSAA is off, and validation errors are logged instead of quitting (Bevy 0.20's default handler exits the app).
 Do NOT zero the compute limits to force CPU preprocessing: the atmosphere plugin then fails validation at start.
-Windows builds link the DXC shader compiler statically (`statically-linked-dxc`): with FXC the 3D view stayed
+Windows needs the DXC shader compiler: MSVC builds link it statically (`statically-linked-dxc`, which wgpu only
+supports with MSVC - a MinGW build with that feature panics at start-up), the MinGW cross build made by
+`scripts/release.sh` ships `dxcompiler.dll` next to the exe (`render_plugin` looks for it there): with FXC the 3D view stayed
 black while the UI rendered. The OpenGL backend comes from a direct `wgpu` dependency with the `gles` feature.
+OpenGL needs `synchronous_pipeline_compilation` (background pipeline compiles panic with "Could not lock adapter
+context") and its failing SSAO shader arrives as an `Internal` error, which the handler tolerates like validation
+errors; `settings::log_plugin` mutes the per-frame `wgpu_hal::gles` heuristics spam.
+The Windows exe can be run straight from WSL (`dist/.../longrange.exe --skirmish`, console output is captured).
 Render errors go to `render-errors.log` and the settings window. Overrides: `LR_BACKEND`, `LR_RENDERER=full`.
 Wine's DX12 (vkd3d) panics inside wgpu's format query (`wgpu-hal dx12/adapter.rs`, CheckFeatureSupport) no matter
 what we do; test Windows builds under Wine with `LR_BACKEND=vulkan`.
