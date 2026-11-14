@@ -98,7 +98,11 @@ pub fn render_plugin() -> bevy::render::RenderPlugin {
         Some("metal") => w.backends = Some(Backends::METAL),
         Some("auto") => w.backends = Some(Backends::all()),
         // WGPU_BACKEND is still honoured (handled by `WgpuSettings::default`).
-        _ if cfg!(windows) && std::env::var("WGPU_BACKEND").is_err() => w.backends = Some(Backends::DX12),
+        // Under Wine, DX12 goes through vkd3d, where wgpu's format queries panic; Vulkan works there.
+        _ if cfg!(windows) && std::env::var("WGPU_BACKEND").is_err() => {
+            let wine = ["WINELOADER", "WINEDLLDIR0", "WINEDATADIR", "WINEUSERNAME", "WINEPREFIX"].iter().any(|k| std::env::var_os(k).is_some());
+            w.backends = Some(if wine { Backends::VULKAN } else { Backends::DX12 });
+        }
         _ => {}
     }
     if !full_renderer() {
@@ -109,6 +113,24 @@ pub fn render_plugin() -> bevy::render::RenderPlugin {
         w.disabled_features = Some(WgpuFeatures::INDIRECT_FIRST_INSTANCE);
     }
     bevy::render::RenderPlugin { render_creation: RenderCreation::Automatic(Box::new(w)), ..default() }
+}
+
+/// Keeps the app running after wgpu validation errors.
+///
+/// Bevy 0.20 quits on any render error, which on GPUs with partial feature support turns one
+/// failed optional pipeline into "black window, then the program closes". Validation errors are
+/// logged (once each) and rendering continues; device loss and out-of-memory still quit.
+pub fn tolerate_render_errors(app: &mut App) {
+    use bevy::render::error_handler::{ErrorType, RenderErrorHandler, RenderErrorPolicy};
+    app.insert_resource(RenderErrorHandler(|error, main_world, _| {
+        if matches!(error.ty, ErrorType::Validation) {
+            RenderErrorPolicy::Ignore
+        } else {
+            error!("Quitting because of a fatal render error: {:?}", error.ty);
+            main_world.write_message(AppExit::error());
+            RenderErrorPolicy::StopRendering
+        }
+    }));
 }
 
 /// True when the user asked for Bevy's full default renderer.

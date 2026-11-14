@@ -31,6 +31,13 @@ TAG=${TAG:-v$VERSION}
 mkdir -p dist
 FILES=()
 
+# The two programs are built one after the other: linking both at once needs more memory
+# than an 8 GB machine has and ends in swap thrashing.
+build_bins() {
+    cargo build --release --bin longrange "$@"
+    cargo build --release --bin lr-editor "$@"
+}
+
 bundle() { # <platform name> <cargo output dir> <exe suffix>
     local name="longrange-$VERSION-$1" out
     local dir="dist/${name:?}"
@@ -57,21 +64,21 @@ bundle() { # <platform name> <cargo output dir> <exe suffix>
 
 if [ -z "$ONLY" ] || [ "$ONLY" = linux ]; then
     echo "== building Linux x86_64"
-    cargo build --release --bins
+    build_bins
     bundle linux-x86_64 target/release ""
 fi
 if [ -z "$ONLY" ] || [ "$ONLY" = windows ]; then
     echo "== building Windows x86_64"
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*)
-            cargo build --release --bins
+            build_bins
             bundle windows-x86_64 target/release .exe ;;
         *)
             if ! rustup target list --installed 2>/dev/null | grep -q x86_64-pc-windows-gnu || ! command -v x86_64-w64-mingw32-gcc >/dev/null; then
                 echo "Windows cross build needs: rustup target add x86_64-pc-windows-gnu, and mingw-w64 gcc" >&2
                 exit 1
             fi
-            cargo build --release --bins --target x86_64-pc-windows-gnu
+            build_bins --target x86_64-pc-windows-gnu
             bundle windows-x86_64 target/x86_64-pc-windows-gnu/release .exe ;;
     esac
 fi

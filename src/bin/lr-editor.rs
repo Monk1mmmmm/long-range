@@ -459,7 +459,8 @@ fn main() {
     }
     let map = MapData::generate(192, 1, 4);
     let first_prop = defs.id("house").unwrap_or(0);
-    App::new()
+    let mut app = App::new();
+    app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window { title: "Long Range - map editor".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
             ..default()
@@ -490,6 +491,7 @@ fn main() {
         .insert_resource(defs)
         .init_resource::<ModelCache>()
         .add_systems(Startup, setup)
-        .add_systems(EguiPrimaryContextPass, editor_ui)
-        .run();
+        .add_systems(EguiPrimaryContextPass, editor_ui);
+    longrange::view::tolerate_render_errors(&mut app);
+    app.run();
 }

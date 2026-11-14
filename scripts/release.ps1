@@ -26,8 +26,11 @@ $files = @()
 
 if ($Only -eq "" -or $Only -eq "windows") {
     Write-Host "== building Windows x86_64"
-    cargo build --release --bins
-    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    # One program at a time: linking both at once can exhaust memory on small machines.
+    foreach ($bin in "longrange", "lr-editor") {
+        cargo build --release --bin $bin
+        if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    }
     $name = "longrange-$version-windows-x86_64"
     $dir = Join-Path "dist" $name
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }

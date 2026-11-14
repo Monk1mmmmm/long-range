@@ -1,5 +1,6 @@
 //! Long Range - game executable: window, main menu, lobby and the host/client session loop.
-#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+// Note: no `windows_subsystem = "windows"`: the console window carries the log, which is what
+// people need when the game fails to start on their GPU (`longrange.exe > log.txt 2>&1`).
 
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
@@ -977,5 +978,6 @@ fn main() {
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, fullscreen_toggle)
     .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
+    view::tolerate_render_errors(&mut app);
     app.run();
 }

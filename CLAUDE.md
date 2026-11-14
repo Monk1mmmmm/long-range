@@ -54,6 +54,25 @@ session's Xwayland and `WAYLAND_DISPLAY` unset; screenshot with `WAYLAND_DISPLAY
 The first xdotool mouse move lands at the window centre - do a throwaway move before the first click.
 `swaymsg seat cursor ...` does not reach clients in headless mode.
 
+### Building on this machine
+
+Link one binary at a time (`cargo build --bin longrange`, then `--bin lr-editor`). `cargo build --bins` links
+both in parallel, which filled 8 GB RAM + 8 GB swap and thrashed for half an hour without finishing. The release
+scripts already build sequentially. Compiling the crate itself takes about a minute.
+
+### Renderer compatibility (old Intel iGPUs)
+
+`view::render_plugin()` / `camera_aa()` / `tolerate_render_errors()` are used by both binaries:
+Windows defaults to DX12 (the Intel Vulkan driver `igvk64.dll` crashes at start-up on HD 520/530),
+`INDIRECT_FIRST_INSTANCE` is disabled so Bevy skips GPU occlusion culling and its depth-pyramid compute passes,
+MSAA is off, and validation errors are logged instead of quitting (Bevy 0.20's default handler exits the app).
+Do NOT zero the compute limits to force CPU preprocessing: the atmosphere plugin then fails validation at start.
+Overrides: `LR_BACKEND` / `"backend"` and `LR_RENDERER=full` / `"renderer"` in `settings.json`.
+Wine's DX12 (vkd3d) panics inside wgpu's format query (`wgpu-hal dx12/adapter.rs`, CheckFeatureSupport) no matter
+what we do; test Windows builds under Wine with `LR_BACKEND=vulkan`.
+Never replace the camera `Projection` wholesale each frame: it resets `aspect_ratio` and frustum culling then
+drops terrain at the screen sides (edit `fov/near/far` in place).
+
 ## Conventions
 
 - World units = SupCom units (a tank is ~0.7 wide, ranges 15-300). Y is up. Model forward is -Z.

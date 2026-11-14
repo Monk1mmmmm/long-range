@@ -536,7 +536,17 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let target3 = set_matrices(view);
     if let Ok((mut t, mut proj)) = p.camera.single_mut() {
         *t = Transform::from_translation(view.cam_pos).looking_at(target3, Vec3::Y);
-        *proj = Projection::Perspective(PerspectiveProjection { fov: FOV, near: (view.cam_dist * 0.02).max(0.3), far: view.cam_dist * 8.0 + 3000.0, ..default() });
+        // Adjust the existing projection in place: replacing it would reset the aspect ratio
+        // to 1:1 until Bevy recomputes it, and frustum culling would drop everything left and
+        // right of a square view (missing terrain chunks at the screen edges).
+        let (near, far) = ((view.cam_dist * 0.02).max(0.3), view.cam_dist * 8.0 + 3000.0);
+        if let Projection::Perspective(pp) = &mut *proj {
+            if pp.fov != FOV || (pp.near - near).abs() > 0.01 || (pp.far - far).abs() > 1.0 {
+                pp.fov = FOV;
+                pp.near = near;
+                pp.far = far;
+            }
+        }
     }
     let w2s = |view: &ViewState, pt: Vec3| -> Option<(Pos2, f32)> {
         let c = view.vp * pt.extend(1.0);
