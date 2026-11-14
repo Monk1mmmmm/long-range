@@ -68,6 +68,70 @@ fn settings_path() -> std::path::PathBuf {
     crate::data::asset_root().parent().map(|p| p.to_path_buf()).unwrap_or_default().join("settings.json")
 }
 
+/// Parsed `settings.json` (empty object when missing).
+pub fn settings() -> serde_json::Value {
+    std::fs::read_to_string(settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Renderer setup shared by the game and the editor.
+///
+/// Old integrated GPUs (Intel HD 5xx and similar) crash or show a black window with Bevy's
+/// default pipeline: the Intel Vulkan driver on Windows faults at start-up, and the GPU-driven
+/// path (compute preprocessing, depth pyramid, multisampled depth) fails on their DX12 drivers.
+/// So by default we run a conservative configuration:
+/// - Windows uses DirectX 12 instead of Vulkan;
+/// - compute shaders are switched off, which makes Bevy fall back to CPU mesh preprocessing
+///   and skip the occlusion-culling depth pyramid;
+/// - no MSAA (see `camera_aa`).
+///
+/// Overrides, from the environment or `settings.json` next to the assets folder:
+/// - `LR_BACKEND` / `"backend"`: `vulkan`, `dx12`, `gl`, `metal` or `auto`
+/// - `LR_RENDERER` / `"renderer"`: `compat` (default) or `full` (Bevy's defaults)
+pub fn render_plugin() -> bevy::render::RenderPlugin {
+    use bevy::render::settings::{Backends, RenderCreation, WgpuLimits, WgpuSettings};
+    let cfg = settings();
+    let pick = |env: &str, key: &str| std::env::var(env).ok().or_else(|| cfg[key].as_str().map(str::to_string)).map(|s| s.to_lowercase());
+    let mut w = WgpuSettings::default();
+    match pick("LR_BACKEND", "backend").as_deref() {
+        Some("vulkan") => w.backends = Some(Backends::VULKAN),
+        Some("dx12") => w.backends = Some(Backends::DX12),
+        Some("gl") => w.backends = Some(Backends::GL),
+        Some("metal") => w.backends = Some(Backends::METAL),
+        Some("auto") => w.backends = Some(Backends::all()),
+        // WGPU_BACKEND is still honoured (handled by `WgpuSettings::default`).
+        _ if cfg!(windows) && std::env::var("WGPU_BACKEND").is_err() => w.backends = Some(Backends::DX12),
+        _ => {}
+    }
+    if !full_renderer() {
+        w.constrained_limits = Some(WgpuLimits {
+            max_compute_workgroup_storage_size: 0,
+            max_compute_invocations_per_workgroup: 0,
+            max_compute_workgroup_size_x: 0,
+            max_compute_workgroup_size_y: 0,
+            max_compute_workgroup_size_z: 0,
+            max_compute_workgroups_per_dimension: 0,
+            ..WgpuLimits::default()
+        });
+    }
+    bevy::render::RenderPlugin { render_creation: RenderCreation::Automatic(Box::new(w)), ..default() }
+}
+
+/// True when the user asked for Bevy's full default renderer.
+pub fn full_renderer() -> bool {
+    let cfg = settings();
+    std::env::var("LR_RENDERER").ok().or_else(|| cfg["renderer"].as_str().map(str::to_string)).map_or(false, |s| s.eq_ignore_ascii_case("full"))
+}
+
+/// Anti-aliasing for the main camera: MSAA only with the full renderer
+/// (multisampled depth is one of the things old integrated GPUs choke on).
+pub fn camera_aa() -> Msaa {
+    if full_renderer() {
+        Msaa::Sample4
+    } else {
+        Msaa::Off
+    }
+}
+
 /// Reads the saved hotkey preset (`settings.json` next to the assets folder).
 pub fn load_preset() -> u8 {
     std::fs::read_to_string(settings_path())
@@ -77,7 +141,8 @@ pub fn load_preset() -> u8 {
 }
 
 pub fn save_preset(preset: u8) {
-    let v = serde_json::json!({ "hotkeys": if preset == 1 { "faf_alternative" } else { "default" } });
+    let mut v = settings();
+    v["hotkeys"] = serde_json::json!(if preset == 1 { "faf_alternative" } else { "default" });
     let _ = std::fs::write(settings_path(), serde_json::to_string_pretty(&v).unwrap_or_default());
 }
 

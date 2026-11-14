@@ -33,7 +33,7 @@ if ($Only -eq "" -or $Only -eq "windows") {
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     if (Test-Path "$dir.zip") { Remove-Item -Force "$dir.zip" }
     New-Item -ItemType Directory $dir | Out-Null
-    Copy-Item target\release\longrange.exe, target\release\lr-editor.exe, README.md $dir
+    Copy-Item target\release\longrange.exe, target\release\lr-editor.exe, README.md, CHANGELOG.md $dir
     if (Test-Path LICENSE) { Copy-Item LICENSE $dir }
     Copy-Item -Recurse assets (Join-Path $dir "assets")
     Compress-Archive -Path $dir -DestinationPath "$dir.zip"
@@ -70,6 +70,19 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "== creating release $Tag"
     $extra = @()
     if ($Draft) { $extra += "--draft" }
-    gh release create $Tag @files --target $sha --title "Long Range $Tag" --generate-notes @extra
+    # Release text: the section for this tag in CHANGELOG.md, or GitHub's generated notes without one.
+    $notes = @(); $on = $false
+    foreach ($line in Get-Content CHANGELOG.md) {
+        if ($line -eq "## $Tag") { $on = $true; continue }
+        if ($line -like "## *") { $on = $false }
+        if ($on) { $notes += $line }
+    }
+    if (($notes -join "").Trim()) {
+        $notes | Set-Content dist\release-notes.md -Encoding utf8
+        gh release create $Tag @files --target $sha --title "Long Range $Tag" --notes-file dist\release-notes.md @extra
+    } else {
+        Write-Host "no '## $Tag' section in CHANGELOG.md, using generated notes"
+        gh release create $Tag @files --target $sha --title "Long Range $Tag" --generate-notes @extra
+    }
 }
 gh release view $Tag --json url --jq .url

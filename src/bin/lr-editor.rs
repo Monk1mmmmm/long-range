@@ -429,7 +429,7 @@ fn editor_ui(
 
 fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>) {
     cache.init(&mut materials);
-    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
+    commands.spawn((Camera3d::default(), longrange::view::camera_aa(), Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
     ed.dirty = true;
 }
 
@@ -463,7 +463,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window { title: "Long Range - map editor".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
             ..default()
-        }))
+        }).set(longrange::view::render_plugin()))
         .add_plugins(bevy_egui::EguiPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
         .insert_resource(Editor {

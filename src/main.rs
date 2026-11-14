@@ -592,6 +592,7 @@ fn menu_ui(world: &mut World) {
 fn setup(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
+        view::camera_aa(),
         Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y),
         DistanceFog { color: Color::srgb(0.55, 0.62, 0.7), falloff: FogFalloff::Linear { start: 900.0, end: 4000.0 }, ..default() },
         MainCamera,
@@ -966,7 +967,7 @@ fn main() {
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window { title: "Long Range".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
         ..default()
-    }))
+    }).set(view::render_plugin()))
     .add_plugins(bevy_egui::EguiPlugin::default())
     .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
     .insert_resource(defs)

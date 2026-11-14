@@ -41,7 +41,7 @@ bundle() { # <platform name> <cargo output dir> <exe suffix>
     mkdir -p "$dir"
     cp "$2/longrange$3" "$2/lr-editor$3" "$dir/"
     cp -r assets "$dir/assets"
-    cp README.md "$dir/"
+    cp README.md CHANGELOG.md "$dir/"
     if [ -f LICENSE ]; then cp LICENSE "$dir/"; fi
     if [ "$3" = ".exe" ]; then
         out="dist/$name.zip"
@@ -97,6 +97,14 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     gh release upload "$TAG" "${FILES[@]}" --clobber
 else
     echo "== creating release $TAG"
-    gh release create "$TAG" "${FILES[@]}" --target "$HEAD_SHA" --title "Long Range $TAG" --generate-notes $DRAFT
+    # Release text: the section for this tag in CHANGELOG.md, or GitHub's generated notes without one.
+    NOTES=dist/release-notes.md
+    awk -v tag="## $TAG" '$0 == tag {on=1; next} /^## / {on=0} on' CHANGELOG.md > "$NOTES"
+    if [ -s "$NOTES" ]; then
+        gh release create "$TAG" "${FILES[@]}" --target "$HEAD_SHA" --title "Long Range $TAG" --notes-file "$NOTES" $DRAFT
+    else
+        echo "no '## $TAG' section in CHANGELOG.md, using generated notes"
+        gh release create "$TAG" "${FILES[@]}" --target "$HEAD_SHA" --title "Long Range $TAG" --generate-notes $DRAFT
+    fi
 fi
 gh release view "$TAG" --json url --jq .url
