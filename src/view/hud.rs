@@ -1,0 +1,1426 @@
+//! In-game UI in one egui pass: camera, selection and order input, world overlays
+//! (icons, bars, blips) and the HUD panels. Everything is painted by hand on egui layers.
+use super::icons;
+use super::intel::{FogGrid, IntelMemory};
+use super::terrain::{minimap_pixels, MainCamera};
+use super::{Interp, LocalCommands, Mode, ViewState};
+use crate::ai::assign;
+use crate::data::{DefId, Defs, UnitDef};
+use crate::map::*;
+use crate::sim::*;
+use crate::sim::Command;
+use bevy::ecs::system::SystemParam;
+use bevy::input::mouse::MouseWheel;
+use bevy::prelude::*;
+use bevy_egui::egui::{self, Align2, Color32, FontId, Pos2, Stroke, StrokeKind, TextureHandle};
+use bevy_egui::EguiContexts;
+use std::collections::HashMap;
+
+pub const FOV: f32 = 0.785;
+const TOP: f32 = 30.0;
+const MM: f32 = 200.0;
+const PANEL_H: f32 = 150.0;
+
+#[derive(Resource, Default)]
+pub struct HudAssets {
+    icons: HashMap<DefId, TextureHandle>,
+    portraits: HashMap<DefId, Option<TextureHandle>>,
+    blip: Option<TextureHandle>,
+    minimap: Option<TextureHandle>,
+    fogmap: Option<TextureHandle>,
+    fog_tick: u32,
+}
+
+impl HudAssets {
+    fn icon(&mut self, ctx: &egui::Context, d: &UnitDef) -> TextureHandle {
+        self.icons
+            .entry(d.idx)
+            .or_insert_with(|| {
+                let px = icons::render(&d.icon, d.tier);
+                ctx.load_texture(format!("icon_{}", d.id), egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &px), egui::TextureOptions::LINEAR)
+            })
+            .clone()
+    }
+    fn portrait(&mut self, ctx: &egui::Context, d: &UnitDef) -> Option<TextureHandle> {
+        self.portraits
+            .entry(d.idx)
+            .or_insert_with(|| {
+                let p = d.portrait.as_ref()?;
+                let img = image::open(crate::data::asset_root().join(p)).ok()?.into_rgba8();
+                Some(ctx.load_texture(format!("portrait_{}", d.id), egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw()), egui::TextureOptions::LINEAR))
+            })
+            .clone()
+    }
+}
+
+/// Plain per-frame copy of a unit's state, so UI code does not juggle ECS borrows.
+#[derive(Clone)]
+struct Info {
+    id: u32,
+    def: DefId,
+    owner: u8,
+    pos: V2,
+    y: f32,
+    hp: f32,
+    built: Option<f32>,
+    upg: Option<f32>,
+    orders: Vec<Order>,
+    weapons: Vec<WeaponState>,
+    factory: Option<Factory>,
+    work: u32,
+    /// In direct sight of the local team (not just on radar).
+    seen: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Contact {
+    /// In sight right now.
+    Visible,
+    /// On radar right now.
+    Radar,
+    /// Remembered position, not currently detected.
+    Stale,
+}
+
+struct Seen {
+    id: u32,
+    def: Option<DefId>,
+    owner: u8,
+    pos: V2,
+    y: f32,
+    sp: Pos2,
+    on_screen: bool,
+    rpx: f32,
+    contact: Contact,
+    mine: bool,
+    enemy: bool,
+    fade: f32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum MoveKind {
+    Move,
+    AttackMove,
+    Patrol,
+}
+
+#[derive(SystemParam)]
+pub struct UiParams<'w, 's> {
+    contexts: EguiContexts<'w, 's>,
+    defs: Res<'w, Defs>,
+    game: Res<'w, Game>,
+    map: Res<'w, MapData>,
+    view: ResMut<'w, ViewState>,
+    out: ResMut<'w, LocalCommands>,
+    assets: ResMut<'w, HudAssets>,
+    mem: Res<'w, IntelMemory>,
+    fog: Res<'w, FogGrid>,
+    time: Res<'w, Time>,
+    keys: Res<'w, ButtonInput<KeyCode>>,
+    mouse: Res<'w, ButtonInput<MouseButton>>,
+    wheel: MessageReader<'w, 's, MouseWheel>,
+    gizmos: Gizmos<'w, 's>,
+    #[allow(clippy::type_complexity)]
+    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Has<Hosted>)>,
+    wrecks: Query<'w, 's, &'static Wreck>,
+    camera: Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<MainCamera>>,
+}
+
+fn rgb(c: [f32; 3]) -> Color32 {
+    Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8)
+}
+fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+fn bcol(c: Color32) -> Color {
+    Color::srgba_u8(c.r(), c.g(), c.b(), c.a())
+}
+fn rect(x: f32, y: f32, w: f32, h: f32) -> egui::Rect {
+    egui::Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h))
+}
+const UV: egui::Rect = egui::Rect { min: Pos2 { x: 0.0, y: 0.0 }, max: Pos2 { x: 1.0, y: 1.0 } };
+
+fn path_len(p: &[V2]) -> f32 {
+    p.windows(2).map(|w| w[0].dist(w[1])).sum()
+}
+
+/// `n` evenly spaced points (with tangents) along a polyline.
+fn resample(path: &[V2], n: usize) -> Vec<(V2, V2)> {
+    let total = path_len(path);
+    if path.len() < 2 || total < 0.01 {
+        return vec![(path[0], v2(1.0, 0.0)); n];
+    }
+    let mut out = vec![];
+    for k in 0..n {
+        let want = if n > 1 { total * k as f32 / (n - 1) as f32 } else { total * 0.5 };
+        let mut acc = 0.0;
+        let mut res = (*path.last().unwrap(), (path[path.len() - 1] - path[path.len() - 2]).norm());
+        for w in path.windows(2) {
+            let l = w[0].dist(w[1]);
+            if acc + l >= want && l > 0.0 {
+                res = (w[0].lerp(w[1], (want - acc) / l), (w[1] - w[0]).norm());
+                break;
+            }
+            acc += l;
+        }
+        out.push(res);
+    }
+    out
+}
+
+/// Everything the input and drawing helpers need, bundled.
+struct Frame<'a> {
+    defs: &'a Defs,
+    game: &'a Game,
+    map: &'a MapData,
+    infos: &'a HashMap<u32, Info>,
+    seen: &'a [Seen],
+    wrecks: &'a [(u32, V2, f32)],
+    team: u8,
+    sw: f32,
+    sh: f32,
+    mouse: Pos2,
+    shift: bool,
+    alt: bool,
+}
+
+impl Frame<'_> {
+    fn selected<'b>(&'b self, view: &ViewState) -> Vec<&'b Info> {
+        view.sel.iter().filter_map(|id| self.infos.get(id)).filter(|u| u.owner == view.me).collect()
+    }
+    fn d(&self, id: DefId) -> &UnitDef {
+        self.defs.get(id)
+    }
+
+    fn formation(&self, units: &[&Info], path: &[V2]) -> Vec<V2> {
+        let n = units.len();
+        if n == 0 {
+            return vec![];
+        }
+        let maxr = units.iter().map(|u| self.d(u.def).radius()).fold(0.0, f32::max);
+        let spacing = maxr * 2.0 + 1.0;
+        let len = path_len(path);
+        let mut pts = vec![];
+        if len < 2.5 || path.len() < 2 {
+            let c = path[0];
+            if n == 1 {
+                return vec![c];
+            }
+            let centroid = units.iter().fold(v2(0.0, 0.0), |a, u| a + u.pos) * (1.0 / n as f32);
+            let fwd = if c.dist(centroid) > 1.0 { (c - centroid).norm() } else { v2(0.0, -1.0) };
+            let side = fwd.perp();
+            let cols = ((n as f32).sqrt() * 1.35).ceil().max(1.0) as usize;
+            let rows = (n + cols - 1) / cols;
+            for k in 0..n {
+                let (col, row) = (k % cols, k / cols);
+                let in_row = if row == rows - 1 { n - row * cols } else { cols };
+                let x = (col as f32 - (in_row as f32 - 1.0) * 0.5) * spacing;
+                let y = ((rows as f32 - 1.0) * 0.5 - row as f32) * spacing;
+                pts.push(self.map.clamp(c + side * x + fwd * y));
+            }
+        } else {
+            let per_rank = ((len / spacing).floor() as usize + 1).clamp(1, n);
+            let ranks = (n + per_rank - 1) / per_rank;
+            let mut left = n;
+            for r in 0..ranks {
+                let m = left.min(per_rank);
+                left -= m;
+                for (p, tan) in resample(path, m) {
+                    pts.push(self.map.clamp(p - tan.perp() * (r as f32 * spacing)));
+                }
+            }
+        }
+        pts
+    }
+
+    /// Move-type orders with BAR-like spreading: a drawn line distributes the units along it,
+    /// a plain click arranges them in a loose block.
+    fn order_move(&self, view: &ViewState, path: &[V2], kind: MoveKind, queue: bool, out: &mut Vec<Command>) {
+        let units = self.selected(view);
+        let mk = |p: V2| match kind {
+            MoveKind::Move => Order::Move(p),
+            MoveKind::AttackMove => Order::AttackMove(p),
+            MoveKind::Patrol => Order::Patrol(p),
+        };
+        let end = *path.last().unwrap();
+        let rally: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_factory()).map(|u| u.id).collect();
+        if !rally.is_empty() {
+            out.push(Command::Orders { ids: rally, orders: vec![Order::Move(end)], queue: false });
+        }
+        let planes: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_plane()).map(|u| u.id).collect();
+        if !planes.is_empty() {
+            out.push(Command::Orders { ids: planes, orders: vec![mk(end)], queue });
+        }
+        let movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure() && !self.d(u.def).is_plane()).collect();
+        if movers.is_empty() {
+            return;
+        }
+        let pts = self.formation(&movers, path);
+        let from: Vec<V2> = movers
+            .iter()
+            .map(|u| {
+                if queue {
+                    for o in u.orders.iter().rev() {
+                        if let Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) | Order::Build { pos: p, .. } = o {
+                            return *p;
+                        }
+                    }
+                }
+                u.pos
+            })
+            .collect();
+        let asg = assign(&from, &pts);
+        out.push(Command::Orders { ids: movers.iter().map(|u| u.id).collect(), orders: asg.iter().map(|k| mk(pts[*k])).collect(), queue });
+    }
+
+    /// Positions for a dragged row of buildings, or every free deposit in a dragged circle.
+    fn build_spots(&self, d: DefId, a: V2, b: V2, occ: &[u8], from: V2) -> Vec<V2> {
+        let df = self.d(d);
+        let a_s = snap(self.defs, self.map, d, a);
+        if df.needs_deposit {
+            let r = a.dist(b);
+            if r < 3.0 {
+                return vec![a_s];
+            }
+            // Area extractor command: all free deposits in the circle, visited nearest-first.
+            let mut left: Vec<V2> = self.map.deposits.iter().copied().filter(|dp| dp.dist(a) <= r && can_place(self.defs, self.map, occ, d, *dp)).collect();
+            let mut out = vec![];
+            let mut cur = from;
+            while !left.is_empty() {
+                let (k, _) = left.iter().enumerate().min_by(|x, y| x.1.dist(cur).partial_cmp(&y.1.dist(cur)).unwrap()).unwrap();
+                cur = left.swap_remove(k);
+                out.push(cur);
+            }
+            return out;
+        }
+        let step = df.footprint as f32 * CELL;
+        let mut out = vec![a_s];
+        let dir = (b - a).norm();
+        let dir = if dir.x.abs() > dir.y.abs() { v2(dir.x.signum(), 0.0) } else { v2(0.0, dir.y.signum()) };
+        let n = (a.dist(b) / step).floor() as usize;
+        for k in 1..=n.min(40) {
+            let p = snap(self.defs, self.map, d, a_s + dir * (k as f32 * step));
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    fn hover(&self, over_hud: bool) -> Option<usize> {
+        if over_hud {
+            return None;
+        }
+        let mut best: Option<(f32, usize)> = None;
+        for (k, s) in self.seen.iter().enumerate() {
+            if !s.on_screen {
+                continue;
+            }
+            let d = s.sp.distance(self.mouse);
+            if d < s.rpx.max(11.0) && best.map_or(true, |b| d < b.0) {
+                best = Some((d, k));
+            }
+        }
+        best.map(|b| b.1)
+    }
+}
+
+/// Local occupancy grid for placement previews (works on clients too, which have no `Nav`).
+fn local_occ(map: &MapData, defs: &Defs, infos: &HashMap<u32, Info>) -> Vec<u8> {
+    let mut occ = map.blocked.clone();
+    for u in infos.values() {
+        let f = defs.get(u.def).footprint;
+        if f > 0 {
+            let (x0, y0) = foot_origin(u.pos, f);
+            for y in y0..y0 + f {
+                for x in x0..x0 + f {
+                    if map.inside(x, y) {
+                        occ[y as usize * map.n + x as usize] = 2;
+                    }
+                }
+            }
+        }
+    }
+    occ
+}
+
+/// A terrain-hugging circle drawn with gizmo lines.
+fn ring(g: &mut Gizmos, map: &MapData, c: V2, r: f32, col: Color) {
+    let n = (20.0 + r * 0.8).min(120.0) as usize;
+    let pt = |k: usize| {
+        let a = k as f32 / n as f32 * std::f32::consts::TAU;
+        let p = map.clamp(c + V2::from_angle(a) * r);
+        p.at(map.h(p).max(map.water) + 0.25)
+    };
+    g.linestrip((0..=n).map(pt), col);
+}
+
+fn ground_line(g: &mut Gizmos, map: &MapData, a: V2, b: V2, col: Color) {
+    let n = ((a.dist(b) / 6.0).ceil() as usize).clamp(1, 60);
+    g.linestrip(
+        (0..=n).map(|k| {
+            let p = a.lerp(b, k as f32 / n as f32);
+            p.at(map.h(p).max(map.water) + 0.3)
+        }),
+        col,
+    );
+}
+
+pub fn ui_system(mut p: UiParams) -> Result {
+    let ctx = p.contexts.ctx_mut()?.clone();
+    let (defs, game, map) = (&*p.defs, &*p.game, &*p.map);
+    let view = &mut *p.view;
+    let me = view.me;
+    let Some(player) = game.players.get(me as usize) else { return Ok(()) };
+    let team = player.team;
+    let reveal = super::intel::reveal(game, me);
+    let screen = ctx.content_rect();
+    let (sw, sh) = (screen.width().max(1.0), screen.height().max(1.0));
+    let mouse = ctx.pointer_latest_pos().unwrap_or(Pos2::new(sw * 0.5, sh * 0.5));
+    let now = p.time.elapsed_secs_f64();
+    let dt = p.time.delta_secs().min(0.1);
+    let shift = p.keys.pressed(KeyCode::ShiftLeft) || p.keys.pressed(KeyCode::ShiftRight);
+    let ctrl = p.keys.pressed(KeyCode::ControlLeft) || p.keys.pressed(KeyCode::ControlRight);
+    let alt = p.keys.pressed(KeyCode::AltLeft) || p.keys.pressed(KeyCode::AltRight);
+
+    // ---------------------------------------------------------------- per-frame unit data
+    let mut infos: HashMap<u32, Info> = HashMap::with_capacity(512);
+    let mut hosted: Vec<u32> = vec![];
+    for (u, i, h, intel, orders, w, f, b, uc, up, is_hosted) in &p.units {
+        let known = reveal || game.team_of(u.owner) == team || (intel.seen | intel.radar) & (1 << team) != 0;
+        if is_hosted {
+            hosted.push(u.id);
+        }
+        if !known && !is_hosted {
+            continue;
+        }
+        let own = u.owner == me;
+        infos.insert(
+            u.id,
+            Info {
+                id: u.id,
+                def: u.def,
+                owner: u.owner,
+                pos: i.pos,
+                y: i.y,
+                hp: h.0,
+                built: uc.map(|x| x.0),
+                upg: up.map(|x| x.0),
+                orders: if own { orders.0.clone() } else { vec![] },
+                weapons: w.map(|w| w.list.clone()).unwrap_or_default(),
+                factory: if own { f.cloned() } else { None },
+                work: b.map_or(0, |b| b.work),
+                seen: reveal || intel.seen & (1 << team) != 0,
+            },
+        );
+    }
+    view.sel.retain(|id| infos.get(id).map_or(false, |u| u.owner == me));
+    let wrecks: Vec<(u32, V2, f32)> = p.wrecks.iter().map(|w| (w.id, w.pos, w.mass)).collect();
+
+    // ---------------------------------------------------------------- HUD geometry
+    let mm = rect(8.0, sh - MM - 8.0, MM, MM);
+    let panel = rect(MM + 18.0, sh - PANEL_H - 8.0, sw - MM - 26.0, PANEL_H);
+    let over_hud = mouse.y < TOP || mm.contains(mouse) || (!view.sel.is_empty() && panel.contains(mouse)) || view.menu_open;
+
+    // ---------------------------------------------------------------- camera
+    let world = map.world();
+    let set_matrices = |view: &mut ViewState| {
+        let d = view.cam_dist;
+        let t = ((d - 50.0) / 260.0).clamp(0.0, 1.0);
+        let t = t * t * (3.0 - 2.0 * t);
+        let pitch = (50.0 + 34.0 * t).to_radians();
+        let target = view.cam_target.at(map.h(view.cam_target).max(map.water));
+        view.cam_pos = target + Vec3::new(0.0, d * pitch.sin(), d * pitch.cos());
+        let proj = Mat4::perspective_rh(FOV, sw / sh, 0.5, 6000.0);
+        view.vp = proj * Mat4::look_at_rh(view.cam_pos, target, Vec3::Y);
+        view.inv = view.vp.inverse();
+        target
+    };
+    let ray_ground = |view: &ViewState, m: Pos2| -> V2 {
+        let ndc = Vec3::new(2.0 * m.x / sw - 1.0, 1.0 - 2.0 * m.y / sh, 0.5);
+        let far = view.inv.project_point3(ndc);
+        match map.raycast(view.cam_pos, far - view.cam_pos) {
+            Some(hit) => map.clamp(flat(hit)),
+            None => view.cam_target,
+        }
+    };
+    set_matrices(view);
+    if !view.menu_open {
+        let pan = view.cam_dist * 0.9 * dt;
+        if p.keys.pressed(KeyCode::ArrowLeft) {
+            view.cam_target.x -= pan;
+        }
+        if p.keys.pressed(KeyCode::ArrowRight) {
+            view.cam_target.x += pan;
+        }
+        if p.keys.pressed(KeyCode::ArrowUp) {
+            view.cam_target.y -= pan;
+        }
+        if p.keys.pressed(KeyCode::ArrowDown) {
+            view.cam_target.y += pan;
+        }
+        if p.mouse.pressed(MouseButton::Middle) {
+            if let Some(last) = view.mmb_last {
+                let (a, b) = (ray_ground(view, Pos2::new(last.x, last.y)), ray_ground(view, mouse));
+                view.cam_target = view.cam_target + (a - b);
+            }
+            view.mmb_last = Some(Vec2::new(mouse.x, mouse.y));
+        } else {
+            view.mmb_last = None;
+        }
+        let wheel: f32 = p.wheel.read().map(|w| w.y.signum()).sum();
+        if wheel != 0.0 && !over_hud {
+            let before = ray_ground(view, mouse);
+            view.cam_dist = (view.cam_dist * if wheel > 0.0 { 0.85 } else { 1.0 / 0.85 }).clamp(6.0, world * 1.4);
+            set_matrices(view);
+            if wheel > 0.0 {
+                let after = ray_ground(view, mouse);
+                view.cam_target = view.cam_target + (before - after);
+            }
+        }
+    } else {
+        p.wheel.clear();
+    }
+    view.cam_target = v2(view.cam_target.x.clamp(0.0, world), view.cam_target.y.clamp(0.0, world));
+    let target3 = set_matrices(view);
+    if let Ok((mut t, mut proj)) = p.camera.single_mut() {
+        *t = Transform::from_translation(view.cam_pos).looking_at(target3, Vec3::Y);
+        *proj = Projection::Perspective(PerspectiveProjection { fov: FOV, near: (view.cam_dist * 0.02).max(0.3), far: view.cam_dist * 8.0 + 3000.0, ..default() });
+    }
+    let w2s = |view: &ViewState, pt: Vec3| -> Option<(Pos2, f32)> {
+        let c = view.vp * pt.extend(1.0);
+        if c.w <= 0.05 {
+            return None;
+        }
+        Some((Pos2::new((c.x / c.w * 0.5 + 0.5) * sw, (0.5 - c.y / c.w * 0.5) * sh), c.w))
+    };
+    let px_per_unit = |depth: f32| sh / (2.0 * (FOV * 0.5).tan() * depth);
+    let ground = ray_ground(view, mouse);
+
+    // ---------------------------------------------------------------- what we can see
+    let mut seen: Vec<Seen> = Vec::with_capacity(infos.len());
+    let mut project = |pos: V2, y: f32, d: Option<&UnitDef>| -> (Pos2, bool, f32) {
+        let h = d.map_or(0.5, |d| d.height() * 0.5);
+        match w2s(view, pos.at(y + h)) {
+            Some((sp, depth)) => (sp, sp.x > -30.0 && sp.y > -30.0 && sp.x < sw + 30.0 && sp.y < sh + 30.0, d.map_or(0.6, |d| d.radius()) * px_per_unit(depth)),
+            None => (Pos2::ZERO, false, 0.0),
+        }
+    };
+    for u in infos.values() {
+        if hosted.contains(&u.id) {
+            continue;
+        }
+        let ut = game.team_of(u.owner);
+        let d = defs.get(u.def);
+        if ut == team || reveal {
+            let (sp, on_screen, rpx) = project(u.pos, u.y, Some(d));
+            seen.push(Seen { id: u.id, def: Some(u.def), owner: u.owner, pos: u.pos, y: u.y, sp, on_screen, rpx, contact: Contact::Visible, mine: u.owner == me, enemy: hostile(team, ut), fade: 1.0 });
+        }
+    }
+    if !reveal {
+        let fade_ticks = defs.rules.radar_fade_secs / DT;
+        for g in p.mem.ghosts.values() {
+            let d = g.def.map(|d| defs.get(d));
+            let visible = g.live && infos.get(&g.id).map_or(false, |u| u.seen);
+            // Use the interpolated position for live contacts.
+            let (pos, y) = if g.live { infos.get(&g.id).map_or((g.pos, g.y), |u| (u.pos, u.y)) } else { (g.pos, g.y) };
+            let contact = if visible {
+                Contact::Visible
+            } else if g.live {
+                Contact::Radar
+            } else {
+                Contact::Stale
+            };
+            let fade = if g.live || g.structure { 1.0 } else { (1.0 - (game.tick.saturating_sub(g.last_tick)) as f32 / fade_ticks).clamp(0.0, 1.0) };
+            let (sp, on_screen, rpx) = project(pos, y, d);
+            let shown_def = if contact == Contact::Visible { infos.get(&g.id).map(|u| u.def).or(g.def) } else { g.def };
+            seen.push(Seen { id: g.id, def: shown_def, owner: g.owner, pos, y, sp, on_screen, rpx, contact, mine: false, enemy: hostile(team, game.team_of(g.owner)), fade });
+        }
+    }
+    drop(project);
+
+    let fr = Frame { defs, game, map, infos: &infos, seen: &seen, wrecks: &wrecks, team, sw, sh, mouse, shift, alt };
+    let _ = (fr.team, fr.sw, fr.sh, fr.game);
+    let hover = fr.hover(over_hud);
+    let out = &mut p.out.0;
+    let occ = if matches!(view.mode, Mode::Place(_)) { local_occ(map, defs, &infos) } else { vec![] };
+    let lmb_down = p.mouse.just_pressed(MouseButton::Left);
+    let lmb_up = p.mouse.just_released(MouseButton::Left);
+    let rmb_down = p.mouse.just_pressed(MouseButton::Right);
+    let rmb_up = p.mouse.just_released(MouseButton::Right);
+
+    // ---------------------------------------------------------------- world input
+    if !view.menu_open {
+        if lmb_down && !over_hud {
+            match view.mode {
+                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim => view.drag_start = Some(ground),
+                Mode::AttackMove | Mode::Patrol => {
+                    view.path = vec![ground];
+                    view.pathing = Some(0);
+                }
+                Mode::None => view.box_start = Some(Vec2::new(mouse.x, mouse.y)),
+            }
+        }
+        if lmb_up {
+            if let Some(start) = view.drag_start.take() {
+                let radius = start.dist(ground);
+                match view.mode {
+                    Mode::Place(d) => {
+                        let builders: Vec<&Info> = fr.selected(view).into_iter().filter(|u| fr.d(u.def).is_engineer() && fr.d(u.def).builds.contains(&d)).collect();
+                        if !builders.is_empty() {
+                            let from = builders.iter().fold(v2(0.0, 0.0), |a, u| a + u.pos) * (1.0 / builders.len() as f32);
+                            let ids: Vec<u32> = builders.iter().map(|u| u.id).collect();
+                            let mut first = true;
+                            for pt in fr.build_spots(d, start, ground, &occ, from) {
+                                if can_place(defs, map, &occ, d, pt) {
+                                    out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Build { def: d, pos: pt }], queue: shift || !first });
+                                    first = false;
+                                }
+                            }
+                        }
+                    }
+                    Mode::GroundAttack => {
+                        let enemy = hover.filter(|h| seen[*h].enemy && seen[*h].contact != Contact::Stale && radius < 1.5);
+                        let order = match enemy {
+                            Some(h) => Order::Attack(seen[h].id),
+                            None => Order::AttackGround { pos: start, radius: if radius < 1.5 { 0.0 } else { radius } },
+                        };
+                        out.push(Command::Orders { ids: view.sel.clone(), orders: vec![order], queue: shift });
+                    }
+                    Mode::Reclaim => {
+                        let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist()).map(|u| u.id).collect();
+                        let single = wrecks.iter().filter(|w| w.1.dist(start) < 2.0).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap());
+                        let order = match (single, radius < 1.5) {
+                            (Some(w), true) => Some(Order::Reclaim(w.0)),
+                            (None, true) => None,
+                            _ => Some(Order::ReclaimArea { pos: start, radius }),
+                        };
+                        if let (Some(o), false) = (order, ids.is_empty()) {
+                            out.push(Command::Orders { ids, orders: vec![o], queue: shift });
+                        }
+                    }
+                    _ => {}
+                }
+                if !shift {
+                    view.mode = Mode::None;
+                }
+            } else if view.pathing == Some(0) {
+                view.pathing = None;
+                let kind = if view.mode == Mode::Patrol { MoveKind::Patrol } else { MoveKind::AttackMove };
+                let path = std::mem::take(&mut view.path);
+                let enemy = hover.filter(|h| seen[*h].enemy && seen[*h].contact != Contact::Stale && path_len(&path) < 2.5);
+                if let (Some(h), MoveKind::AttackMove) = (enemy, kind) {
+                    out.push(Command::Orders { ids: view.sel.clone(), orders: vec![Order::Attack(seen[h].id)], queue: shift });
+                } else {
+                    fr.order_move(view, &path, kind, shift, out);
+                }
+                if !shift {
+                    view.mode = Mode::None;
+                }
+            } else if let Some(b) = view.box_start.take() {
+                let b = Pos2::new(b.x, b.y);
+                if b.distance(mouse) < 6.0 {
+                    match hover.filter(|h| seen[*h].mine) {
+                        Some(h) => {
+                            let (id, d) = (seen[h].id, seen[h].def.unwrap_or(0));
+                            if now - view.last_click.0 < 0.35 && view.last_click.1 == d {
+                                let same: Vec<u32> = seen.iter().filter(|s| s.mine && s.on_screen && s.def == Some(d)).map(|s| s.id).collect();
+                                if shift {
+                                    for s in same {
+                                        if !view.sel.contains(&s) {
+                                            view.sel.push(s);
+                                        }
+                                    }
+                                } else {
+                                    view.sel = same;
+                                }
+                            } else if shift {
+                                if let Some(k) = view.sel.iter().position(|x| *x == id) {
+                                    view.sel.remove(k);
+                                } else {
+                                    view.sel.push(id);
+                                }
+                            } else {
+                                view.sel = vec![id];
+                            }
+                            view.last_click = (now, d);
+                        }
+                        None => {
+                            if !shift {
+                                view.sel.clear();
+                            }
+                        }
+                    }
+                } else {
+                    let r = egui::Rect::from_two_pos(b, mouse);
+                    let inside: Vec<&Seen> = seen.iter().filter(|s| s.mine && s.on_screen && r.contains(s.sp)).collect();
+                    let is_struct = |s: &Seen| s.def.map_or(false, |d| defs.get(d).is_structure());
+                    let any_mobile = inside.iter().any(|s| !is_struct(s));
+                    let ids: Vec<u32> = inside.iter().filter(|s| !any_mobile || !is_struct(s)).map(|s| s.id).collect();
+                    if shift {
+                        for id in ids {
+                            if !view.sel.contains(&id) {
+                                view.sel.push(id);
+                            }
+                        }
+                    } else {
+                        view.sel = ids;
+                    }
+                }
+            }
+        }
+        if rmb_down && !over_hud {
+            if view.mode != Mode::None {
+                view.mode = Mode::None;
+                view.drag_start = None;
+                view.pathing = None;
+            } else if !view.sel.is_empty() {
+                view.path = vec![ground];
+                view.pathing = Some(1);
+            }
+        }
+        if view.pathing.is_some() && view.path.len() < 500 && view.path.last().map_or(false, |l| l.dist(ground) > 0.8) {
+            view.path.push(ground);
+        }
+        if rmb_up && view.pathing == Some(1) {
+            view.pathing = None;
+            let path = std::mem::take(&mut view.path);
+            let units = fr.selected(view);
+            if path_len(&path) >= 2.5 {
+                fr.order_move(view, &path, if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
+            } else if !units.is_empty() {
+                // Context order.
+                let mut done = false;
+                if let Some(h) = hover {
+                    let s = &seen[h];
+                    if s.enemy {
+                        // A remembered building can still be shelled where it stood.
+                        let order = if s.contact == Contact::Stale { Order::AttackGround { pos: s.pos, radius: 0.0 } } else { Order::Attack(s.id) };
+                        out.push(Command::Orders { ids: view.sel.clone(), orders: vec![order], queue: shift });
+                        done = true;
+                    } else if s.contact == Contact::Visible {
+                        let ids: Vec<u32> = view.sel.iter().copied().filter(|id| *id != s.id).collect();
+                        if !ids.is_empty() {
+                            out.push(Command::Orders { ids, orders: vec![Order::Assist(s.id)], queue: shift });
+                            done = true;
+                        }
+                    }
+                }
+                if !done {
+                    let builders: Vec<u32> = units.iter().filter(|u| fr.d(u.def).can_assist()).map(|u| u.id).collect();
+                    if let (false, Some(w)) = (builders.is_empty(), wrecks.iter().filter(|w| w.1.dist(ground) < 1.5).min_by(|a, b| a.1.dist(ground).partial_cmp(&b.1.dist(ground)).unwrap())) {
+                        out.push(Command::Orders { ids: builders, orders: vec![Order::Reclaim(w.0)], queue: shift });
+                        done = true;
+                    }
+                }
+                if !done {
+                    fr.order_move(view, &[ground], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- keyboard
+    if p.keys.just_pressed(KeyCode::Escape) {
+        if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
+            view.mode = Mode::None;
+            view.pathing = None;
+            view.drag_start = None;
+        } else {
+            view.menu_open = !view.menu_open;
+        }
+    }
+    if p.keys.just_pressed(KeyCode::F1) {
+        view.show_help = !view.show_help;
+    }
+    if p.keys.just_pressed(KeyCode::F6) {
+        view.shadows = !view.shadows;
+    }
+    let has_sel = !view.sel.is_empty();
+    let mut do_stop = false;
+    let mut do_upgrade = false;
+    let mut do_repeat = false;
+    if !view.menu_open && !ctx.egui_wants_keyboard_input() {
+        if has_sel {
+            if p.keys.just_pressed(KeyCode::KeyA) {
+                view.mode = Mode::AttackMove;
+            }
+            if p.keys.just_pressed(KeyCode::KeyP) {
+                view.mode = Mode::Patrol;
+            }
+            if p.keys.just_pressed(KeyCode::KeyG) {
+                view.mode = Mode::GroundAttack;
+            }
+            if p.keys.just_pressed(KeyCode::KeyE) {
+                view.mode = Mode::Reclaim;
+            }
+            do_stop = p.keys.just_pressed(KeyCode::KeyS);
+            do_upgrade = p.keys.just_pressed(KeyCode::KeyU);
+            do_repeat = p.keys.just_pressed(KeyCode::KeyR);
+        }
+        if p.keys.just_pressed(KeyCode::Period) {
+            let idle: Vec<&Info> = infos.values().filter(|u| u.owner == me && fr.d(u.def).is_engineer() && u.built.is_none() && u.orders.is_empty()).collect();
+            if !idle.is_empty() {
+                let mut ids: Vec<(u32, V2)> = idle.iter().map(|u| (u.id, u.pos)).collect();
+                ids.sort_by_key(|x| x.0);
+                view.idle_cycle = (view.idle_cycle + 1) % ids.len();
+                view.sel = vec![ids[view.idle_cycle].0];
+                view.cam_target = ids[view.idle_cycle].1;
+            }
+        }
+        if p.keys.just_pressed(KeyCode::Comma) || p.keys.just_pressed(KeyCode::Home) {
+            let com = defs.factions[player.faction as usize].commander;
+            if let Some(c) = infos.values().find(|u| u.owner == me && Some(u.def) == com) {
+                view.sel = vec![c.id];
+                view.cam_target = c.pos;
+            }
+        }
+        let digits = [KeyCode::Digit0, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9];
+        for (g, k) in digits.iter().enumerate() {
+            if p.keys.just_pressed(*k) {
+                if ctrl {
+                    view.groups[g] = view.sel.clone();
+                } else if !view.groups[g].is_empty() {
+                    view.groups[g].retain(|id| infos.contains_key(id));
+                    view.sel = view.groups[g].clone();
+                    if view.last_group.1 == g && now - view.last_group.0 < 0.4 {
+                        let us = fr.selected(view);
+                        if !us.is_empty() {
+                            view.cam_target = us.iter().fold(v2(0.0, 0.0), |a, u| a + u.pos) * (1.0 / us.len() as f32);
+                        }
+                    }
+                    view.last_group = (now, g);
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- 3D helpers (gizmos)
+    let g = &mut p.gizmos;
+    let selected = fr.selected(view);
+    let sel_col = Color::srgba(0.4, 1.0, 0.5, 0.9);
+    for (k, u) in selected.iter().enumerate() {
+        let d = fr.d(u.def);
+        if k < 250 {
+            ring(g, map, u.pos, d.radius() + 0.25, sel_col);
+        }
+        if selected.len() <= 12 || k < 3 {
+            if d.armed() {
+                ring(g, map, u.pos, d.max_range(), Color::srgba(1.0, 0.35, 0.3, 0.6));
+                let minr = d.weapons[0].min_range;
+                if minr > 0.0 {
+                    ring(g, map, u.pos, minr, Color::srgba(1.0, 0.6, 0.2, 0.4));
+                }
+            }
+            if d.radar > 0.0 {
+                ring(g, map, u.pos, d.radar, Color::srgba(0.4, 0.7, 1.0, 0.6));
+            }
+            if d.is_station() {
+                ring(g, map, u.pos, d.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.6));
+            }
+        }
+        if k < 60 {
+            let mut last = u.pos;
+            if let Some(r) = u.factory.as_ref().and_then(|f| f.rally) {
+                ground_line(g, map, last, r, Color::srgba(0.3, 0.8, 1.0, 0.8));
+                ring(g, map, r, 0.5, Color::srgba(0.3, 0.8, 1.0, 0.8));
+            }
+            for o in &u.orders {
+                let (pt, c) = match o {
+                    Order::Move(pt) => (Some(*pt), Color::srgba(0.3, 0.8, 1.0, 0.7)),
+                    Order::AttackMove(pt) => (Some(*pt), Color::srgba(1.0, 0.4, 0.3, 0.7)),
+                    Order::Patrol(pt) => (Some(*pt), Color::srgba(0.4, 0.9, 0.9, 0.7)),
+                    Order::Build { def, pos } => {
+                        let h = fr.d(*def).footprint as f32 * CELL * 0.5;
+                        let c = Color::srgba(1.0, 0.9, 0.3, 0.8);
+                        for (a, b) in [((-h, -h), (h, -h)), ((h, -h), (h, h)), ((h, h), (-h, h)), ((-h, h), (-h, -h))] {
+                            ground_line(g, map, *pos + v2(a.0, a.1), *pos + v2(b.0, b.1), c);
+                        }
+                        (Some(*pos), c)
+                    }
+                    Order::Attack(id) => (infos.get(id).map(|t| t.pos), Color::srgba(1.0, 0.2, 0.2, 0.8)),
+                    Order::AttackGround { pos, radius } => {
+                        ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.3, 0.2, 0.8));
+                        (Some(*pos), Color::srgba(1.0, 0.3, 0.2, 0.8))
+                    }
+                    Order::Assist(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.9, 0.9, 0.3, 0.7)),
+                    Order::Reclaim(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1), Color::srgba(0.6, 1.0, 0.4, 0.7)),
+                    Order::ReclaimArea { pos, radius } => {
+                        ring(g, map, *pos, *radius, Color::srgba(0.6, 1.0, 0.4, 0.7));
+                        (Some(*pos), Color::srgba(0.6, 1.0, 0.4, 0.7))
+                    }
+                };
+                if let Some(pt) = pt {
+                    ground_line(g, map, last, pt, c);
+                    last = pt;
+                }
+            }
+        }
+    }
+    // Build and reclaim beams.
+    for u in infos.values() {
+        if u.work == 0 || !fr.d(u.def).can_assist() || !p.fog.visible(u.pos) && game.team_of(u.owner) != team {
+            continue;
+        }
+        let target = infos.get(&u.work).map(|t| t.pos.at(t.y + 0.4)).or_else(|| wrecks.iter().find(|w| w.0 == u.work).map(|w| w.1.at(map.h(w.1) + 0.3)));
+        if let Some(t) = target {
+            let flick = 0.5 + 0.5 * ((now * 22.0 + u.id as f64).sin() as f32);
+            let a = u.pos.at(u.y + fr.d(u.def).height() * 0.9);
+            g.line(a, t, Color::srgba(0.4, 1.0, 0.55, 0.4 + 0.6 * flick));
+            g.line(a, t + Vec3::new(0.3, -0.2, 0.2), Color::srgba(0.8, 1.0, 0.5, 0.3 + 0.4 * flick));
+        }
+    }
+    // Previews for the active command.
+    let preview = Color::srgba(1.0, 0.9, 0.4, 0.95);
+    match view.mode {
+        Mode::Place(d) if !over_hud => {
+            let df = fr.d(d);
+            let from = selected.first().map_or(ground, |u| u.pos);
+            let spots = match view.drag_start {
+                Some(a) => fr.build_spots(d, a, ground, &occ, from),
+                None => vec![snap(defs, map, d, ground)],
+            };
+            if let (Some(a), true) = (view.drag_start, df.needs_deposit) {
+                ring(g, map, a, a.dist(ground), preview);
+            }
+            for pt in &spots {
+                let ok = can_place(defs, map, &occ, d, *pt);
+                let c = if ok { Color::srgba(0.3, 1.0, 0.4, 1.0) } else { Color::srgba(1.0, 0.25, 0.2, 1.0) };
+                let h = df.footprint as f32 * CELL * 0.5;
+                let base = map.h(*pt).max(map.water);
+                for (a, b) in [((-h, -h), (h, -h)), ((h, -h), (h, h)), ((h, h), (-h, h)), ((-h, h), (-h, -h))] {
+                    let (pa, pb) = (*pt + v2(a.0, a.1), *pt + v2(b.0, b.1));
+                    ground_line(g, map, pa, pb, c);
+                    g.line(pa.at(base + df.height()), pb.at(base + df.height()), c);
+                    g.line(pa.at(base + 0.2), pa.at(base + df.height()), c);
+                }
+            }
+            if let Some(pt) = spots.first() {
+                if df.armed() {
+                    ring(g, map, *pt, df.max_range(), Color::srgba(1.0, 0.35, 0.3, 0.8));
+                }
+                if df.radar > 0.0 {
+                    ring(g, map, *pt, df.radar, Color::srgba(0.4, 0.7, 1.0, 0.8));
+                }
+                if df.is_station() {
+                    ring(g, map, *pt, df.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.8));
+                }
+            }
+        }
+        Mode::GroundAttack | Mode::Reclaim => {
+            if let Some(a) = view.drag_start {
+                let c = if view.mode == Mode::Reclaim { Color::srgba(0.6, 1.0, 0.4, 1.0) } else { Color::srgba(1.0, 0.3, 0.2, 1.0) };
+                ring(g, map, a, a.dist(ground).max(0.5), c);
+                ground_line(g, map, a, ground, c);
+            }
+        }
+        _ => {}
+    }
+    if view.pathing.is_some() && path_len(&view.path) >= 2.5 {
+        let c = if view.pathing == Some(0) || alt { Color::srgba(1.0, 0.45, 0.3, 1.0) } else { Color::srgba(0.3, 0.9, 1.0, 1.0) };
+        g.linestrip(view.path.iter().map(|pt| pt.at(map.h(*pt).max(map.water) + 0.35)), c);
+        let movers: Vec<&Info> = selected.iter().copied().filter(|u| !fr.d(u.def).is_structure() && !fr.d(u.def).is_plane()).collect();
+        for pt in fr.formation(&movers, &view.path) {
+            ring(g, map, pt, 0.45, c);
+        }
+    }
+
+    // ---------------------------------------------------------------- 2D overlay: icons, blips, bars
+    let bg = ctx.layer_painter(egui::LayerId::background());
+    let blip = p.assets.blip.get_or_insert_with(|| ctx.load_texture("blip", egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &icons::render_blip()), egui::TextureOptions::LINEAR)).clone();
+    if view.cam_dist > 110.0 {
+        for dep in &map.deposits {
+            if let Some((sp, _)) = w2s(view, dep.at(map.h(*dep))) {
+                bg.circle_filled(sp, 3.2, rgba(0, 0, 0, 160));
+                bg.circle_filled(sp, 2.2, rgba(205, 215, 230, 230));
+            }
+        }
+    }
+    for (k, s) in seen.iter().enumerate() {
+        if !s.on_screen {
+            continue;
+        }
+        let (_, col) = super::owner_color(defs, game, s.owner);
+        let col = rgb(col);
+        let selected_here = s.mine && view.sel.contains(&s.id);
+        let d = s.def.map(|d| defs.get(d));
+        match (s.contact, d) {
+            (Contact::Visible, Some(d)) => {
+                let size = icons::icon_size(d);
+                // Strategic icon once the model gets small on screen.
+                if s.rpx * 2.0 < size * 0.8 {
+                    let tex = p.assets.icon(&ctx, d);
+                    if selected_here {
+                        bg.circle_stroke(s.sp, size * 0.62, Stroke::new(1.5, Color32::WHITE));
+                    }
+                    bg.image(tex.id(), egui::Rect::from_center_size(s.sp, egui::vec2(size, size)), UV, col);
+                }
+            }
+            (_, Some(d)) => {
+                // Known type, not in sight: dimmed icon (radar contact or remembered building).
+                let size = icons::icon_size(d);
+                let a = if s.contact == Contact::Stale { 0.5 * s.fade } else { 0.85 };
+                let tex = p.assets.icon(&ctx, d);
+                bg.image(tex.id(), egui::Rect::from_center_size(s.sp, egui::vec2(size, size)), UV, col.gamma_multiply(a));
+                if s.contact == Contact::Stale {
+                    bg.circle_stroke(s.sp, size * 0.6, Stroke::new(1.0, rgba(255, 255, 255, 60)));
+                }
+            }
+            (_, None) => {
+                let a = if s.contact == Contact::Stale { 0.8 * s.fade } else { 1.0 };
+                bg.image(blip.id(), egui::Rect::from_center_size(s.sp, egui::vec2(15.0, 15.0)), UV, col.gamma_multiply(a));
+            }
+        }
+        if hover == Some(k) {
+            bg.circle_stroke(s.sp, s.rpx.max(11.0) + 2.0, Stroke::new(1.0, rgba(255, 255, 255, 150)));
+        }
+        if s.contact != Contact::Visible {
+            continue;
+        }
+        let (Some(d), Some(u)) = (d, infos.get(&s.id)) else { continue };
+        // Bars above the unit.
+        let w = (s.rpx * 2.2).clamp(22.0, 70.0);
+        let (bx, mut by) = (s.sp.x - w * 0.5, s.sp.y - s.rpx.max(9.0) - 9.0);
+        let mut bar = |frac: f32, c: Color32, h: f32| {
+            bg.rect_filled(rect(bx - 1.0, by - 1.0, w + 2.0, h + 2.0), 0.0, rgba(0, 0, 0, 190));
+            bg.rect_filled(rect(bx, by, w * frac.clamp(0.0, 1.0), h), 0.0, c);
+            by -= h + 3.0;
+        };
+        let hp = (u.hp / d.hp).clamp(0.0, 1.0);
+        if (hp < 0.999 && u.built.is_none()) || selected_here {
+            bar(hp, if hp > 0.6 { rgba(60, 230, 80, 255) } else if hp > 0.3 { rgba(240, 205, 50, 255) } else { rgba(240, 55, 50, 255) }, 3.0);
+        }
+        // Reload of the main gun: the whole point of slow, heavy weapons.
+        if s.mine {
+            if let (Some(wd), Some(ws)) = (d.weapons.first(), u.weapons.first()) {
+                if wd.reload >= 2.5 && (ws.cd > 0.0 || selected_here) {
+                    let ready = ws.cd <= 0.0;
+                    bar(1.0 - ws.cd / wd.reload, if ready { rgba(120, 220, 255, 255) } else { rgba(255, 170, 40, 255) }, 2.0);
+                }
+            }
+        }
+        let prog = u.built.or(u.upg).or_else(|| u.factory.as_ref().and_then(|f| infos.get(&f.building)).and_then(|b| b.built));
+        if let Some(pr) = prog {
+            bar(pr, rgba(100, 200, 255, 255), 3.0);
+        }
+    }
+    if let Some(b) = view.box_start {
+        let b = Pos2::new(b.x, b.y);
+        if b.distance(mouse) >= 6.0 {
+            let r = egui::Rect::from_two_pos(b, mouse);
+            bg.rect_filled(r, 0.0, rgba(80, 255, 110, 30));
+            bg.rect_stroke(r, 0.0, Stroke::new(1.5, rgba(100, 255, 130, 230)), StrokeKind::Inside);
+        }
+    }
+
+    // ---------------------------------------------------------------- HUD panels
+    let hud = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("hud")));
+    let font = |s: f32| FontId::proportional(s);
+    let text = |x: f32, y: f32, t: &str, size: f32, c: Color32| hud.text(Pos2::new(x, y), Align2::LEFT_TOP, t, font(size), c);
+    let text_c = |x: f32, y: f32, t: &str, size: f32, c: Color32| hud.text(Pos2::new(x, y), Align2::CENTER_CENTER, t, font(size), c);
+    let panel_bg = rgba(18, 21, 27, 235);
+    let line_c = rgba(90, 100, 115, 255);
+    let button = |r: egui::Rect, active: bool| -> bool {
+        let hov = r.contains(mouse);
+        hud.rect_filled(r, 3.0, if active { rgba(60, 105, 75, 250) } else if hov { rgba(64, 76, 94, 250) } else { rgba(34, 40, 50, 250) });
+        hud.rect_stroke(r, 3.0, Stroke::new(1.0, if hov { Color32::WHITE } else { line_c }), StrokeKind::Inside);
+        hov
+    };
+    let (_, my_rgb) = super::owner_color(defs, game, me);
+    let my_col = rgb(my_rgb);
+
+    // --- economy bar
+    hud.rect_filled(rect(0.0, 0.0, sw, TOP), 0.0, panel_bg);
+    let res = |x: f32, name: &str, cur: f32, max: f32, inc: f32, exp: f32, col: Color32| {
+        text(x, 7.0, name, 14.0, col);
+        let bx = x + 62.0;
+        hud.rect_filled(rect(bx, 7.0, 150.0, 16.0), 2.0, rgba(0, 0, 0, 220));
+        hud.rect_filled(rect(bx, 7.0, 150.0 * (cur / max.max(1.0)).clamp(0.0, 1.0), 16.0), 2.0, col.gamma_multiply(0.7));
+        text_c(bx + 75.0, 15.0, &format!("{:.0} / {:.0}", cur, max), 12.0, Color32::WHITE);
+        text(bx + 158.0, 7.0, &format!("+{:.1}", inc), 14.0, rgba(110, 255, 130, 255));
+        text(bx + 220.0, 7.0, &format!("-{:.1}", exp), 14.0, if exp > inc + 0.01 { rgba(255, 105, 90, 255) } else { rgba(215, 215, 215, 255) });
+    };
+    res(12.0, "MASS", player.mass, player.max_mass, player.income_m, player.spend_m, rgba(190, 215, 240, 255));
+    res(360.0, "ENERGY", player.energy, player.max_energy, player.income_e, player.spend_e, rgba(255, 215, 65, 255));
+    if player.power_out {
+        text(700.0, 7.0, "POWER STALL", 14.0, rgba(255, 80, 80, 255));
+    }
+    let secs = game.tick / 10;
+    hud.text(Pos2::new(sw - 10.0, 7.0), Align2::RIGHT_TOP, format!("{:02}:{:02}   F1 help", secs / 60, secs % 60), font(14.0), rgba(205, 205, 205, 255));
+    for (k, pl) in game.players.iter().enumerate() {
+        let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
+        let t = format!("{}{} (team {})", pl.name, if pl.alive { "" } else { " - defeated" }, pl.team + 1);
+        hud.text(Pos2::new(sw - 10.0, TOP + 6.0 + k as f32 * 16.0), Align2::RIGHT_TOP, t, font(13.0), if pl.alive { c } else { rgba(130, 130, 130, 255) });
+    }
+
+    // --- minimap
+    let mini = p.assets.minimap.get_or_insert_with(|| ctx.load_texture("minimap", egui::ColorImage::from_rgba_unmultiplied([map.n, map.n], &minimap_pixels(map)), egui::TextureOptions::LINEAR)).clone();
+    if p.assets.fogmap.is_none() || game.tick.wrapping_sub(p.assets.fog_tick) >= 5 {
+        p.assets.fog_tick = game.tick;
+        let mut px = vec![0u8; map.n * map.n * 4];
+        for (i, a) in p.fog.alpha.iter().enumerate() {
+            px[i * 4 + 3] = *a;
+        }
+        let img = egui::ColorImage::from_rgba_unmultiplied([map.n, map.n], &px);
+        match &mut p.assets.fogmap {
+            Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+            None => p.assets.fogmap = Some(ctx.load_texture("fogmap", img, egui::TextureOptions::LINEAR)),
+        }
+    }
+    hud.rect_filled(mm.expand(2.0), 0.0, rgba(0, 0, 0, 240));
+    hud.image(mini.id(), mm, UV, Color32::WHITE);
+    if let Some(f) = &p.assets.fogmap {
+        hud.image(f.id(), mm, UV, Color32::WHITE);
+    }
+    let to_mm = |pt: V2| Pos2::new(mm.min.x + pt.x / world * MM, mm.min.y + pt.y / world * MM);
+    for s in &seen {
+        let (_, c) = super::owner_color(defs, game, s.owner);
+        let c = if s.contact == Contact::Visible { rgb(c) } else { rgb(c).gamma_multiply(0.6 * s.fade.max(0.3)) };
+        let d = s.def.map(|d| defs.get(d));
+        let sz = if d.map_or(false, |d| d.icon.shape == "commander") { 5.0 } else if d.map_or(false, |d| d.is_structure()) { 3.0 } else { 2.0 };
+        hud.rect_filled(egui::Rect::from_center_size(to_mm(s.pos), egui::vec2(sz, sz)), 0.0, c);
+    }
+    let corners = [Pos2::new(0.0, TOP), Pos2::new(sw, TOP), Pos2::new(sw, sh), Pos2::new(0.0, sh)].map(|c| {
+        let q = to_mm(ray_ground(view, c));
+        Pos2::new(q.x.clamp(mm.min.x, mm.max.x), q.y.clamp(mm.min.y, mm.max.y))
+    });
+    for k in 0..4 {
+        hud.line_segment([corners[k], corners[(k + 1) % 4]], Stroke::new(1.0, Color32::WHITE));
+    }
+    if mm.contains(mouse) && !view.menu_open {
+        let wp = v2((mouse.x - mm.min.x) / MM * world, (mouse.y - mm.min.y) / MM * world);
+        if p.mouse.pressed(MouseButton::Left) && view.box_start.is_none() && view.pathing.is_none() && view.drag_start.is_none() {
+            view.cam_target = wp;
+        }
+        if rmb_down && !view.sel.is_empty() {
+            fr.order_move(view, &[wp], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
+        }
+    }
+
+    // --- selection panel
+    let units = fr.selected(view);
+    let mut tip: Option<(DefId, f32)> = None;
+    let mut new_sel: Option<Vec<u32>> = None;
+    let mut new_mode: Option<Mode> = None;
+    if !units.is_empty() {
+        hud.rect_filled(panel, 4.0, panel_bg);
+        hud.rect_stroke(panel, 4.0, Stroke::new(1.0, line_c), StrokeKind::Inside);
+        let lead = units.iter().find(|u| !fr.d(u.def).builds.is_empty()).copied().unwrap_or(units[0]);
+        let ld = fr.d(lead.def);
+        let ix = panel.min.x + 10.0;
+        let py = panel.min.y;
+        if units.len() == 1 {
+            let u = lead;
+            let r = rect(ix, py + 8.0, 52.0, 52.0);
+            hud.rect_filled(r, 3.0, rgba(8, 10, 13, 255));
+            match p.assets.portrait(&ctx, ld) {
+                Some(t) => {
+                    hud.image(t.id(), r, UV, Color32::WHITE);
+                    let ic = p.assets.icon(&ctx, ld);
+                    hud.image(ic.id(), rect(r.max.x - 18.0, r.max.y - 18.0, 20.0, 20.0), UV, my_col);
+                }
+                None => {
+                    let ic = p.assets.icon(&ctx, ld);
+                    hud.image(ic.id(), r.shrink(6.0), UV, my_col);
+                }
+            };
+            text(ix + 60.0, py + 6.0, &ld.name, 17.0, Color32::WHITE);
+            text(ix + 60.0, py + 27.0, &format!("Tier {}", ld.tier.max(1)), 12.0, rgba(170, 180, 195, 255));
+            // Health bar with numbers.
+            let hb = rect(ix + 60.0, py + 44.0, 220.0, 14.0);
+            let hp = (u.hp / ld.hp).clamp(0.0, 1.0);
+            hud.rect_filled(hb, 2.0, rgba(0, 0, 0, 230));
+            hud.rect_filled(rect(hb.min.x, hb.min.y, hb.width() * hp, hb.height()), 2.0, if hp > 0.6 { rgba(50, 190, 70, 255) } else if hp > 0.3 { rgba(215, 180, 40, 255) } else { rgba(215, 50, 45, 255) });
+            text_c(hb.center().x, hb.center().y, &format!("{:.0} / {:.0}", u.hp.max(0.0), ld.hp), 11.0, Color32::WHITE);
+            let mut y = py + 66.0;
+            // One reload bar per weapon.
+            for (wd, ws) in ld.weapons.iter().zip(u.weapons.iter()) {
+                let rb = rect(ix, y, 280.0, 13.0);
+                let frac = (1.0 - ws.cd / wd.reload.max(0.01)).clamp(0.0, 1.0);
+                hud.rect_filled(rb, 2.0, rgba(0, 0, 0, 230));
+                hud.rect_filled(rect(rb.min.x, rb.min.y, rb.width() * frac, rb.height()), 2.0, if frac >= 1.0 { rgba(55, 130, 175, 255) } else { rgba(190, 120, 30, 255) });
+                let state = if ws.cd > 0.0 { format!("{:.1}s", ws.cd) } else if ws.target != 0 && ws.aim < wd.aim_time { "aiming".into() } else { "ready".into() };
+                text(rb.min.x + 4.0, rb.min.y, &format!("{}  {:.0} dmg  r{:.0}", wd.name, wd.damage * wd.salvo as f32, wd.range), 10.5, Color32::WHITE);
+                hud.text(Pos2::new(rb.max.x - 4.0, rb.min.y), Align2::RIGHT_TOP, state, font(10.5), Color32::WHITE);
+                y += 16.0;
+            }
+            let e = &ld.eco;
+            if e.mass > 0.0 || e.energy > 0.0 || e.upkeep > 0.0 {
+                text(ix, y, &format!("+{:.0} mass  +{:.0} energy  -{:.0} upkeep", e.mass, e.energy, e.upkeep), 12.0, rgba(180, 225, 255, 255));
+                y += 15.0;
+            }
+            if let Some(pr) = u.upg {
+                text(ix, y, &format!("Upgrading: {:.0}%", pr * 100.0), 12.0, rgba(130, 225, 255, 255));
+            } else if let Some(b) = u.factory.as_ref().and_then(|f| infos.get(&f.building)) {
+                text(ix, y, &format!("Building {}: {:.0}%", fr.d(b.def).name, b.built.unwrap_or(1.0) * 100.0), 12.0, rgba(130, 225, 255, 255));
+            }
+        } else {
+            // Selection by type: one icon per unit type with a count, like SupCom.
+            let mut counts: Vec<(DefId, usize, f32)> = vec![];
+            for u in &units {
+                let frac = u.hp / fr.d(u.def).hp;
+                match counts.iter_mut().find(|c| c.0 == u.def) {
+                    Some(c) => {
+                        c.1 += 1;
+                        c.2 += frac;
+                    }
+                    None => counts.push((u.def, 1, frac)),
+                }
+            }
+            counts.sort_by_key(|c| c.0);
+            for (k, (d, n, hp_sum)) in counts.iter().take(12).enumerate() {
+                let r = rect(ix + (k % 6) as f32 * 48.0, py + 8.0 + (k / 6) as f32 * 52.0, 44.0, 48.0);
+                let hov = button(r, false);
+                let dd = fr.d(*d);
+                let ir = rect(r.min.x + 6.0, r.min.y + 2.0, 32.0, 32.0);
+                match p.assets.portrait(&ctx, dd) {
+                    Some(t) => hud.image(t.id(), ir, UV, Color32::WHITE),
+                    None => hud.image(p.assets.icon(&ctx, dd).id(), ir, UV, my_col),
+                };
+                hud.text(Pos2::new(r.max.x - 3.0, r.min.y + 1.0), Align2::RIGHT_TOP, n.to_string(), font(13.0), rgba(255, 230, 90, 255));
+                let hp = (hp_sum / *n as f32).clamp(0.0, 1.0);
+                hud.rect_filled(rect(r.min.x + 4.0, r.max.y - 8.0, 36.0, 4.0), 0.0, rgba(0, 0, 0, 230));
+                hud.rect_filled(rect(r.min.x + 4.0, r.max.y - 8.0, 36.0 * hp, 4.0), 0.0, if hp > 0.6 { rgba(60, 220, 80, 255) } else { rgba(235, 180, 50, 255) });
+                if hov {
+                    tip = Some((*d, 0.0));
+                    if lmb_down {
+                        // Click: keep only this type. Shift-click: drop this type.
+                        new_sel = Some(units.iter().filter(|u| (u.def == *d) != shift).map(|u| u.id).collect());
+                    }
+                }
+            }
+        }
+
+        // Build menu.
+        let bx0 = panel.min.x + 310.0;
+        let (bw, bh) = (52.0, 60.0);
+        let per_row = (((panel.width() - 318.0) / (bw + 4.0)).floor() as usize).max(1);
+        let is_factory = ld.is_factory();
+        let builders = ld.is_engineer() || is_factory;
+        if builders {
+            for (k, d) in ld.builds.iter().enumerate() {
+                let r = rect(bx0 + (k % per_row) as f32 * (bw + 4.0), py + 6.0 + (k / per_row) as f32 * (bh + 4.0), bw, bh);
+                let bd = fr.d(*d);
+                let hov = button(r, view.mode == Mode::Place(*d));
+                let ir = rect(r.min.x + 6.0, r.min.y + 3.0, 40.0, 40.0);
+                match p.assets.portrait(&ctx, bd) {
+                    Some(t) => {
+                        hud.image(t.id(), ir, UV, Color32::WHITE);
+                        hud.image(p.assets.icon(&ctx, bd).id(), rect(r.min.x + 1.0, r.min.y + 1.0, 17.0, 17.0), UV, my_col);
+                    }
+                    None => {
+                        hud.image(p.assets.icon(&ctx, bd).id(), ir, UV, my_col);
+                    }
+                };
+                text(r.min.x + 3.0, r.max.y - 15.0, &format!("{:.0}", bd.cost.mass), 11.0, rgba(190, 215, 240, 255));
+                if bd.tier > 1 {
+                    hud.text(Pos2::new(r.max.x - 3.0, r.min.y + 1.0), Align2::RIGHT_TOP, format!("T{}", bd.tier), font(10.5), rgba(255, 200, 120, 255));
+                }
+                if is_factory {
+                    let n = lead.factory.as_ref().map_or(0, |f| f.queue.iter().filter(|q| **q == *d).count());
+                    if n > 0 {
+                        hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 17.0), Align2::RIGHT_TOP, n.to_string(), font(15.0), rgba(255, 230, 80, 255));
+                    }
+                }
+                if hov {
+                    tip = Some((*d, ld.build_rate().max(1.0)));
+                    if is_factory {
+                        let n: i16 = if shift { 5 } else { 1 };
+                        if lmb_down || rmb_down {
+                            for f in units.iter().filter(|u| u.def == lead.def) {
+                                out.push(Command::Produce { factory: f.id, def: *d, count: if lmb_down { n } else { -n } });
+                            }
+                        }
+                    } else if lmb_down {
+                        new_mode = Some(Mode::Place(*d));
+                    }
+                }
+            }
+        }
+        // Action buttons.
+        let mut ax = panel.min.x + 10.0;
+        let ay = panel.max.y - 26.0;
+        let mut action = |label: &str, active: bool| -> bool {
+            let w = label.len() as f32 * 6.6 + 14.0;
+            let r = rect(ax, ay, w, 20.0);
+            ax += w + 4.0;
+            let hov = button(r, active);
+            text_c(r.center().x, r.center().y, label, 12.0, Color32::WHITE);
+            hov && lmb_down
+        };
+        let any_mobile = units.iter().any(|u| !fr.d(u.def).is_structure());
+        let any_armed = units.iter().any(|u| fr.d(u.def).armed());
+        if any_mobile {
+            if action("Attack-move A", view.mode == Mode::AttackMove) {
+                new_mode = Some(Mode::AttackMove);
+            }
+            if action("Patrol P", view.mode == Mode::Patrol) {
+                new_mode = Some(Mode::Patrol);
+            }
+        }
+        if any_armed && action("Ground fire G", view.mode == Mode::GroundAttack) {
+            new_mode = Some(Mode::GroundAttack);
+        }
+        if units.iter().any(|u| fr.d(u.def).can_assist()) && action("Reclaim E", view.mode == Mode::Reclaim) {
+            new_mode = Some(Mode::Reclaim);
+        }
+        if action("Stop S", false) {
+            do_stop = true;
+        }
+        if is_factory {
+            let on = lead.factory.as_ref().map_or(false, |f| f.repeat);
+            if action(if on { "Repeat ON R" } else { "Repeat off R" }, on) {
+                do_repeat = true;
+            }
+        }
+        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("Upgrade U", false) {
+            do_upgrade = true;
+        }
+    } else {
+        text(MM + 22.0, sh - 22.0, "LMB select    RMB order    RMB-drag line: spread units    wheel zoom    arrows / MMB pan    F1 help    Esc menu", 12.0, rgba(200, 200, 200, 230));
+    }
+    if do_stop {
+        out.push(Command::Stop { ids: view.sel.clone() });
+    }
+    if do_upgrade {
+        out.push(Command::Upgrade { ids: view.sel.clone() });
+    }
+    if do_repeat {
+        let facs: Vec<&Info> = units.iter().copied().filter(|u| u.factory.is_some()).collect();
+        if let Some(f) = facs.first() {
+            let on = !f.factory.as_ref().map_or(false, |f| f.repeat);
+            out.push(Command::Repeat { ids: facs.iter().map(|u| u.id).collect(), on });
+        }
+    }
+
+    // Tooltip above the panel.
+    if let Some((d, rate)) = tip {
+        let bd = fr.d(d);
+        let mut lines = vec![format!("{}   (tier {})", bd.name, bd.tier.max(1))];
+        if rate > 0.0 {
+            lines.push(format!("Mass {:.0}   Energy {:.0}   Time {:.0}s   HP {:.0}   Armor {}", bd.cost.mass, bd.cost.energy, bd.cost.time / rate, bd.hp, bd.armor));
+        } else {
+            lines.push(format!("HP {:.0}   Armor {}", bd.hp, bd.armor));
+        }
+        lines.push(bd.desc.clone());
+        for w in &bd.weapons {
+            let mut t = format!("{}: {:.0} {} dmg", w.name, w.damage, w.damage_type);
+            if w.salvo > 1 {
+                t += &format!(" x{}", w.salvo);
+            }
+            t += &format!(" every {:.1}s, range {:.0}", w.reload, w.range);
+            if w.min_range > 0.0 {
+                t += &format!(" (min {:.0})", w.min_range);
+            }
+            if w.radius > 0.0 {
+                t += &format!(", blast {:.0}", w.radius);
+            }
+            if let Some(tu) = &w.turret {
+                t += &format!(", traverse {:.0} deg/s", tu.yaw_speed);
+            }
+            if w.aim_time > 0.0 {
+                t += &format!(", aim {:.1}s", w.aim_time);
+            }
+            if w.hits_air && !w.hits_land {
+                t += ", anti-air";
+            }
+            lines.push(t);
+        }
+        if bd.mv.speed > 0.0 {
+            lines.push(format!("Speed {:.1} (reverse {:.1})   Sight {:.0}{}", bd.mv.speed, bd.mv.reverse, bd.vision, if bd.radar > 0.0 { format!("   Radar {:.0}", bd.radar) } else { String::new() }));
+        }
+        if rate > 0.0 && ld_is_factory(&units, &fr) {
+            lines.push("Left-click: queue (+Shift x5).  Right-click: remove.".into());
+        }
+        let w = lines.iter().map(|l| l.len() as f32 * 6.4).fold(0.0, f32::max) + 24.0;
+        let h = lines.len() as f32 * 17.0 + 12.0;
+        let (tx, ty) = ((mouse.x - 20.0).min(sw - w - 8.0).max(8.0), panel.min.y - h - 6.0);
+        let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("tip")));
+        top.rect_filled(rect(tx, ty, w, h), 3.0, rgba(12, 15, 20, 245));
+        top.rect_stroke(rect(tx, ty, w, h), 3.0, Stroke::new(1.0, line_c), StrokeKind::Inside);
+        for (k, l) in lines.iter().enumerate() {
+            top.text(Pos2::new(tx + 10.0, ty + 6.0 + k as f32 * 17.0), Align2::LEFT_TOP, l, font(12.5), if k == 0 { rgba(255, 230, 130, 255) } else { Color32::WHITE });
+        }
+    }
+    if let Some(s) = new_sel {
+        view.sel = s;
+    }
+    if let Some(m) = new_mode {
+        view.mode = m;
+    }
+
+    // --- mode hint, banners
+    let label = match view.mode {
+        Mode::AttackMove => "ATTACK-MOVE: left-click, or drag a line to spread out   (right-click cancels)".to_string(),
+        Mode::Patrol => "PATROL: left-click a point".to_string(),
+        Mode::GroundAttack => "GROUND FIRE: click a spot or a unit, or drag a circle to shell an area".to_string(),
+        Mode::Reclaim => "RECLAIM: click a wreck, or drag a circle to collect everything inside".to_string(),
+        Mode::Place(d) if fr.d(d).needs_deposit => format!("BUILD {}: click a deposit, or drag a circle to queue every deposit inside", fr.d(d).name),
+        Mode::Place(d) => format!("BUILD {}: click, or drag for a row. Shift keeps placing.", fr.d(d).name),
+        Mode::None => String::new(),
+    };
+    if !label.is_empty() {
+        text_c(sw * 0.5, TOP + 20.0, &label, 15.0, rgba(255, 230, 130, 255));
+    }
+    if let Some(w) = game.winner {
+        let (t, c) = if w == team { ("VICTORY", rgba(110, 255, 130, 255)) } else { ("DEFEAT", rgba(255, 95, 80, 255)) };
+        text_c(sw * 0.5, sh * 0.3, t, 72.0, c);
+        text_c(sw * 0.5, sh * 0.3 + 50.0, "Press Esc for the menu", 18.0, Color32::WHITE);
+    } else if !player.alive {
+        text_c(sw * 0.5, TOP + 44.0, "Your commander was destroyed - spectating", 20.0, rgba(255, 130, 105, 255));
+    }
+
+    let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("top")));
+    if view.show_help {
+        let lines = [
+            "CONTROLS",
+            "Left click / drag: select, box select.  Double-click: all of that type on screen.  Shift: add.",
+            "Right click: move / attack enemy / assist or repair friend / reclaim wreck.  Shift: queue.",
+            "Right-drag a line: spread the selected units along it (Alt: attack-move).",
+            "A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)",
+            "U upgrade (pumps, factories)    R factory repeat    . idle builder    , commander",
+            "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
+            "Factory menu: left-click queues (Shift x5), right-click removes.",
+            "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
+            "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.",
+            "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
+        ];
+        let (w, h) = (760.0, lines.len() as f32 * 20.0 + 20.0);
+        let r = rect(sw * 0.5 - w * 0.5, TOP + 50.0, w, h);
+        top.rect_filled(r, 4.0, rgba(12, 15, 20, 240));
+        for (k, l) in lines.iter().enumerate() {
+            top.text(Pos2::new(r.min.x + 14.0, r.min.y + 10.0 + k as f32 * 20.0), Align2::LEFT_TOP, *l, font(13.5), if k == 0 { rgba(255, 230, 130, 255) } else { Color32::WHITE });
+        }
+    }
+    if view.menu_open {
+        top.rect_filled(rect(0.0, 0.0, sw, sh), 0.0, rgba(0, 0, 0, 130));
+        let (w, h) = (260.0, 200.0);
+        let (x, y) = (sw * 0.5 - w * 0.5, sh * 0.5 - h * 0.5);
+        top.rect_filled(rect(x, y, w, h), 5.0, rgba(20, 24, 31, 252));
+        top.rect_stroke(rect(x, y, w, h), 5.0, Stroke::new(1.5, line_c), StrokeKind::Inside);
+        top.text(Pos2::new(sw * 0.5, y + 26.0), Align2::CENTER_CENTER, "MENU", font(22.0), Color32::WHITE);
+        for (k, l) in ["Resume", "Resign", "Quit to main menu"].iter().enumerate() {
+            let r = rect(x + 30.0, y + 52.0 + k as f32 * 46.0, w - 60.0, 36.0);
+            let hov = r.contains(mouse);
+            top.rect_filled(r, 3.0, if hov { rgba(64, 76, 94, 255) } else { rgba(34, 40, 50, 255) });
+            top.rect_stroke(r, 3.0, Stroke::new(1.0, if hov { Color32::WHITE } else { line_c }), StrokeKind::Inside);
+            top.text(r.center(), Align2::CENTER_CENTER, *l, font(16.0), Color32::WHITE);
+            if hov && lmb_down {
+                match k {
+                    0 => view.menu_open = false,
+                    1 => {
+                        out.push(Command::Resign);
+                        view.menu_open = false;
+                    }
+                    _ => view.quit = true,
+                }
+            }
+        }
+    }
+    let _ = bcol;
+    Ok(())
+}
+
+fn ld_is_factory(units: &[&Info], fr: &Frame) -> bool {
+    units.iter().find(|u| !fr.d(u.def).builds.is_empty()).map_or(false, |u| fr.d(u.def).is_factory())
+}

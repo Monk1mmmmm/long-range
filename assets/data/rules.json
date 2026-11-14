@@ -1,0 +1,100 @@
+{
+  "_comment": "Global game rules. Times are seconds, angles degrees, distances world units.",
+  "gravity": 4.9,
+  "start_mass": 650,
+  "start_energy": 4000,
+  "wreck_mass_fraction": 0.6,
+  "max_wrecks": 400,
+  "reclaim_rate": 2.0,
+  "repair_rate": 3.0,
+  "radar_fade_secs": 10.0,
+  "radar_los_height": 4.0,
+  "power_stall_pump_factor": 0.25,
+  "friendly_fire": false,
+  "commander_death": {
+    "damage": 1500,
+    "radius": 20
+  },
+  "damage_types": [
+    "Normal",
+    "Autocannon",
+    "AP",
+    "Explosive"
+  ],
+  "armor": {
+    "Light": {
+      "Normal": 1.0,
+      "Autocannon": 1.0,
+      "AP": 1.0,
+      "Explosive": 1.0
+    },
+    "LightTank": {
+      "Normal": 0.5,
+      "Autocannon": 0.66,
+      "AP": 1.0,
+      "Explosive": 1.0
+    },
+    "MediumTank": {
+      "Normal": 0.2,
+      "Autocannon": 0.33,
+      "AP": 1.0,
+      "Explosive": 0.8
+    },
+    "Structure": {
+      "Normal": 0.6,
+      "Autocannon": 0.8,
+      "AP": 1.0,
+      "Explosive": 1.0
+    },
+    "Commander": {
+      "Normal": 0.5,
+      "Autocannon": 0.7,
+      "AP": 1.0,
+      "Explosive": 0.6
+    },
+    "Air": {
+      "Normal": 1.0,
+      "Autocannon": 1.0,
+      "AP": 1.0,
+      "Explosive": 0.5
+    },
+    "Civilian": {
+      "Normal": 0.3,
+      "Autocannon": 0.7,
+      "AP": 0.7,
+      "Explosive": 1.5
+    }
+  },
+  "player_colors": [
+    [
+      0.2,
+      0.45,
+      1.0
+    ],
+    [
+      0.95,
+      0.22,
+      0.18
+    ],
+    [
+      0.2,
+      0.8,
+      0.4
+    ],
+    [
+      0.95,
+      0.75,
+      0.15
+    ]
+  ],
+  "neutral_color": [
+    0.62,
+    0.6,
+    0.55
+  ],
+  "hostile_color": [
+    0.6,
+    0.25,
+    0.75
+  ]
+}

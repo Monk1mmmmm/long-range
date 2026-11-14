@@ -1,81 +1,89 @@
 # Long Range
 
-A standalone real-time strategy game in Rust, based on the *Long Range Tank* mod:
-long guns, fragile units, and scouting/radar that decides who gets to shoot.
+A standalone 3D real-time strategy game in Rust (Bevy), based on the *Long Range Tank* mod:
+unwieldy tanks with long guns, slow turrets and long reloads, where scouting and radar decide who gets to shoot.
 
-- Flow economy (mass + energy income/drain, storage, stalling, assisting, reclaim, extractor upgrades)
-- Command queues, attack-move, patrol, assist, factory queues with repeat and rally points
-- Drag a line with the right mouse button to spread units along it; drag when placing a building to queue a row
-- Fog of war with vision and radar (radar-only contacts show as blips and can be shelled)
+- Real 3D terrain with hills, cliffs and water; the mod's models with rotating turrets and team colours
+- Shots are simulated projectiles: they arc, miss moving targets, fall short and hit hills
+- Flow economy (mass + energy), assisting, repair, reclaim, engineering stations
+- Three tiers of factories, engineers and extractors (upgrade in place)
+- Fog of war, radar blocked by terrain, radar blips that fade, remembered enemy buildings
+- Command queues, attack-move, patrol, ground fire, area reclaim, area extractor placement,
+  drag a line to spread units along it
 - Skirmish AI and LAN multiplayer for up to 4 players (free-for-all or teams)
-- Zoom from a single tank out to the whole map; units turn into strategic icons
+- Units, weapons, factions and rules are JSON files; maps are a JSON file plus a heightmap PNG
+- Map editor (`lr-editor`) with neutral and hostile pre-placed buildings
 
-## Building on Windows
+## Building
 
-1. Install Rust from <https://rustup.rs> (accept the default MSVC toolchain; it will offer to
-   install the Visual Studio C++ Build Tools if they are missing).
-2. In this folder run:
+Install Rust from <https://rustup.rs> (on Windows accept the default MSVC toolchain and the Visual Studio
+C++ Build Tools it offers), then in this folder:
 
-       cargo build --release
+    cargo build --release
 
-3. The game is `target\release\longrange.exe`. It is a single file with no extra DLLs or assets,
-   so you can copy it to another PC as is.
+The first build compiles the Bevy engine and takes a while; later builds are quick.
+You get `target/release/longrange` and `target/release/lr-editor` (`.exe` on Windows).
+`cargo run --release` builds and starts the game in one step.
 
-`cargo run --release` builds and starts it in one step. Linux works the same way.
+**The executables need the `assets` folder next to them** (or run them through `cargo run`).
+To give the game to someone else, copy the exe together with `assets/`.
+
+A Vulkan/DirectX 12 capable GPU is required. F6 turns shadows off if the game is slow.
 
 ## LAN play
 
-One player clicks **Host game / Skirmish vs AI**; the others see the game under **LAN games**
-on the main menu, or type the host's IP (shown in the host's lobby) into **Or by IP**.
-The first time, Windows Firewall asks whether to allow the game: allow it on private networks.
-Ports: TCP 47800 (game) and UDP 47801 (discovery).
+One player clicks **Host game / Skirmish vs AI**; the others see it under **LAN games** in the main menu or
+type the host's IP (shown in the lobby) into **Or by IP**. Allow the game through Windows Firewall on private
+networks (TCP 47800, UDP 47801). Everyone needs the same `assets/data` files - the game checks this on join.
 
-In the lobby the host clicks a slot to switch it between Open / AI / Closed, and clicks the team
-button to set teams (same number = allies). Slots are the four map corners.
+In the lobby the host clicks a slot to switch it between Open / AI / Closed, sets teams (same number = allies),
+factions and the map (random in three sizes, or any map from `assets/maps`).
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Left click / drag | Select unit / box select (double-click: all of that type on screen) |
-| Shift + select | Add to selection |
-| Right click | Move; on an enemy: attack; on a friendly: assist / repair / guard; on a wreck: reclaim |
-| Right drag | Spread the selected units along the drawn line |
-| Shift + order | Add to the command queue |
-| A, then left click / drag | Attack-move (Alt + right click does the same) |
-| P, then left click | Patrol |
-| S | Stop (also cancels a factory queue or an upgrade) |
-| U | Upgrade (Mass Pump to Mk2) |
-| R | Toggle factory repeat |
-| Build buttons | Builders: pick a structure, click to place, drag for a row, Shift to keep placing |
-|  | Factories: left click queues (Shift = 5), right click removes |
-| Ctrl + 0-9 / 0-9 | Set / recall control group (double tap centres the camera) |
-| . / , | Next idle builder / select the Commander |
-| Mouse wheel | Zoom toward the cursor |
-| Arrow keys, middle drag, minimap | Move the camera |
-| Esc | Cancel the current mode, or open the menu |
-| F11 | Fullscreen |
+| Left click / drag | Select / box select. Double-click: all of that type on screen. Shift: add |
+| Right click | Move; enemy: attack; friend: assist / repair / guard; wreck: reclaim |
+| Right-drag a line | Spread the selected units along the line (Alt: attack-move) |
+| Shift + order | Queue |
+| A | Attack-move (click, or drag a line) |
+| P | Patrol |
+| G | Ground fire: click a spot, or drag a circle to shell an area |
+| E | Reclaim: click a wreck, or drag a circle to collect everything inside |
+| S | Stop (also cancels factory queues and upgrades) |
+| U | Upgrade (pumps and factories go up a tier) |
+| R | Factory repeat on/off |
+| Build menu | Click a structure, then the map. Drag for a row. Pumps: drag a circle to queue every deposit in it |
+| Factory menu | Left click queues (Shift = 5), right click removes |
+| Selection panel | Click a unit type to keep only that type, Shift-click to drop it |
+| Ctrl+0-9 / 0-9 | Set / recall control group (double tap centres the camera) |
+| . / , | Next idle builder / Commander |
+| Wheel, arrows, middle-drag, minimap | Camera |
+| F1 / F6 / F11 / Esc | Help / shadows / fullscreen / menu |
+
+Things to know: most guns out-range their unit's sight, so they only fire at what a scout or radar reveals.
+Radar does not see through hills. Enemy buildings you have seen stay marked on the map until you look at the
+spot again. The bars over a unit are health (green), main gun reload (orange, blue when ready) and
+construction (cyan).
+
+## Modding
+
+- `assets/data/rules.json` - gravity, economy constants, armor table, colours.
+- `assets/data/factions/*.json` - one file per faction. Each unit has stats, `tier`, `built_by` (build
+  category), `build` (what it can construct, up to which tier), `weapons` (kind `direct`, `arc`, `high_arc`,
+  `missile` or `bomb`, turret speeds, aim time, spread, salvo), a `model` (a `.glb` with optional textures,
+  or a list of coloured `boxes`) and an `icon` (shape + glyphs; every unit needs a unique one).
+  Set `"playable": true` on a new faction file to make it selectable in the lobby.
+- `assets/maps/<name>/` - `map.json` (deposits, start positions, pre-placed neutral/hostile objects, water
+  level) and `height.png` (16-bit greyscale). Make them with `lr-editor`.
+
+The editor: `cargo run --release --bin lr-editor`. Raise/lower/smooth/flatten terrain, set the water level,
+place deposits, start positions and buildings or units for the neutral or hostile side, then Save.
+`lr-editor --generate NAME CELLS SEED` writes a generated map with towns without opening a window.
 
 ## Command line
 
-- `--skirmish` starts straight into a game against three AIs.
-- `--selftest` runs a headless AI-vs-AI match and prints statistics.
-- `--nettest` runs a loopback check of the network code.
-- Environment variable `LR_SPEED=4` fast-forwards a hosted game.
-
-(On Windows the release build has no console window; use `cargo run -- --selftest` to see the output.)
-
-## Code map
-
-| File | Contents |
-|---|---|
-| `src/defs.rs` | Units, weapons, armor table - edit this to rebalance |
-| `src/sim.rs` | Simulation: economy, orders, movement, combat, vision (10 ticks/s) |
-| `src/map.rs` | Map generator and pathfinding |
-| `src/ai.rs` | Skirmish AI |
-| `src/net.rs` | LAN host/client and discovery |
-| `src/game.rs` | Camera, input, HUD, world drawing |
-| `src/render.rs` | Box models, terrain texture, batching |
-| `src/main.rs` | Menu, lobby, session loop |
-
-The host runs the simulation and sends state snapshots; clients send commands.
+`--skirmish` (straight into a game against three AIs), `--selftest`, `--combattest`, `--nettest`
+(headless checks that print their results; on Windows run them through `cargo run --` to see the output).
+See `CLAUDE.md` for the architecture and the debug environment variables.

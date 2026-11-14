@@ -1,6 +1,6 @@
 //! LAN networking: TCP for the game (host authoritative, state snapshots),
 //! UDP broadcast for finding hosts on the local network.
-use crate::map::Map;
+use crate::map::MapData;
 use crate::sim::Command;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -12,8 +12,8 @@ use std::time::Duration;
 
 pub const TCP_PORT: u16 = 47800;
 pub const UDP_PORT: u16 = 47801;
-const MAGIC_Q: &[u8] = b"LRT1?";
-const MAGIC_A: &[u8] = b"LRT1!";
+const MAGIC_Q: &[u8] = b"LRT2?";
+const MAGIC_A: &[u8] = b"LRT2!";
 /// Frame tags.
 pub const TAG_MSG: u8 = 0;
 pub const TAG_SNAP: u8 = 1;
@@ -24,25 +24,29 @@ pub struct SlotInfo {
     pub kind: u8,
     pub name: String,
     pub team: u8,
+    pub faction: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct LobbyInfo {
     pub slots: Vec<SlotInfo>,
-    pub map_cells: u32,
+    pub map_name: String,
     pub you: i8,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum C2S {
-    Hello { name: String },
+    /// `data_hash` must match the host's game data (rules and factions).
+    Hello { name: String, data_hash: u64 },
+    /// Lobby: the client asks for another faction.
+    Faction(u8),
     Cmd(Command),
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum S2C {
     Lobby(LobbyInfo),
-    Start { map: Map, you: u8 },
+    Start { map: MapData, you: u8 },
     Kicked(String),
 }
 
@@ -215,7 +219,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn connect(addr: &str, name: &str) -> Result<Client, String> {
+    pub fn connect(addr: &str, name: &str, data_hash: u64) -> Result<Client, String> {
         let addr = if addr.contains(':') { addr.to_string() } else { format!("{addr}:{TCP_PORT}") };
         let sa: SocketAddr = addr.parse().map_err(|_| format!("'{addr}' is not a valid address"))?;
         let stream = TcpStream::connect_timeout(&sa, Duration::from_secs(3)).map_err(|e| format!("connect failed: {e}"))?;
@@ -231,7 +235,7 @@ impl Client {
             tx.send(None).ok();
         });
         let mut c = Client { frames: rx, stream };
-        c.send(&C2S::Hello { name: name.to_string() });
+        c.send(&C2S::Hello { name: name.to_string(), data_hash });
         Ok(c)
     }
 

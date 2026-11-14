@@ -1,0 +1,200 @@
+//! What the local player knows: fog of war grid, radar coverage (shadowed by terrain)
+//! and the memory of contacts that are no longer detected.
+use super::terrain::FogTexture;
+use super::ViewState;
+use crate::data::{DefId, Defs};
+use crate::map::*;
+use crate::sim::*;
+use bevy::prelude::*;
+use std::collections::HashMap;
+
+pub const FOG_DARK: u8 = 140;
+pub const FOG_RADAR: u8 = 80;
+
+/// CPU copy of the fog texture: alpha per map cell.
+#[derive(Resource)]
+pub struct FogGrid {
+    pub n: usize,
+    pub alpha: Vec<u8>,
+    /// Cached radar coverage per radar unit: (position it was computed for, radius, covered cells).
+    radar: HashMap<u32, (V2, f32, Vec<u32>)>,
+}
+
+impl FogGrid {
+    pub fn new(n: usize) -> FogGrid {
+        FogGrid { n, alpha: vec![0; n * n], radar: HashMap::new() }
+    }
+    /// Is this spot currently in direct sight?
+    pub fn visible(&self, p: V2) -> bool {
+        let (x, y) = ((p.x / CELL) as i32, (p.y / CELL) as i32);
+        if x < 0 || y < 0 || x >= self.n as i32 || y >= self.n as i32 {
+            return false;
+        }
+        self.alpha[y as usize * self.n + x as usize] < 40
+    }
+}
+
+/// A remembered enemy contact.
+#[derive(Clone, Debug)]
+pub struct Ghost {
+    pub id: u32,
+    /// Known once the unit has been seen (structures keep their identity).
+    pub def: Option<DefId>,
+    pub owner: u8,
+    pub pos: V2,
+    pub y: f32,
+    pub structure: bool,
+    pub last_tick: u32,
+    /// Detected right now (by sight or radar).
+    pub live: bool,
+}
+
+#[derive(Resource, Default)]
+pub struct IntelMemory {
+    pub ghosts: HashMap<u32, Ghost>,
+    tick: u32,
+}
+
+pub fn reveal(game: &Game, me: u8) -> bool {
+    // LR_REVEAL=1 switches the fog of war off (debugging).
+    static FORCE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FORCE.get_or_init(|| std::env::var("LR_REVEAL").is_ok()) || game.winner.is_some() || game.players.get(me as usize).map_or(true, |p| !p.alive)
+}
+
+fn radar_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32) -> Vec<u32> {
+    let n = map.n as i32;
+    let (cx, cy, rc) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32, (radius / CELL) as i32);
+    let mut out = vec![];
+    // Sample every second cell and fill 2x2 blocks: plenty for a fog overlay.
+    let mut y = (cy - rc).max(0) & !1;
+    while y <= (cy + rc).min(n - 1) {
+        let mut x = (cx - rc).max(0) & !1;
+        while x <= (cx + rc).min(n - 1) {
+            let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
+            if c.dist(pos) <= radius && map.los(eye, c.at(map.h(c) + 1.5)) {
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    if x + dx < n && y + dy < n {
+                        out.push(((y + dy) * n + x + dx) as u32);
+                    }
+                }
+            }
+            x += 2;
+        }
+        y += 2;
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn update_intel(
+    view: Res<ViewState>,
+    game: Res<Game>,
+    defs: Res<Defs>,
+    map: Res<MapData>,
+    mut fog: ResMut<FogGrid>,
+    mut mem: ResMut<IntelMemory>,
+    tex: Option<Res<FogTexture>>,
+    mut images: ResMut<Assets<Image>>,
+    q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Has<Hosted>)>,
+) {
+    if mem.tick == game.tick {
+        return;
+    }
+    mem.tick = game.tick;
+    let team = game.team_of(view.me);
+    let bit = 1u8 << team;
+    let reveal = reveal(&game, view.me);
+    let n = map.n;
+
+    // --- fog grid
+    let fog = &mut *fog;
+    fog.alpha.fill(if reveal { 0 } else { FOG_DARK });
+    let mut eyes: Vec<(V2, f32)> = vec![];
+    if !reveal {
+        let mut budget = 1;
+        let mut alive = std::collections::HashSet::new();
+        for (u, b, _, uc, hosted) in &q {
+            if game.team_of(u.owner) != team || uc || hosted {
+                continue;
+            }
+            let d = defs.get(u.def);
+            let power_out = game.players.get(u.owner as usize).map_or(false, |p| p.power_out);
+            if d.radar > 0.0 && !power_out {
+                alive.insert(u.id);
+                let stale = fog.radar.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL * 1.5 || c.1 != d.radar);
+                if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
+                    budget -= 1;
+                    let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.radar_los_height);
+                    fog.radar.insert(u.id, (b.pos, d.radar, radar_cells(&map, eye, b.pos, d.radar)));
+                }
+                if let Some(c) = fog.radar.get(&u.id) {
+                    for i in &c.2 {
+                        fog.alpha[*i as usize] = FOG_RADAR;
+                    }
+                }
+            }
+            if d.vision > 0.0 {
+                eyes.push((b.pos, d.vision));
+            }
+        }
+        fog.radar.retain(|id, _| alive.contains(id));
+        for (pos, r) in &eyes {
+            let (cx, cy, rc) = (pos.x / CELL, pos.y / CELL, r / CELL);
+            for y in ((cy - rc) as i32).max(0)..=((cy + rc) as i32).min(n as i32 - 1) {
+                for x in ((cx - rc) as i32).max(0)..=((cx + rc) as i32).min(n as i32 - 1) {
+                    if (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) <= rc * rc {
+                        fog.alpha[y as usize * n + x as usize] = 0;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(img) = tex.and_then(|t| images.get_mut(&t.0)) {
+        if let Some(data) = img.into_inner().data.as_mut() {
+            for (px, a) in data.chunks_exact_mut(4).zip(fog.alpha.iter()) {
+                px[3] = *a;
+            }
+        }
+    }
+
+    // --- contact memory
+    for g in mem.ghosts.values_mut() {
+        g.live = false;
+    }
+    for (u, b, intel, _, hosted) in &q {
+        let ut = game.team_of(u.owner);
+        if ut == team || hosted {
+            continue;
+        }
+        let d = defs.get(u.def);
+        let seen = reveal || intel.seen & bit != 0;
+        let radar = intel.radar & bit != 0;
+        if !seen && !radar {
+            continue;
+        }
+        let g = mem.ghosts.entry(u.id).or_insert(Ghost { id: u.id, def: None, owner: u.owner, pos: b.pos, y: b.y, structure: d.is_structure(), last_tick: game.tick, live: true });
+        g.pos = b.pos;
+        g.y = b.y;
+        g.last_tick = game.tick;
+        g.live = true;
+        if seen {
+            g.def = Some(u.def);
+        } else if !g.structure {
+            // A mobile blip tells us where, not what.
+            g.def = None;
+        }
+    }
+    let fade = (defs.rules.radar_fade_secs / DT) as u32;
+    let tick = game.tick;
+    mem.ghosts.retain(|_, g| {
+        if g.live {
+            return true;
+        }
+        if g.structure {
+            // Buildings stay on the map until we look at the spot again and find it empty.
+            !eyes.iter().any(|(p, r)| p.dist(g.pos) < *r)
+        } else {
+            tick.saturating_sub(g.last_tick) < fade
+        }
+    });
+}
