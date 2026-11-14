@@ -95,7 +95,7 @@ pub fn update_intel(
     mut mem: ResMut<IntelMemory>,
     tex: Option<Res<FogTexture>>,
     mut images: ResMut<Assets<Image>>,
-    q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Has<Hosted>)>,
+    q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Has<Hosted>, Has<Paused>)>,
 ) {
     if mem.tick == game.tick {
         return;
@@ -113,13 +113,13 @@ pub fn update_intel(
     if !reveal {
         let mut budget = 1;
         let mut alive = std::collections::HashSet::new();
-        for (u, b, _, uc, hosted) in &q {
+        for (u, b, _, uc, hosted, paused) in &q {
             if game.team_of(u.owner) != team || uc || hosted {
                 continue;
             }
             let d = defs.get(u.def);
             let power_out = game.players.get(u.owner as usize).map_or(false, |p| p.power_out);
-            if d.radar > 0.0 && !power_out {
+            if d.radar > 0.0 && !power_out && !paused {
                 alive.insert(u.id);
                 let stale = fog.radar.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL * 1.5 || c.1 != d.radar);
                 if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
@@ -161,7 +161,7 @@ pub fn update_intel(
     for g in mem.ghosts.values_mut() {
         g.live = false;
     }
-    for (u, b, intel, _, hosted) in &q {
+    for (u, b, intel, _, hosted, _) in &q {
         let ut = game.team_of(u.owner);
         if ut == team || hosted {
             continue;

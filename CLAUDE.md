@@ -115,6 +115,10 @@ The first xdotool mouse move lands at the window centre - do a throwaway move be
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Overtaker/Pike/MBFAG/
   radar car, T2 Crony/Dragoon/Robin/Sparky, T3 Bohdana. Change `tier` in JSON to move a unit.
+- **Energy stall**: upkeep and construction share energy proportionally (`build_progress`, `Player.power`);
+  pumps produce at that fraction, radars cut out below 0.5. `Paused` (Tab / `Command::Pause`) switches a
+  unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
+  dead-locked a base whose upkeep exceeded income.
 - **Engineering station** (`build.station`): immobile builder that assists anything in range by itself.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).

@@ -2,7 +2,7 @@
 use crate::map::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
-use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster};
+use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -140,9 +140,18 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
             }
         }
     }
-    // Water.
+    // Everything outside the map is a flat dark void (unlit, so it shows no lighting or shadow seams).
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 1.6, world * 1.6))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 12.0, world * 12.0))),
+        MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.035, 0.045, 0.06), unlit: true, ..default() })),
+        Transform::from_xyz(world * 0.5, map.water - 6.0, world * 0.5),
+        NotShadowCaster,
+        NotShadowReceiver,
+        GameScene,
+    ));
+    // Water covers exactly the map; it takes no shadows (cascade borders showed up as rectangles on it).
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(world, world))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
             alpha_mode: AlphaMode::Blend,
@@ -152,6 +161,7 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         })),
         Transform::from_xyz(world * 0.5, map.water, world * 0.5),
         NotShadowCaster,
+        NotShadowReceiver,
         GameScene,
     ));
     spawn_deposits(commands, map, meshes, materials);

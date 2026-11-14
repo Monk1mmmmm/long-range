@@ -48,6 +48,8 @@ pub enum Command {
     Repeat { ids: Vec<u32>, on: bool },
     Upgrade { ids: Vec<u32> },
     SelfDestruct { ids: Vec<u32> },
+    /// Pause or resume: builders stop working, extractors and radars switch off and stop drawing energy.
+    Pause { ids: Vec<u32>, on: bool },
     Resign,
 }
 
@@ -145,6 +147,10 @@ pub struct Intel {
     pub radar: u16,
 }
 
+/// Switched off by the player: no construction work, no production, no upkeep, no radar.
+#[derive(Component)]
+pub struct Paused;
+
 #[derive(Component)]
 pub struct Structure;
 
@@ -213,6 +219,12 @@ pub struct Player {
     pub spend_m: f32,
     pub spend_e: f32,
     pub power_out: bool,
+    /// Energy upkeep asked for by running extractors, radars...
+    #[serde(default)]
+    pub upkeep: f32,
+    /// Share of the energy demand that was met last tick (1 = no stall).
+    #[serde(default)]
+    pub power: f32,
     pub start: V2,
 }
 
@@ -381,6 +393,7 @@ pub struct Cen {
     pub work: u32,
     pub building: u32,
     pub upgrading: bool,
+    pub paused: bool,
 }
 impl Cen {
     pub fn p3(&self) -> Vec3 {
@@ -549,6 +562,7 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
             energy: defs.rules.start_energy,
             max_mass: defs.rules.start_mass,
             max_energy: defs.rules.start_energy,
+            power: 1.0,
             start,
             ..default()
         });
@@ -608,6 +622,7 @@ pub struct UnitSnap {
     pub factory: Option<Factory>,
     pub hosted: Option<u32>,
     pub intel: Intel,
+    pub paused: bool,
 }
 
 /// Complete game state sent to clients every tick.
@@ -634,8 +649,9 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
         Option<&Factory>,
         Option<&Hosted>,
         &Intel,
+        Has<Paused>,
     )>();
-    for (u, b, h, uc, up, o, w, bl, f, ho, i) in q.iter(world) {
+    for (u, b, h, uc, up, o, w, bl, f, ho, i, paused) in q.iter(world) {
         s.units.push(UnitSnap {
             unit: *u,
             body: *b,
@@ -648,6 +664,7 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
             factory: f.cloned(),
             hosted: ho.map(|h| h.0),
             intel: *i,
+            paused,
         });
     }
     let mut q = world.query::<&Projectile>();
@@ -700,6 +717,11 @@ pub fn apply_snapshot(world: &mut World, s: Snapshot) {
             None => {
                 em.remove::<Upgrading>();
             }
+        }
+        if u.paused {
+            em.insert(Paused);
+        } else {
+            em.remove::<Paused>();
         }
         match u.hosted {
             Some(h) => {

@@ -44,11 +44,11 @@ fn census_build(
     mut wrecks: ResMut<WreckList>,
     game: Res<Game>,
     defs: Res<Defs>,
-    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Has<Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>)>,
+    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Has<Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>)>,
     wq: Query<&Wreck>,
 ) {
     census.clear();
-    for (e, u, b, h, i, uc, hosted, builder, factory, upgrading) in &q {
+    for (e, u, b, h, i, uc, hosted, builder, factory, upgrading, paused) in &q {
         let d = defs.get(u.def);
         census.push(Cen {
             e,
@@ -73,6 +73,7 @@ fn census_build(
             work: builder.map_or(0, |b| b.work),
             building: factory.map_or(0, |f| f.building),
             upgrading,
+            paused,
         });
     }
     wrecks.0.clear();
@@ -212,6 +213,17 @@ fn apply_commands(
                     }
                 }
             }
+            Command::Pause { ids, on } => {
+                for id in ids {
+                    if let Some(e) = owned(id) {
+                        if on {
+                            commands.entity(e).insert(Paused);
+                        } else {
+                            commands.entity(e).remove::<Paused>();
+                        }
+                    }
+                }
+            }
             Command::SelfDestruct { ids } => {
                 for id in ids {
                     if owned(id).is_some() {
@@ -247,7 +259,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         }
         let d = defs.get(c.def);
         let power_out = game.players.get(c.owner as usize).map_or(false, |p| p.power_out);
-        let radar = if power_out { 0.0 } else { d.radar };
+        let radar = if power_out || c.paused { 0.0 } else { d.radar };
         if d.vision <= 0.0 && radar <= 0.0 {
             continue;
         }
@@ -293,6 +305,7 @@ fn income(census: Res<Census>, mut game: ResMut<Game>, defs: Res<Defs>) {
         p.income_e = 0.0;
         p.spend_m = 0.0;
         p.spend_e = 0.0;
+        p.upkeep = 0.0;
     }
     let stall = defs.rules.power_stall_pump_factor;
     for c in &census.list {
@@ -303,13 +316,19 @@ fn income(census: Res<Census>, mut game: ResMut<Game>, defs: Res<Defs>) {
         let e = &defs.get(c.def).eco;
         p.max_mass += e.store_mass;
         p.max_energy += e.store_energy;
-        p.income_m += e.mass * if p.power_out && e.upkeep > 0.0 { stall } else { 1.0 };
+        if c.paused {
+            continue;
+        }
+        // Extractors slow down with the share of energy they actually got last tick.
+        p.income_m += e.mass * if e.upkeep > 0.0 { p.power.max(stall) } else { 1.0 };
         p.income_e += e.energy;
-        p.spend_e += e.upkeep;
+        p.upkeep += e.upkeep;
     }
+    // Upkeep is not taken here: it competes with construction for energy in `build_progress`,
+    // so a stalled economy slows everything down proportionally instead of locking up.
     for p in game.players.iter_mut() {
         p.mass += p.income_m * DT;
-        p.energy += (p.income_e - p.spend_e) * DT;
+        p.energy += p.income_e * DT;
     }
 }
 
@@ -642,7 +661,7 @@ fn build_progress(
     // (payer, target entity, build rate)
     let mut jobs: Vec<(u8, Entity, f32)> = vec![];
     for (e, u, _, builder, uc, up) in q.iter() {
-        if uc.is_some() {
+        if uc.is_some() || census.get(u.id).map_or(false, |c| c.paused) {
             continue;
         }
         let d = defs.get(u.def);
@@ -681,13 +700,17 @@ fn build_progress(
         }
     }
     let mut ratio = vec![1.0f32; np];
+    let mut power = vec![1.0f32; np];
     for p in 0..np {
         let pl = &game.players[p];
         if dm[p] > 0.0 {
             ratio[p] = ratio[p].min(pl.mass.max(0.0) / (dm[p] * DT));
         }
-        if de[p] > 0.0 {
-            ratio[p] = ratio[p].min(pl.energy.max(0.0) / (de[p] * DT));
+        // Energy is shared between construction and upkeep.
+        let want_e = de[p] + pl.upkeep;
+        if want_e > 0.0 {
+            power[p] = (pl.energy.max(0.0) / (want_e * DT)).clamp(0.0, 1.0);
+            ratio[p] = ratio[p].min(power[p]);
         }
         ratio[p] = ratio[p].clamp(0.0, 1.0);
     }
@@ -734,12 +757,16 @@ fn build_progress(
         }
     }
     for (p, pl) in game.players.iter_mut().enumerate() {
-        if ratio[p] < 1.0 {
+        pl.energy -= pl.upkeep * power[p] * DT;
+        pl.spend_e += pl.upkeep * power[p];
+        if ratio[p] < 1.0 || power[p] < 1.0 {
             // Show what was asked for, so the deficit is visible.
             pl.spend_m = dm[p];
-            pl.spend_e = de[p] + (pl.spend_e - de[p] * ratio[p]).max(0.0);
+            pl.spend_e = de[p] + pl.upkeep;
         }
-        pl.power_out = pl.energy <= 0.0 && pl.income_e < pl.spend_e;
+        pl.power = power[p];
+        // Radars drop out when less than half of the energy demand is met.
+        pl.power_out = power[p] < 0.5;
         pl.mass = pl.mass.clamp(0.0, pl.max_mass.max(1.0));
         pl.energy = pl.energy.clamp(0.0, pl.max_energy.max(1.0));
     }

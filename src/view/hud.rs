@@ -26,6 +26,7 @@ pub struct HudAssets {
     icons: HashMap<DefId, TextureHandle>,
     portraits: HashMap<DefId, Option<TextureHandle>>,
     blip: Option<TextureHandle>,
+    orders: HashMap<&'static str, TextureHandle>,
     minimap: Option<TextureHandle>,
     fogmap: Option<TextureHandle>,
     fog_tick: u32,
@@ -40,6 +41,16 @@ impl HudAssets {
                 ctx.load_texture(format!("icon_{}", d.id), egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &px), egui::TextureOptions::LINEAR)
             })
             .clone()
+    }
+    /// Textures of the order-button icons, created on first use.
+    fn order_icons(&mut self, ctx: &egui::Context) -> HashMap<&'static str, TextureHandle> {
+        if self.orders.is_empty() {
+            for k in ["move", "attack_move", "patrol", "ground", "reclaim", "stop", "pause", "resume", "repeat", "upgrade", "assist"] {
+                let px = icons::render_order(k);
+                self.orders.insert(k, ctx.load_texture(format!("order_{k}"), egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &px), egui::TextureOptions::LINEAR));
+            }
+        }
+        self.orders.clone()
     }
     fn portrait(&mut self, ctx: &egui::Context, d: &UnitDef) -> Option<TextureHandle> {
         self.portraits
@@ -70,6 +81,7 @@ struct Info {
     work: u32,
     /// In direct sight of the local team (not just on radar).
     seen: bool,
+    paused: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -120,7 +132,7 @@ pub struct UiParams<'w, 's> {
     wheel: MessageReader<'w, 's, MouseWheel>,
     gizmos: Gizmos<'w, 's>,
     #[allow(clippy::type_complexity)]
-    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Has<Hosted>)>,
+    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Has<Hosted>, Has<Paused>)>,
     wrecks: Query<'w, 's, &'static Wreck>,
     camera: Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<MainCamera>>,
 }
@@ -425,7 +437,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // ---------------------------------------------------------------- per-frame unit data
     let mut infos: HashMap<u32, Info> = HashMap::with_capacity(512);
     let mut hosted: Vec<u32> = vec![];
-    for (u, i, h, intel, orders, w, f, b, uc, up, is_hosted) in &p.units {
+    for (u, i, h, intel, orders, w, f, b, uc, up, is_hosted, paused) in &p.units {
         let known = reveal || game.team_of(u.owner) == team || (intel.seen | intel.radar) & (1 << team) != 0;
         if is_hosted {
             hosted.push(u.id);
@@ -450,6 +462,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 factory: if own { f.cloned() } else { None },
                 work: b.map_or(0, |b| b.work),
                 seen: reveal || intel.seen & (1 << team) != 0,
+                paused,
             },
         );
     }
@@ -793,6 +806,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if p.keys.just_pressed(KeyCode::F1) {
         view.show_help = !view.show_help;
     }
+    let mut do_pause = !view.menu_open && has_sel && p.keys.just_pressed(KeyCode::Tab);
     if p.keys.just_pressed(KeyCode::F6) {
         view.shadows = !view.shadows;
     }
@@ -1164,6 +1178,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 }
             }
         }
+        if u.paused && s.mine {
+            bg.text(Pos2::new(s.sp.x, s.sp.y + s.rpx.max(9.0) + 4.0), Align2::CENTER_TOP, "PAUSED", FontId::proportional(11.0), rgba(255, 210, 90, 255));
+        }
         let prog = u.built.or(u.upg).or_else(|| u.factory.as_ref().and_then(|f| infos.get(&f.building)).and_then(|b| b.built));
         if let Some(pr) = prog {
             bar(pr, rgba(100, 200, 255, 255), 3.0);
@@ -1405,43 +1422,72 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 }
             }
         }
-        // Action buttons.
+        // Order buttons: icon, hotkey letter in the corner, name on hover.
+        let order_tex = p.assets.order_icons(&ctx);
         let mut ax = panel.min.x + 10.0;
-        let ay = panel.max.y - 26.0;
-        let mut action = |label: &str, active: bool| -> bool {
-            let w = label.len() as f32 * 6.6 + 14.0;
-            let r = rect(ax, ay, w, 20.0);
-            ax += w + 4.0;
+        let ay = panel.max.y - 36.0;
+        let mut action = |icon: &str, label: &str, key: &str, active: bool| -> bool {
+            let r = rect(ax, ay, 32.0, 30.0);
+            ax += 36.0;
             let hov = button(r, active);
-            text_c(r.center().x, r.center().y, label, 12.0, Color32::WHITE);
+            if let Some(t) = order_tex.get(icon) {
+                hud.image(t.id(), egui::Rect::from_center_size(r.center(), egui::vec2(24.0, 24.0)), UV, if active { rgba(170, 255, 190, 255) } else { Color32::WHITE });
+            }
+            if !key.is_empty() {
+                hud.text(Pos2::new(r.max.x - 2.0, r.max.y - 1.0), Align2::RIGHT_BOTTOM, key, font(9.5), rgba(150, 230, 255, 255));
+            }
+            if hov {
+                let tipl = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("order_tip")));
+                let full = if key.is_empty() { label.to_string() } else { format!("{label}  [{key}]") };
+                let w = full.len() as f32 * 6.6 + 14.0;
+                let tr = rect(r.min.x, r.min.y - 24.0, w, 20.0);
+                tipl.rect_filled(tr, 3.0, rgba(12, 15, 20, 245));
+                tipl.text(tr.center(), Align2::CENTER_CENTER, full, font(12.0), Color32::WHITE);
+            }
             hov && lmb_down
         };
         let any_mobile = units.iter().any(|u| !fr.d(u.def).is_structure());
         let any_armed = units.iter().any(|u| fr.d(u.def).armed());
+        let can_assist = units.iter().any(|u| fr.d(u.def).can_assist());
         if any_mobile {
-            if action(if faf { "Attack-move" } else { "Attack-move A" }, view.mode == Mode::AttackMove) {
+            if faf && action("move", "Move", "W", view.mode == Mode::Move) {
+                new_mode = Some(Mode::Move);
+            }
+            if action("attack_move", "Attack-move", if faf { "Alt+RMB" } else { "A" }, view.mode == Mode::AttackMove) {
                 new_mode = Some(Mode::AttackMove);
             }
-            if action(if faf { "Patrol Alt+W" } else { "Patrol P" }, view.mode == Mode::Patrol) {
+            if action("patrol", "Patrol", if faf { "Alt+W" } else { "P" }, view.mode == Mode::Patrol) {
                 new_mode = Some(Mode::Patrol);
             }
         }
-        if any_armed && action(if faf { "Attack R" } else { "Ground fire G" }, view.mode == Mode::GroundAttack) {
+        if any_armed && action("ground", if faf { "Attack / ground fire" } else { "Ground fire" }, if faf { "R" } else { "G" }, view.mode == Mode::GroundAttack) {
             new_mode = Some(Mode::GroundAttack);
         }
-        if units.iter().any(|u| fr.d(u.def).can_assist()) && action(if faf { "Reclaim Q" } else { "Reclaim E" }, view.mode == Mode::Reclaim) {
+        if can_assist && action("reclaim", "Reclaim", if faf { "Q" } else { "E" }, view.mode == Mode::Reclaim) {
             new_mode = Some(Mode::Reclaim);
         }
-        if action(if faf { "Stop Esc" } else { "Stop S" }, false) {
+        if can_assist && faf && action("assist", "Assist / repair", "I", view.mode == Mode::Assist) {
+            new_mode = Some(Mode::Assist);
+        }
+        if action("stop", "Stop", if faf { "Esc" } else { "S" }, false) {
             do_stop = true;
+        }
+        // Pause: builders and factories stop working, pumps and radars switch off and cost no energy.
+        let pausable = units.iter().any(|u| {
+            let d = fr.d(u.def);
+            d.build.is_some() || d.eco.upkeep > 0.0 || d.radar > 0.0
+        });
+        let all_paused = units.iter().all(|u| u.paused);
+        if pausable && action(if all_paused { "resume" } else { "pause" }, if all_paused { "Resume" } else { "Pause" }, "Tab", all_paused) {
+            do_pause = true;
         }
         if is_factory {
             let on = lead.factory.as_ref().map_or(false, |f| f.repeat);
-            if action(if on { "Repeat ON" } else { "Repeat off" }, on) {
+            if action("repeat", if on { "Repeat build: on" } else { "Repeat build: off" }, if faf { "`" } else { "R" }, on) {
                 do_repeat = true;
             }
         }
-        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action(if faf { "Upgrade O" } else { "Upgrade U" }, false) {
+        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("upgrade", "Upgrade", if faf { "O" } else { "U" }, false) {
             do_upgrade = true;
         }
     } else {
@@ -1449,6 +1495,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     if do_stop {
         out.push(Command::Stop { ids: view.sel.clone() });
+    }
+    if do_pause && !units.is_empty() {
+        let on = !units.iter().all(|u| u.paused);
+        out.push(Command::Pause { ids: view.sel.clone(), on });
     }
     if do_upgrade {
         out.push(Command::Upgrade { ids: view.sel.clone() });
@@ -1556,6 +1606,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
             "Factory menu: left-click queues (Shift x5), right-click removes.",
             "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
+            "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
             "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.",
             "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
         ];

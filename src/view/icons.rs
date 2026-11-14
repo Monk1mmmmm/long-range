@@ -160,3 +160,79 @@ pub fn icon_size(d: &UnitDef) -> f32 {
     };
     base + d.tier.min(3) as f32 * 1.5
 }
+
+/// Order-button icons (original artwork, drawn from distance fields like the unit icons).
+/// Kinds: move, attack_move, patrol, ground, reclaim, stop, pause, resume, repeat, upgrade, assist.
+pub fn render_order(kind: &str) -> Vec<u8> {
+    let t = 0.085;
+    let tri = |x: f32, y: f32, a: (f32, f32), b: (f32, f32), c: (f32, f32)| poly(x, y, &[a, b, c]);
+    // An arrow from (ax, ay) to (bx, by) with a triangular head.
+    let arrow = |x: f32, y: f32, ax: f32, ay: f32, bx: f32, by: f32, head: f32| -> f32 {
+        let (dx, dy) = (bx - ax, by - ay);
+        let l = (dx * dx + dy * dy).sqrt().max(1e-4);
+        let (ux, uy) = (dx / l, dy / l);
+        let (px, py) = (-uy, ux);
+        let base = (bx - ux * head, by - uy * head);
+        let shaft = seg(x, y, ax, ay, base.0, base.1) - t;
+        shaft.min(tri(x, y, (bx, by), (base.0 + px * head * 0.75, base.1 + py * head * 0.75), (base.0 - px * head * 0.75, base.1 - py * head * 0.75)))
+    };
+    let ring = |x: f32, y: f32, cx: f32, cy: f32, r: f32| (((x - cx).powi(2) + (y - cy).powi(2)).sqrt() - r).abs() - t * 0.85;
+    let sd = |x: f32, y: f32| -> f32 {
+        match kind {
+            "move" => arrow(x, y, -0.45, 0.55, 0.5, -0.5, 0.42),
+            "attack_move" => {
+                let a = arrow(x, y, -0.7, 0.6, -0.05, -0.2, 0.36);
+                let c = ring(x, y, 0.35, -0.3, 0.3).min(seg(x, y, 0.35, -0.72, 0.35, 0.12) - t * 0.6).min(seg(x, y, -0.07, -0.3, 0.77, -0.3) - t * 0.6);
+                a.min(c)
+            }
+            "patrol" => arrow(x, y, -0.6, -0.3, 0.65, -0.3, 0.36).min(arrow(x, y, 0.6, 0.3, -0.65, 0.3, 0.36)),
+            "ground" => ring(x, y, 0.0, 0.0, 0.5)
+                .min(seg(x, y, 0.0, -0.8, 0.0, -0.3) - t)
+                .min(seg(x, y, 0.0, 0.3, 0.0, 0.8) - t)
+                .min(seg(x, y, -0.8, 0.0, -0.3, 0.0) - t)
+                .min(seg(x, y, 0.3, 0.0, 0.8, 0.0) - t)
+                .min((x * x + y * y).sqrt() - 0.12),
+            "reclaim" => arrow(x, y, 0.0, -0.7, 0.0, 0.25, 0.4)
+                .min(seg(x, y, -0.6, 0.15, -0.6, 0.65) - t)
+                .min(seg(x, y, -0.6, 0.65, 0.6, 0.65) - t)
+                .min(seg(x, y, 0.6, 0.65, 0.6, 0.15) - t),
+            "stop" => {
+                let (a, b) = (0.27, 0.65);
+                poly(x, y, &[(-a, -b), (a, -b), (b, -a), (b, a), (a, b), (-a, b), (-b, a), (-b, -a)])
+            }
+            "pause" => (x.abs() - 0.3).abs().max(y.abs() - 0.55) - 0.14,
+            "resume" => tri(x, y, (-0.4, -0.6), (0.6, 0.0), (-0.4, 0.6)),
+            "repeat" => {
+                // A ring with a gap and an arrowhead: "again".
+                let mut d = ring(x, y, 0.0, 0.0, 0.5);
+                if x > 0.0 && y < 0.0 {
+                    d = d.max(x.min(-y) * 2.0);
+                }
+                d.min(tri(x, y, (0.0, -0.82), (0.36, -0.5), (0.0, -0.18)))
+            }
+            "upgrade" => seg(x, y, -0.45, 0.0, 0.0, -0.5)
+                .min(seg(x, y, 0.0, -0.5, 0.45, 0.0))
+                .min(seg(x, y, -0.45, 0.55, 0.0, 0.05))
+                .min(seg(x, y, 0.0, 0.05, 0.45, 0.55))
+                - t,
+            _ => seg(x, y, -0.5, 0.0, 0.5, 0.0).min(seg(x, y, 0.0, -0.5, 0.0, 0.5)) - t * 1.3,
+        }
+    };
+    let mut out = vec![0u8; ICON * ICON * 4];
+    let aa = 2.0 / ICON as f32;
+    for py in 0..ICON {
+        for px in 0..ICON {
+            let (x, y) = ((px as f32 + 0.5) / ICON as f32 * 2.2 - 1.1, (py as f32 + 0.5) / ICON as f32 * 2.2 - 1.1);
+            let d = sd(x, y);
+            let fill = (0.5 - d / aa).clamp(0.0, 1.0);
+            let edge = (0.5 - (d - 0.07) / aa).clamp(0.0, 1.0);
+            let i = (py * ICON + px) * 4;
+            let v = (fill * 255.0) as u8;
+            out[i] = v;
+            out[i + 1] = v;
+            out[i + 2] = v;
+            out[i + 3] = (edge.max(fill) * 255.0) as u8;
+        }
+    }
+    out
+}

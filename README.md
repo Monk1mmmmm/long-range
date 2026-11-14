@@ -53,6 +53,7 @@ number of start positions.
 | G | Ground fire: click a spot, or drag a circle to shell an area |
 | E | Reclaim: click a wreck, or drag a circle to collect everything inside |
 | S | Stop (also cancels factory queues and upgrades) |
+| Tab | Pause / resume: builders and factories stop working, pumps and radars switch off and cost no energy |
 | U | Upgrade (pumps and factories go up a tier) |
 | R | Factory repeat on/off |
 | Build menu | Click a structure, then the map. Drag for a row. Pumps: drag a circle to queue every deposit in it |
@@ -86,6 +87,9 @@ build button.
 Both presets: Ctrl+A air, Ctrl+D land army, Ctrl+B engineers, Ctrl+X everything, Ctrl+C everything on screen,
 Ctrl+Z all of the selected types, Ctrl+H factories on screen, Ctrl+Shift+D / A nearest land / air factory,
 Shift+0-9 add a group to the selection, Ctrl+K self-destruct.
+
+Energy is shared: when you cannot pay for everything, construction, pumps and radars all slow down together
+(radars drop out below half power) - pause what you can spare to get the rest moving.
 
 Things to know: most guns out-range their unit's sight, so they only fire at what a scout or radar reveals.
 Radar does not see through hills. Enemy buildings you have seen stay marked on the map until you look at the

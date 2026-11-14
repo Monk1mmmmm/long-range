@@ -825,6 +825,39 @@ fn combattest() {
             }
         },
     );
+    // 3c. Energy stall: upkeep above income and an empty bank must not lock construction up.
+    run(
+        "Energy stall: 8 pumps (upkeep 32) on +20 income, empty bank, commander builds a windmill; then pumps paused",
+        128,
+        &|world, map| {
+            let defs = world.resource::<Defs>().clone();
+            for k in 0..8 {
+                spawn(world, map, "pump", 0, map.deposits[k], 0.0);
+            }
+            for p in world.resource_mut::<Game>().players.iter_mut() {
+                p.energy = 0.0;
+            }
+            let mut q = world.query::<(&Unit, &Body)>();
+            let (com, at) = q.iter(world).find(|(u, _)| u.owner == 0 && Some(u.def) == defs.factions[defs.playable_factions()[0]].commander).map(|(u, b)| (u.id, b.pos)).unwrap();
+            let site = longrange::sim::snap(&defs, map, defs.id("windmill").unwrap(), at + v2(6.0, 9.0));
+            world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![com], orders: vec![Order::Build { def: defs.id("windmill").unwrap(), pos: site }], queue: false }));
+        },
+        1200,
+        &|world, t| {
+            let defs = world.resource::<Defs>().clone();
+            if t == 800 {
+                let mut q = world.query::<&Unit>();
+                let pumps: Vec<u32> = q.iter(world).filter(|u| defs.get(u.def).needs_deposit).map(|u| u.id).collect();
+                world.resource_mut::<CommandQueue>().0.push((0, Command::Pause { ids: pumps, on: true }));
+            }
+            if t % 200 == 199 {
+                let mut q = world.query::<(&Unit, Option<&UnderConstruction>)>();
+                let mill = q.iter(world).find(|(u, _)| defs.get(u.def).id == "windmill").map(|(_, uc)| uc.map_or("complete".to_string(), |x| format!("{:.0}%", x.0 * 100.0)));
+                let p = &world.resource::<Game>().players[0];
+                println!("   t={}s windmill: {:?}  energy {:.0}  +{:.0} -{:.0}  power {:.2}  mass income {:.1}", (t + 1) / 10, mill, p.energy, p.income_e, p.spend_e, p.power, p.income_m);
+            }
+        },
+    );
     // 4. Radar line of sight: a ridge between the radar and the target hides it.
     for ridge in [false, true] {
         let mut app = headless(defs.clone());
