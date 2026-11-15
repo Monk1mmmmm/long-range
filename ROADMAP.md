@@ -60,9 +60,8 @@ Status: `[ ]` open, `[x]` done (code written and headless-tested), `[~]` partly 
 
 ## M8 - Game data presets
 
-- [ ] The stock JSON is built into the executables; the game runs without an `assets/data` folder.
-- [ ] Presets: named copies of the game data that override the built-in values.
-- [ ] Menu to add, edit and delete presets; the host's preset is sent to the clients at game start.
+- [ ] Presets: named copies of the game data that override the built-in values, stored in an `assets/data` folder.
+- [ ] Menu to add, edit and delete presets; the host's preset and relevant assets is sent to the clients at game start.
 
 ## M9 - Control points mode
 
@@ -70,8 +69,6 @@ Status: `[ ]` open, `[x]` done (code written and headless-tested), `[~]` partly 
 
 ## Open questions
 
-- Presets (M8): read as "the JSON ships inside the binary, and edited copies live as presets next to the
-  game". Say so if you meant something else.
 - Ctrl+Shift is asked for twice (building grid, mass overlay). Plan: grid while a building is being
   placed, mass overlay otherwise.
 
