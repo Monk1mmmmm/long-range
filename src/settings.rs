@@ -21,11 +21,17 @@ pub struct Settings {
     pub fullscreen: bool,
     /// "default" or "faf_alternative".
     pub hotkeys: String,
+    /// Player name used in the lobby; empty = the system user name.
+    pub name: String,
+    /// Draw strategic icons one and a half times as large.
+    pub big_icons: bool,
+    /// Volume of shots and explosions, 0 (off) to 1.
+    pub sfx_volume: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into() }
+        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, sfx_volume: 0.6 }
     }
 }
 
@@ -250,6 +256,16 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label("Fullscreen");
         ui.checkbox(&mut s.fullscreen, "(F11)");
+        ui.end_row();
+        ui.label("Sound effects");
+        if crate::view::sound::AVAILABLE {
+            ui.add(egui::Slider::new(&mut s.sfx_volume, 0.0..=1.0).show_value(false));
+        } else {
+            ui.label(egui::RichText::new("this build has no sound").weak());
+        }
+        ui.end_row();
+        ui.label("Strategic icons");
+        ui.checkbox(&mut s.big_icons, "Bigger");
         ui.end_row();
         ui.label("Hotkeys");
         egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { "FAF alternative" } else { "Default" }).show_ui(ui, |ui| {

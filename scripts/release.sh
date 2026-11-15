@@ -85,7 +85,13 @@ bundle() { # <platform name> <cargo output dir> <exe suffix>
 
 if [ -z "$ONLY" ] || [ "$ONLY" = linux ]; then
     echo "== building Linux x86_64"
-    build_bins
+    # Sound needs the ALSA development files on the build machine.
+    if pkg-config --exists alsa 2>/dev/null; then
+        build_bins
+    else
+        echo "warning: ALSA development files not found (sudo apt install libasound2-dev): this Linux build has NO SOUND" >&2
+        build_bins --no-default-features
+    fi
     bundle linux-x86_64 target/release ""
 fi
 if [ -z "$ONLY" ] || [ "$ONLY" = windows ]; then

@@ -113,6 +113,82 @@ fn chunk_mesh(map: &MapData, cx: usize, cy: usize) -> Mesh {
     mesh
 }
 
+/// Distances from the map border at which the apron has rows of vertices.
+const APRON: [f32; 8] = [0.0, 2.0, 6.0, 14.0, 30.0, 62.0, 110.0, 170.0];
+
+/// The land beyond the playable area: the border heights carried outwards and sloping down into
+/// the sea, in dimmed colours. It meets the terrain vertex for vertex, so there is no gap.
+fn apron_mesh(map: &MapData) -> Mesh {
+    let (n, world) = (map.n, map.world());
+    let reach = APRON[APRON.len() - 1];
+    let sea = map.water - 5.0;
+    let (mut pos, mut nrm, mut uv, mut col, mut idx) = (vec![], vec![], vec![], vec![], vec![]);
+    // One vertex: `edge` is the nearest point on the border, `out` how far outside it lies.
+    let mut vertex = |edge: V2, at: V2| -> u32 {
+        let out = at.dist(edge);
+        let t = (out / reach).clamp(0.0, 1.0);
+        let t = t * t * (3.0 - 2.0 * t);
+        let wobble = (noise(at.x * 0.03, at.y * 0.03, map.seed ^ 77) - 0.5) * 9.0 * (t * (1.0 - t) * 4.0);
+        let h0 = map.height(edge.x, edge.y);
+        let c = terrain_color(map, edge.x, edge.y);
+        let dim = 1.0 - 0.5 * t;
+        pos.push([at.x, h0 + (sea - h0) * t + wobble, at.y]);
+        nrm.push([0.0, 1.0, 0.0]);
+        uv.push([at.x / 12.0, at.y / 12.0]);
+        col.push([c[0] * dim * 0.5, c[1] * dim * 0.5, c[2] * dim * 0.56, 1.0]);
+        pos.len() as u32 - 1
+    };
+    // A grid of vertex indices, `w` wide, turned into triangles that face up.
+    let quads = |ids: &[u32], w: usize, flip: bool, idx: &mut Vec<u32>| {
+        for r in 0..ids.len() / w - 1 {
+            for c in 0..w - 1 {
+                let (a, b, d, e) = (ids[r * w + c], ids[r * w + c + 1], ids[(r + 1) * w + c], ids[(r + 1) * w + c + 1]);
+                if flip {
+                    idx.extend_from_slice(&[a, b, d, b, e, d]);
+                } else {
+                    idx.extend_from_slice(&[a, d, b, b, d, e]);
+                }
+            }
+        }
+    };
+    // Four sides: rows run along the border, columns go outwards.
+    for (side, (ox, oz)) in [(0.0f32, -1.0f32), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)].into_iter().enumerate() {
+        let mut ids = vec![];
+        for i in 0..=n {
+            let f = i as f32 * CELL;
+            let edge = match side {
+                0 => v2(f, 0.0),
+                1 => v2(world, f),
+                2 => v2(f, world),
+                _ => v2(0.0, f),
+            };
+            for d in APRON {
+                ids.push(vertex(edge, edge + v2(ox, oz) * d));
+            }
+        }
+        quads(&ids, APRON.len(), side == 0 || side == 3, &mut idx);
+    }
+    // Four corners.
+    for (cx, cz) in [(0.0f32, 0.0f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+        let corner = v2(cx * world, cz * world);
+        let (sx, sz) = (cx * 2.0 - 1.0, cz * 2.0 - 1.0);
+        let mut ids = vec![];
+        for a in APRON {
+            for b in APRON {
+                ids.push(vertex(corner, corner + v2(sx * b, sz * a)));
+            }
+        }
+        quads(&ids, APRON.len(), sx * sz > 0.0, &mut idx);
+    }
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
+    mesh.insert_indices(Indices::U32(idx));
+    mesh
+}
+
 fn detail_texture() -> Image {
     const S: usize = 256;
     let mut data = Vec::with_capacity(S * S * 4);
@@ -170,18 +246,21 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
             }
         }
     }
-    // Everything outside the map is a flat dark void (unlit, so it shows no lighting or shadow seams).
+    // Beyond the border the land carries on for a stretch and sinks into the sea.
+    commands.spawn((Mesh3d(meshes.add(apron_mesh(map))), MeshMaterial3d(ground.clone()), Transform::IDENTITY, NotShadowCaster, GameScene));
+    // Further out: a dark sea floor (unlit, so it shows no lighting or shadow seams) under the water.
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 12.0, world * 12.0))),
-        MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.035, 0.045, 0.06), unlit: true, ..default() })),
+        MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.03, 0.07, 0.10), unlit: true, ..default() })),
         Transform::from_xyz(world * 0.5, map.water - 6.0, world * 0.5),
         NotShadowCaster,
         NotShadowReceiver,
         GameScene,
     ));
-    // Water covers exactly the map; it takes no shadows (cascade borders showed up as rectangles on it).
+    // Water covers the map and the sea around it; it takes no shadows (cascade borders showed up
+    // as rectangles on it).
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(world, world))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 12.0, world * 12.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
             alpha_mode: AlphaMode::Blend,

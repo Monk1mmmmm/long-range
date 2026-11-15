@@ -101,12 +101,37 @@ pub fn projectile_visuals(
     }
 }
 
-pub fn spawn_fx(mut commands: Commands, mut log: ResMut<FxLog>, assets: Res<FxAssets>, fog: Res<FogGrid>, map: Res<MapData>) {
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_fx(
+    mut commands: Commands,
+    mut log: ResMut<FxLog>,
+    assets: Res<FxAssets>,
+    fog: Res<FogGrid>,
+    map: Res<MapData>,
+    view: Res<super::ViewState>,
+    settings: Res<crate::settings::Settings>,
+    sounds: Option<Res<super::sound::Sounds>>,
+) {
     let mut lights = 0;
-    for f in log.pending.drain(..) {
+    let mut heard: Vec<(usize, f32, f32)> = vec![];
+    for (k, f) in log.pending.drain(..).enumerate() {
         let pos = f.pos.v();
         if !fog.visible(flat(pos)) {
             continue;
+        }
+        // Sound: louder for bigger events, fading with the distance from the camera.
+        let name = match f.kind {
+            FX_MUZZLE => SOUNDS.get(f.snd as usize).copied().unwrap_or("cannon"),
+            FX_DEATH => "death",
+            _ => "blast",
+        };
+        if let (Some(i), true) = (SOUNDS.iter().position(|s| *s == name), settings.sfx_volume > 0.0) {
+            let far = pos.distance(view.cam_pos) / 130.0;
+            let volume = settings.sfx_volume * (0.35 + f.size.min(1.5) * 0.6) / (1.0 + far * far);
+            if volume > 0.012 {
+                // A little pitch variation, so a salvo is not the same sample eight times.
+                heard.push((i, volume.min(1.0), 0.9 + ((k * 37 + (pos.x * 13.0) as usize) % 21) as f32 * 0.01));
+            }
         }
         let mut puff = |mat: &Handle<StandardMaterial>, at: Vec3, vel: Vec3, max: f32, start: f32, end: f32| {
             commands.spawn((
@@ -144,6 +169,7 @@ pub fn spawn_fx(mut commands: Commands, mut log: ResMut<FxLog>, assets: Res<FxAs
             }
         }
     }
+    super::sound::play(&mut commands, sounds.as_deref(), heard);
 }
 
 pub fn update_fx(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Puff, &mut Transform)>, mut lights: Query<(Entity, &mut FlashLight, &mut PointLight)>) {

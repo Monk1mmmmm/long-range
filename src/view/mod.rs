@@ -13,6 +13,7 @@ pub mod hud;
 pub mod icons;
 pub mod intel;
 pub mod models;
+pub mod sound;
 pub mod terrain;
 
 use models::*;
@@ -28,6 +29,7 @@ pub enum Mode {
     /// Explicit move / assist commands (FAF-style hotkeys).
     Move,
     Assist,
+    Capture,
     Place(DefId),
 }
 
@@ -38,6 +40,11 @@ pub struct ViewState {
     pub cam_target: V2,
     pub cam_dist: f32,
     pub cam_pos: Vec3,
+    /// Camera heading around the vertical axis (radians) and extra tilt (degrees), set with Space + mouse.
+    pub cam_yaw: f32,
+    pub cam_tilt: f32,
+    pub space_last: Option<Vec2>,
+    pub space_moved: bool,
     pub vp: Mat4,
     pub inv: Mat4,
     pub sel: Vec<u32>,
@@ -62,6 +69,8 @@ pub struct ViewState {
     pub preset: u8,
     /// Hotbuild cycling: (key, index, time, last definition).
     pub hot: (Option<KeyCode>, usize, f64, DefId),
+    /// A run of a factory queue being dragged: (factory id, index of the run).
+    pub queue_drag: Option<(u32, usize)>,
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -76,6 +85,10 @@ impl ViewState {
             cam_target: start,
             cam_dist: 45.0,
             cam_pos: Vec3::ZERO,
+            cam_yaw: 0.0,
+            cam_tilt: 0.0,
+            space_last: None,
+            space_moved: false,
             vp: Mat4::IDENTITY,
             inv: Mat4::IDENTITY,
             sel: vec![],
@@ -97,6 +110,7 @@ impl ViewState {
             show_help: false,
             preset: load_preset(),
             hot: (None, 0, 0.0, DefId::MAX),
+            queue_drag: None,
         }
     }
 }
@@ -357,6 +371,7 @@ pub struct ViewPlugin;
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LocalCommands>();
+        app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
             (tick_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)

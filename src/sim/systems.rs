@@ -15,7 +15,7 @@ pub fn register(app: &mut App) {
             // Inner tuples need their own chain(): the outer one only orders the groups.
             (begin_tick, census_build, crate::ai::ai_system, apply_commands, visibility, income).chain(),
             (think, factories, build_progress, locomotion, separation).chain(),
-            (weapons, projectiles, apply_reclaim, deaths, victory).chain(),
+            (weapons, projectiles, apply_reclaim, apply_capture, deaths, victory).chain(),
         )
             .chain(),
     );
@@ -33,6 +33,7 @@ fn begin_tick(
     game.tick += 1;
     fx.tick.clear();
     effects.sites.clear();
+    effects.revived.clear();
     nav.paths_left = 30;
     if nav.dirty || nav.occ.len() != map.blocked.len() {
         nav.occ = map.blocked.clone();
@@ -82,7 +83,7 @@ fn census_build(
         });
     }
     wrecks.0.clear();
-    wrecks.0.extend(wq.iter().map(|w| (w.id, w.pos, w.mass)));
+    wrecks.0.extend(wq.iter().map(|w| (w.id, w.pos, w.mass, w.def)));
     wrecks.0.sort_by_key(|w| w.0);
 }
 
@@ -125,6 +126,10 @@ fn apply_commands(
                             }
                             *pos = snap(&defs, &map, *bd, *pos);
                         }
+                        Order::Capture(_) if !df.is_engineer() => continue,
+                        Order::Revive(_) if !df.is_scavenger() => continue,
+                        // Scavengers work on wrecks only.
+                        Order::Assist(_) | Order::Attack(_) if df.is_scavenger() => continue,
                         _ => {}
                     }
                     if let Some(mut f) = factory {
@@ -203,6 +208,42 @@ fn apply_commands(
                     }
                 }
             }
+            Command::QueueMove { factory, from, len, to } => {
+                let Some(e) = owned(factory) else { continue };
+                let Ok((_, _, _, Some(mut f), _, _, _, _)) = q.get_mut(e) else { continue };
+                let (from, len) = (from as usize, len as usize);
+                if len == 0 || from + len > f.queue.len() {
+                    continue;
+                }
+                let first = f.queue.first().copied();
+                let run: Vec<DefId> = f.queue.drain(from..from + len).collect();
+                let to = (to as usize).min(f.queue.len());
+                for (k, d) in run.into_iter().enumerate() {
+                    f.queue.insert(to + k, d);
+                }
+                // Something else is at the front now: the unit in the works is scrapped.
+                if f.queue.first().copied() != first && f.building != 0 {
+                    if let Some(p) = census.get(f.building) {
+                        commands.entity(p.e).despawn();
+                    }
+                    f.building = 0;
+                }
+            }
+            Command::Dequeue { factory, index } => {
+                let Some(e) = owned(factory) else { continue };
+                let Ok((_, _, _, Some(mut f), _, _, _, _)) = q.get_mut(e) else { continue };
+                let index = index as usize;
+                if index >= f.queue.len() {
+                    continue;
+                }
+                if index == 0 && f.building != 0 {
+                    if let Some(p) = census.get(f.building) {
+                        commands.entity(p.e).despawn();
+                    }
+                    f.building = 0;
+                }
+                f.queue.remove(index);
+            }
             Command::Repeat { ids, on } => {
                 for id in ids {
                     if let Some(e) = owned(id) {
@@ -253,11 +294,13 @@ fn apply_commands(
     }
 }
 
-/// Who sees whom. Radar needs a clear line over the terrain.
+/// Who sees whom. Both sight and radar need a clear line over the terrain; radar looks from higher
+/// up and reaches further, sight tells what the contact is.
 fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, mut q: Query<&mut Intel>) {
     struct Viewer {
         pos: V2,
         eye: Vec3,
+        look: Vec3,
         vis2: f32,
         radar2: f32,
         team: u8,
@@ -276,6 +319,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         viewers.push(Viewer {
             pos: c.pos,
             eye: c.pos.at(c.y + c.height.max(1.0) + defs.rules.radar_los_height),
+            look: c.pos.at(c.y + c.height.max(1.0) + defs.rules.vision_los_height),
             vis2: d.vision * d.vision,
             radar2: radar * radar,
             team: c.team,
@@ -285,16 +329,18 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         let own = 1u16 << c.team;
         let (mut seen, mut radar) = (own, own);
         let head = c.pos.at(c.y + c.height + 0.5);
+        let stealth = defs.get(c.def).radar_stealth;
         for v in &viewers {
             let bit = 1u16 << v.team;
             if seen & bit != 0 && radar & bit != 0 {
                 continue;
             }
             let d2 = (v.pos - c.pos).len2();
-            if d2 < v.vis2 {
+            // Anything this close is seen regardless (no hiding behind the viewer's own bump).
+            if seen & bit == 0 && d2 < v.vis2 && (d2 < 36.0 || map.los(v.look, head)) {
                 seen |= bit;
             }
-            if radar & bit == 0 && d2 < v.radar2 && map.los(v.eye, head) {
+            if radar & bit == 0 && !stealth && d2 < v.radar2 && map.los(v.eye, head) {
                 radar |= bit;
             }
         }
@@ -508,7 +554,7 @@ fn think(
             Some(Order::Assist(tid)) => match census.get(tid) {
                 Some(t) if t.hp > 0.0 && tid != id => {
                     let r = reach(t.radius);
-                    if df.can_assist() {
+                    if df.can_assist() || df.is_scavenger() {
                         let job = if !t.done || t.upgrading {
                             t.id
                         } else if t.building != 0 {
@@ -542,7 +588,7 @@ fn think(
                 _ => pop = true,
             },
             Some(Order::Reclaim(wid)) => match wrecks.0.iter().find(|w| w.0 == wid) {
-                Some(w) if df.can_assist() => {
+                Some(w) if df.can_assist() || df.is_scavenger() => {
                     if pos.dist(w.1) > reach(0.5) {
                         if is_struct {
                             pop = true;
@@ -556,6 +602,43 @@ fn think(
                 }
                 _ => pop = true,
             },
+            Some(Order::Capture(tid)) => match census.get(tid) {
+                Some(t) if df.is_engineer() && t.hp > 0.0 && t.done && !t.hosted && !t.air && t.team != team && t.known_to(team) && !defs.factions.iter().any(|f| f.commander == Some(t.def)) => {
+                    if pos.dist(t.pos) > reach(t.radius) {
+                        goal = Some(t.pos);
+                    } else {
+                        effects.capture.push((tid, df.build_rate() * DT, owner));
+                        work = tid;
+                    }
+                }
+                _ => pop = true,
+            },
+            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid).copied() {
+                Some(w) if df.is_scavenger() => {
+                    let wd = defs.get(w.3);
+                    if let Some(done) = effects.revived.iter().find(|r| r.0 == wid) {
+                        // Another scavenger started it this very tick: help with it.
+                        orders.0[0] = Order::Assist(done.1);
+                    } else if pos.dist(w.1) > reach(wd.radius()) {
+                        goal = Some(w.1);
+                    } else if wd.is_structure() && !can_place(&defs, &map, &nav.occ, w.3, w.1) {
+                        pop = true;
+                    } else {
+                        // The wreck becomes a construction site that already holds the wreck's
+                        // mass; finishing it costs the rest, like any building work.
+                        let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
+                        let sid = spawn_unit_built(&mut commands, &defs, &mut game, &map, w.3, owner, w.1, PI * 0.5, Some(built), 0);
+                        if wd.is_structure() {
+                            nav.stamp(&map, w.1, wd.footprint, 2);
+                        }
+                        effects.reclaim.push((wid, 1.0e9, u8::MAX));
+                        effects.revived.push((wid, sid));
+                        orders.0[0] = Order::Assist(sid);
+                        work = sid;
+                    }
+                }
+                _ => pop = true,
+            },
             Some(Order::ReclaimArea { pos: c, radius }) => {
                 let best = wrecks
                     .0
@@ -563,7 +646,7 @@ fn think(
                     .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0)
                     .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal));
                 match best {
-                    Some(w) if df.can_assist() => {
+                    Some(w) if df.can_assist() || df.is_scavenger() => {
                         if pos.dist(w.1) > reach(0.5) {
                             if is_struct {
                                 pop = true;
@@ -1217,7 +1300,15 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
             (d * speed, PROJ_SHELL, origin + d * 0.4)
         }
     };
-    fx.push(pos, FX_MUZZLE, (w.damage.sqrt() * 0.05).clamp(0.12, 1.2));
+    // The sound of the shot: named in the weapon's JSON, otherwise by the kind of weapon.
+    let sound = SOUNDS.iter().position(|s| *s == w.sound).unwrap_or(match w.kind {
+        WeaponKind::Missile => 3,
+        WeaponKind::Bomb => 4,
+        WeaponKind::Arc | WeaponKind::HighArc => 2,
+        WeaponKind::Direct if w.reload < 1.2 => 1,
+        WeaponKind::Direct => 0,
+    });
+    fx.push_snd(pos, FX_MUZZLE, (w.damage.sqrt() * 0.05).clamp(0.12, 1.2), sound as u8);
     let id = game.alloc();
     let shot = Projectile {
         id,
@@ -1370,9 +1461,72 @@ fn apply_reclaim(mut q: Query<(Entity, &mut Wreck)>, mut effects: ResMut<Effects
     }
 }
 
+/// Capture work queued by engineers this tick. A unit nobody works on slowly shakes it off.
+#[allow(clippy::type_complexity)]
+fn apply_capture(
+    mut q: Query<(Entity, &mut Unit, &mut Orders, Option<&mut Capture>, Option<&mut Factory>, Option<&mut Weapons>, Option<&mut Mover>)>,
+    mut effects: ResMut<Effects>,
+    census: Res<Census>,
+    defs: Res<Defs>,
+    mut game: ResMut<Game>,
+    mut commands: Commands,
+) {
+    let jobs: Vec<(u32, f32, u8)> = effects.capture.drain(..).collect();
+    for (e, mut u, mut orders, cap, factory, weapons, mover) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        let Some(by) = jobs.iter().find(|j| j.0 == u.id).map(|j| j.2) else {
+            if let Some(mut c) = cap {
+                c.progress -= DT * 0.1;
+                if c.progress <= 0.0 {
+                    commands.entity(e).remove::<Capture>();
+                }
+            }
+            continue;
+        };
+        // The first capturer's side does the capturing; others of that player add to it.
+        let work: f32 = jobs.iter().filter(|j| j.0 == u.id && j.2 == by).map(|j| j.1).sum();
+        let d = defs.get(u.def);
+        let step = work / (d.cost.time.max(1.0) * defs.rules.capture_time);
+        let energy = d.cost.energy * defs.rules.capture_energy * step;
+        let Some(pl) = game.players.get_mut(by as usize) else { continue };
+        if pl.energy < energy {
+            continue;
+        }
+        pl.energy -= energy;
+        let progress = cap.as_ref().filter(|c| c.by == by).map_or(0.0, |c| c.progress) + step;
+        if progress < 1.0 {
+            match cap {
+                Some(mut c) => *c = Capture { by, progress },
+                None => {
+                    commands.entity(e).insert(Capture { by, progress });
+                }
+            }
+            continue;
+        }
+        // Taken over: it forgets what it was doing.
+        u.owner = by;
+        orders.0.clear();
+        commands.entity(e).remove::<Capture>();
+        if let Some(mut f) = factory {
+            if let Some(p) = census.get(f.building) {
+                commands.entity(p.e).despawn();
+            }
+            *f = Factory::default();
+        }
+        if let Some(mut w) = weapons {
+            w.focus = 0;
+            w.ground = None;
+            w.list.iter_mut().for_each(|s| s.target = 0);
+        }
+        if let Some(mut m) = mover {
+            m.goal = None;
+            m.path.clear();
+        }
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn deaths(
-    mut q: Query<(Entity, &Unit, &Body, &mut Health, Has<UnderConstruction>, Option<&Hosted>)>,
+    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>)>,
     wrecks: Query<(Entity, &Wreck)>,
     census: Res<Census>,
     defs: Res<Defs>,
@@ -1412,7 +1566,14 @@ fn deaths(
             nav.dirty = true;
         }
         fx.push(b.pos.at(b.y + d.height() * 0.5), FX_DEATH, d.radius() * 1.6 + 0.6);
-        if uc {
+        // A wreck holds a share of the mass that actually went into the unit.
+        let invested = d.cost.mass * uc.map_or(1.0, |x| x.0.clamp(0.0, 1.0));
+        if uc.is_some() {
+            if d.wreck && !d.is_air() && invested * defs.rules.wreck_mass_fraction >= 5.0 {
+                let id = game.alloc();
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw });
+                new_wrecks += 1;
+            }
             continue;
         }
         if let Some(blast) = &d.death {

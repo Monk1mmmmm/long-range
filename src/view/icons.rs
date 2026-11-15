@@ -215,6 +215,13 @@ pub fn render_order(kind: &str) -> Vec<u8> {
                 .min(seg(x, y, -0.45, 0.55, 0.0, 0.05))
                 .min(seg(x, y, 0.0, 0.05, 0.45, 0.55))
                 - t,
+            // A flag on a pole.
+            "capture" => (seg(x, y, -0.45, -0.75, -0.45, 0.8) - t).min(tri(x, y, (-0.4, -0.72), (0.65, -0.3), (-0.4, 0.1))),
+            // Resource symbols, enlarged versions of the unit-icon glyphs.
+            "mass" => poly(x, y, &[(0.0, -0.72), (0.62, -0.36), (0.62, 0.36), (0.0, 0.72), (-0.62, 0.36), (-0.62, -0.36)]),
+            "energy" => glyph_sd("bolt", x * 0.42, y * 0.42) / 0.42,
+            "power" => glyph_sd("eng", x * 0.42, y * 0.42) / 0.42,
+            "time" => ring(x, y, 0.0, 0.0, 0.68).min(seg(x, y, 0.0, 0.0, 0.0, -0.42) - t * 0.8).min(seg(x, y, 0.0, 0.0, 0.3, 0.16) - t * 0.8),
             _ => seg(x, y, -0.5, 0.0, 0.5, 0.0).min(seg(x, y, 0.0, -0.5, 0.0, 0.5)) - t * 1.3,
         }
     };

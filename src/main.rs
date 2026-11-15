@@ -410,7 +410,12 @@ fn menu_ui(world: &mut World) {
                     ui.add_space(26.0);
                     ui.horizontal(|ui| {
                         ui.label("Name");
-                        ui.add(egui::TextEdit::singleline(&mut app.name).desired_width(300.0).char_limit(16));
+                        if ui.add(egui::TextEdit::singleline(&mut app.name).desired_width(300.0).char_limit(16)).changed() {
+                            // Remembered for the next start.
+                            let mut s = world.resource_mut::<longrange::settings::Settings>();
+                            s.name = app.name.clone();
+                            s.save();
+                        }
                     });
                     ui.add_space(10.0);
                     if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new("Host game / Skirmish vs AI").size(18.0))).clicked() {
@@ -651,6 +656,38 @@ fn setup(mut commands: Commands) {
         DistanceFog { color: Color::srgb(0.55, 0.62, 0.7), falloff: FogFalloff::Linear { start: 900.0, end: 4000.0 }, ..default() },
         MainCamera,
     ));
+}
+
+/// Developer aid: `LR_SHOT=<file.png>,<game seconds>[,<unit id>[,<camera distance>]]` saves one
+/// screenshot of a running game and quits. With a unit id ("land_factory"), the local player's
+/// units of that type are selected first, so the selection panel is in the picture.
+fn dev_screenshot(mut commands: Commands, game: Option<Res<Game>>, view: Option<ResMut<ViewState>>, defs: Res<Defs>, units: Query<&Unit>, time: Res<Time>, mut state: Local<(u8, f32)>, mut exit: MessageWriter<AppExit>) {
+    static SPEC: std::sync::OnceLock<Option<(String, f32, String, f32)>> = std::sync::OnceLock::new();
+    let spec = SPEC.get_or_init(|| {
+        let v = std::env::var("LR_SHOT").ok()?;
+        let mut it = v.split(',');
+        Some((it.next()?.to_string(), it.next().and_then(|s| s.parse().ok()).unwrap_or(5.0), it.next().unwrap_or("").to_string(), it.next().and_then(|s| s.parse().ok()).unwrap_or(0.0)))
+    });
+    let (Some((path, at, select, dist)), Some(game), Some(mut view)) = (spec, game, view) else { return };
+    match state.0 {
+        0 if game.tick as f32 * DT >= *at => {
+            if let Some(d) = defs.id(select) {
+                view.sel = units.iter().filter(|u| u.owner == view.me && u.def == d).map(|u| u.id).collect();
+            }
+            if *dist > 0.0 {
+                view.cam_dist = *dist;
+            }
+            *state = (1, time.elapsed_secs());
+        }
+        1 if time.elapsed_secs() > state.1 + 0.5 => {
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+            *state = (2, time.elapsed_secs());
+        }
+        2 if time.elapsed_secs() > state.1 + 1.5 => {
+            exit.write(AppExit::Success);
+        }
+        _ => {}
+    }
 }
 
 fn fullscreen_toggle(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<longrange::settings::Settings>) {
@@ -935,6 +972,77 @@ fn combattest() {
         let intel = q.iter(world).find(|(u, _)| u.id == t).map(|(_, i)| *i).unwrap();
         println!("== Radar tower, target 59 away, ridge between: {ridge} -> on radar: {}, seen: {}", intel.radar & 1 != 0, intel.seen & 1 != 0);
     }
+    // 5. Firing at radar contacts: every armed land unit that out-ranges its own sight gets a radar
+    //    tower next to it and an enemy building just inside its range, on flat ground.
+    println!("== Shooting at radar contacts beyond vision (flat ground, radar tower alongside)");
+    let names: Vec<String> = defs.units.iter().filter(|d| d.armed() && !d.is_structure() && !d.is_air() && d.weapons[0].hits_land && d.max_range() > d.vision + 8.0).map(|d| d.id.clone()).collect();
+    for name in names {
+        let d = defs.get(defs.id(&name).unwrap()).clone();
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(192, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let world = app.world_mut();
+        setup_game(world, map.clone(), &setup);
+        let dist = (d.max_range() * 0.9).min(160.0).max(d.vision + 6.0);
+        spawn(world, &map, "radar_tower", 0, v2(100.0, 110.0), 0.0);
+        spawn(world, &map, &name, 0, v2(100.0, 100.0), 0.0);
+        let t = spawn(world, &map, "windmill", 1, v2(100.0 + dist, 100.0), 0.0);
+        world.flush();
+        let (mut shots, mut intel) = (0, Intel::default());
+        for _ in 0..(d.weapons[0].reload * 10.0) as u32 + 250 {
+            world.run_schedule(SimTick);
+            shots += world.resource::<FxLog>().tick.iter().filter(|f| f.kind == FX_MUZZLE).count();
+            let mut q = world.query::<(&Unit, &Intel)>();
+            if let Some((_, i)) = q.iter(world).find(|(u, _)| u.id == t) {
+                intel = *i;
+            }
+        }
+        println!("   {name:10} range {:5.0} vision {:4.0} target at {dist:5.0}: on radar {}, seen {}, shots fired {shots}", d.max_range(), d.vision, intel.radar & 1 != 0, intel.seen & 1 != 0);
+    }
+    // 6. Capture and revive on flat ground.
+    {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(192, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let world = app.world_mut();
+        setup_game(world, map.clone(), &setup);
+        world.resource_mut::<Game>().players[0].energy = 4000.0;
+        let eng = spawn(world, &map, "engineer", 0, v2(100.0, 100.0), 0.0);
+        let mill = spawn(world, &map, "windmill", NEUTRAL, v2(112.0, 100.0), 0.0);
+        let scav = spawn(world, &map, "scavenger", 0, v2(100.0, 120.0), 0.0);
+        let tank = spawn(world, &map, "crony", 1, v2(112.0, 120.0), 0.0);
+        world.flush();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![eng], orders: vec![Order::Capture(mill)], queue: false }));
+        world.resource_mut::<CommandQueue>().0.push((1, Command::SelfDestruct { ids: vec![tank] }));
+        let (mut captured, mut revived, mut wreck_mass) = (None, None, 0.0);
+        for t in 0..1500u32 {
+            world.run_schedule(SimTick);
+            if t == 5 {
+                let mut q = world.query::<&Wreck>();
+                if let Some(w) = q.iter(world).next() {
+                    wreck_mass = w.mass;
+                    let wid = w.id;
+                    world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![scav], orders: vec![Order::Revive(wid)], queue: false }));
+                }
+            }
+            let mut q = world.query::<(&Unit, Has<UnderConstruction>)>();
+            for (u, uc) in q.iter(world) {
+                if u.id == mill && u.owner == 0 && captured.is_none() {
+                    captured = Some(t);
+                }
+                if defs.get(u.def).id == "crony" && u.owner == 0 && !uc && revived.is_none() {
+                    revived = Some(t);
+                }
+            }
+        }
+        let wrecks_left = world.query::<&Wreck>().iter(world).count();
+        let p = &world.resource::<Game>().players[0];
+        println!("== Capture: neutral windmill taken over after {:?} ticks.  Revive: wreck ({wreck_mass:.0} mass) back as our tank after {:?} ticks, wrecks left {wrecks_left}.  Energy left {:.0}, mass {:.0}", captured, revived, p.energy, p.mass);
+    }
 }
 
 /// Loopback check of discovery, the handshake and the netplay: a host with three AIs and a client
@@ -1120,6 +1228,9 @@ fn main() {
     let mut name = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into());
     name.truncate(16);
     let settings = longrange::settings::Settings::load();
+    if !settings.name.trim().is_empty() {
+        name = settings.name.clone();
+    }
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window { title: "Long Range".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
@@ -1135,6 +1246,7 @@ fn main() {
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
+    .add_systems(Update, dev_screenshot)
     .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
     longrange::settings::tolerate_render_errors(&mut app);
     app.run();

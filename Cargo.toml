@@ -1,6 +1,6 @@
 [package]
 name = "longrange"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 default-run = "longrange"
 
@@ -24,6 +24,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 bevy = { version = "0.20", default-features = false, features = ["3d", "statically-linked-dxc"] }
 
 [features]
+default = ["audio"]
+# Sound effects. On Linux this needs the ALSA development files at build time (Debian/Ubuntu:
+# `sudo apt install libasound2-dev`); build with `--no-default-features` to leave sound out.
+audio = ["bevy/bevy_audio", "bevy/wav", "bevy/vorbis"]
 # Development only: `cargo run --features dev` links Bevy as a shared library, so a change to our code
 # relinks in seconds instead of relinking the whole engine. Never use it for release builds.
 dev = ["bevy/dynamic_linking"]

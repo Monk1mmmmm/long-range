@@ -29,6 +29,12 @@ pub fn asset_root() -> PathBuf {
     PathBuf::from("assets")
 }
 
+fn capture_energy() -> f32 {
+    0.3
+}
+fn eye_height() -> f32 {
+    1.5
+}
 fn one() -> f32 {
     1.0
 }
@@ -56,7 +62,16 @@ pub struct Rules {
     pub repair_rate: f32,
     pub radar_fade_secs: f32,
     pub radar_los_height: f32,
+    /// Eye height above a unit's top for vision; hills taller than that block the view.
+    #[serde(default = "eye_height")]
+    pub vision_los_height: f32,
     pub power_stall_pump_factor: f32,
+    /// Capturing takes the target's build time times this, at the engineer's build power.
+    #[serde(default = "one")]
+    pub capture_time: f32,
+    /// Share of the target's energy cost a capture uses up.
+    #[serde(default = "capture_energy")]
+    pub capture_energy: f32,
     #[serde(default)]
     pub friendly_fire: bool,
     pub commander_death: Blast,
@@ -133,6 +148,9 @@ pub struct BuildCap {
     /// Engineering station: immobile, assists everything in range on its own.
     #[serde(default)]
     pub station: bool,
+    /// Scavenger: cannot build or assist; reclaims wrecks and revives them for its owner.
+    #[serde(default)]
+    pub scavenger: bool,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -177,6 +195,9 @@ fn normal() -> String {
 #[derive(Deserialize, Clone, Debug)]
 pub struct WeaponDef {
     pub name: String,
+    /// Sound of a shot, one of `sim::SOUNDS` ("cannon", "mg", "artillery", "missile", "bomb"); empty = by weapon kind.
+    #[serde(default)]
+    pub sound: String,
     pub damage: f32,
     #[serde(default = "normal")]
     pub damage_type: String,
@@ -293,6 +314,9 @@ pub struct UnitDef {
     pub vision: f32,
     #[serde(default)]
     pub radar: f32,
+    /// Never shows on enemy radar (infantry); it has to be seen.
+    #[serde(default)]
+    pub radar_stealth: bool,
     #[serde(default)]
     pub eco: Eco,
     #[serde(default)]
@@ -351,6 +375,9 @@ impl UnitDef {
     /// Mobile constructor (engineer, commander).
     pub fn is_engineer(&self) -> bool {
         !self.is_structure() && self.build.as_ref().map_or(false, |b| !b.categories.is_empty())
+    }
+    pub fn is_scavenger(&self) -> bool {
+        self.build.as_ref().map_or(false, |b| b.scavenger)
     }
     pub fn can_assist(&self) -> bool {
         self.is_engineer() || self.is_station()

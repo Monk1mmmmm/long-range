@@ -133,6 +133,51 @@
    }
   },
   {
+   "id": "scavenger",
+   "name": "Scavenger",
+   "desc": "Cannot build. Reclaims wrecks, or revives them as working units for your side (right-click a wreck).",
+   "tier": 1,
+   "hp": 180,
+   "armor": "Light",
+   "cost": {
+    "mass": 70,
+    "energy": 400,
+    "time": 350
+   },
+   "size": [
+    0.7,
+    0.8,
+    0.6
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "mass"
+    ]
+   },
+   "model": {
+    "mesh": "models/engineer.glb",
+    "albedo": "models/engineer_albedo.png",
+    "team_mask": "models/engineer_team.png",
+    "normal": "models/engineer_normal.png",
+    "scale": 0.085
+   },
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.0,
+    "accel": 2.6,
+    "turn": 120
+   },
+   "vision": 18,
+   "build": {
+    "rate": 6,
+    "range": 5,
+    "scavenger": true
+   }
+  },
+  {
    "id": "buggy",
    "name": "Buggy",
    "desc": "Land scout. Fast, fragile, long sight - the eyes of your guns.",
@@ -194,6 +239,7 @@
   },
   {
    "id": "trooper",
+   "radar_stealth": true,
    "name": "Trooper",
    "desc": "Armored assault bot. Cheap plasma gun that also hurts armor.",
    "tier": 1,
@@ -1587,7 +1633,7 @@
    "name": "Land Factory",
    "desc": "Builds tier 1 land units. Upgrade (U) for higher tiers.",
    "tier": 1,
-   "hp": 4800,
+   "hp": 2500,
    "armor": "Structure",
    "cost": {
     "mass": 240,
@@ -1633,7 +1679,7 @@
    "name": "Land Factory Mk2",
    "desc": "Builds tier 1-2 land units. Right-click sets the rally point.",
    "tier": 2,
-   "hp": 9000,
+   "hp": 4000,
    "armor": "Structure",
    "cost": {
     "mass": 800,
@@ -1679,7 +1725,7 @@
    "name": "Land Factory Mk3",
    "desc": "Builds tier 1-3 land units. Right-click sets the rally point.",
    "tier": 3,
-   "hp": 16000,
+   "hp": 6000,
    "armor": "Structure",
    "cost": {
     "mass": 2000,
@@ -1724,7 +1770,7 @@
    "name": "Air Factory",
    "desc": "Builds tier 1 air units. Upgrade (U) for higher tiers.",
    "tier": 1,
-   "hp": 4800,
+   "hp": 2500,
    "armor": "Structure",
    "cost": {
     "mass": 210,
@@ -1770,7 +1816,7 @@
    "name": "Air Factory Mk2",
    "desc": "Builds tier 1-2 air units. Right-click sets the rally point.",
    "tier": 2,
-   "hp": 9000,
+   "hp": 4000,
    "armor": "Structure",
    "cost": {
     "mass": 630,
@@ -1816,7 +1862,7 @@
    "name": "Air Factory Mk3",
    "desc": "Builds tier 1-3 air units. Right-click sets the rally point.",
    "tier": 3,
-   "hp": 16000,
+   "hp": 6000,
    "armor": "Structure",
    "cost": {
     "mass": 1800,

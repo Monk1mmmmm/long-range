@@ -38,6 +38,10 @@ pub enum Order {
     Assist(u32),
     Reclaim(u32),
     ReclaimArea { pos: V2, radius: f32 },
+    /// Engineers: take over a neutral or enemy unit.
+    Capture(u32),
+    /// Scavengers: rebuild a wreck as a unit of their own side.
+    Revive(u32),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -46,6 +50,10 @@ pub enum Command {
     Orders { ids: Vec<u32>, orders: Vec<Order>, queue: bool },
     Stop { ids: Vec<u32> },
     Produce { factory: u32, def: DefId, count: i16 },
+    /// Moves `len` queue entries starting at `from` so that they begin at index `to` of what is left.
+    QueueMove { factory: u32, from: u16, len: u16, to: u16 },
+    /// Takes one entry out of a factory queue.
+    Dequeue { factory: u32, index: u16 },
     Repeat { ids: Vec<u32>, on: bool },
     Upgrade { ids: Vec<u32> },
     SelfDestruct { ids: Vec<u32> },
@@ -91,6 +99,13 @@ pub struct Health(pub f32);
 /// Present while a unit is still being built; value is progress 0..1.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct UnderConstruction(pub f32);
+
+/// Present on a unit somebody is capturing: who, and how far along (0..1).
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
+pub struct Capture {
+    pub by: u8,
+    pub progress: f32,
+}
 
 /// Present while a structure upgrades to its `upgrade` definition.
 #[derive(Component, Clone, Copy, Debug)]
@@ -268,7 +283,13 @@ pub struct Fx {
     pub pos: V3,
     pub kind: u8,
     pub size: f32,
+    /// Muzzle flashes: which sound the shot makes (index into `SOUNDS`).
+    pub snd: u8,
 }
+
+/// Sound names. A weapon picks one with `"sound"` in its JSON; without it the weapon kind decides.
+/// The last two belong to explosions and dying units.
+pub const SOUNDS: [&str; 7] = ["cannon", "mg", "artillery", "missile", "bomb", "blast", "death"];
 
 /// Visual events. `tick` holds this tick's events, `pending` is drained by the view.
 #[derive(Resource, Default)]
@@ -278,7 +299,11 @@ pub struct FxLog {
 }
 impl FxLog {
     pub fn push(&mut self, pos: Vec3, kind: u8, size: f32) {
-        let f = Fx { pos: pos.into(), kind, size };
+        self.push_snd(pos, kind, size, 0);
+    }
+    /// `snd`: index into `SOUNDS` for the shot's sound.
+    pub fn push_snd(&mut self, pos: Vec3, kind: u8, size: f32, snd: u8) {
+        let f = Fx { pos: pos.into(), kind, size, snd };
         self.tick.push(f);
         self.pending.push(f);
     }
@@ -483,7 +508,7 @@ impl Census {
 
 /// Wrecks at the start of the tick, for reclaim orders.
 #[derive(Resource, Default)]
-pub struct WreckList(pub Vec<(u32, V2, f32)>);
+pub struct WreckList(pub Vec<(u32, V2, f32, DefId)>);
 
 /// Effects on other entities are queued and applied by dedicated systems.
 #[derive(Resource, Default)]
@@ -494,6 +519,10 @@ pub struct Effects {
     pub reclaim: Vec<(u32, f32, u8)>,
     /// Sites created this tick: (def, position).
     pub sites: Vec<(DefId, V2, u32)>,
+    /// Capture work done this tick: (target id, build power x time, player).
+    pub capture: Vec<(u32, f32, u8)>,
+    /// Wrecks turned back into units this tick: (wreck id, new unit id).
+    pub revived: Vec<(u32, u32)>,
 }
 
 #[derive(Resource)]
@@ -512,19 +541,26 @@ pub struct PlayerSetup {
 
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_unit(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, complete: bool, hosted: u32) -> u32 {
+    spawn_unit_built(commands, defs, game, map, def, owner, pos, yaw, if complete { None } else { Some(0.0) }, hosted)
+}
+
+/// `built`: `None` for a finished unit, otherwise how far its construction already is (0..1).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_unit_built(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, built: Option<f32>, hosted: u32) -> u32 {
     let d = defs.get(def);
     let id = game.alloc();
     let team = game.team_of(owner);
     let y = map.h(pos) + d.mv.altitude;
-    let hp = if complete { d.hp } else { d.hp * 0.05 };
+    let hp = d.hp * built.map_or(1.0, |b| 0.05 + 0.95 * b.clamp(0.0, 1.0));
     let weapons = d.armed().then(|| Weapons { list: d.weapons.iter().map(|_| WeaponState { yaw, ..default() }).collect(), ..default() });
     let (builder, factory, structure) = (d.build.is_some(), d.is_factory(), d.mv.kind == MoveKind::None);
     commands.queue(move |world: &mut World| {
         let e = claim(world, KIND_UNIT, id);
         let mut em = world.entity_mut(e);
         em.insert((Unit { id, def, owner }, Body { pos, y, yaw, vel: v2(0.0, 0.0) }, Health(hp), Orders::default(), Intel { seen: 1 << team, radar: 1 << team }));
-        put(&mut em, (!complete).then_some(UnderConstruction(0.0)));
+        put(&mut em, built.map(UnderConstruction));
         put(&mut em, None::<Upgrading>);
+        put(&mut em, None::<Capture>);
         put(&mut em, weapons);
         put(&mut em, builder.then(Builder::default));
         put(&mut em, factory.then(Factory::default));
@@ -621,6 +657,7 @@ pub struct UnitSnap {
     pub intel: Intel,
     pub paused: bool,
     pub structure: bool,
+    pub capture: Option<Capture>,
 }
 
 /// The complete simulation state between two ticks, in id order. It is what a joining or
@@ -653,8 +690,9 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
         &Intel,
         Has<Paused>,
         Has<Structure>,
+        Option<&Capture>,
     )>();
-    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure) in q.iter(world) {
+    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure, cap) in q.iter(world) {
         s.units.push(UnitSnap {
             unit: *u,
             body: *b,
@@ -670,6 +708,7 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
             intel: *i,
             paused,
             structure,
+            capture: cap.copied(),
         });
     }
     s.units.sort_by_key(|u| u.unit.id);
@@ -774,9 +813,10 @@ pub fn restore(world: &mut World, s: &Snapshot) {
         put(&mut em, u.hosted.map(Hosted));
         put(&mut em, u.paused.then_some(Paused));
         put(&mut em, u.structure.then_some(Structure));
+        put(&mut em, u.capture);
     }
     for (id, e) in have {
-        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure)>();
+        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure, Capture)>();
         limbo.units.insert(id, e);
     }
     let mut q = world.query::<(Entity, &Projectile)>();

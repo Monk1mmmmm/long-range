@@ -194,7 +194,7 @@ pub fn ai_system(
             } else {
                 // Combat units, biased toward the higher tiers we can pay for.
                 let budget = p.mass + p.income_m * 120.0;
-                let pool: Vec<&&UnitDef> = opts.iter().filter(|d| !d.is_engineer() && d.cost.mass <= budget.max(80.0)).collect();
+                let pool: Vec<&&UnitDef> = opts.iter().filter(|d| !d.is_engineer() && !d.is_scavenger() && d.cost.mass <= budget.max(80.0)).collect();
                 let weight = |d: &UnitDef| (d.tier as f32).powi(2) * if d.armed() { 3.0 } else { 0.6 };
                 let sum: f32 = pool.iter().map(|d| weight(d)).sum();
                 let mut roll = ai.rng.f() * sum;

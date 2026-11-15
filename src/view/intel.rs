@@ -18,11 +18,13 @@ pub struct FogGrid {
     pub alpha: Vec<u8>,
     /// Cached radar coverage per radar unit: (position it was computed for, radius, covered cells).
     radar: HashMap<u32, (V2, f32, Vec<u32>)>,
+    /// The same for what each unit sees directly.
+    sight: HashMap<u32, (V2, f32, Vec<u32>)>,
 }
 
 impl FogGrid {
     pub fn new(n: usize) -> FogGrid {
-        FogGrid { n, alpha: vec![0; n * n], radar: HashMap::new() }
+        FogGrid { n, alpha: vec![0; n * n], radar: HashMap::new(), sight: HashMap::new() }
     }
     /// Is this spot currently in direct sight?
     pub fn visible(&self, p: V2) -> bool {
@@ -61,7 +63,9 @@ pub fn reveal(game: &Game, me: u8) -> bool {
     *FORCE.get_or_init(|| std::env::var("LR_REVEAL").is_ok()) || game.winner.is_some() || game.players.get(me as usize).map_or(true, |p| !p.alive)
 }
 
-fn radar_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32) -> Vec<u32> {
+/// Map cells within `radius` of `pos` that `eye` has a clear line to (everything within `near`
+/// counts regardless, like in the simulation's own visibility test).
+fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32) -> Vec<u32> {
     let n = map.n as i32;
     let (cx, cy, rc) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32, (radius / CELL) as i32);
     let mut out = vec![];
@@ -71,7 +75,8 @@ fn radar_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32) -> Vec<u32> {
         let mut x = (cx - rc).max(0) & !1;
         while x <= (cx + rc).min(n - 1) {
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
-            if c.dist(pos) <= radius && map.los(eye, c.at(map.h(c) + 1.5)) {
+            let dist = c.dist(pos);
+            if dist <= radius && (dist < near || map.los(eye, c.at(map.h(c) + 1.5))) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     if x + dx < n && y + dy < n {
                         out.push(((y + dy) * n + x + dx) as u32);
@@ -109,10 +114,11 @@ pub fn update_intel(
     // --- fog grid
     let fog = &mut *fog;
     fog.alpha.fill(if reveal { 0 } else { FOG_DARK });
-    let mut eyes: Vec<(V2, f32)> = vec![];
     if !reveal {
         let mut budget = 1;
+        let mut sight_budget = 60;
         let mut alive = std::collections::HashSet::new();
+        let mut looking = std::collections::HashSet::new();
         for (u, b, _, uc, hosted, paused) in &q {
             if game.team_of(u.owner) != team || uc || hosted {
                 continue;
@@ -125,7 +131,7 @@ pub fn update_intel(
                 if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
                     budget -= 1;
                     let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.radar_los_height);
-                    fog.radar.insert(u.id, (b.pos, d.radar, radar_cells(&map, eye, b.pos, d.radar)));
+                    fog.radar.insert(u.id, (b.pos, d.radar, covered_cells(&map, eye, b.pos, d.radar, 0.0)));
                 }
                 if let Some(c) = fog.radar.get(&u.id) {
                     for i in &c.2 {
@@ -134,21 +140,27 @@ pub fn update_intel(
                 }
             }
             if d.vision > 0.0 {
-                eyes.push((b.pos, d.vision));
-            }
-        }
-        fog.radar.retain(|id, _| alive.contains(id));
-        for (pos, r) in &eyes {
-            let (cx, cy, rc) = (pos.x / CELL, pos.y / CELL, r / CELL);
-            for y in ((cy - rc) as i32).max(0)..=((cy + rc) as i32).min(n as i32 - 1) {
-                for x in ((cx - rc) as i32).max(0)..=((cx + rc) as i32).min(n as i32 - 1) {
-                    if (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) <= rc * rc {
-                        fog.alpha[y as usize * n + x as usize] = 0;
-                    }
+                looking.insert(u.id);
+                // Sight is shadowed by hills like radar. A unit's coverage is recomputed when it
+                // has moved a cell or so; a few dozen per tick keep large armies cheap.
+                let stale = fog.sight.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL || c.1 != d.vision);
+                if stale && (sight_budget > 0 || !fog.sight.contains_key(&u.id)) {
+                    sight_budget -= 1;
+                    let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.vision_los_height);
+                    fog.sight.insert(u.id, (b.pos, d.vision, covered_cells(&map, eye, b.pos, d.vision, 6.0)));
                 }
             }
         }
+        fog.radar.retain(|id, _| alive.contains(id));
+        fog.sight.retain(|id, _| looking.contains(id));
+        // Sight goes on last: it clears the fog completely, radar only thins it.
+        for c in fog.sight.values() {
+            for i in &c.2 {
+                fog.alpha[*i as usize] = 0;
+            }
+        }
     }
+    let _ = n;
     if let Some(img) = tex.and_then(|t| images.get_mut(&t.0)) {
         if let Some(data) = img.into_inner().data.as_mut() {
             for (px, a) in data.chunks_exact_mut(4).zip(fog.alpha.iter()) {
@@ -192,7 +204,7 @@ pub fn update_intel(
         }
         if g.structure {
             // Buildings stay on the map until we look at the spot again and find it empty.
-            !eyes.iter().any(|(p, r)| p.dist(g.pos) < *r)
+            !fog.visible(g.pos)
         } else {
             tick.saturating_sub(g.last_tick) < fade
         }
