@@ -69,8 +69,94 @@ fn cp_radius() -> f32 {
 fn cp_capture_secs() -> f32 {
     20.0
 }
-fn cp_score_limit() -> f32 {
+fn cp_start_points() -> f32 {
     400.0
+}
+fn cp_bleed() -> f32 {
+    1.0
+}
+fn reclaim_energy_factor() -> f32 {
+    5.0
+}
+fn trunk_color() -> [f32; 3] {
+    [0.33, 0.24, 0.16]
+}
+
+/// What a map generator does with a feature type.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FeatureClass {
+    #[default]
+    Tree,
+    Rock,
+}
+
+/// How a feature type is drawn (procedural low-poly meshes, see `view::flora`).
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FeatureShape {
+    /// Stacked cones on a short trunk.
+    #[default]
+    Pine,
+    /// A round crown on a trunk.
+    Broadleaf,
+    /// A low round crown, no trunk.
+    Bush,
+    /// A lumpy stone.
+    Rock,
+}
+
+/// A reclaimable map feature type: a tree or a rock (`rules.json: features`).
+#[derive(Deserialize, Clone, Debug)]
+pub struct FeatureDef {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub class: FeatureClass,
+    #[serde(default)]
+    pub shape: FeatureShape,
+    /// What reclaiming it gives.
+    #[serde(default)]
+    pub mass: f32,
+    #[serde(default)]
+    pub energy: f32,
+    /// Scale of the model (1 = a pine about 3 units tall, a rock about 1 unit across).
+    #[serde(default = "one")]
+    pub size: f32,
+    /// Foliage or stone colour.
+    pub color: [f32; 3],
+    #[serde(default = "trunk_color")]
+    pub trunk: [f32; 3],
+    /// How often the map generator picks it among the features of its class.
+    #[serde(default = "one")]
+    pub weight: f32,
+}
+
+impl FeatureDef {
+    /// Footprint radius on the ground: reclaim reach and the spacing of brushes and the generator.
+    pub fn radius(&self) -> f32 {
+        self.size
+            * match self.shape {
+                FeatureShape::Pine => 0.8,
+                FeatureShape::Broadleaf => 1.1,
+                FeatureShape::Bush => 0.6,
+                FeatureShape::Rock => 0.9,
+            }
+    }
+    /// Height of the model (it blocks sight up to there).
+    pub fn height(&self) -> f32 {
+        self.size
+            * match self.shape {
+                FeatureShape::Pine => 3.1,
+                FeatureShape::Broadleaf => 2.8,
+                FeatureShape::Bush => 0.75,
+                FeatureShape::Rock => 0.6,
+            }
+    }
+    /// Reclaim work in mass units (energy comes `reclaim_energy_factor` times faster than mass).
+    pub fn work(&self, rules: &Rules) -> f32 {
+        self.mass + self.energy / rules.reclaim_energy_factor.max(0.01)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -126,8 +212,18 @@ pub struct Rules {
     pub cp_radius: f32,
     #[serde(default = "cp_capture_secs")]
     pub cp_capture_secs: f32,
-    #[serde(default = "cp_score_limit")]
-    pub cp_score_limit: f32,
+    /// Points every team starts with unless the host picks another number in the lobby.
+    #[serde(default = "cp_start_points", alias = "cp_score_limit")]
+    pub cp_start_points: f32,
+    /// Points lost per second for every control point the leading opponent holds more.
+    #[serde(default = "cp_bleed")]
+    pub cp_bleed: f32,
+    /// Reclaiming trees and rocks: energy comes this many times faster than mass.
+    #[serde(default = "reclaim_energy_factor")]
+    pub reclaim_energy_factor: f32,
+    /// Reclaimable trees and rocks maps can place.
+    #[serde(default)]
+    pub features: Vec<FeatureDef>,
     pub commander_death: Blast,
     pub damage_types: Vec<String>,
     pub armor: HashMap<String, HashMap<String, f32>>,
@@ -661,6 +757,8 @@ pub struct Defs {
     pub units: Vec<UnitDef>,
     pub by_name: HashMap<String, DefId>,
     pub factions: Vec<Faction>,
+    /// Feature type id -> index into `rules.features`.
+    pub feature_by_name: HashMap<String, u16>,
     /// Hash of all data files; host and clients must match.
     pub hash: u64,
     /// The files this was built from.
@@ -680,6 +778,10 @@ impl Defs {
     }
     pub fn id(&self, name: &str) -> Option<DefId> {
         self.by_name.get(name).copied()
+    }
+    /// Feature type by id.
+    pub fn feature_id(&self, name: &str) -> Option<u16> {
+        self.feature_by_name.get(name).copied()
     }
     pub fn armor_mult(&self, dtype: usize, armor: usize) -> f32 {
         self.rules.armor_table.get(armor).and_then(|r| r.get(dtype)).copied().unwrap_or(1.0)
@@ -725,6 +827,18 @@ impl Defs {
         rules.armor_names = armor_names;
         if rules.player_colors.is_empty() || rules.damage_types.is_empty() {
             return Err("rules.json: player_colors and damage_types must not be empty".into());
+        }
+        let mut feature_by_name = HashMap::new();
+        for (k, f) in rules.features.iter().enumerate() {
+            if feature_by_name.insert(f.id.clone(), k as u16).is_some() {
+                return Err(format!("rules.json: duplicate feature id '{}'", f.id));
+            }
+            if !(f.mass >= 0.0 && f.energy >= 0.0 && f.size > 0.0 && f.weight >= 0.0) {
+                return Err(format!("rules.json: feature '{}' needs mass, energy and weight >= 0 and size > 0", f.id));
+            }
+        }
+        if rules.features.len() >= u16::MAX as usize {
+            return Err("rules.json: too many features".into());
         }
 
         let mut units: Vec<UnitDef> = vec![];
@@ -785,8 +899,13 @@ impl Defs {
             if u.is_structure() && u.footprint <= 0 {
                 return Err(format!("{}: structures need a footprint", u.id));
             }
-            if let Some(other) = icons.insert((u.icon.clone(), u.tier), u.id.clone()) {
-                return Err(format!("units '{}' and '{}' share the same strategic icon; every unit needs a unique one", other, u.id));
+            // Playable units need telling apart; map buildings (non-playable factions) may share
+            // an icon by kind (homes, civic buildings, industry).
+            let playable_unit = factions.get(u.faction as usize).map_or(true, |f: &Faction| f.playable);
+            if playable_unit {
+                if let Some(other) = icons.insert((u.icon.clone(), u.tier), u.id.clone()) {
+                    return Err(format!("units '{}' and '{}' share the same strategic icon; every unit needs a unique one", other, u.id));
+                }
             }
         }
         if units.len() >= DefId::MAX as usize {
@@ -795,6 +914,6 @@ impl Defs {
         if !factions.iter().any(|f: &Faction| f.playable && f.commander.is_some()) {
             return Err("no playable faction with a commander".into());
         }
-        Ok(Defs { rules, units, by_name, factions, hash, pack: Arc::new(pack) })
+        Ok(Defs { rules, units, by_name, factions, feature_by_name, hash, pack: Arc::new(pack) })
     }
 }

@@ -1,7 +1,8 @@
 //! Long Range map editor.
 //!
 //!   lr-editor                       interactive editor
-//!   lr-editor --generate NAME CELLS SEED [PLAYERS]   write a generated map with settlements to assets/maps/NAME
+//!   lr-editor --generate NAME CELLS SEED [PLAYERS]   write a generated map with settlements, trees and rocks to assets/maps/NAME
+//!   lr-editor --scatter NAME [SEED] [AMOUNT]          add trees and rocks to the saved map NAME (AMOUNT 1 = normal)
 //!
 //! Maps are stored as `assets/maps/<name>/map.json` plus a 16-bit `height.png`.
 use bevy::input::mouse::MouseWheel;
@@ -10,6 +11,8 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use longrange::data::{asset_root, DefId, Defs};
 use longrange::map::*;
 use longrange::view::models::{spawn_model, ModelCache};
+use longrange::data::FeatureClass;
+use longrange::view::flora::{flora_material, rebuild_flora, spawn_flora, FloraChunks, FloraView};
 use longrange::view::terrain::{spawn_scene, update_chunks, GameScene, GroundSnap, MainCamera, TerrainChunk, WaterPlane};
 use longrange::view::yaw_quat;
 
@@ -23,6 +26,17 @@ enum Tool {
     Start,
     Prop,
     Erase,
+    /// Paint trees or rocks (right mouse removes them).
+    Flora,
+}
+
+/// What the tree and rock brush paints.
+#[derive(Clone, Copy, PartialEq)]
+enum Paint {
+    /// Any feature of the class, picked by its weight.
+    Mixed(FeatureClass),
+    /// One feature type (index into `rules.features`).
+    One(usize),
 }
 
 #[derive(Resource)]
@@ -44,6 +58,10 @@ struct Editor {
     flatten_height: Option<f32>,
     status: String,
     maps: Vec<String>,
+    paint: Paint,
+    /// Brush spacing: 1 = crowns touching, higher = sparser.
+    spacing: f32,
+    rng: Rng,
 }
 
 const SIZES: [usize; 4] = [128, 192, 256, 384];
@@ -94,8 +112,12 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
         }
         true
     };
-    let homes = ["house", "house", "row_house", "house", "apartment", "row_house", "water_tower", "pylon"];
-    let industry = ["warehouse", "refinery", "fuel_tank", "fuel_tank", "pylon", "comm_tower"];
+    // Unknown ids (a data preset without these buildings) are skipped by `place`.
+    let homes = [
+        "house", "house2", "house3", "house4", "house5", "house6", "house7", "house8", "house9", "row_house", "old_house2", "old_house3", "old_house4", "corner_house1",
+        "corner_house2", "corner_house3", "corner_house4", "apartment", "apartment2", "residential_tower", "church", "grocery", "water_tower", "pylon",
+    ];
+    let industry = ["warehouse", "refinery", "fuel_tank", "containers", "containers2", "farm", "plant", "admin_building", "science_lab", "pylon", "comm_tower"];
     let towns = 2 + n / 160;
     let mut made = 0;
     let mut tries = 0;
@@ -125,16 +147,90 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     }
     // Hostile outpost guarding the centre.
     place(map, &mut occ, "comm_tower", c + v2(1.0, 1.0), PROP_NEUTRAL, 0.0);
+    place(map, &mut occ, "high_command", c + v2(10.0, 8.0), PROP_NEUTRAL, 0.0);
     place(map, &mut occ, "bunker", c + v2(-14.0, -2.0), PROP_HOSTILE, 0.0);
     place(map, &mut occ, "bunker", c + v2(-8.0, -16.0), PROP_HOSTILE, 0.0);
+    clear_under_props(map, defs);
 }
 
-fn rebuild(commands: &mut Commands, ed: &mut Editor, map: &mut MapData, defs: &Defs, old: &Query<Entity, With<GameScene>>, cache: &mut ModelCache, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, images: &mut Assets<Image>) {
+/// Removes trees and rocks under the buildings among the props (the game flattens them anyway).
+fn clear_under_props(map: &mut MapData, defs: &Defs) {
+    let foots: Vec<(V2, i32)> = map.props.iter().filter_map(|p| defs.id(&p.def).map(|d| (p.pos, defs.get(d).footprint))).filter(|f| f.1 > 0).collect();
+    for (pos, f) in foots {
+        map.clear_features_square(pos, f);
+    }
+}
+
+/// The feature types the brush can put down.
+fn paint_kinds(defs: &Defs, paint: Paint) -> Vec<(usize, f32)> {
+    match paint {
+        Paint::One(k) => vec![(k, 1.0)],
+        Paint::Mixed(c) => defs.rules.features.iter().enumerate().filter(|(_, f)| f.class == c && f.weight > 0.0).map(|(i, f)| (i, f.weight)).collect(),
+    }
+}
+
+fn paint_class(defs: &Defs, paint: Paint) -> FeatureClass {
+    match paint {
+        Paint::One(k) => defs.rules.features.get(k).map_or(FeatureClass::Tree, |f| f.class),
+        Paint::Mixed(c) => c,
+    }
+}
+
+
+/// One stroke of the tree and rock brush: `tries` random spots in the circle get a feature where
+/// there is room. Returns true if anything was placed.
+fn paint_features(map: &mut MapData, defs: &Defs, rng: &mut Rng, paint: Paint, spacing: f32, center: V2, radius: f32, tries: usize) -> bool {
+    let kinds = paint_kinds(defs, paint);
+    if kinds.is_empty() {
+        return false;
+    }
+    let total: f32 = kinds.iter().map(|k| k.1).sum();
+    let mut placed = false;
+    // What already stands near the brush: (position, radius).
+    let kind_r: Vec<f32> = map.feature_kinds.iter().map(|k| defs.feature_id(k).map_or(1.0, |i| defs.rules.features[i as usize].radius())).collect();
+    let mut near: Vec<(V2, f32)> = map.features.iter().filter(|f| f.pos.dist(center) < radius + 8.0).map(|f| (f.pos, kind_r.get(f.kind as usize).copied().unwrap_or(1.0) * f.scale)).collect();
+    for _ in 0..tries {
+        // Uniform in the disc.
+        let r = radius * rng.f().sqrt();
+        let p = center + V2::from_angle(rng.range(0.0, std::f32::consts::TAU)) * r;
+        let mut t = rng.f() * total;
+        let mut kind = kinds[0].0;
+        for (k, wt) in &kinds {
+            if t < *wt {
+                kind = *k;
+                break;
+            }
+            t -= wt;
+        }
+        let def = &defs.rules.features[kind];
+        let scale = rng.range(0.8, 1.2);
+        let fr = def.radius() * scale;
+        let w = map.world();
+        if p.x < 1.0 || p.y < 1.0 || p.x > w - 1.0 || p.y > w - 1.0 || map.h(p) < map.water + 0.2 {
+            continue;
+        }
+        if near.iter().any(|(q, qr)| q.dist(p) < (qr + fr) * 0.85 * spacing) {
+            continue;
+        }
+        near.push((p, fr));
+        let k = map.feature_kind(&def.id);
+        map.features.push(Feature { kind: k, pos: p, yaw: rng.range(0.0, std::f32::consts::TAU), scale });
+        placed = true;
+    }
+    placed
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rebuild(commands: &mut Commands, ed: &mut Editor, map: &mut MapData, defs: &Defs, old: &Query<Entity, With<GameScene>>, cache: &mut ModelCache, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, flora: &mut FloraView) {
     for e in old.iter() {
         commands.entity(e).despawn();
     }
     map.rebuild_blocked();
     spawn_scene(commands, map, meshes, materials, images, false);
+    flora.shown = vec![true; map.features.len()];
+    flora.dirty.clear();
+    flora.all_dirty = false;
+    spawn_flora(commands, map, defs, flora, meshes);
     for p in &map.props {
         let Some(d) = defs.id(&p.def) else { continue };
         let (ci, rgb) = if p.owner == PROP_HOSTILE { (201, defs.rules.hostile_color) } else { (200, defs.rules.neutral_color) };
@@ -162,10 +258,12 @@ fn editor_ui(
     time: Res<Time>,
     mut gizmos: Gizmos,
     mut camera: Query<&mut Transform, (With<MainCamera>, Without<WaterPlane>, Without<GroundSnap>)>,
-    (chunks, mut water, mut snapped): (
+    (chunks, mut water, mut snapped, mut fchunks, mut flora): (
         Query<(&TerrainChunk, &Mesh3d)>,
         Query<&mut Transform, (With<WaterPlane>, Without<MainCamera>, Without<GroundSnap>)>,
         Query<(&mut Transform, &GroundSnap), (Without<MainCamera>, Without<WaterPlane>)>,
+        FloraChunks,
+        ResMut<FloraView>,
     ),
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
@@ -226,6 +324,7 @@ fn editor_ui(
         ui.horizontal(|ui| {
             if ui.button("Generate").clicked() {
                 *map = MapData::generate(ed.new_cells, ed.seed, ed.players);
+                map.scatter_features(&defs.rules.features, ed.seed, 1.0);
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
@@ -258,6 +357,57 @@ fn editor_ui(
             }
         }
         ui.separator();
+        ui.label("Trees and rocks");
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut ed.tool, Tool::Flora, "Brush");
+            if ui.button("Scatter").on_hover_text("Adds forests and rock fields with the map's symmetry (uses the seed above)").clicked() {
+                map.rebuild_blocked();
+                map.scatter_features(&defs.rules.features, ed.seed, 1.0);
+                full_rebuild = true;
+            }
+            if ui.button("Clear all").clicked() {
+                map.features.clear();
+                map.feature_kinds.clear();
+                full_rebuild = true;
+            }
+        });
+        if ed.tool == Tool::Flora {
+            let label = |p: Paint| match p {
+                Paint::Mixed(FeatureClass::Tree) => "Trees (mixed)".to_string(),
+                Paint::Mixed(FeatureClass::Rock) => "Rocks (mixed)".to_string(),
+                Paint::One(k) => defs.rules.features.get(k).map_or("?".into(), |f| {
+                    let mut v = vec![];
+                    if f.mass > 0.0 {
+                        v.push(format!("{} mass", f.mass));
+                    }
+                    if f.energy > 0.0 {
+                        v.push(format!("{} energy", f.energy));
+                    }
+                    format!("{} ({})", f.name, v.join(", "))
+                }),
+            };
+            egui::ComboBox::from_id_salt("paint").selected_text(label(ed.paint)).show_ui(ui, |ui| {
+                for p in [Paint::Mixed(FeatureClass::Tree), Paint::Mixed(FeatureClass::Rock)].into_iter().chain((0..defs.rules.features.len()).map(Paint::One)) {
+                    ui.selectable_value(&mut ed.paint, p, label(p));
+                }
+            });
+            ui.add(egui::Slider::new(&mut ed.spacing, 0.6..=4.0).text("spacing"));
+            let mut detail = flora.detail;
+            egui::ComboBox::from_id_salt("flora_detail").selected_text(format!("Detail: {}", longrange::settings::FLORA_DETAIL[detail as usize])).show_ui(ui, |ui| {
+                for (k, l) in longrange::settings::FLORA_DETAIL.iter().enumerate() {
+                    ui.selectable_value(&mut detail, k as u8, *l);
+                }
+            });
+            if detail != flora.detail {
+                // Same setting as in the game (settings.json).
+                flora.set_detail(&defs, detail);
+                let mut st = longrange::settings::Settings::load();
+                st.flora_detail = detail;
+                st.save();
+            }
+            ui.label(egui::RichText::new("Radius and strength above set the brush. Left mouse paints, right mouse removes this kind (trees or rocks).").weak());
+        }
+        ui.separator();
         ui.label("Objects");
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut ed.tool, Tool::Deposit, "Deposit");
@@ -285,7 +435,7 @@ fn editor_ui(
             ui.add(egui::Slider::new(&mut ed.prop_yaw, 0.0..=6.28).text("facing"));
         }
         ui.separator();
-        ui.label(format!("{} cells, {} deposits, {} starts, {} objects", map.n, map.deposits.len(), map.starts.len(), map.props.len()));
+        ui.label(format!("{} cells, {} deposits, {} starts, {} objects, {} trees and rocks", map.n, map.deposits.len(), map.starts.len(), map.props.len(), map.features.len()));
         ui.label(egui::RichText::new("Left mouse: use tool.  Arrows/WASD pan, wheel zoom.").weak());
         if !ed.status.is_empty() {
             ui.label(&ed.status);
@@ -347,7 +497,27 @@ fn editor_ui(
     // --- tools
     if let (Some(p), false) = (hit, over_ui) {
         let terrain_tool = matches!(ed.tool, Tool::Raise | Tool::Lower | Tool::Smooth | Tool::Flatten);
-        ring(&mut gizmos, map, p, if terrain_tool { ed.radius } else { 1.5 }, Color::WHITE);
+        let brush = terrain_tool || ed.tool == Tool::Flora;
+        ring(&mut gizmos, map, p, if brush { ed.radius } else { 1.5 }, if ed.tool == Tool::Flora { Color::srgb(0.5, 1.0, 0.5) } else { Color::WHITE });
+        if ed.tool == Tool::Flora {
+            let mut changed = false;
+            if buttons.pressed(MouseButton::Left) {
+                // About `strength` x 4 tries per second per 100 square units of brush.
+                let want = ed.strength * 4.0 * dt * (std::f32::consts::PI * ed.radius * ed.radius / 100.0);
+                let tries = want.floor() as usize + (ed.rng.f() < want.fract()) as usize;
+                changed |= paint_features(map, &defs, &mut ed.rng, ed.paint, ed.spacing, p, ed.radius, tries);
+            } else if buttons.pressed(MouseButton::Right) {
+                let class = paint_class(&defs, ed.paint);
+                let before = map.features.len();
+                let kinds: Vec<Option<FeatureClass>> = map.feature_kinds.iter().map(|k| defs.feature_id(k).map(|i| defs.rules.features[i as usize].class)).collect();
+                map.features.retain(|f| f.pos.dist(p) > ed.radius || kinds.get(f.kind as usize).copied().flatten().map_or(false, |c| c != class));
+                changed |= map.features.len() != before;
+            }
+            if changed {
+                flora.shown = vec![true; map.features.len()];
+                flora.mark_area(map, p, ed.radius + 4.0);
+            }
+        }
         if terrain_tool && buttons.pressed(MouseButton::Left) {
             if buttons.just_pressed(MouseButton::Left) {
                 ed.flatten_height = Some(map.h(p));
@@ -390,6 +560,7 @@ fn editor_ui(
             // Update only the touched terrain chunks, in place, and keep markers on the ground.
             // (Rebuilding the whole scene on every stroke made the map flicker.)
             update_chunks(map, &mut meshes, &chunks, p, ed.radius);
+            flora.mark_area(map, p, ed.radius + 2.0);
             for (mut t, snap) in &mut snapped {
                 if flat(t.translation).dist(p) < ed.radius + 8.0 {
                     t.translation.y = map.height(t.translation.x, t.translation.z) + snap.0;
@@ -419,27 +590,42 @@ fn editor_ui(
                     let d = defs.get(ed.prop);
                     let pos = if d.is_structure() { longrange::sim::snap(&defs, map, ed.prop, p) } else { p };
                     map.props.push(Prop { def: d.id.clone(), pos, yaw: ed.prop_yaw, owner: if ed.prop_hostile { PROP_HOSTILE } else { PROP_NEUTRAL } });
+                    if d.is_structure() {
+                        map.clear_features_square(pos, d.footprint);
+                    }
                     full_rebuild = true;
                 }
-                Tool::Erase => {
-                    let before = (map.deposits.len(), map.props.len());
-                    map.deposits.retain(|d| d.dist(p) > 2.5);
-                    map.props.retain(|o| o.pos.dist(p) > 2.5);
-                    full_rebuild |= before != (map.deposits.len(), map.props.len());
-                }
                 _ => {}
+            }
+        }
+        // Erase works while the button is held, so a drag clears a path through trees and rocks.
+        if ed.tool == Tool::Erase && buttons.pressed(MouseButton::Left) {
+            let before = (map.deposits.len(), map.props.len());
+            map.deposits.retain(|d| d.dist(p) > 2.5);
+            map.props.retain(|o| o.pos.dist(p) > 2.5);
+            full_rebuild |= before != (map.deposits.len(), map.props.len());
+            // Trees and rocks count as hit when the cursor ring touches their crown or body.
+            let kind_r: Vec<f32> = map.feature_kinds.iter().map(|k| defs.feature_id(k).map_or(1.0, |i| defs.rules.features[i as usize].radius())).collect();
+            let count = map.features.len();
+            map.features.retain(|f| f.pos.dist(p) > 2.5 + kind_r.get(f.kind as usize).copied().unwrap_or(1.0) * f.scale * 0.5);
+            if map.features.len() != count {
+                flora.shown = vec![true; map.features.len()];
+                flora.mark_area(map, p, 2.5 + 8.0);
             }
         }
     }
     // Only structural changes (new map, load, objects, deposits) respawn the scene.
     if full_rebuild || ed.dirty {
-        rebuild(&mut commands, ed, map, &defs, &old, &mut cache, &mut meshes, &mut materials, &mut images);
+        rebuild(&mut commands, ed, map, &defs, &old, &mut cache, &mut meshes, &mut materials, &mut images, &mut flora);
+    } else {
+        rebuild_flora(&mut commands, map, &defs, &mut flora, &mut fchunks, &mut meshes);
     }
     Ok(())
 }
 
-fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>) {
+fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>, defs: Res<Defs>) {
     cache.init(&mut materials);
+    commands.insert_resource(FloraView::new(&defs, flora_material(&mut materials, None), vec![], longrange::settings::Settings::load().flora_detail));
     commands.spawn((Camera3d::default(), Msaa::Off, Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
     ed.dirty = true;
 }
@@ -460,15 +646,38 @@ fn main() {
         let players: usize = args.get(i + 4).and_then(|s| s.parse().ok()).unwrap_or(4);
         let mut map = MapData::generate(cells, seed, players);
         map.name = name.clone();
+        map.scatter_features(&defs.rules.features, seed, 1.0);
         add_settlements(&mut map, &defs, seed);
         let dir = asset_root().join("maps").join(&name);
         match map.save(&dir) {
-            Ok(()) => println!("wrote {} ({} cells, {} deposits, {} objects)", dir.display(), map.n, map.deposits.len(), map.props.len()),
+            Ok(()) => println!("wrote {} ({} cells, {} deposits, {} objects, {} trees and rocks)", dir.display(), map.n, map.deposits.len(), map.props.len(), map.features.len()),
             Err(e) => eprintln!("failed: {e}"),
         }
         return;
     }
-    let map = MapData::generate(192, 1, 4);
+    if let Some(i) = args.iter().position(|a| a == "--scatter") {
+        let name = args.get(i + 1).cloned().unwrap_or_default();
+        let dir = asset_root().join("maps").join(&name);
+        let mut map = match MapData::load(&dir) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("cannot load map '{name}': {e}");
+                std::process::exit(1);
+            }
+        };
+        let seed: u64 = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(map.seed.max(1));
+        let amount: f32 = args.get(i + 3).and_then(|s| s.parse().ok()).unwrap_or(1.0);
+        let before = map.features.len();
+        map.scatter_features(&defs.rules.features, seed, amount);
+        clear_under_props(&mut map, &defs);
+        match map.save(&dir) {
+            Ok(()) => println!("{}: {} trees and rocks added, {} in all", dir.display(), map.features.len() as i64 - before as i64, map.features.len()),
+            Err(e) => eprintln!("failed: {e}"),
+        }
+        return;
+    }
+    let mut map = MapData::generate(192, 1, 4);
+    map.scatter_features(&defs.rules.features, 1, 1.0);
     let first_prop = defs.id("house").unwrap_or(0);
     let mut app = App::new();
     app
@@ -496,6 +705,9 @@ fn main() {
             flatten_height: None,
             status: String::new(),
             maps: MapData::list(&asset_root()),
+            paint: Paint::Mixed(FeatureClass::Tree),
+            spacing: 1.0,
+            rng: Rng(0x5EED_F00D),
         })
         .insert_resource(map)
         .insert_resource(defs)

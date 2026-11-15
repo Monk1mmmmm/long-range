@@ -64,8 +64,9 @@ pub fn reveal(game: &Game, me: u8) -> bool {
 }
 
 /// Map cells within `radius` of `pos` that `eye` has a clear line to (everything within `near`
-/// counts regardless, like in the simulation's own visibility test).
-fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32) -> Vec<u32> {
+/// counts regardless, like in the simulation's own visibility test). `block`: trees, rocks and
+/// wrecks that block the line too (sight; radar passes them).
+fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, block: Option<&[f32]>) -> Vec<u32> {
     let n = map.n as i32;
     let (cx, cy, rc) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32, (radius / CELL) as i32);
     let mut out = vec![];
@@ -76,7 +77,7 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32) -> V
         while x <= (cx + rc).min(n - 1) {
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
             let dist = c.dist(pos);
-            if dist <= radius && (dist < near || map.los(eye, c.at(map.h(c) + 1.5))) {
+            if dist <= radius && (dist < near || block.map_or_else(|| map.los(eye, c.at(map.h(c) + 1.5)), |b| map.los_blocked(eye, c.at(map.h(c) + 1.5), b))) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     if x + dx < n && y + dy < n {
                         out.push(((y + dy) * n + x + dx) as u32);
@@ -101,10 +102,12 @@ pub fn update_intel(
     tex: Option<Res<FogTexture>>,
     mut images: ResMut<Assets<Image>>,
     q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Has<Hosted>, Has<Paused>)>,
+    (features, wrecks): (Res<Features>, Res<WreckList>),
 ) {
     if mem.tick == game.tick {
         return;
     }
+    let block = sight_block(&features, &wrecks, &defs, &map);
     mem.tick = game.tick;
     let team = game.team_of(view.me);
     let bit = 1u16 << team;
@@ -131,7 +134,7 @@ pub fn update_intel(
                 if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
                     budget -= 1;
                     let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.radar_los_height);
-                    fog.radar.insert(u.id, (b.pos, d.radar, covered_cells(&map, eye, b.pos, d.radar, 0.0)));
+                    fog.radar.insert(u.id, (b.pos, d.radar, covered_cells(&map, eye, b.pos, d.radar, 0.0, None)));
                 }
                 if let Some(c) = fog.radar.get(&u.id) {
                     for i in &c.2 {
@@ -147,7 +150,7 @@ pub fn update_intel(
                 if stale && (sight_budget > 0 || !fog.sight.contains_key(&u.id)) {
                     sight_budget -= 1;
                     let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.vision_los_height);
-                    fog.sight.insert(u.id, (b.pos, d.vision, covered_cells(&map, eye, b.pos, d.vision, 6.0)));
+                    fog.sight.insert(u.id, (b.pos, d.vision, covered_cells(&map, eye, b.pos, d.vision, 6.0, Some(&block))));
                 }
             }
         }
@@ -163,7 +166,19 @@ pub fn update_intel(
     let _ = n;
     if let Some(img) = tex.and_then(|t| images.get_mut(&t.0)) {
         if let Some(data) = img.into_inner().data.as_mut() {
+            // The colour channels carry the brightness that trees and rocks are drawn with: the
+            // same darkening as the black overlay of that alpha gives the ground (sRGB encoded).
+            let mut light = [0u8; 256];
+            for (a, l) in light.iter_mut().enumerate() {
+                let lin = 1.0 - a as f32 / 255.0;
+                let enc = if lin <= 0.0031308 { lin * 12.92 } else { 1.055 * lin.powf(1.0 / 2.4) - 0.055 };
+                *l = (enc * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
             for (px, a) in data.chunks_exact_mut(4).zip(fog.alpha.iter()) {
+                let l = light[*a as usize];
+                px[0] = l;
+                px[1] = l;
+                px[2] = l;
                 px[3] = *a;
             }
         }

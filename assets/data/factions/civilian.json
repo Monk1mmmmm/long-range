@@ -18,7 +18,7 @@
    },
    "size": [
     2.0,
-    1.4,
+    0.94,
     2.0
    ],
    "footprint": 1,
@@ -29,59 +29,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.5,
-       0
-      ],
-      "size": [
-       1.5,
-       1.0,
-       1.3
-      ],
-      "color": [
-       0.78,
-       0.72,
-       0.62
-      ]
-     },
-     {
-      "pos": [
-       0,
-       1.15,
-       0
-      ],
-      "size": [
-       1.7,
-       0.35,
-       1.5
-      ],
-      "color": [
-       0.55,
-       0.25,
-       0.2
-      ]
-     },
-     {
-      "pos": [
-       0.5,
-       1.45,
-       0.3
-      ],
-      "size": [
-       0.2,
-       0.4,
-       0.2
-      ],
-      "color": [
-       0.4,
-       0.38,
-       0.36
-      ]
-     }
-    ]
+    "mesh": "models/civ_house1.glb",
+    "albedo": "models/civ_house1_albedo.png",
+    "team_mask": "models/civ_house1_team.png",
+    "normal": "models/civ_house1_normal.png",
+    "scale": 0.1875
    },
    "categories": [
     "civilian",
@@ -102,7 +54,7 @@
    },
    "size": [
     2.0,
-    1.9,
+    1.69,
     2.0
    ],
    "footprint": 1,
@@ -113,42 +65,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.8,
-       0
-      ],
-      "size": [
-       1.8,
-       1.6,
-       1.2
-      ],
-      "color": [
-       0.7,
-       0.55,
-       0.45
-      ]
-     },
-     {
-      "pos": [
-       0,
-       1.7,
-       0
-      ],
-      "size": [
-       1.9,
-       0.25,
-       1.35
-      ],
-      "color": [
-       0.3,
-       0.3,
-       0.33
-      ]
-     }
-    ]
+    "mesh": "models/civ_old_house1.glb",
+    "albedo": "models/civ_old_house1_albedo.png",
+    "team_mask": "models/civ_old_house1_team.png",
+    "normal": "models/civ_old_house1_normal.png",
+    "scale": 0.1875
    },
    "categories": [
     "civilian",
@@ -169,7 +90,7 @@
    },
    "size": [
     4.0,
-    5.0,
+    1.88,
     4.0
    ],
    "footprint": 2,
@@ -181,59 +102,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       2.4,
-       0
-      ],
-      "size": [
-       3.0,
-       4.8,
-       2.4
-      ],
-      "color": [
-       0.72,
-       0.72,
-       0.7
-      ]
-     },
-     {
-      "pos": [
-       0,
-       4.95,
-       0
-      ],
-      "size": [
-       3.2,
-       0.2,
-       2.6
-      ],
-      "color": [
-       0.35,
-       0.35,
-       0.38
-      ]
-     },
-     {
-      "pos": [
-       0.8,
-       5.3,
-       0.5
-      ],
-      "size": [
-       0.6,
-       0.5,
-       0.6
-      ],
-      "color": [
-       0.5,
-       0.5,
-       0.52
-      ]
-     }
-    ]
+    "mesh": "models/civ_apartments1.glb",
+    "albedo": "models/civ_apartments1_albedo.png",
+    "team_mask": "models/civ_apartments1_team.png",
+    "normal": "models/civ_apartments1_normal.png",
+    "scale": 0.1875
    },
    "categories": [
     "civilian",
@@ -254,7 +127,7 @@
    },
    "size": [
     6.0,
-    2.2,
+    2.5,
     6.0
    ],
    "footprint": 3,
@@ -265,59 +138,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.9,
-       0
-      ],
-      "size": [
-       5.2,
-       1.8,
-       4.4
-      ],
-      "color": [
-       0.55,
-       0.58,
-       0.6
-      ]
-     },
-     {
-      "pos": [
-       0,
-       1.95,
-       0
-      ],
-      "size": [
-       5.4,
-       0.3,
-       4.6
-      ],
-      "color": [
-       0.38,
-       0.42,
-       0.5
-      ]
-     },
-     {
-      "pos": [
-       2.0,
-       0.7,
-       2.25
-      ],
-      "size": [
-       1.2,
-       1.4,
-       0.1
-      ],
-      "color": [
-       0.25,
-       0.25,
-       0.27
-      ]
-     }
-    ]
+    "mesh": "models/civ_factory.glb",
+    "albedo": "models/civ_factory_albedo.png",
+    "team_mask": "models/civ_factory_team.png",
+    "normal": "models/civ_factory_normal.png",
+    "scale": 0.25
    },
    "categories": [
     "civilian",
@@ -719,6 +544,978 @@
     "civilian",
     "infrastructure"
    ]
+  },
+  {
+   "id": "house2",
+   "name": "Modern House 1",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house2.glb",
+    "albedo": "models/civ_house2_albedo.png",
+    "team_mask": "models/civ_house2_team.png",
+    "normal": "models/civ_house2_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house3",
+   "name": "Modern House 2",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house3.glb",
+    "albedo": "models/civ_house3_albedo.png",
+    "team_mask": "models/civ_house3_team.png",
+    "normal": "models/civ_house3_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house4",
+   "name": "Modern House 3",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house4.glb",
+    "albedo": "models/civ_house4_albedo.png",
+    "team_mask": "models/civ_house4_team.png",
+    "normal": "models/civ_house4_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house5",
+   "name": "Modern House 4",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house5.glb",
+    "albedo": "models/civ_house5_albedo.png",
+    "team_mask": "models/civ_house5_team.png",
+    "normal": "models/civ_house5_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house6",
+   "name": "Modern House 5",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house6.glb",
+    "albedo": "models/civ_house6_albedo.png",
+    "team_mask": "models/civ_house6_team.png",
+    "normal": "models/civ_house6_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house7",
+   "name": "Modern House 6",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house7.glb",
+    "albedo": "models/civ_house7_albedo.png",
+    "team_mask": "models/civ_house7_team.png",
+    "normal": "models/civ_house7_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house8",
+   "name": "Modern House 7",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.03,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house8.glb",
+    "albedo": "models/civ_house8_albedo.png",
+    "team_mask": "models/civ_house8_team.png",
+    "normal": "models/civ_house8_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "house9",
+   "name": "Modern House 8",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.03,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house9.glb",
+    "albedo": "models/civ_house9_albedo.png",
+    "team_mask": "models/civ_house9_team.png",
+    "normal": "models/civ_house9_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "old_house2",
+   "name": "Old House 1",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_old_house2.glb",
+    "albedo": "models/civ_old_house2_albedo.png",
+    "team_mask": "models/civ_old_house2_team.png",
+    "normal": "models/civ_old_house2_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "old_house3",
+   "name": "Old House 2",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_old_house3.glb",
+    "albedo": "models/civ_old_house3_albedo.png",
+    "team_mask": "models/civ_old_house3_team.png",
+    "normal": "models/civ_old_house3_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "old_house4",
+   "name": "Old House 3",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_old_house4.glb",
+    "albedo": "models/civ_old_house4_albedo.png",
+    "team_mask": "models/civ_old_house4_team.png",
+    "normal": "models/civ_old_house4_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "corner_house1",
+   "name": "Corner House 1",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house1.glb",
+    "albedo": "models/civ_corner_house1_albedo.png",
+    "team_mask": "models/civ_corner_house1_team.png",
+    "normal": "models/civ_corner_house1_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "corner_house2",
+   "name": "Corner House 2",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house2.glb",
+    "albedo": "models/civ_corner_house2_albedo.png",
+    "team_mask": "models/civ_corner_house2_team.png",
+    "normal": "models/civ_corner_house2_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "corner_house3",
+   "name": "Corner House 3",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house3.glb",
+    "albedo": "models/civ_corner_house3_albedo.png",
+    "team_mask": "models/civ_corner_house3_team.png",
+    "normal": "models/civ_corner_house3_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "corner_house4",
+   "name": "Corner House 4",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.69,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house4.glb",
+    "albedo": "models/civ_corner_house4_albedo.png",
+    "team_mask": "models/civ_corner_house4_team.png",
+    "normal": "models/civ_corner_house4_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "apartment2",
+   "name": "Apartment Building",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.88,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_apartments2.glb",
+    "albedo": "models/civ_apartments2_albedo.png",
+    "team_mask": "models/civ_apartments2_team.png",
+    "normal": "models/civ_apartments2_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "church",
+   "name": "Church",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    2.81,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_church.glb",
+    "albedo": "models/civ_church_albedo.png",
+    "team_mask": "models/civ_church_team.png",
+    "normal": "models/civ_church_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "grocery",
+   "name": "Grocery Store",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.75,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_grocery.glb",
+    "albedo": "models/civ_grocery_albedo.png",
+    "team_mask": "models/civ_grocery_team.png",
+    "normal": "models/civ_grocery_normal.png",
+    "scale": 0.25
+   }
+  },
+  {
+   "id": "containers",
+   "name": "Container Stack 1",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    0.97,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_containers1.glb",
+    "albedo": "models/civ_containers1_albedo.png",
+    "team_mask": "models/civ_containers1_team.png",
+    "normal": "models/civ_containers1_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "containers2",
+   "name": "Container Stack 2",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    2.0,
+    1.94,
+    2.0
+   ],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_containers2.glb",
+    "albedo": "models/civ_containers2_albedo.png",
+    "team_mask": "models/civ_containers2_team.png",
+    "normal": "models/civ_containers2_normal.png",
+    "scale": 0.1875
+   }
+  },
+  {
+   "id": "residential_tower",
+   "name": "Residential Tower",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.9,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_residential.glb",
+    "albedo": "models/civ_uef_residential_albedo.png",
+    "team_mask": "models/civ_uef_residential_team.png",
+    "normal": "models/civ_uef_residential_normal.png",
+    "scale": 0.1
+   }
+  },
+  {
+   "id": "science_lab",
+   "name": "Science Lab",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.45,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_lab.glb",
+    "albedo": "models/civ_uef_lab_albedo.png",
+    "team_mask": "models/civ_uef_lab_team.png",
+    "normal": "models/civ_uef_lab_normal.png",
+    "scale": 0.1
+   }
+  },
+  {
+   "id": "admin_building",
+   "name": "Administrative Building",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.84,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_admin.glb",
+    "albedo": "models/civ_uef_admin_albedo.png",
+    "team_mask": "models/civ_uef_admin_team.png",
+    "normal": "models/civ_uef_admin_normal.png",
+    "scale": 0.1
+   }
+  },
+  {
+   "id": "admin_hall",
+   "name": "Administration Hall",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    6.0,
+    3.56,
+    6.0
+   ],
+   "footprint": 3,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_hall.glb",
+    "albedo": "models/civ_uef_hall_albedo.png",
+    "team_mask": "models/civ_uef_hall_team.png",
+    "normal": "models/civ_uef_hall_normal.png",
+    "scale": 0.03
+   }
+  },
+  {
+   "id": "high_command",
+   "name": "High Command",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.22,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_command.glb",
+    "albedo": "models/civ_uef_command_albedo.png",
+    "team_mask": "models/civ_uef_command_team.png",
+    "normal": "models/civ_uef_command_normal.png",
+    "scale": 0.2
+   }
+  },
+  {
+   "id": "farm",
+   "name": "Agricultural Center",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    6.0,
+    2.19,
+    6.0
+   ],
+   "footprint": 3,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_farm.glb",
+    "albedo": "models/civ_uef_farm_albedo.png",
+    "team_mask": "models/civ_uef_farm_team.png",
+    "normal": "models/civ_uef_farm_normal.png",
+    "scale": 0.1
+   }
+  },
+  {
+   "id": "plant",
+   "name": "Manufacturing Plant",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.41,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_plant.glb",
+    "albedo": "models/civ_uef_plant_albedo.png",
+    "team_mask": "models/civ_uef_plant_team.png",
+    "normal": "models/civ_uef_plant_normal.png",
+    "scale": 0.1
+   }
   },
   {
    "id": "bunker",

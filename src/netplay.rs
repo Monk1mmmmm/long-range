@@ -111,13 +111,15 @@ pub struct ClientSim {
     ping_in: f32,
     /// Smoothed round trip in milliseconds.
     pub rtt: f32,
+    /// The host paused the game (by that player): the client shows the confirmed state and waits.
+    pub paused: Option<u8>,
 }
 
 impl ClientSim {
     /// `state` is the starting state, already loaded into the world (`join_game`).
     pub fn new(me: u8, state: Snapshot) -> ClientSim {
         let fx_high = state.game.tick;
-        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0 }
+        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None }
     }
 
     pub fn confirmed_tick(&self) -> u32 {
@@ -138,6 +140,7 @@ impl ClientSim {
                     self.rtt = if self.rtt == 0.0 { ms } else { self.rtt * 0.8 + ms * 0.2 };
                     self.lead = (((self.rtt + 30.0) / (DT * 1000.0)).ceil() as u32).clamp(1, MAX_LEAD);
                 }
+                Ok(S2C::Paused(p)) => self.paused = p,
                 Ok(S2C::Kicked(why)) => return Err(why),
                 Ok(_) => {}
                 Err(_) => return Err("Protocol mismatch - are both players on the same version?".into()),
@@ -208,6 +211,16 @@ impl ClientSim {
                 }
             }
             self.confirmed = make_snapshot(world);
+        }
+        // Paused: the host simulates nothing more, so drop the prediction and show what it confirmed.
+        // The turns before the pause arrived ahead of the pause message, so this is the paused tick.
+        if self.paused.is_some() {
+            if world.resource::<Game>().tick != k {
+                restore(world, &self.confirmed);
+            }
+            self.acc = 0.0;
+            flush_limbo(world);
+            return Ok(out);
         }
         // Prediction: from the confirmed state (after a rollback) or from where it already was.
         let target = (shown + due).clamp(k + self.lead, k + self.lead + 2);

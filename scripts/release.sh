@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds release bundles (game + map editor + assets) and publishes them as a GitHub release.
+# Builds release bundles and publishes them as a GitHub release: per platform one archive with the game
+# and one with the map editor (each with its own copy of assets/).
 #
 #   scripts/release.sh                    build Linux and Windows bundles, upload both
 #   scripts/release.sh --only linux       build just one platform (linux | windows)
@@ -21,7 +22,7 @@ while [ $# -gt 0 ]; do
         --no-upload) UPLOAD=0; shift ;;
         --tag) TAG="$2"; shift 2 ;;
         --draft) DRAFT="--draft"; shift ;;
-        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
     esac
 done
@@ -56,22 +57,30 @@ fetch_dxc() {
     unlink "$d/dxc.zip"
 }
 
+# One archive per program: longrange-<version>-<platform> (the game) and
+# longrange-editor-<version>-<platform> (the map editor). Each is complete on its own: both programs
+# read assets/ next to the executable, and both render with DirectX 12 on Windows (dxcompiler.dll).
 bundle() { # <platform name> <cargo output dir> <exe suffix>
-    local name="longrange-$VERSION-$1" out
+    bundle_one "longrange-$VERSION-$1" longrange "$2" "$3"
+    bundle_one "longrange-editor-$VERSION-$1" lr-editor "$2" "$3"
+}
+
+bundle_one() { # <archive name> <program> <cargo output dir> <exe suffix>
+    local name="$1" out
     local dir="dist/${name:?}"
     # Start from an empty bundle folder.
     if [ -d "$dir" ]; then
         find "$dir" -mindepth 1 -delete
     fi
     mkdir -p "$dir"
-    cp "$2/longrange$3" "$2/lr-editor$3" "$dir/"
+    cp "$3/$2$4" "$dir/"
     if [ -n "$DXC_DIR" ]; then
         cp "$DXC_DIR/dxcompiler.dll" "$DXC_DIR/dxil.dll" "$DXC_DIR"/LICENSE-DXC-*.txt "$dir/"
     fi
     cp -r assets "$dir/assets"
     cp README.md CHANGELOG.md "$dir/"
     if [ -f LICENSE ]; then cp LICENSE "$dir/"; fi
-    if [ "$3" = ".exe" ]; then
+    if [ "$4" = ".exe" ]; then
         out="dist/$name.zip"
         if [ -f "$out" ]; then unlink "$out"; fi
         (cd dist && zip -qr "$name.zip" "$name")

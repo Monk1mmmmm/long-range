@@ -37,10 +37,14 @@ cargo run -- --combattest         # headless duels: accuracy, reversing, assiste
 cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
 cargo run -- --icons out.png      # every strategic icon and order icon in one picture (look at it after icon changes)
 cargo run --bin lr-editor         # map editor
-cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns -> assets/maps
+cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns, trees, rocks -> assets/maps
+cargo run --bin lr-editor -- --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
-python3 tools/convert_assets.py "<mod folder>"            # re-import models/textures/portraits from the mod
+.venv/bin/python tools/convert_assets.py "<mod folder>"   # re-import models/textures/portraits from the mod
+.venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
+.venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
+# The converters need numpy + Pillow: they live in the project venv (python3 -m venv .venv; .venv/bin/pip install numpy pillow).
 ```
 
 Debug environment variables: `LR_SPEED=8` (fast-forward a hosted game), `LR_WATCH=1` (an AI also plays the local
@@ -131,7 +135,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - Hotkeys: two presets in `view/hud.rs` (`ViewState.preset`, saved to `settings.json` next to `assets/`):
   default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
   with hotbuild keys chosen by unit role in `hud::hot_key`.
-- Releases: `scripts/release.sh` / `release.ps1` bundle exe + editor + assets into `dist/` and publish with `gh`.
+- Releases: `scripts/release.sh` / `release.ps1` make two archives per platform in `dist/` (game + assets,
+  editor + assets) and publish them with `gh`.
   The user commits and pushes themselves; do not commit, push or publish without being asked.
 
 ## Source map
@@ -152,9 +157,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), water, deposits, sun, minimap pixels |
 | `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
 | `src/view/fx.rs` | projectile visuals and explosions |
+| `src/view/flora.rs` | trees and rocks: procedural models (detail setting), one merged mesh per 16-cell chunk |
 | `src/view/icons.rs` | procedural strategic icons |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
 | `src/bin/lr-editor.rs` | map editor and map generation CLI |
+| `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource` |
 
 ## Game rules worth knowing
 
@@ -164,7 +171,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Hits are resolved against terrain and unit cylinders, so shots miss, fall short or hit hills.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
-  over terrain (`map.los`); vision does not.
+  over terrain (`map.los`). Vision needs it too and is also blocked by standing trees, rocks and wrecks
+  (`sim::sight_block`: per-cell blocker height, `map.los_blocked`; the end cells never block). Within 6
+  units everything is seen. The fog view (`intel.rs`) uses the same blockers.
 - **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
   buildings once detected stay as ghosts until the spot is seen again and found empty. Right-clicking a
   ghost issues ground fire at its position.
@@ -179,14 +188,35 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Engineering station** (`build.station`): immobile builder that assists anything in range by itself.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
+- **Lobby**: players on the left; on the right the map preview (`terrain::map_preview`, start numbers drawn
+  on top) and the tabs Game options (mode, points, data preset, players / re-roll for random maps, "AI
+  reclaims trees and rocks" -> `Ai.reclaim`) and Map (list with thumbnails). The random map is made when
+  chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
+  the picture in `LobbyInfo.preview`.
+- **Model scale**: JSON `scale` = the blueprint's `UniformScale` for stock SupCom models (factories,
+  storages, pumps, air, engineers...). The mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
+  buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) and the box-model
+  APC/air transport are 2.5x that, with sizes and footprints to match; Mining Town buildings are 2.5x too,
+  stock UEF civilian buildings 1x.
 - **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under the body (SupCom style);
-  the loader rejects two units with the same icon. Shapes: land (diamond), bot, air (triangle), structure
+  the loader rejects two units with the same icon (playable factions only; map buildings share icons by kind). Shapes: land (diamond), bot, air (triangle), structure
   (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
   arc = anti-air, chevron = missile, ring = scout, wave = radar, eng, mass (funnel), bolt, store (tray under a
   stored resource), cargo (transports), frame, bar, land / tri (outlines of what a factory builds).
 - **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
   a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.
   `ReclaimArea` only collects wrecks. Scavengers: `Revive(wreck)` / `ReviveArea`.
+- **Trees and rocks** (map "features"): types in `rules.json: features` (class tree/rock, shape, mass,
+  energy, size, weight); a map holds `feature_kinds` + `features` (saved as one line each, "kind x z yaw
+  scale"). Random lobby maps, `--generate` and the editor's Scatter call `MapData::scatter_features`
+  (symmetric, keeps bases/deposits/water clear). In the sim, `sim::Features` keeps the share left of each
+  one (snapshot field `features` is the diff against the map); feature `i` has id `FEATURE_ID0 + i`, so
+  `Reclaim(id)` and `ReclaimArea` take them (engineers only, not scavengers). A new building site
+  flattens what stands on its footprint. They never block movement or shots. Reclaim work =
+  mass + energy / `reclaim_energy_factor`. Idle AI engineers reclaim nearby rocks/trees when low.
+  Drawing: per-chunk meshes rebuilt on change; Bevy's CPU frustum culling skips off-screen chunks
+  (bounds are recomputed when a mesh changes); the fog texture's RGB carries the fog brightness for them.
+  Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.
 - **Terrain**: ground hits of `crater_min_damage` or more dig craters; `Order::Terraform {pos, radius, height}`
   moves the circle towards `height` for energy. Vertices under buildings and on the map border are locked.
   Craters are limited so they never block a cell or dig below the water (`sim::dig_crater`), which keeps
@@ -195,7 +225,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
   `LoadArea`, `Unload`. Riders die with their transport.
-- **Control points** (`Game.mode == MODE_POINTS`): `Game.points` / `Game.scores` (per team), rules `cp_*`.
+- **Control points** (`Game.mode == MODE_POINTS`): `Game.points` / `Game.scores` (points left per team, start `Game.cp_start`,
+  picked in the lobby or `rules.cp_start_points`). A team holding fewer points than its strongest opponent loses
+  `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
 - **Selection**: a box takes fighting units first, then builders (`build` present), then buildings.
 - **Selection sounds**: `view::sound::select_sound` picks by role, `"select_sound"` in the unit JSON overrides.
 - Bohdana was nerfed on request: 4500 mass / 40000 energy, 40 s reload, 3 s aim, 10 deg/s traverse.
@@ -230,7 +262,8 @@ transport aircraft are JSON box models.
 - No friendly-fire by default (`rules.friendly_fire`).
 - The hostile side only holds positions; it has no AI.
 - The AI does not use scavengers, transports or terraforming. Maps cannot place their own control points.
-- The minimap picture and the cached fog/radar shadows do not follow craters and terraforming.
+- The minimap picture and the cached fog/radar shadows do not follow craters and terraforming; the
+  minimap does not show trees and rocks.
 - The preset editor is JSON text per unit; there are no per-field widgets.
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
   is not cheat-proof. No reconnect or joining a running game yet (the full-state message would allow it).

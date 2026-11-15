@@ -3,11 +3,17 @@
 game assets: GLB meshes with one node per bone, PNG albedo / team mask /
 normal maps and PNG build icons.
 
-    python3 tools/convert_assets.py "<path to LongRangeTank mod>"
+    .venv/bin/python tools/convert_assets.py "<path to LongRangeTank mod>"
+    .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"
+    .venv/bin/python tools/convert_assets.py --stock "<SupCom FA>/gamedata/units.scd"
+
+--props converts the map props listed in MAP_PROPS (the Mining Town buildings, made by the mod's
+author), --stock the stock UEF civilian buildings in STOCK_UNITS; both are used by
+assets/data/factions/civilian.json. Needs numpy and Pillow (the project's .venv has them).
 
 Output goes to assets/models and assets/icons/units. Coordinates are converted
 from SupCom's left-handed space to glTF's right-handed one (forward = -Z)."""
-import glob, json, os, struct, sys
+import glob, io, json, os, re, struct, sys, zipfile
 import numpy as np
 from PIL import Image
 
@@ -30,6 +36,16 @@ UNITS = {
     "engineer": "hook/units/UEL0105", "engineer2": "hook/units/UEL0208", "engineer3": "hook/units/UEL0309",
     "eng_station": "hook/units/XEB0104", "sparky": "hook/units/XEL0209", "bomb": "projectiles/LRTHeavyBomb01",
 }
+# asset name -> prop name in a map's env/Props folder (--props)
+MAP_PROPS = {f"civ_house{i}": f"UEF_modern_house_00{i}" for i in range(1, 10)}
+MAP_PROPS.update({f"civ_old_house{i}": f"UEF_old_house_00{i}" for i in range(1, 5)})
+MAP_PROPS.update({f"civ_corner_house{i}": f"UEF_old_corner_house_00{i}" for i in range(1, 5)})
+MAP_PROPS.update({"civ_apartments1": "UEF_modern_apartments_001", "civ_apartments2": "UEF_modern_apartments_002", "civ_church": "UEF_church",
+                  "civ_grocery": "UEF_grocery_store", "civ_factory": "UEF_modern_factory", "civ_containers1": "UEF_Containers_7_001",
+                  "civ_containers2": "UEF_Containers_7_009"})
+# asset name -> stock unit id in units.scd (--stock)
+STOCK_UNITS = {"civ_uef_residential": "UEC1101", "civ_uef_lab": "UEC1201", "civ_uef_admin": "UEC1301", "civ_uef_farm": "UEC1401",
+               "civ_uef_plant": "UEC1501", "civ_uef_hall": "XEC1301", "civ_uef_command": "XEC1401"}
 TEX_MAX = 512
 
 
@@ -131,12 +147,71 @@ def shrink(im):
     return im
 
 
+def save_textures(root, name, alb, spec, nor):
+    """Albedo, team mask (SpecTeam alpha) and normal map; each a path, a file object or None."""
+    if alb:
+        shrink(Image.open(alb).convert("RGB")).save(f"{root}/models/{name}_albedo.png", optimize=True)
+    if spec:
+        a = shrink(Image.open(spec).convert("RGBA")).split()[3]
+        arr = np.asarray(a).astype(np.float32)
+        if arr.max() > 0:
+            arr = np.clip(arr / max(arr.max(), 1.0) * 255.0, 0, 255)
+        Image.fromarray(arr.astype(np.uint8), "L").save(f"{root}/models/{name}_team.png", optimize=True)
+    if nor:
+        a = np.asarray(shrink(Image.open(nor).convert("RGBA"))).astype(np.float32) / 255.0
+        x, y = a[..., 3] * 2 - 1, a[..., 1] * 2 - 1
+        z = np.sqrt(np.clip(1 - x * x - y * y, 0.0, 1.0))
+        out = np.stack([x * 0.5 + 0.5, y * 0.5 + 0.5, z * 0.5 + 0.5], -1)
+        Image.fromarray((out * 255).astype(np.uint8), "RGB").save(f"{root}/models/{name}_normal.png", optimize=True)
+
+
+def print_size(info, name):
+    """Size at the blueprint scale (x, height, z), for the unit JSON."""
+    i, s = info[name], info[name].get("scale", 1.0)
+    size = [round((b - a) * s, 3) for a, b in zip(i["min"], i["max"])]
+    print(f"{name:20} scale {s:<6} size {size}  ({i['verts']} verts)")
+
+
+def convert_props(folder, root, info):
+    """Buildings from a map's env/Props folder (MAP_PROPS)."""
+    props = os.path.join(folder, "env", "Props")
+    files = {f.lower(): os.path.join(props, f) for f in os.listdir(props)}
+    for name, stem in MAP_PROPS.items():
+        b = bp.load(files[(stem + "_prop.bp").lower()])
+        lod = b["Display"]["Mesh"]["LODs"][0]
+        tex = lambda key: files.get((lod.get(key) or "").lower())
+        info[name] = convert_model(files[(stem + "_lod0.scm").lower()], f"{root}/models/{name}.glb")
+        info[name]["scale"] = b.get("Display", {}).get("UniformScale", 1.0)
+        save_textures(root, name, tex("AlbedoName"), tex("SpecularName"), tex("NormalsName"))
+        print_size(info, name)
+
+
+def convert_stock(scd, root, info):
+    """Stock buildings from the game's units.scd archive (STOCK_UNITS)."""
+    z = zipfile.ZipFile(scd)
+    names = {n.lower(): n for n in z.namelist()}
+    for name, uid in STOCK_UNITS.items():
+        u = uid.lower()
+        get = lambda f: z.read(names[f"units/{u}/{f}"]) if f"units/{u}/{f}" in names else None
+        info[name] = convert_model(get(f"{u}_lod0.scm"), f"{root}/models/{name}.glb")
+        m = re.search(r"UniformScale\s*=\s*([\d.]+)", get(f"{u}_unit.bp").decode("latin1"))
+        info[name]["scale"] = float(m.group(1)) if m else 1.0
+        opened = lambda f: io.BytesIO(get(f)) if get(f) else None
+        save_textures(root, name, opened(f"{u}_albedo.dds"), opened(f"{u}_specteam.dds"), opened(f"{u}_normalsts.dds"))
+        print_size(info, name)
+
+
 def main():
-    mod = sys.argv[1]
     root = os.path.join(os.path.dirname(__file__), "..", "assets")
     os.makedirs(root + "/models", exist_ok=True)
     os.makedirs(root + "/icons/units", exist_ok=True)
     info = {}
+    if sys.argv[1] in ("--props", "--stock"):
+        (convert_props if sys.argv[1] == "--props" else convert_stock)(sys.argv[2], root, info)
+        os.makedirs(os.path.join(os.path.dirname(__file__), "out"), exist_ok=True)
+        json.dump(info, open(os.path.join(os.path.dirname(__file__), "out", sys.argv[1][2:] + "_info.json"), "w"), indent=1)
+        return
+    mod = sys.argv[1]
     for name, rel in UNITS.items():
         folder = os.path.join(mod, rel)
         scm = find(folder, "lod0.scm")
@@ -149,23 +224,7 @@ def main():
             b = bp.load(bpf)
             info[name]["scale"] = b.get("Display", {}).get("UniformScale", 1.0)
             info[name]["size"] = [b.get("SizeX"), b.get("SizeY"), b.get("SizeZ")]
-        alb = find(folder, "_albedo.dds")
-        if alb:
-            shrink(Image.open(alb).convert("RGB")).save(f"{root}/models/{name}_albedo.png", optimize=True)
-        spec = find(folder, "_specteam.dds")
-        if spec:
-            a = shrink(Image.open(spec).convert("RGBA")).split()[3]
-            arr = np.asarray(a).astype(np.float32)
-            if arr.max() > 0:
-                arr = np.clip(arr / max(arr.max(), 1.0) * 255.0, 0, 255)
-            Image.fromarray(arr.astype(np.uint8), "L").save(f"{root}/models/{name}_team.png", optimize=True)
-        nor = find(folder, "_normalsts.dds")
-        if nor:
-            a = np.asarray(shrink(Image.open(nor).convert("RGBA"))).astype(np.float32) / 255.0
-            x, y = a[..., 3] * 2 - 1, a[..., 1] * 2 - 1
-            z = np.sqrt(np.clip(1 - x * x - y * y, 0.0, 1.0))
-            out = np.stack([x * 0.5 + 0.5, y * 0.5 + 0.5, z * 0.5 + 0.5], -1)
-            Image.fromarray((out * 255).astype(np.uint8), "RGB").save(f"{root}/models/{name}_normal.png", optimize=True)
+        save_textures(root, name, find(folder, "_albedo.dds"), find(folder, "_specteam.dds"), find(folder, "_normalsts.dds"))
         uid = os.path.basename(rel)
         ico = os.path.join(mod, "icons/units", uid + "_icon.dds")
         if os.path.exists(ico):

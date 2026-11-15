@@ -1,5 +1,6 @@
 <#
-Builds release bundles (game + map editor + assets) and publishes them as a GitHub release.
+Builds release bundles and publishes them as a GitHub release: per platform one archive with the game
+and one with the map editor (each with its own copy of assets).
 
   scripts\release.ps1                     build Windows and Linux bundles, upload both
   scripts\release.ps1 -Only windows       build just one platform (windows | linux)
@@ -31,24 +32,27 @@ if ($Only -eq "" -or $Only -eq "windows") {
         cargo build --release --bin $bin
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
     }
-    $name = "longrange-$version-windows-x86_64"
-    $dir = Join-Path "dist" $name
-    if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
-    if (Test-Path "$dir.zip") { Remove-Item -Force "$dir.zip" }
-    New-Item -ItemType Directory $dir | Out-Null
-    Copy-Item target\release\longrange.exe, target\release\lr-editor.exe, README.md, CHANGELOG.md $dir
-    if (Test-Path LICENSE) { Copy-Item LICENSE $dir }
-    Copy-Item -Recurse assets (Join-Path $dir "assets")
-    Compress-Archive -Path $dir -DestinationPath "$dir.zip"
-    $files += "$dir.zip"
-    Write-Host "bundled $dir.zip"
+    # One archive per program, each complete on its own (both read assets\ next to the executable).
+    foreach ($b in @(@("longrange", "longrange"), @("longrange-editor", "lr-editor"))) {
+        $name = "$($b[0])-$version-windows-x86_64"
+        $dir = Join-Path "dist" $name
+        if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+        if (Test-Path "$dir.zip") { Remove-Item -Force "$dir.zip" }
+        New-Item -ItemType Directory $dir | Out-Null
+        Copy-Item "target\release\$($b[1]).exe", README.md, CHANGELOG.md $dir
+        if (Test-Path LICENSE) { Copy-Item LICENSE $dir }
+        Copy-Item -Recurse assets (Join-Path $dir "assets")
+        Compress-Archive -Path $dir -DestinationPath "$dir.zip"
+        $files += "$dir.zip"
+        Write-Host "bundled $dir.zip"
+    }
 }
 if ($Only -eq "" -or $Only -eq "linux") {
     if (Get-Command wsl -ErrorAction SilentlyContinue) {
         Write-Host "== building Linux x86_64 inside WSL"
         wsl bash -lc "scripts/release.sh --only linux --no-upload"
         if ($LASTEXITCODE -ne 0) { throw "Linux build in WSL failed" }
-        $files += "dist\longrange-$version-linux-x86_64.tar.gz"
+        $files += "dist\longrange-$version-linux-x86_64.tar.gz", "dist\longrange-editor-$version-linux-x86_64.tar.gz"
     } elseif ($Only -eq "linux") {
         throw "The Linux bundle needs WSL (with Rust installed inside it)."
     } else {

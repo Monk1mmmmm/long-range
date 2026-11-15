@@ -267,11 +267,14 @@ pub struct Game {
     /// `MODE_ANNIHILATION` or `MODE_POINTS`.
     #[serde(default)]
     pub mode: u8,
-    /// Control points mode: the positions to hold and the score of every team.
+    /// Control points mode: the positions to hold and the points every team has left (by team).
     #[serde(default)]
     pub points: Vec<ControlPoint>,
     #[serde(default)]
     pub scores: Vec<f32>,
+    /// Points every team started with (the full length of the HUD bars).
+    #[serde(default)]
+    pub cp_start: f32,
 }
 
 pub const MODE_ANNIHILATION: u8 = 0;
@@ -576,6 +579,198 @@ pub struct Effects {
     pub terraform: Vec<(V2, f32, f32, f32, u8)>,
     /// Units taken aboard a transport this tick: (unit, transport).
     pub loaded: Vec<(u32, u32)>,
+    /// Reclaim work on trees and rocks this tick: (feature id, mass-equivalent amount, player).
+    pub reclaim_feature: Vec<(u32, f32, u8)>,
+}
+
+// ---------------------------------------------------------------------------- trees and rocks
+
+/// Ids of map features (trees, rocks) start here: feature `i` of the map is `FEATURE_ID0 + i`.
+/// Unit and wreck ids count up from 1 and never get this far.
+pub const FEATURE_ID0: u32 = 0xF000_0000;
+
+pub fn is_feature(id: u32) -> bool {
+    id >= FEATURE_ID0
+}
+
+/// One tree or rock of the map.
+#[derive(Clone, Copy, Debug)]
+pub struct FeatureState {
+    /// Index into `rules.features`; `u16::MAX` for a type this data set does not know.
+    pub def: u16,
+    pub pos: V2,
+    /// Share of its value still there (1 = untouched, 0 = gone).
+    pub left: f32,
+    /// Height above the ground: it blocks sight up to there.
+    pub height: f32,
+    /// Map cell it stands in.
+    pub cell: u32,
+}
+
+/// Per map cell, how high above the ground sight is blocked: standing trees and rocks plus wrecks
+/// (a wreck blocks up to the height of its collapsed model). Radar is not blocked by these.
+pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, defs: &Defs, map: &MapData) -> std::borrow::Cow<'a, [f32]> {
+    if wrecks.0.is_empty() || features.sight.len() != map.n * map.n {
+        return std::borrow::Cow::Borrowed(&features.sight[..]);
+    }
+    let mut v = features.sight.clone();
+    for w in &wrecks.0 {
+        let d = defs.get(w.3);
+        let h = d.height() * if d.is_structure() { 0.35 } else { 0.8 };
+        let (cx, cy) = map.cell_of(w.1);
+        if map.inside(cx, cy) {
+            let c = cy as usize * map.n + cx as usize;
+            v[c] = v[c].max(h);
+        }
+    }
+    std::borrow::Cow::Owned(v)
+}
+
+/// Size of a cell of the features' spatial grid, in world units.
+const FEATURE_GRID: f32 = 16.0;
+
+/// The map's reclaimable trees and rocks. The map lists them; this keeps what reclaiming and
+/// building took of them as the difference to the map (`changed`), which is what a snapshot holds.
+#[derive(Resource, Default)]
+pub struct Features {
+    pub list: Vec<FeatureState>,
+    /// Touched features: index -> share left.
+    pub changed: BTreeMap<u32, f32>,
+    /// Counts up whenever a feature disappears or comes back (the view redraws then).
+    pub version: u64,
+    /// Per map cell: height of the tallest standing feature (blocks sight, see `sight_block`).
+    pub sight: Vec<f32>,
+    grid: Vec<Vec<u32>>,
+    gn: usize,
+}
+
+impl Features {
+    pub fn new(map: &MapData, defs: &Defs) -> Features {
+        let kinds: Vec<u16> = map.feature_kinds.iter().map(|k| defs.feature_id(k).unwrap_or(u16::MAX)).collect();
+        let gn = (map.world() / FEATURE_GRID).ceil().max(1.0) as usize;
+        let mut f = Features { gn, grid: vec![vec![]; gn * gn], sight: vec![0.0; map.n * map.n], ..default() };
+        let last = map.n.saturating_sub(1) as i32;
+        for (i, m) in map.features.iter().enumerate() {
+            let def = kinds.get(m.kind as usize).copied().unwrap_or(u16::MAX);
+            let height = defs.rules.features.get(def as usize).map_or(0.0, |d| d.height() * m.scale);
+            let (cx, cy) = map.cell_of(m.pos);
+            let cell = (cy.clamp(0, last) as usize * map.n + cx.clamp(0, last) as usize) as u32;
+            f.list.push(FeatureState { def, pos: m.pos, left: if def == u16::MAX { 0.0 } else { 1.0 }, height, cell });
+            let c = f.cell(m.pos);
+            f.grid[c].push(i as u32);
+            if def != u16::MAX {
+                if let Some(s) = f.sight.get_mut(cell as usize) {
+                    *s = s.max(height);
+                }
+            }
+        }
+        f
+    }
+    /// Recomputes the sight blocker of one map cell from the features standing in it.
+    fn resight(&mut self, cell: u32, pos: V2) {
+        let mut h = 0.0f32;
+        for &i in &self.grid[self.cell(pos)] {
+            let s = &self.list[i as usize];
+            if s.cell == cell && s.left > 0.0 {
+                h = h.max(s.height);
+            }
+        }
+        if let Some(v) = self.sight.get_mut(cell as usize) {
+            *v = h;
+        }
+    }
+    fn cell(&self, p: V2) -> usize {
+        let x = ((p.x / FEATURE_GRID).floor().max(0.0) as usize).min(self.gn - 1);
+        let y = ((p.y / FEATURE_GRID).floor().max(0.0) as usize).min(self.gn - 1);
+        y * self.gn + x
+    }
+    pub fn alive(&self, idx: usize) -> bool {
+        self.list.get(idx).map_or(false, |f| f.left > 0.0)
+    }
+    /// A standing feature by id.
+    pub fn get(&self, id: u32) -> Option<&FeatureState> {
+        if !is_feature(id) {
+            return None;
+        }
+        self.list.get((id - FEATURE_ID0) as usize).filter(|f| f.left > 0.0)
+    }
+    pub fn set_left(&mut self, idx: usize, left: f32) {
+        let Some(f) = self.list.get_mut(idx) else { return };
+        if f.def == u16::MAX {
+            return;
+        }
+        let left = if left <= 1e-4 { 0.0 } else { left.min(1.0) };
+        let flip = (f.left > 0.0) != (left > 0.0);
+        f.left = left;
+        let (cell, pos) = (f.cell, f.pos);
+        if flip {
+            self.version += 1;
+            self.resight(cell, pos);
+        }
+        if left >= 1.0 {
+            self.changed.remove(&(idx as u32));
+        } else {
+            self.changed.insert(idx as u32, left);
+        }
+    }
+    /// Calls `f(index, feature)` for every standing feature within `r` of `p`, in index order
+    /// per grid cell and cells in a fixed order (deterministic).
+    pub fn near(&self, p: V2, r: f32, mut f: impl FnMut(usize, &FeatureState)) {
+        if self.gn == 0 {
+            return;
+        }
+        let g = FEATURE_GRID;
+        let (x0, x1) = (((p.x - r) / g).floor().max(0.0) as usize, (((p.x + r) / g).floor().max(0.0) as usize).min(self.gn - 1));
+        let (y0, y1) = (((p.y - r) / g).floor().max(0.0) as usize, (((p.y + r) / g).floor().max(0.0) as usize).min(self.gn - 1));
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                for &i in &self.grid[y * self.gn + x] {
+                    let s = &self.list[i as usize];
+                    if s.left > 0.0 && s.pos.dist(p) <= r {
+                        f(i as usize, s);
+                    }
+                }
+            }
+        }
+    }
+    /// The standing feature inside the circle that is nearest to `from`: (id, position).
+    pub fn nearest(&self, c: V2, radius: f32, from: V2) -> Option<(u32, V2)> {
+        let mut best: Option<(f32, usize)> = None;
+        self.near(c, radius, |i, s| {
+            let d = s.pos.dist(from);
+            if best.map_or(true, |b| d < b.0 || (d == b.0 && i < b.1)) {
+                best = Some((d, i));
+            }
+        });
+        best.map(|b| (FEATURE_ID0 + b.1 as u32, self.list[b.1].pos))
+    }
+    /// Removes what stands inside a square of `foot` cells around `pos` (a building goes up there).
+    pub fn clear_square(&mut self, pos: V2, foot: i32) {
+        let half = foot as f32 * CELL * 0.5 + 0.3;
+        let mut hit = vec![];
+        self.near(pos, half * 1.5, |i, s| {
+            if (s.pos.x - pos.x).abs() <= half && (s.pos.y - pos.y).abs() <= half {
+                hit.push(i);
+            }
+        });
+        for i in hit {
+            self.set_left(i, 0.0);
+        }
+    }
+    /// The touched features in index order, for a snapshot.
+    pub fn save(&self) -> Vec<(u32, f32)> {
+        self.changed.iter().map(|(k, v)| (*k, *v)).collect()
+    }
+    /// Makes the features match a saved list.
+    pub fn load(&mut self, to: &[(u32, f32)]) {
+        let stale: Vec<u32> = self.changed.keys().copied().filter(|k| to.binary_search_by_key(k, |e| e.0).is_err()).collect();
+        for k in stale {
+            self.set_left(k as usize, 1.0);
+        }
+        for (k, v) in to {
+            self.set_left(*k as usize, *v);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------- changing terrain
@@ -774,13 +969,15 @@ pub fn control_point_spots(map: &MapData) -> Vec<V2> {
     out
 }
 
-/// Switches a freshly set up game to control points mode.
-pub fn enable_control_points(world: &mut World) {
+/// Switches a freshly set up game to control points mode; every team starts with `start` points.
+pub fn enable_control_points(world: &mut World, start: f32) {
+    let start = start.max(1.0);
     let spots = control_point_spots(world.resource::<MapData>());
     let mut game = world.resource_mut::<Game>();
     game.mode = MODE_POINTS;
     game.points = spots.into_iter().map(|pos| ControlPoint { pos, owner: NOBODY, by: NOBODY, progress: 0.0 }).collect();
-    game.scores = vec![0.0; 16];
+    game.scores = vec![start; 16];
+    game.cp_start = start;
 }
 
 #[derive(Resource)]
@@ -859,12 +1056,14 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
             spawns.push((c, i as u8, start, (center - start).angle()));
         }
     }
+    let mut features = Features::new(&map, &defs);
     for prop in &map.props {
         if let Some(d) = defs.id(&prop.def) {
             let owner = if prop.owner == PROP_HOSTILE { HOSTILE } else { NEUTRAL };
             let pos = if defs.get(d).is_structure() { snap(&defs, &map, d, prop.pos) } else { prop.pos };
             if defs.get(d).is_structure() {
                 nav.stamp(&map, pos, defs.get(d).footprint, 2);
+                features.clear_square(pos, defs.get(d).footprint);
             }
             spawns.push((d, owner, pos, prop.yaw));
         }
@@ -880,6 +1079,7 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
     world.insert_resource(game);
     world.insert_resource(nav);
     world.insert_resource(Ground::new(&map));
+    world.insert_resource(features);
     world.insert_resource(map);
     world.insert_resource(SimRng(Rng(seed ^ 0xABCDEF123 | 1)));
     world.insert_resource(Census::default());
@@ -932,6 +1132,8 @@ pub struct Snapshot {
     pub wrecks: Vec<Wreck>,
     /// Terrain vertices that differ from the map the game started on: (index, height).
     pub ground: Arc<Vec<(u32, f32)>>,
+    /// Trees and rocks partly or completely reclaimed: (feature index, share left).
+    pub features: Vec<(u32, f32)>,
 }
 
 pub fn make_snapshot(world: &mut World) -> Snapshot {
@@ -981,6 +1183,9 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
     s.wrecks.sort_by_key(|w| w.id);
     if let Some(mut g) = world.get_resource_mut::<Ground>() {
         s.ground = g.save();
+    }
+    if let Some(f) = world.get_resource::<Features>() {
+        s.features = f.save();
     }
     s
 }
@@ -1110,6 +1315,9 @@ pub fn restore(world: &mut World, s: &Snapshot) {
             g.load(&mut map, &s.ground);
         }
     });
+    if let Some(mut f) = world.get_resource_mut::<Features>() {
+        f.load(&s.features);
+    }
     world.insert_resource(s.game.clone());
     world.insert_resource(SimRng(Rng(s.rng)));
     world.insert_resource(Effects { damage: s.damage.clone(), ..default() });
@@ -1124,6 +1332,8 @@ pub fn join_game(world: &mut World, mut map: MapData, s: &Snapshot) {
     map.rebuild_blocked();
     world.insert_resource(Nav { occ: map.blocked.clone(), ..default() });
     world.insert_resource(Ground::new(&map));
+    let defs = world.resource::<Defs>().clone();
+    world.insert_resource(Features::new(&map, &defs));
     world.insert_resource(map);
     world.insert_resource(Census::default());
     world.insert_resource(WreckList::default());
@@ -1139,7 +1349,7 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_schedule(SimTick);
-        app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>();
+        app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>().init_resource::<Features>().init_resource::<WreckList>();
         systems::register(app);
     }
 }

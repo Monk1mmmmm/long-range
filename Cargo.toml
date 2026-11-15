@@ -16,6 +16,10 @@ gltf = { version = "1.4", default-features = false, features = ["utils", "names"
 libm = "0.2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# build.rs: the Windows program icon (res/longrange.rc).
+[build-dependencies]
+embed-resource = "3"
+
 # Windows (MSVC builds): build the DXC shader compiler in. Without it DirectX 12 falls back to the old
 # FXC compiler, which is extremely slow on (or fails) Bevy's PBR shaders: black 3D view, working UI.
 # wgpu can only link DXC statically with MSVC. The MinGW cross build from Linux ships dxcompiler.dll

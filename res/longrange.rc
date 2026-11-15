@@ -1,0 +1,3 @@
+// Windows resources for the game and the map editor: the program icon shown by Explorer.
+// Made from the mod's modicon.jpg (res/longrange.ico, sizes 16-64 px). Compiled by build.rs.
+1 ICON "longrange.ico"

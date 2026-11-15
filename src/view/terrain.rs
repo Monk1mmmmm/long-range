@@ -24,7 +24,8 @@ pub struct FogOverlay;
 #[derive(Resource)]
 pub struct FogTexture(pub Handle<Image>);
 
-const CHUNK: usize = 32;
+/// Terrain chunk size in cells (feature meshes use the same chunks).
+pub const CHUNK: usize = 32;
 
 /// A terrain mesh chunk starting at cell (cx, cy).
 #[derive(Component)]
@@ -65,6 +66,7 @@ pub fn terrain_sync(
     chunks: Query<(&TerrainChunk, &Mesh3d)>,
     mut snapped: Query<(&GroundSnap, &mut Transform), Without<crate::sim::Wreck>>,
     mut wrecks: Query<(&crate::sim::Wreck, &mut Transform)>,
+    mut flora: Option<ResMut<super::flora::FloraView>>,
 ) {
     let Some(mut ground) = ground else { return };
     if ground.touched.is_empty() && !ground.touched_all {
@@ -83,6 +85,11 @@ pub fn terrain_sync(
         }
         if let Some(m) = meshes.get_mut(&mesh.0) {
             *m.into_inner() = chunk_mesh(&map, c.cx, c.cy);
+        }
+        // Trees and rocks there follow the ground.
+        if let Some(f) = flora.as_mut() {
+            let half = size * 0.5 - 0.01;
+            f.mark_area(&map, v2(x0 + half, y0 + half), half);
         }
     }
     for (s, mut t) in &mut snapped {
@@ -252,7 +259,8 @@ fn detail_texture() -> Image {
 }
 
 /// Spawns terrain, water, deposits and lighting for `map`. `with_fog` adds the fog-of-war layer.
-pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, with_fog: bool) {
+/// Returns the fog-of-war texture.
+pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, with_fog: bool) -> Handle<Image> {
     let world = map.world();
     let ground = materials.add(StandardMaterial {
         base_color_texture: Some(images.add(detail_texture())),
@@ -264,11 +272,14 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     let fog_img = images.add(Image::new_fill(
         Extent3d { width: n, height: n, depth_or_array_layers: 1 },
         TextureDimension::D2,
-        &[0, 0, 0, 0],
+        // Alpha: darkness of the overlay. Colour: brightness of trees and rocks (see `flora`).
+        &[255, 255, 255, 0],
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     ));
     let fog_mat = materials.add(StandardMaterial {
+        // Black: the overlay only uses the texture's alpha.
+        base_color: Color::BLACK,
         base_color_texture: Some(fog_img.clone()),
         alpha_mode: AlphaMode::Blend,
         unlit: true,
@@ -277,7 +288,7 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         uv_transform: bevy::math::Affine2::from_scale(Vec2::splat(12.0 / world)),
         ..default()
     });
-    commands.insert_resource(FogTexture(fog_img));
+    commands.insert_resource(FogTexture(fog_img.clone()));
     for cy in (0..map.n).step_by(CHUNK) {
         for cx in (0..map.n).step_by(CHUNK) {
             let mesh = meshes.add(chunk_mesh(map, cx, cy));
@@ -324,6 +335,7 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         GameScene,
     ));
     commands.insert_resource(GlobalAmbientLight { color: Color::srgb(0.75, 0.82, 1.0), brightness: 260.0, ..default() });
+    fog_img
 }
 
 #[derive(Component)]
@@ -339,6 +351,69 @@ pub fn spawn_deposits(commands: &mut Commands, map: &MapData, meshes: &mut Asset
         commands.spawn((Mesh3d(disc.clone()), MeshMaterial3d(m1.clone()), Transform::from_xyz(d.x, y + 0.03, d.y), NotShadowCaster, DepositMarker, GroundSnap(0.03), GameScene));
         commands.spawn((Mesh3d(core.clone()), MeshMaterial3d(m2.clone()), Transform::from_xyz(d.x, y + 0.05, d.y), NotShadowCaster, DepositMarker, GroundSnap(0.05), GameScene));
     }
+}
+
+/// A square picture of a map for the lobby: terrain, water, forests (dark green), rocks (grey) and
+/// deposits (white), `side` x `side` RGBA pixels. Start positions are drawn on top by the lobby.
+pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<u8> {
+    let side = side.max(8);
+    let w = map.world().max(1.0);
+    let k = w / side as f32;
+    let mut px = vec![0f32; side * side * 3];
+    for y in 0..side {
+        for x in 0..side {
+            let (wx, wz) = ((x as f32 + 0.5) * k, (y as f32 + 0.5) * k);
+            let mut c = terrain_color(map, wx, wz);
+            let h = map.height(wx, wz);
+            if h < map.water {
+                let t = ((map.water - h) / 2.0).clamp(0.3, 1.0);
+                c = [c[0] * (1.0 - t) + 0.07 * t, c[1] * (1.0 - t) + 0.22 * t, c[2] * (1.0 - t) + 0.34 * t];
+            }
+            let nrm = map.normal(wx, wz);
+            let l = (0.55 + 0.6 * nrm.dot(Vec3::new(0.45, 0.8, 0.38).normalize())).clamp(0.3, 1.3);
+            let i = (y * side + x) * 3;
+            for j in 0..3 {
+                px[i + j] = c[j] * l;
+            }
+        }
+    }
+    // Trees and rocks: each darkens (or greys) the pixel it stands on a little, so forests read
+    // as dark patches whatever the picture's scale.
+    let class: Vec<Option<crate::data::FeatureClass>> = map.feature_kinds.iter().map(|id| defs.feature_id(id).map(|i| defs.rules.features[i as usize].class)).collect();
+    let per = (CELL * CELL * 2.0 / (k * k)).min(1.0) * 0.5;
+    for f in &map.features {
+        let (x, y) = ((f.pos.x / k) as usize, (f.pos.y / k) as usize);
+        if x >= side || y >= side {
+            continue;
+        }
+        let i = (y * side + x) * 3;
+        let (target, a) = match class.get(f.kind as usize).copied().flatten() {
+            Some(crate::data::FeatureClass::Rock) => ([0.62, 0.6, 0.56], per),
+            Some(_) => ([0.05, 0.16, 0.06], per),
+            None => continue,
+        };
+        for j in 0..3 {
+            px[i + j] += (target[j] - px[i + j]) * a;
+        }
+    }
+    let mut out = Vec::with_capacity(side * side * 4);
+    for i in 0..side * side {
+        for j in 0..3 {
+            out.push(((px[i * 3 + j] * 1.5).clamp(0.0, 1.0).powf(0.6) * 255.0) as u8);
+        }
+        out.push(255);
+    }
+    for d in &map.deposits {
+        let (x, y) = ((d.x / k) as i32, (d.y / k) as i32);
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            let (px, py) = (x + dx, y + dy);
+            if px >= 0 && py >= 0 && (px as usize) < side && (py as usize) < side {
+                let i = (py as usize * side + px as usize) * 4;
+                out[i..i + 3].copy_from_slice(&[235, 240, 250]);
+            }
+        }
+    }
+    out
 }
 
 /// Small colour image of the map for the minimap (one pixel per cell, RGBA).

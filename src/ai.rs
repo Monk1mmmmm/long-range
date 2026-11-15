@@ -9,13 +9,15 @@ use bevy::prelude::*;
 
 pub struct Ai {
     pub player: u8,
+    /// Idle engineers reclaim trees and rocks (a lobby option).
+    pub reclaim: bool,
     wave: u32,
     rng: Rng,
 }
 
 impl Ai {
     pub fn new(player: u8, seed: u64) -> Ai {
-        Ai { player, wave: 0, rng: Rng(seed.wrapping_mul(31).wrapping_add(player as u64 * 7919) | 1) }
+        Ai { player, reclaim: true, wave: 0, rng: Rng(seed.wrapping_mul(31).wrapping_add(player as u64 * 7919) | 1) }
     }
 }
 
@@ -54,6 +56,7 @@ pub fn ai_system(
     map: Res<MapData>,
     nav: Res<Nav>,
     game: Res<Game>,
+    features: Res<Features>,
     mut queue: ResMut<CommandQueue>,
 ) {
     let Some(mut ais) = ais else { return };
@@ -161,7 +164,24 @@ pub fn ai_system(
                     out.push(Command::Orders { ids: vec![u.id], orders: vec![Order::Build { def: d, pos }], queue: false });
                 }
                 None => {
-                    if !is_com {
+                    // Nothing to build: reclaim rocks while the mass bank has room, trees when
+                    // energy runs low (nearby and on our side of the map), else help a factory.
+                    let want_mass = p.mass < p.max_mass * 0.8;
+                    let want_energy = p.energy < p.max_energy * 0.5;
+                    let mut pile: Option<(f32, V2)> = None;
+                    if !is_com && ai.reclaim && (want_mass || want_energy) {
+                        features.near(b.pos, 45.0, |_, f| {
+                            let Some(fd) = defs.rules.features.get(f.def as usize) else { return };
+                            let useful = (want_mass && fd.mass >= 5.0) || (want_energy && fd.energy >= 5.0);
+                            let d = f.pos.dist(b.pos);
+                            if useful && f.pos.dist(start) < world * 0.35 && pile.map_or(true, |p| d < p.0) {
+                                pile = Some((d, f.pos));
+                            }
+                        });
+                    }
+                    if let Some((_, at)) = pile {
+                        out.push(Command::Orders { ids: vec![u.id], orders: vec![Order::ReclaimArea { pos: at, radius: 10.0 }], queue: false });
+                    } else if !is_com {
                         if let Some(f) = census.list.iter().find(|c| c.owner == me && c.done && defs.get(c.def).is_factory()) {
                             out.push(Command::Orders { ids: vec![u.id], orders: vec![Order::Assist(f.id)], queue: false });
                         }

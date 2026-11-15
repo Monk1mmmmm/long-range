@@ -36,6 +36,10 @@ pub struct LobbyInfo {
     pub you: i8,
     /// Game mode and data preset, as text.
     pub extra: String,
+    /// Picture of the map (RGBA, `preview_side` squared) and its start positions (0..1 across).
+    pub preview: Vec<u8>,
+    pub preview_side: u16,
+    pub starts: Vec<(f32, f32)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -51,6 +55,8 @@ pub enum C2S {
     Hash { tick: u32, hash: u64 },
     /// Echoed back as `Pong`; the client measures the round trip with it.
     Ping(u32),
+    /// The player wants the whole game paused (`true`) or running again.
+    Pause(bool),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +69,8 @@ pub enum S2C {
     /// Every command of one simulation tick: (player, the sender's `seq` or 0, command).
     Turn { tick: u32, cmds: Vec<(u8, u32, Command)> },
     Pong(u32),
+    /// The game was paused by that player after the last turn sent, or (`None`) resumed.
+    Paused(Option<u8>),
 }
 
 fn write_frame(s: &mut TcpStream, tag: u8, data: &[u8]) -> std::io::Result<()> {

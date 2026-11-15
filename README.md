@@ -8,7 +8,7 @@ unwieldy tanks with long guns, slow turrets and long reloads, where scouting and
 - Flow economy (mass + energy), assisting, repair, reclaim (wrecks and standing buildings), engineering stations
 - Shells leave craters; engineers level, raise and lower the ground
 - Transport aircraft and APCs; capturing; scavengers that revive wrecks
-- Two game modes: annihilation, and control points (hold positions to score)
+- Two game modes: annihilation, and control points (every team has a pool of points; holding fewer positions than the enemy drains it)
 - Three tiers of factories, engineers and extractors (upgrade in place)
 - Fog of war, radar blocked by terrain, radar blips that fade, remembered enemy buildings
 - Command queues, attack-move, patrol, ground fire, area reclaim, area extractor placement,
@@ -132,7 +132,9 @@ Start positions are placed with the **Start** tool (2 to 10 per map; pick the ne
 ## Releases
 
 `scripts/release.sh` (Linux, also Git Bash) and `scripts/release.ps1` (Windows PowerShell) build the game and
-the editor in release mode, bundle them with `assets/`, and publish the archives as a GitHub release with `gh`:
+the editor in release mode and publish them as a GitHub release with `gh`. Each platform gets two archives,
+`longrange-<version>-<platform>` (the game) and `longrange-editor-<version>-<platform>` (the map editor), each
+with its own copy of `assets/`:
 
     scripts/release.sh                 # Linux + Windows bundles, upload both to release v<Cargo version>
     scripts/release.sh --only linux    # just one platform (linux | windows)

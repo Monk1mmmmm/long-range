@@ -231,6 +231,16 @@ pub struct Prop {
     pub owner: u8,
 }
 
+/// A reclaimable tree or rock. `kind` indexes `MapData::feature_kinds` (the feature type ids of
+/// `rules.json: features`); `scale` only changes the look.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Feature {
+    pub kind: u16,
+    pub pos: V2,
+    pub yaw: f32,
+    pub scale: f32,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default, Resource)]
 pub struct MapData {
     pub name: String,
@@ -241,6 +251,10 @@ pub struct MapData {
     pub deposits: Vec<V2>,
     pub starts: Vec<V2>,
     pub props: Vec<Prop>,
+    /// Feature type ids used by `features`.
+    pub feature_kinds: Vec<String>,
+    /// Trees and rocks. Their index (plus `sim::FEATURE_ID0`) is their id in the game.
+    pub features: Vec<Feature>,
     pub seed: u64,
     /// Terrain passability per cell (1 = blocked). Derived, see `rebuild_blocked`.
     #[serde(skip)]
@@ -260,6 +274,9 @@ struct MapFile {
     props: Vec<Prop>,
     #[serde(default)]
     seed: u64,
+    /// One line per tree or rock: "kind x z yaw scale".
+    #[serde(default)]
+    features: Vec<String>,
 }
 
 impl MapData {
@@ -346,6 +363,29 @@ impl MapData {
         for i in 1..steps {
             let p = a + d * (i as f32 / steps as f32);
             if self.height(p.x, p.z) > p.y {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Like `los`, but `block[cell]` (trees, rocks, wrecks: height above the ground) is added to
+    /// the terrain. The two end cells never block, so a unit next to a tree still sees past its
+    /// own cover in other directions and is not hidden by the tree it stands beside.
+    pub fn los_blocked(&self, a: Vec3, b: Vec3, block: &[f32]) -> bool {
+        let d = b - a;
+        let len = Vec2::new(d.x, d.z).length();
+        let steps = (len / CELL).ceil().max(1.0) as i32;
+        let n = self.n as i32;
+        let ends = [((a.x / CELL).floor() as i32, (a.z / CELL).floor() as i32), ((b.x / CELL).floor() as i32, (b.z / CELL).floor() as i32)];
+        for i in 1..steps {
+            let p = a + d * (i as f32 / steps as f32);
+            let mut h = self.height(p.x, p.z);
+            let (cx, cy) = ((p.x / CELL).floor() as i32, (p.z / CELL).floor() as i32);
+            if cx >= 0 && cy >= 0 && cx < n && cy < n && !ends.contains(&(cx, cy)) {
+                h += block.get((cy * n + cx) as usize).copied().unwrap_or(0.0);
+            }
+            if h > p.y {
                 return false;
             }
         }
@@ -457,7 +497,7 @@ impl MapData {
                 heights[y * (n + 1) + x] = h * (0.6 + 0.4 * edge);
             }
         }
-        let mut m = MapData { name: format!("Random {seed}"), n, heights, water: 0.0, deposits: vec![], starts, props: vec![], seed, blocked: vec![] };
+        let mut m = MapData { name: format!("Random {seed}"), n, heights, water: 0.0, deposits: vec![], starts, props: vec![], feature_kinds: vec![], features: vec![], seed, blocked: vec![] };
         m.rebuild_blocked();
         // Deposits: four by each start, the rest scattered in one quadrant and rotated.
         let mut q: Vec<V2> = vec![];
@@ -498,6 +538,135 @@ impl MapData {
         m
     }
 
+    /// Index of a feature type id in `feature_kinds`, added if new.
+    pub fn feature_kind(&mut self, id: &str) -> u16 {
+        match self.feature_kinds.iter().position(|k| k == id) {
+            Some(k) => k as u16,
+            None => {
+                self.feature_kinds.push(id.to_string());
+                (self.feature_kinds.len() - 1) as u16
+            }
+        }
+    }
+
+    /// Removes the features inside a square of `foot` cells centred on `pos` (under a building).
+    pub fn clear_features_square(&mut self, pos: V2, foot: i32) {
+        let half = foot as f32 * CELL * 0.5 + 0.3;
+        self.features.retain(|f| (f.pos.x - pos.x).abs() > half || (f.pos.y - pos.y).abs() > half);
+    }
+
+    /// Scatters forests, lone trees and rock fields with the map's rotational symmetry (every start
+    /// gets the same), keeping bases, deposits, buildings, water and cliffs clear. `amount` scales
+    /// the number of trees and rocks (1 = normal). Existing features stay.
+    pub fn scatter_features(&mut self, kinds: &[crate::data::FeatureDef], seed: u64, amount: f32) {
+        use crate::data::FeatureClass;
+        let pick_list = |class: FeatureClass| -> Vec<(usize, f32)> { kinds.iter().enumerate().filter(|(_, k)| k.class == class && k.weight > 0.0).map(|(i, k)| (i, k.weight)).collect() };
+        let (trees, rocks) = (pick_list(FeatureClass::Tree), pick_list(FeatureClass::Rock));
+        if self.n == 0 || (trees.is_empty() && rocks.is_empty()) {
+            return;
+        }
+        if self.blocked.len() != self.n * self.n {
+            self.rebuild_blocked();
+        }
+        let mut rng = Rng(seed.wrapping_mul(0x9E3779B97F4A7C15) ^ 0x7EE5 | 1);
+        for _ in 0..8 {
+            rng.next();
+        }
+        let w = self.world();
+        let c = self.center();
+        let kk = self.starts.len().max(1);
+        let step = std::f32::consts::TAU / kk as f32;
+        let start0 = self.starts.first().copied().unwrap_or(c);
+        // `fm` trigonometry: the self-test map must come out the same on every platform.
+        let rot = |p: V2, k: usize| -> V2 {
+            let q = p - c;
+            let (sn, cs) = (fm::sin(step * k as f32), fm::cos(step * k as f32));
+            v2(q.x * cs - q.y * sn, q.x * sn + q.y * cs) + c
+        };
+        // Spatial hash of everything placed so far, 4 units per cell.
+        const G: f32 = 4.0;
+        let gn = (w / G).ceil() as usize + 1;
+        let mut grid: Vec<Vec<(V2, f32)>> = vec![vec![]; gn * gn];
+        let gcell = |p: V2| ((p.x / G).floor().clamp(0.0, gn as f32 - 1.0) as usize, (p.y / G).floor().clamp(0.0, gn as f32 - 1.0) as usize);
+        for f in &self.features {
+            let r = self.feature_kinds.get(f.kind as usize).and_then(|id| kinds.iter().find(|k| k.id == *id)).map_or(1.0, |k| k.radius() * f.scale);
+            let (x, y) = gcell(f.pos);
+            grid[y * gn + x].push((f.pos, r));
+        }
+        let fits = |grid: &Vec<Vec<(V2, f32)>>, p: V2, r: f32| -> bool {
+            let (x, y) = gcell(p);
+            for gy in y.saturating_sub(2)..(y + 3).min(gn) {
+                for gx in x.saturating_sub(2)..(x + 3).min(gn) {
+                    if grid[gy * gn + gx].iter().any(|(q, qr)| q.dist(p) < (r + qr) * 0.85) {
+                        return false;
+                    }
+                }
+            }
+            true
+        };
+        let foots: Vec<(V2, f32)> = self.props.iter().map(|p| (p.pos, 6.0)).collect();
+        let ok_spot = |m: &MapData, p: V2, r: f32| -> bool {
+            if p.x < 3.0 || p.y < 3.0 || p.x > w - 3.0 || p.y > w - 3.0 {
+                return false;
+            }
+            let (cx, cy) = m.cell_of(p);
+            if !m.inside(cx, cy) || m.blocked[cy as usize * m.n + cx as usize] != 0 || m.h(p) < m.water + 0.4 {
+                return false;
+            }
+            !m.starts.iter().any(|s| s.dist(p) < 26.0) && !m.deposits.iter().any(|d| d.dist(p) < 3.5 + r) && !foots.iter().any(|(q, fr)| q.dist(p) < fr + r)
+        };
+        let choose = |rng: &mut Rng, list: &[(usize, f32)]| -> usize {
+            let total: f32 = list.iter().map(|l| l.1).sum();
+            let mut t = rng.f() * total;
+            for (i, wt) in list {
+                if t < *wt {
+                    return *i;
+                }
+                t -= wt;
+            }
+            list[list.len() - 1].0
+        };
+        let area = w * w;
+        // (class list, attempts, noise scale, seed salt, threshold low/high, base chance)
+        let passes: [(&[(usize, f32)], f32, f32, u64, f32, f32, f32); 2] = [(&trees, area / 4.0 * amount, 1.0 / 70.0, 0xF0E5, 0.54, 0.62, 0.01), (&rocks, area / 160.0 * amount, 1.0 / 40.0, 0x50C5, 0.58, 0.70, 0.04)];
+        for (list, attempts, freq, salt, lo, hi, base) in passes {
+            if list.is_empty() {
+                continue;
+            }
+            // Points outside the first player's sector are skipped, so 1/kk of the attempts land
+            // there, and each one that is kept is placed kk times.
+            for _ in 0..attempts as usize {
+                let p = v2(rng.range(3.0, w - 3.0), rng.range(3.0, w - 3.0));
+                if kk > 1 && wrap((p - c).angle() - (start0 - c).angle()).abs() > step * 0.5 {
+                    // Outside the first player's sector: its rotations cover that ground.
+                    continue;
+                }
+                let dens = fbm(p.x * freq + 50.0, p.y * freq + 50.0, seed ^ salt);
+                let chance = base + (1.0 - base) * smooth(lo, hi, dens);
+                let roll = rng.f();
+                let kind = choose(&mut rng, list);
+                if roll > chance {
+                    continue;
+                }
+                let k = &kinds[kind];
+                let scale = rng.range(0.8, 1.2);
+                let yaw = rng.range(0.0, std::f32::consts::TAU);
+                let r = k.radius() * scale;
+                let copies: Vec<V2> = (0..kk).map(|j| rot(p, j)).collect();
+                let apart = kk == 1 || copies[0].dist(copies[1]) > r * 2.0;
+                if !apart || !copies.iter().all(|q| ok_spot(self, *q, r) && fits(&grid, *q, r)) {
+                    continue;
+                }
+                let ki = self.feature_kind(&k.id);
+                for (j, q) in copies.into_iter().enumerate() {
+                    let (x, y) = gcell(q);
+                    grid[y * gn + x].push((q, r));
+                    self.features.push(Feature { kind: ki, pos: q, yaw: wrap(yaw + step * j as f32), scale });
+                }
+            }
+        }
+    }
+
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let mn = self.heights.iter().cloned().fold(f32::MAX, f32::min);
@@ -516,6 +685,7 @@ impl MapData {
             starts: self.starts.clone(),
             props: self.props.clone(),
             seed: self.seed,
+            features: self.features.iter().map(|f| format!("{} {:.2} {:.2} {:.2} {:.2}", self.feature_kinds.get(f.kind as usize).map_or("?", |k| k.as_str()), f.pos.x, f.pos.y, f.yaw, f.scale)).collect(),
         };
         let text = serde_json::to_string_pretty(&f).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("map.json"), text).map_err(|e| e.to_string())
@@ -530,7 +700,17 @@ impl MapData {
             return Err(format!("height.png must be {side}x{side} pixels for a map of {} cells", f.n));
         }
         let heights = img.as_raw().iter().map(|v| f.min_height + (*v as f32 / 65535.0) * (f.max_height - f.min_height)).collect();
-        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, props: f.props, seed: f.seed, blocked: vec![] };
+        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, props: f.props, seed: f.seed, ..Default::default() };
+        for line in &f.features {
+            let mut it = line.split_whitespace();
+            let kind = it.next().unwrap_or("");
+            let v: Vec<f32> = it.filter_map(|x| x.parse().ok()).collect();
+            if kind.is_empty() || v.len() < 2 || !v.iter().all(|x| x.is_finite()) {
+                return Err(format!("map.json: bad feature line '{line}'"));
+            }
+            let k = m.feature_kind(kind);
+            m.features.push(Feature { kind: k, pos: v2(v[0], v[1]), yaw: v.get(2).copied().unwrap_or(0.0), scale: v.get(3).copied().unwrap_or(1.0) });
+        }
         m.rebuild_blocked();
         Ok(m)
     }

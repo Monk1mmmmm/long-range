@@ -323,7 +323,10 @@ fn apply_commands(
 
 /// Who sees whom. Both sight and radar need a clear line over the terrain; radar looks from higher
 /// up and reaches further, sight tells what the contact is.
-fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, mut q: Query<&mut Intel>) {
+#[allow(clippy::too_many_arguments)]
+fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, mut q: Query<&mut Intel>) {
+    // Trees, rocks and wrecks block sight like hills do (not radar).
+    let block = sight_block(&features, &wrecks, &defs, &map);
     struct Viewer {
         pos: V2,
         eye: Vec3,
@@ -364,7 +367,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             }
             let d2 = (v.pos - c.pos).len2();
             // Anything this close is seen regardless (no hiding behind the viewer's own bump).
-            if seen & bit == 0 && d2 < v.vis2 && (d2 < 36.0 || map.los(v.look, head)) {
+            if seen & bit == 0 && d2 < v.vis2 && (d2 < 36.0 || map.los_blocked(v.look, head, &block)) {
                 seen |= bit;
             }
             if radar & bit == 0 && !stealth && d2 < v.radar2 && map.los(v.eye, head) {
@@ -427,6 +430,7 @@ fn think(
     mut game: ResMut<Game>,
     mut effects: ResMut<Effects>,
     terrain: Res<Ground>,
+    mut features: ResMut<Features>,
     mut commands: Commands,
 ) {
     // Free cargo slots of a transport, counting what was loaded earlier in this tick.
@@ -580,6 +584,8 @@ fn think(
                             } else if can_place(&defs, &map, &nav.occ, bd, bp) {
                                 let sid = spawn_unit(&mut commands, &defs, &mut game, &map, bd, owner, bp, PI * 0.5, false, 0);
                                 nav.stamp(&map, bp, defs.get(bd).footprint, 2);
+                                // Trees and rocks on the plot are flattened.
+                                features.clear_square(bp, defs.get(bd).footprint);
                                 effects.sites.push((bd, bp, sid));
                                 work = sid;
                             } else {
@@ -621,6 +627,23 @@ fn think(
                         pop = true;
                     } else if pos.dist(t.pos) > r + 3.0 {
                         goal = Some(t.pos);
+                    }
+                }
+                _ => pop = true,
+            },
+            Some(Order::Reclaim(fid)) if is_feature(fid) => match features.get(fid) {
+                // Trees and rocks: engineers only (scavengers work on wrecks).
+                Some(f) if df.can_assist() => {
+                    let fr = defs.rules.features.get(f.def as usize).map_or(0.5, |d| d.radius());
+                    if pos.dist(f.pos) > reach(fr) {
+                        if is_struct {
+                            pop = true;
+                        } else {
+                            goal = Some(f.pos);
+                        }
+                    } else {
+                        effects.reclaim_feature.push((fid, df.build_rate() * defs.rules.reclaim_rate * DT, owner));
+                        work = fid;
                     }
                 }
                 _ => pop = true,
@@ -809,22 +832,38 @@ fn think(
                 }
             }
             Some(Order::ReclaimArea { pos: c, radius }) => {
-                let best = wrecks
+                // The nearest wreck, tree or rock in the circle (scavengers: wrecks only).
+                let wreck = wrecks
                     .0
                     .iter()
                     .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0)
-                    .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal));
+                    .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|w| (w.0, w.1, 0.5));
+                let feature = if df.can_assist() {
+                    features.nearest(c, radius, pos).map(|(fid, fp)| (fid, fp, features.get(fid).and_then(|f| defs.rules.features.get(f.def as usize)).map_or(0.5, |d| d.radius())))
+                } else {
+                    None
+                };
+                let best = match (wreck, feature) {
+                    (Some(w), Some(f)) => Some(if f.1.dist(pos) < w.1.dist(pos) { f } else { w }),
+                    (w, f) => w.or(f),
+                };
                 match best {
-                    Some(w) if df.can_assist() || df.is_scavenger() => {
-                        if pos.dist(w.1) > reach(0.5) {
+                    Some((tid, tp, tr)) if df.can_assist() || df.is_scavenger() => {
+                        if pos.dist(tp) > reach(tr) {
                             if is_struct {
                                 pop = true;
                             } else {
-                                goal = Some(w.1);
+                                goal = Some(tp);
                             }
                         } else {
-                            effects.reclaim.push((w.0, df.build_rate() * defs.rules.reclaim_rate * DT, owner));
-                            work = w.0;
+                            let amount = df.build_rate() * defs.rules.reclaim_rate * DT;
+                            if is_feature(tid) {
+                                effects.reclaim_feature.push((tid, amount, owner));
+                            } else {
+                                effects.reclaim.push((tid, amount, owner));
+                            }
+                            work = tid;
                         }
                     }
                     _ => pop = true,
@@ -1646,6 +1685,7 @@ fn projectiles(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_reclaim(
     mut q: Query<(Entity, &mut Wreck)>,
     mut units: Query<(&Unit, &mut Health)>,
@@ -1653,8 +1693,21 @@ fn apply_reclaim(
     defs: Res<Defs>,
     mut effects: ResMut<Effects>,
     mut game: ResMut<Game>,
+    mut features: ResMut<Features>,
     mut commands: Commands,
 ) {
+    // Trees and rocks: the work done takes its share of both their mass and their energy.
+    let feature_jobs: Vec<(u32, f32, u8)> = effects.reclaim_feature.drain(..).collect();
+    for (fid, amount, player) in feature_jobs {
+        let Some(f) = features.get(fid).copied() else { continue };
+        let Some(fd) = defs.rules.features.get(f.def as usize) else { continue };
+        let take = (amount / fd.work(&defs.rules).max(1e-3)).min(f.left);
+        if let Some(p) = game.players.get_mut(player as usize) {
+            p.mass = (p.mass + fd.mass * take).min(p.max_mass.max(1.0));
+            p.energy = (p.energy + fd.energy * take).min(p.max_energy.max(1.0));
+        }
+        features.set_left((fid - FEATURE_ID0) as usize, f.left - take);
+    }
     // Standing buildings: every hit point taken is worth its share of the wreck value.
     let unit_jobs: Vec<(u32, f32, u8)> = effects.reclaim_unit.drain(..).collect();
     for (id, amount, player) in unit_jobs {
@@ -1886,8 +1939,9 @@ fn apply_ground(mut effects: ResMut<Effects>, mut map: ResMut<MapData>, mut grou
     nav.dirty = true;
 }
 
-/// Control points mode: a team alone at a point takes it over, held points earn score, and the
-/// first team to reach the limit wins.
+/// Control points mode: a team alone at a point takes it over. A team that holds fewer points
+/// than its strongest opponent loses score for every point of difference (nothing moves while
+/// they hold equally many); a team that runs out is defeated.
 fn control_points(mut game: ResMut<Game>, census: Res<Census>, defs: Res<Defs>) {
     if game.mode != MODE_POINTS || game.winner.is_some() {
         return;
@@ -1896,7 +1950,7 @@ fn control_points(mut game: ResMut<Game>, census: Res<Census>, defs: Res<Defs>) 
     let step = DT / rules.cp_capture_secs.max(0.1);
     let game = &mut *game;
     if game.scores.len() < 16 {
-        game.scores.resize(16, 0.0);
+        game.scores.resize(16, game.cp_start);
     }
     let mut alive = 0u16;
     for p in &game.players {
@@ -1935,18 +1989,37 @@ fn control_points(mut game: ResMut<Game>, census: Res<Census>, defs: Res<Defs>) 
         } else if teams == 0 && p.progress > 0.0 {
             p.progress = (p.progress - step * 0.5).max(0.0);
         }
+    }
+    let mut held = [0u32; 16];
+    for p in &game.points {
         if p.owner < 14 && alive & (1 << p.owner) != 0 {
-            game.scores[p.owner as usize] += DT;
+            held[p.owner as usize] += 1;
         }
     }
-    let mut best: Option<(f32, u8)> = None;
-    for (t, s) in game.scores.iter().enumerate() {
-        if *s >= rules.cp_score_limit && best.map_or(true, |b| *s > b.0) {
-            best = Some((*s, t as u8));
+    let mut out = 0u16;
+    for t in 0..14usize {
+        if alive & (1 << t) == 0 {
+            continue;
+        }
+        let lead = (0..14usize).filter(|&o| o != t && alive & (1 << o) != 0).map(|o| held[o]).max().unwrap_or(0);
+        if lead > held[t] {
+            game.scores[t] = (game.scores[t] - (lead - held[t]) as f32 * rules.cp_bleed.max(0.0) * DT).max(0.0);
+            if game.scores[t] <= 0.0 {
+                out |= 1 << t;
+            }
         }
     }
-    if let Some((_, t)) = best {
-        game.winner = Some(t);
+    if out != 0 {
+        // Out of points: the team is defeated (`deaths` removes what it owned).
+        for p in game.players.iter_mut() {
+            if p.team < 14 && out & (1 << p.team) != 0 {
+                p.alive = false;
+            }
+        }
+        let left = alive & !out;
+        if left.count_ones() == 1 {
+            game.winner = Some(left.trailing_zeros() as u8);
+        }
     }
 }
 

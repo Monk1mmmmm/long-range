@@ -27,11 +27,13 @@ pub struct Settings {
     pub big_icons: bool,
     /// Volume of shots and explosions, 0 (off) to 1.
     pub sfx_volume: f32,
+    /// Model detail of trees and rocks: 0 = low (also no shadows), 1 = medium, 2 = high.
+    pub flora_detail: u8,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, sfx_volume: 0.6 }
+        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, sfx_volume: 0.6, flora_detail: 1 }
     }
 }
 
@@ -202,6 +204,9 @@ pub fn restart() {
     std::process::exit(0);
 }
 
+/// Names of the tree and rock detail levels (`Settings::flora_detail`).
+pub const FLORA_DETAIL: [&str; 3] = ["Low (no shadows)", "Medium", "High"];
+
 /// Draws the settings widgets. Returns true when the window should close.
 pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings, adapter: &str, errors: &[String], in_game: bool) -> bool {
     let before = s.clone();
@@ -236,6 +241,13 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         egui::ComboBox::from_id_salt("shadows").selected_text(["Off", "Low", "High"][s.shadows.min(2) as usize]).show_ui(ui, |ui| {
             for (k, l) in ["Off", "Low", "High"].iter().enumerate() {
                 ui.selectable_value(&mut s.shadows, k as u8, *l);
+            }
+        });
+        ui.end_row();
+        ui.label("Trees and rocks");
+        egui::ComboBox::from_id_salt("flora").selected_text(FLORA_DETAIL[s.flora_detail.min(2) as usize]).show_ui(ui, |ui| {
+            for (k, l) in FLORA_DETAIL.iter().enumerate() {
+                ui.selectable_value(&mut s.flora_detail, k as u8, *l);
             }
         });
         ui.end_row();

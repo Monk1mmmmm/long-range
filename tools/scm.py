@@ -5,7 +5,8 @@ import numpy as np
 
 class Scm:
     def __init__(self, path):
-        d = open(path, "rb").read()
+        """`path`: a file path or the file's bytes (e.g. read from a .scd archive)."""
+        d = path if isinstance(path, (bytes, bytearray)) else open(path, "rb").read()
         (magic, ver, bone_off, wbone_count, vert_off, extra_off, vert_count, idx_off, idx_count, info_off, info_count, bone_count) = struct.unpack_from("<4s11i", d, 0)
         assert magic == b"MODL", magic
         self.version = ver

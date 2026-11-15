@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
+pub mod flora;
 pub mod fx;
 pub mod hud;
 pub mod icons;
@@ -82,6 +83,10 @@ pub struct ViewState {
     pub terra_delta: f32,
     /// Selection of the previous frame, to notice when it changes (selection sounds).
     pub last_sel: Vec<u32>,
+    /// The game is paused, by that player (set by the session).
+    pub paused: Option<u8>,
+    /// The local player asked to pause or resume this frame (read by the session).
+    pub pause_toggle: bool,
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -124,6 +129,8 @@ impl ViewState {
             queue_drag: None,
             terra_delta: 0.0,
             last_sel: vec![],
+            paused: None,
+            pause_toggle: false,
         }
     }
 }
@@ -173,8 +180,19 @@ pub fn start_view(world: &mut World, me: u8, with_fog: bool) {
                 cache.init(&mut materials);
                 world.insert_resource(cache);
                 world.insert_resource(fx::FxAssets::new(&mut meshes, &mut materials));
-                let mut commands = world.commands();
-                spawn_scene(&mut commands, &map, &mut meshes, &mut materials, &mut images, with_fog);
+                let fog = spawn_scene(&mut world.commands(), &map, &mut meshes, &mut materials, &mut images, with_fog);
+                // Trees and rocks: what still stands in the state the game is in.
+                let shown: Vec<bool> = match world.get_resource::<crate::sim::Features>() {
+                    Some(f) => (0..map.features.len()).map(|i| f.alive(i)).collect(),
+                    None => vec![true; map.features.len()],
+                };
+                let version = world.get_resource::<crate::sim::Features>().map_or(0, |f| f.version);
+                let defs = world.resource::<Defs>().clone();
+                let detail = world.get_resource::<crate::settings::Settings>().map_or(1, |s| s.flora_detail);
+                let mut flora = flora::FloraView::new(&defs, flora::flora_material(&mut materials, Some(fog)), shown, detail);
+                flora.version = version;
+                flora::spawn_flora(&mut world.commands(), &map, &defs, &flora, &mut meshes);
+                world.insert_resource(flora);
             });
         });
     });
@@ -191,6 +209,7 @@ pub fn stop_view(world: &mut World) {
     }
     world.remove_resource::<ViewState>();
     world.remove_resource::<ModelCache>();
+    world.remove_resource::<flora::FloraView>();
     world.remove_resource::<hud::HudAssets>();
 }
 
@@ -387,7 +406,7 @@ impl Plugin for ViewPlugin {
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, terrain::terrain_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            (tick_sync, terrain::terrain_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
                 .chain()
                 .run_if(in_game),
         );
