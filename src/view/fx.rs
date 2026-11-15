@@ -126,7 +126,8 @@ pub fn projectile_visuals(
         if p.kind == PROJ_MISSILE && want == Visibility::Visible {
             pv.trail -= time.delta_secs();
             if pv.trail <= 0.0 {
-                pv.trail = 0.04;
+                // Fewer trail puffs at the low effects level.
+                pv.trail = if settings.effects == 0 { 0.12 } else { 0.04 };
                 commands.spawn((
                     Mesh3d(assets.sphere.clone()),
                     MeshMaterial3d(assets.dust.clone()),
@@ -153,8 +154,13 @@ pub fn spawn_fx(
 ) {
     let mut lights = 0;
     let mut heard: Vec<(usize, f32, f32)> = vec![];
+    let level = settings.effects.min(2);
     for (k, f) in log.pending.drain(..).enumerate() {
         let pos = f.pos.v();
+        // Dust where debris lands: high effects only, and silent.
+        if f.kind == FX_DEBRIS && level < 2 {
+            continue;
+        }
         if !fog.visible(flat(pos)) {
             continue;
         }
@@ -162,6 +168,7 @@ pub fn spawn_fx(
         let name = match f.kind {
             FX_MUZZLE => SOUNDS.get(f.snd as usize).copied().unwrap_or("cannon"),
             FX_DEATH => "death",
+            FX_DEBRIS => "",
             _ => "blast",
         };
         if let (Some(i), true) = (SOUNDS.iter().position(|s| *s == name), settings.sfx_volume > 0.0) {
@@ -184,9 +191,15 @@ pub fn spawn_fx(
         };
         let s = f.size;
         match f.kind {
+            FX_DEBRIS => {
+                for k in 0..2 {
+                    let a = k as f32 * 3.1 + pos.x;
+                    puff(&assets.dust, pos + Vec3::new(a.cos(), 0.0, a.sin()) * s * 0.3, Vec3::new(a.cos() * 0.3, 0.35, a.sin() * 0.3), 0.7 + s * 0.2, s * 0.3, s * 0.9);
+                }
+            }
             FX_MUZZLE => {
                 puff(&assets.flash, pos, Vec3::ZERO, 0.09, s * 0.5, s * 1.2);
-                if s > 0.4 {
+                if s > 0.4 && level > 0 {
                     puff(&assets.dust, pos, Vec3::Y * 0.6, 0.8, s * 0.4, s * 1.1);
                 }
             }
@@ -194,14 +207,15 @@ pub fn spawn_fx(
                 let on_ground = pos.y - map.height(pos.x, pos.z) < 1.0;
                 puff(&assets.flash, pos, Vec3::ZERO, 0.16 + s * 0.02, s * 0.3, s * 0.9);
                 puff(&assets.fire, pos + Vec3::Y * 0.1 * s, Vec3::Y * 0.8, 0.32 + s * 0.04, s * 0.25, s * 0.7);
-                let n = if f.kind == FX_DEATH { 4 } else { 2 } + (s as usize).min(4);
+                // Low effects: one puff of smoke and no flash of light.
+                let n = if level == 0 { 1 } else { (if f.kind == FX_DEATH { 4 } else { 2 }) + (s as usize).min(4) };
                 for k in 0..n {
                     let a = k as f32 * 2.4 + s;
                     let off = Vec3::new(a.cos(), 0.3, a.sin()) * s * 0.3;
                     let mat = if on_ground && k % 2 == 0 { &assets.dust } else { &assets.smoke };
                     puff(mat, pos + off, Vec3::new(a.cos() * 0.4, 1.2 + (k as f32 * 0.37) % 0.8, a.sin() * 0.4), 1.0 + s * 0.15 + (k as f32 * 0.21) % 0.6, s * 0.25, s * 0.6);
                 }
-                if s >= 2.0 && lights < 3 {
+                if s >= 2.0 && lights < 3 && level > 0 {
                     lights += 1;
                     commands.spawn((PointLight { color: Color::srgb(1.0, 0.7, 0.4), intensity: 400000.0 * s, range: s * 8.0, ..default() }, Transform::from_translation(pos + Vec3::Y * (1.0 + s * 0.3)), FlashLight(0.0, 0.25), GameScene));
                 }

@@ -62,3 +62,36 @@ Parses `.bp` files (Lua table literals) into Python dicts: `bp.load(path)`.
 prints one block per unit: tech level, size, health, armor, movement, costs, intel and every weapon with its
 damage, range, rate of fire, muzzle velocity, turret speeds and bones. This is where the numbers in
 `assets/data/factions/coalition.json` came from.
+
+## osm_map.py - a map of a real place
+
+    .venv/bin/python tools/osm_map.py NAME --bbox SOUTH,WEST,NORTH,EAST [options]
+    .venv/bin/python tools/osm_map.py NAME --center LAT,LON --km 10 [options]
+
+Turns a rectangle of the real world into `assets/maps/NAME` (playable at once, also in the editor).
+The rectangle is in degrees: on openstreetmap.org, *Export* shows the box of the current view, or right-click >
+*Show address* gives a point. Maps are square, so a rectangle is widened on its short side.
+
+| Source | Becomes |
+|---|---|
+| AWS Terrain Tiles (Mapzen terrarium, zoom 13, ~12 m) | heightmap, true scale x `--relief` (0.85) |
+| OSM buildings (`building=*`, with landuse) | neutral props: one game building per real one where it fits, chosen by kind and size (houses, town houses in dense blocks, apartments, churches, schools/offices, factories, farms), turned like the real one |
+| OSM forests (`leaf_type` decides fir/pine vs oak/birch), scrub, parks, lone trees | trees and shrubs |
+| OSM rocks, bare rock; steep or high forest ground | stones, rocks, boulders |
+| OSM water towers, towers/masts, power pylons | `water_tower`, `comm_tower`, `pylon` |
+| highest hilltop away from the bases | neutral comm tower + three hostile bunkers |
+
+Start positions (`--players`, default 4: corners) are searched in open, flat ground at equal distance from the
+centre and levelled; `--starts "x,z;x,z"` sets them by hand (world units, from the preview). Every start gets
+the same deposits at the same offsets turned towards the centre, plus a ring of six in the middle.
+`--max-props` (600) caps the buildings: the real ones are thinned evenly (landmarks first, big ones more likely).
+Water is not flooded (the game has one water level for the whole map); lakes stay free of trees and buildings.
+
+Downloads are cached in `tools/out/osm_cache` (delete the files to fetch fresh data); the Overpass servers are
+sometimes busy, the script retries. It writes a check picture `tools/out/NAME_preview.png`: terrain, trees
+(green), rocks (white), buildings (red), hostile (magenta), deposits (cyan), starts (yellow).
+Data: (c) OpenStreetMap contributors (ODbL); elevation: Mapzen / AWS Terrain Tiles.
+
+Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
+
+    .venv/bin/python tools/osm_map.py jablonec --bbox 50.661,15.091,50.751,15.233 --title "Jablonec nad Nisou"

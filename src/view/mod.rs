@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
 pub mod cursor;
+pub mod debris;
 pub mod flora;
 pub mod fx;
 pub mod hud;
@@ -181,6 +182,7 @@ pub fn start_view(world: &mut World, me: u8, with_fog: bool) {
                 cache.init(&mut materials);
                 world.insert_resource(cache);
                 world.insert_resource(fx::FxAssets::new(&mut meshes, &mut materials));
+                world.insert_resource(debris::DebrisAssets::new(&mut meshes, &mut materials));
                 let fog = spawn_scene(&mut world.commands(), &map, &mut meshes, &mut materials, &mut images, with_fog);
                 // Trees and rocks: what still stands in the state the game is in.
                 let shown: Vec<bool> = match world.get_resource::<crate::sim::Features>() {
@@ -212,6 +214,7 @@ pub fn stop_view(world: &mut World) {
     world.remove_resource::<ModelCache>();
     world.remove_resource::<flora::FloraView>();
     world.remove_resource::<hud::HudAssets>();
+    world.remove_resource::<debris::DebrisAssets>();
 }
 
 /// New tick or snapshot: shift interpolation targets.
@@ -359,7 +362,8 @@ fn wreck_visuals(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (e, w) in fresh.iter().take(10) {
+    // (Pieces of debris are drawn by `debris::debris_visuals`.)
+    for (e, w) in fresh.iter().filter(|(_, w)| w.piece <= 0.0).take(10) {
         let d = defs.get(w.def);
         let mat = if d.model.mesh.is_some() {
             cache.wreck_mat(&defs, w.def, &mut images, &mut materials)
@@ -407,7 +411,7 @@ impl Plugin for ViewPlugin {
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, debris::debris_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
                 .chain()
                 .run_if(in_game),
         );

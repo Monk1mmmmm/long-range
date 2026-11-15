@@ -55,6 +55,8 @@ struct HostLobby {
     tab: u8,
     /// AI engineers reclaim trees and rocks.
     ai_reclaim: bool,
+    /// The map's neutral and hostile buildings are known from the start.
+    reveal_props: bool,
     /// Start positions of each premade map.
     counts: Vec<usize>,
 }
@@ -143,6 +145,11 @@ impl HostLobby {
             t += &format!("\nStarting points: {:.0}", self.cp_points(defs));
         }
         t += &format!("\nGame data: {}\nAI reclaims trees and rocks: {}", self.preset_label(), if self.ai_reclaim { "yes" } else { "no" });
+        let off = defs.rules.switched_off();
+        if !off.is_empty() {
+            t += &format!("\nSwitched off: {}", off.join(", "));
+        }
+        t += &format!("\nMap buildings known from the start: {}", if self.reveal_props { "yes" } else { "no" });
         t
     }
     fn info(&self, you: i8, defs: &Defs) -> LobbyInfo {
@@ -194,6 +201,12 @@ struct PresetUi {
     text: String,
     msg: String,
     confirm_delete: bool,
+    /// Edit the raw JSON instead of the form.
+    raw: bool,
+    /// `text` parsed, for the form (`Null` when it does not parse).
+    value: serde_json::Value,
+    /// Names the form's drop-down lists offer.
+    ctx: longrange::preset_form::FormCtx,
 }
 
 impl PresetUi {
@@ -217,9 +230,11 @@ impl PresetUi {
     fn show(&mut self) {
         let Some(pack) = &self.pack else { return };
         self.units.clear();
+        self.ctx = longrange::preset_form::FormCtx::from_pack(pack);
         if self.file == 0 || self.file > pack.factions.len() {
             self.file = 0;
             self.text = pack.rules.clone();
+            self.value = serde_json::from_str(&self.text).unwrap_or_default();
             return;
         }
         let v: serde_json::Value = serde_json::from_str(&pack.factions[self.file - 1].1).unwrap_or_default();
@@ -227,6 +242,16 @@ impl PresetUi {
         self.units = list.iter().map(|u| (u["id"].as_str().unwrap_or("?").to_string(), u["name"].as_str().unwrap_or("").to_string())).collect();
         self.unit = self.unit.min(list.len().saturating_sub(1));
         self.text = list.get(self.unit).map(|u| serde_json::to_string_pretty(u).unwrap_or_default()).unwrap_or_default();
+        self.value = serde_json::from_str(&self.text).unwrap_or_default();
+    }
+    /// The form changed `value`: the text follows it (that is what `edited` and saving read).
+    fn form_changed(&mut self) {
+        self.text = serde_json::to_string_pretty(&self.value).unwrap_or_default();
+        if self.file > 0 {
+            if let Some(u) = self.units.get_mut(self.unit) {
+                *u = (self.value["id"].as_str().unwrap_or("?").to_string(), self.value["name"].as_str().unwrap_or("").to_string());
+            }
+        }
     }
     /// The pack with the text box written back into it.
     fn edited(&self) -> Result<DataPack, String> {
@@ -361,6 +386,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         thumbs,
         tab: 0,
         ai_reclaim: true,
+        reveal_props: true,
         counts,
     };
     let _ = l.ensure_map(defs);
@@ -400,6 +426,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         let start = l.cp_points(world.resource::<Defs>());
         enable_control_points(world, start);
     }
+    world.resource_mut::<Game>().reveal_props = l.reveal_props;
     world.insert_resource(Ais(ais));
     // LR_DUEL=1 stages a tank fight next to the first start (visual testing of combat).
     if std::env::var("LR_DUEL").is_ok() {
@@ -953,6 +980,9 @@ fn menu_ui(world: &mut World) {
                                 if ui.checkbox(&mut l.ai_reclaim, "AI reclaims trees and rocks").changed() {
                                     l.dirty = true;
                                 }
+                                if ui.checkbox(&mut l.reveal_props, "Neutral and hostile buildings known from the start").changed() {
+                                    l.dirty = true;
+                                }
                             } else {
                                 // One thumbnail per frame, so opening the tab does not stall.
                                 if let Some(k) = l.thumbs.iter().position(|t| t.is_none()) {
@@ -1152,7 +1182,7 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
     egui::Area::new(egui::Id::new("presets")).anchor(egui::Align2::CENTER_TOP, [0.0, 16.0]).show(ctx, |ui| {
         ui.set_width(total_w);
         ui.label(egui::RichText::new("GAME DATA PRESETS").size(30.0).color(egui::Color32::from_rgb(255, 215, 100)));
-        ui.label("A preset is a named copy of the game data (unit stats, costs, rules) that you can change. The host picks one in the lobby; the other players receive it when the game starts.");
+        ui.label("A preset is a named copy of the game data (unit stats, costs, rules) that you can change. The host picks one in the lobby; the other players receive it when the game starts. Hover over a setting to see what it does.");
         ui.add_space(8.0);
         ui.horizontal_top(|ui| {
             // --- the presets
@@ -1273,8 +1303,24 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
             ui.vertical(|ui| {
                 ui.set_width(text_w);
                 ui.horizontal(|ui| {
-                    if ui.add_sized([150.0, 28.0], egui::Button::new("Check and save")).clicked() {
+                    if ui.add_sized([150.0, 28.0], egui::Button::new("Check and save")).on_hover_text("Checks the data the way the game loads it and writes the preset if it is sound.").clicked() {
                         p.save();
+                    }
+                    let label = if p.raw { "Form view" } else { "JSON view" };
+                    let tip = if p.raw { "Edit with checkboxes, number fields and lists." } else { "Edit the raw JSON: every setting, including model files and turret bones." };
+                    if ui.add_sized([110.0, 28.0], egui::Button::new(label)).on_hover_text(tip).clicked() {
+                        if p.raw {
+                            match serde_json::from_str(&p.text) {
+                                Ok(v) => {
+                                    p.value = v;
+                                    p.raw = false;
+                                    p.msg.clear();
+                                }
+                                Err(e) => p.msg = format!("Fix the JSON first: {e}"),
+                            }
+                        } else {
+                            p.raw = true;
+                        }
                     }
                     if p.file > 0 {
                         if ui.add_sized([110.0, 28.0], egui::Button::new("Copy unit")).clicked() {
@@ -1295,7 +1341,21 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                     .min_scrolled_height(text_h)
                     .max_height(text_h)
                     .show(ui, |ui| {
-                        ui.add(egui::TextEdit::multiline(&mut p.text).code_editor().desired_width(text_w - 14.0).min_size(egui::vec2(text_w - 14.0, text_h - 4.0)));
+                        if p.raw {
+                            ui.add(egui::TextEdit::multiline(&mut p.text).code_editor().desired_width(text_w - 14.0).min_size(egui::vec2(text_w - 14.0, text_h - 4.0)));
+                        } else if !p.value.is_object() {
+                            ui.label("This does not read as JSON; switch to the JSON view to fix it.");
+                        } else {
+                            ui.set_width(text_w - 14.0);
+                            let changed = if p.file == 0 {
+                                longrange::preset_form::rules_form(ui, &mut p.value, &p.ctx)
+                            } else {
+                                longrange::preset_form::unit_form(ui, &mut p.value, &p.ctx)
+                            };
+                            if changed {
+                                p.form_changed();
+                            }
+                        }
                     });
             });
         });
@@ -1378,9 +1438,20 @@ fn selftest() {
     let n = std::env::var("LR_PLAYERS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4).clamp(2, MAX_PLAYERS);
     // LR_SEED=n plays another map and AI seed (to tell an effect from the luck of one game).
     let seed = std::env::var("LR_SEED").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-    let mut map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345 + seed, n);
-    map.scatter_features(&defs.rules.features, 12345 + seed, 1.0);
-    println!("map: {} trees and rocks", map.features.len());
+    // LR_MAP=<name> plays a premade map instead (one AI per start position).
+    let (map, n) = match std::env::var("LR_MAP") {
+        Ok(name) => {
+            let map = MapData::load(&asset_root().join("maps").join(&name)).unwrap_or_else(|e| panic!("map {name}: {e}"));
+            let k = map.starts.len().clamp(2, MAX_PLAYERS);
+            (map, k)
+        }
+        Err(_) => {
+            let mut map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345 + seed, n);
+            map.scatter_features(&defs.rules.features, 12345 + seed, 1.0);
+            (map, n)
+        }
+    };
+    println!("map: {} ({} cells), {} trees and rocks, {} props", map.name, map.n, map.features.len(), map.props.len());
     let faction = defs.playable_factions()[0] as u8;
     let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i}"), team: i as u8, is_ai: true, slot: i, faction }).collect();
     let world = app.world_mut();
@@ -1548,7 +1619,7 @@ fn combattest() {
                 spawn_unit(&mut commands, &defs, &mut game, map, defs.id("windmill").unwrap(), 0, v2(107.0, 101.0), 0.0, false, 0);
                 for k in 0..4 {
                     let id = game.alloc();
-                    commands.spawn(Wreck { id, def: defs.id("crony").unwrap(), mass: 300.0, pos: v2(140.0 + k as f32 * 3.0, 140.0), y: 2.0, yaw: 0.0 });
+                    commands.spawn(Wreck { id, def: defs.id("crony").unwrap(), mass: 300.0, pos: v2(140.0 + k as f32 * 3.0, 140.0), y: 2.0, yaw: 0.0, ..Default::default() });
                 }
             }
             world.insert_resource(game);
@@ -1729,7 +1800,7 @@ fn combattest() {
             let mut commands = world.commands();
             for k in 0..3 {
                 let id = game.alloc();
-                spawn_wreck(&mut commands, Wreck { id, def: defs.id("crony").unwrap(), mass: 200.0, pos: v2(110.0 + k as f32 * 4.0, 140.0), y: 2.0, yaw: 0.0 });
+                spawn_wreck(&mut commands, Wreck { id, def: defs.id("crony").unwrap(), mass: 200.0, pos: v2(110.0 + k as f32 * 4.0, 140.0), y: 2.0, yaw: 0.0, ..Default::default() });
             }
         }
         world.insert_resource(game);
@@ -1879,7 +1950,7 @@ fn combattest() {
             let mut commands = world.commands();
             let id = game.alloc();
             let crony = defs.id("crony").unwrap();
-            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction, pos: spot + v2(1.0, -2.5), y: 2.0, yaw: 0.0 });
+            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction, pos: spot + v2(1.0, -2.5), y: 2.0, yaw: 0.0, ..Default::default() });
             let site = longrange::sim::spawn_unit_built(&mut commands, &defs, &mut game, &map, defs.id("windmill").unwrap(), 1, v2(140.0, 100.0), 0.0, Some(0.5), 0);
             (id, site)
         };
@@ -1912,6 +1983,87 @@ fn combattest() {
         let same = state_hash(&make_snapshot(world)) == state_hash(&after);
         println!("== Weapons vs reclaimables: 4 pines gone after {grove_gone:?} ticks, wreck after {wreck_gone:?}, rock {:.0}% left.  Half-built enemy windmill destroyed after {site_gone:?} ticks.  Rollback restores them: {back}, hash equal {same}", rock_left * 100.0);
         assert!(grove_gone.is_some() && wreck_gone.is_some() && rock_left < 1.0 && site_gone.is_some() && back && same, "weapons vs reclaimables and sites");
+    }
+    // 7e. Debris: hard hits on a finished enemy factory break pieces off, which drop next to its
+    // walls; a rollback while they fall brings them back in the air. Destroyed, it spills more
+    // around its wreck, and wreck plus debris are worth exactly its wreck value. An engineer then
+    // reclaims every piece.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let at = v2(120.0, 120.0);
+        let fac = spawn(world, &map, "land_factory", 1, at, 0.0);
+        let eng = spawn(world, &map, "engineer", 0, v2(104.0, 104.0), 0.0);
+        world.flush();
+        let d = defs.get(defs.id("land_factory").unwrap()).clone();
+        let value = d.cost.mass * defs.rules.wreck_mass_fraction;
+        let hit = |world: &mut World, share: f32| world.resource_mut::<Effects>().damage.push((fac, d.hp * share, 0));
+        let pieces = |world: &mut World| -> Vec<Wreck> { world.query::<&Wreck>().iter(world).filter(|w| w.piece > 0.0).cloned().collect() };
+        world.run_schedule(SimTick);
+        hit(world, 0.15);
+        world.run_schedule(SimTick);
+        let first = pieces(world);
+        let falling = first.iter().all(|w| w.falling);
+        let mid = make_snapshot(world);
+        for _ in 0..40 {
+            world.run_schedule(SimTick);
+        }
+        let landed = pieces(world);
+        let all_down = landed.len() == first.len() && landed.iter().all(|w| !w.falling);
+        let near = landed.iter().map(|w| (w.pos - at).len2().sqrt()).fold((f32::MAX, 0.0f32), |(lo, hi), r| (lo.min(r), hi.max(r)));
+        let later = state_hash(&make_snapshot(world));
+        restore(world, &mid);
+        let back_in_air = pieces(world).iter().all(|w| w.falling);
+        for _ in 0..40 {
+            world.run_schedule(SimTick);
+        }
+        let replay_same = state_hash(&make_snapshot(world)) == later;
+        let shed = world.query::<(&Unit, &Shed)>().iter(world).find(|(u, _)| u.id == fac).map_or(0.0, |(_, s)| s.0);
+        let first_mass: f32 = first.iter().map(|w| w.mass).sum();
+        // Hit and repaired again and again: what it drops stops at its share of the wreck value.
+        for k in 0..12 {
+            hit(world, 0.15);
+            for _ in 0..(if k == 11 { 60 } else { 5 }) {
+                world.run_schedule(SimTick);
+            }
+            for (u, mut h) in world.query::<(&Unit, &mut Health)>().iter_mut(world) {
+                if u.id == fac {
+                    h.0 = d.hp;
+                }
+            }
+        }
+        let shed_all = world.query::<(&Unit, &Shed)>().iter(world).find(|(u, _)| u.id == fac).map_or(0.0, |(_, s)| s.0);
+        hit(world, 20.0);
+        for _ in 0..60 {
+            world.run_schedule(SimTick);
+        }
+        let gone = !world.query::<&Unit>().iter(world).any(|u| u.id == fac);
+        let total: f32 = world.query::<&Wreck>().iter(world).map(|w| w.mass).sum();
+        let n_pieces = pieces(world).len();
+        world.resource_mut::<Game>().players[0].mass = 0.0;
+        let mass0 = 0.0;
+        order(world, vec![eng], Order::ReclaimArea { pos: at, radius: 16.0 });
+        let mut cleared = None;
+        for t in 0..3000u32 {
+            world.run_schedule(SimTick);
+            if world.query::<&Wreck>().iter(world).count() == 0 {
+                cleared = Some(t + 1);
+                break;
+            }
+        }
+        // (Includes the commander's income meanwhile.)
+        let gained = world.resource::<Game>().players[0].mass - mass0;
+        println!(
+            "== Debris: a 15% hit dropped {} pieces ({first_mass:.1} mass, factory shed {shed:.1}), falling {falling}, all landed {all_down} {:.1}-{:.1} from the centre (walls at {:.0}); rollback puts them back in the air {back_in_air}, replay hash equal {replay_same}.  After 13 hits shed {shed_all:.0} of {value:.0} (cap {:.0}); destroyed: {gone}, wreck + {n_pieces} pieces worth {total:.1}.  Engineer reclaimed it all after {cleared:?} ticks, +{gained:.0} mass",
+            first.len(),
+            near.0,
+            near.1,
+            d.radius(),
+            value * defs.rules.debris.max_shed
+        );
+        assert!(!first.is_empty() && falling && all_down && near.0 > d.radius() * 0.8 && near.1 < d.radius() * 1.5 + 4.0, "debris drops next to the walls");
+        assert!(back_in_air && replay_same && (shed - first_mass).abs() < 0.01, "debris rollback");
+        assert!(gone && (total - value).abs() < 0.05 && (value * defs.rules.debris.max_shed - shed_all).clamp(-0.01, defs.rules.debris.min_mass) == value * defs.rules.debris.max_shed - shed_all && cleared.is_some() && gained >= total - 0.5, "debris mass and reclaim");
     }
     // 8. Craters and terraforming, and a state that is saved and restored with them.
     {
@@ -2005,6 +2157,393 @@ fn combattest() {
         println!("== Control points: {} on the map; point 1 taken after {taken:?} ticks; points left team 1: {:.0}, team 2: {:.0}; game ended: {won:?}", points.len(), g.scores[0], g.scores[1]);
         assert!(points.len() >= 3 && taken.is_some() && won.map_or(false, |w| w.1 == Some(0)) && g.scores[0] > 0.0 && g.scores[1] <= 0.0, "control points");
     }
+    air_tests(&defs);
+    infantry_tests(&defs);
+    scavenger_tests(&defs);
+}
+
+/// Scavengers on every kind of reclaimable, reviving a building, and a commander killed inside a
+/// transport (`--combattest`, or alone with `LR_TEST=scavenger`).
+fn scavenger_tests(defs: &Defs) {
+    let faction = defs.playable_factions()[0] as u8;
+    let mut app = headless(defs.clone());
+    let mut map = MapData::generate(128, 4242, 2);
+    map.heights.iter_mut().for_each(|h| *h = 2.0);
+    map.feature_kinds = vec!["pine".into(), "rock".into()];
+    map.features = vec![];
+    for k in 0..4 {
+        map.features.push(Feature { kind: 0, pos: v2(150.0 + k as f32 * 2.5, 100.0), yaw: 0.0, scale: 1.0 });
+    }
+    map.features.push(Feature { kind: 1, pos: v2(154.0, 104.0), yaw: 0.0, scale: 1.0 });
+    map.rebuild_blocked();
+    let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+    setup_game(app.world_mut(), map.clone(), &setup);
+    let world = app.world_mut();
+    for p in world.resource_mut::<Game>().players.iter_mut() {
+        p.energy = 100000.0;
+        p.max_energy = 100000.0;
+        p.max_mass = 100000.0;
+    }
+    let spawn = |world: &mut World, name: &str, owner: u8, pos: V2| -> u32 {
+        let mut game = world.resource::<Game>().clone();
+        let id = {
+            let mut commands = world.commands();
+            spawn_unit(&mut commands, defs, &mut game, &map, defs.id(name).expect("unit"), owner, pos, 0.0, true, 0)
+        };
+        world.insert_resource(game);
+        world.flush();
+        world.resource_mut::<Nav>().dirty = true;
+        id
+    };
+    let order = |world: &mut World, ids: Vec<u32>, o: Order| world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids, orders: vec![o], queue: false }));
+    let mill = spawn(world, "windmill", 1, v2(100.0, 60.0));
+    let tank = spawn(world, "crony", 1, v2(110.0, 60.0));
+    let scav = spawn(world, "scavenger", 0, v2(100.0, 80.0));
+    world.resource_mut::<CommandQueue>().0.push((1, Command::SelfDestruct { ids: vec![mill, tank] }));
+    for _ in 0..40 {
+        world.run_schedule(SimTick);
+    }
+    let wrecks: Vec<(u32, longrange::data::DefId, f32)> = world.query::<&Wreck>().iter(world).filter(|w| w.piece <= 0.0).map(|w| (w.id, w.def, w.mass)).collect();
+    let pieces = world.query::<&Wreck>().iter(world).filter(|w| w.piece > 0.0).count();
+    let wid = |name: &str| wrecks.iter().find(|w| w.1 == defs.id(name).unwrap()).map(|w| w.0);
+    // 1. Revive the windmill's wreck, then the tank's.
+    let (mw, tw) = (wid("windmill").expect("windmill wreck"), wid("crony").expect("tank wreck"));
+    order(world, vec![scav], Order::Revive(mw));
+    world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![scav], orders: vec![Order::Revive(tw)], queue: true }));
+    let mut back: [Option<u32>; 2] = [None; 2];
+    for t in 0..3000u32 {
+        world.run_schedule(SimTick);
+        world.resource_mut::<Game>().players[0].mass = 5000.0;
+        for (u, uc) in world.query::<(&Unit, Has<UnderConstruction>)>().iter(world) {
+            for (k, name) in ["windmill", "crony"].iter().enumerate() {
+                if u.owner == 0 && !uc && defs.get(u.def).id == *name && back[k].is_none() {
+                    back[k] = Some(t);
+                }
+            }
+        }
+        if back.iter().all(|b| b.is_some()) {
+            break;
+        }
+    }
+    // 2. One area reclaim takes the debris, the trees and the rock.
+    world.resource_mut::<Game>().players[0].mass = 0.0;
+    let mass0 = 0.0;
+    order(world, vec![scav], Order::ReclaimArea { pos: v2(125.0, 85.0), radius: 45.0 });
+    let mut cleared = None;
+    for t in 0..4000u32 {
+        world.run_schedule(SimTick);
+        let left_f = world.resource::<Features>().list.iter().filter(|f| f.left > 0.0).count();
+        let left_w = world.query::<&Wreck>().iter(world).count();
+        if left_f == 0 && left_w == 0 {
+            cleared = Some(t);
+            break;
+        }
+    }
+    let gained = world.resource::<Game>().players[0].mass - mass0;
+    println!("== Scavenger: windmill wreck revived after {:?} ticks, tank wreck after {:?} (wrecks {}, debris pieces {pieces}).  Area reclaim of debris + 4 pines + a rock done after {cleared:?} ticks, {gained:.0} mass", back[0], back[1], wrecks.len());
+    assert!(back.iter().all(|b| b.is_some()) && cleared.is_some(), "scavenger");
+
+    // 3. A commander riding in an APC dies with it, and so does its side.
+    let com = world.query::<&Unit>().iter(world).find(|u| u.owner == 0 && defs.factions[faction as usize].commander == Some(u.def)).map(|u| u.id).expect("commander");
+    let cpos = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == com).map(|(_, b)| b.pos).unwrap();
+    let apc = spawn(world, "apc", 0, cpos + v2(4.0, 0.0));
+    order(world, vec![com], Order::Load(apc));
+    let mut boarded = false;
+    for _ in 0..300u32 {
+        world.run_schedule(SimTick);
+        boarded = world.query::<&Hosted>().iter(world).any(|h| h.0 == apc);
+        if boarded {
+            break;
+        }
+    }
+    world.resource_mut::<CommandQueue>().0.push((0, Command::SelfDestruct { ids: vec![apc] }));
+    for _ in 0..20 {
+        world.run_schedule(SimTick);
+    }
+    let alive = world.resource::<Game>().players[0].alive;
+    let com_left = world.query::<&Unit>().iter(world).any(|u| u.id == com);
+    println!("== Commander in an APC: boarded {boarded}; APC destroyed -> commander still there: {com_left}, player alive: {alive}");
+    assert!(boarded && !com_left && !alive, "commander in a transport");
+}
+
+/// Cover behind trees, rocks and wrecks, infantry looking for it, and infantry in buildings
+/// (`--combattest`, or alone with `LR_TEST=infantry`).
+fn infantry_tests(defs: &Defs) {
+    let faction = defs.playable_factions()[0] as u8;
+    // A flat test range with the given trees and rocks: (feature type, position).
+    let world_with = |features: &[(&str, V2)]| -> (App, MapData) {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(128, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.feature_kinds = vec![];
+        map.features = vec![];
+        for (kind, pos) in features {
+            let k = match map.feature_kinds.iter().position(|x| x == kind) {
+                Some(k) => k,
+                None => {
+                    map.feature_kinds.push(kind.to_string());
+                    map.feature_kinds.len() - 1
+                }
+            };
+            map.features.push(Feature { kind: k as u16, pos: *pos, yaw: 0.0, scale: 1.0 });
+        }
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        setup_game(app.world_mut(), map.clone(), &setup);
+        for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
+            p.energy = 100000.0;
+            p.max_energy = 100000.0;
+        }
+        (app, map)
+    };
+    let spawn = |world: &mut World, map: &MapData, name: &str, owner: u8, pos: V2, yaw: f32| -> u32 {
+        let mut game = world.resource::<Game>().clone();
+        let id = {
+            let mut commands = world.commands();
+            spawn_unit(&mut commands, defs, &mut game, map, defs.id(name).expect("unit"), owner, pos, yaw, true, 0)
+        };
+        world.insert_resource(game);
+        world.flush();
+        world.resource_mut::<Nav>().dirty = true;
+        id
+    };
+    let order = |world: &mut World, owner: u8, ids: Vec<u32>, o: Order| world.resource_mut::<CommandQueue>().0.push((owner, Command::Orders { ids, orders: vec![o], queue: false }));
+    let hp = |world: &mut World, id: u32| -> f32 { world.query::<(&Unit, &Health)>().iter(world).find(|(u, _)| u.id == id).map_or(0.0, |(_, h)| h.0) };
+    let set_hp = |world: &mut World, id: u32, v: f32| {
+        if let Some((_, mut h)) = world.query::<(&Unit, &mut Health)>().iter_mut(world).find(|(u, _)| u.id == id) {
+            h.0 = v;
+        }
+    };
+    let body = |world: &mut World, id: u32| -> Option<(V2, bool)> { world.query::<(&Unit, &Body, Has<Hosted>)>().iter(world).find(|(u, ..)| u.id == id).map(|(_, b, h)| (b.pos, h)) };
+    let owner_of = |world: &mut World, id: u32| -> Option<u8> { world.query::<&Unit>().iter(world).find(|u| u.id == id).map(|u| u.owner) };
+
+    // 1. A boulder between a tank and its target soaks up part of every shot.
+    let mut lost = [0.0f32; 2];
+    let mut left = 1.0;
+    for (k, rock) in [false, true].into_iter().enumerate() {
+        let boulder = [("boulder", v2(146.0, 100.0))];
+        let (mut app, map) = world_with(if rock { &boulder[..] } else { &[] });
+        let world = app.world_mut();
+        spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
+        // Radar sees through the rock (sight does not).
+        spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
+        let target = spawn(world, &map, "overtaker", 1, v2(150.0, 100.0), 3.14);
+        set_hp(world, target, 1.0e6);
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        lost[k] = 1.0e6 - hp(world, target);
+        if rock {
+            left = world.resource::<Features>().list[0].left;
+        }
+    }
+    println!("== Cover: a Crony shelling an Overtaker for 30 s does {:.0} damage in the open, {:.0} with a boulder in between ({:.0}% of the boulder left)", lost[0], lost[1], left * 100.0);
+    assert!(lost[0] > 0.0 && lost[1] > 0.0 && lost[1] < lost[0] * 0.6, "cover");
+
+    // 2. An idle trooper moves behind the nearest tree, away from the enemy it can see.
+    {
+        let tree = v2(128.0, 104.0);
+        let (mut app, map) = world_with(&[("oak", tree)]);
+        let world = app.world_mut();
+        let t = spawn(world, &map, "trooper", 0, v2(130.0, 100.0), 0.0);
+        let enemy = spawn(world, &map, "crony", 1, v2(166.0, 100.0), 3.14);
+        set_hp(world, t, 1.0e6);
+        set_hp(world, enemy, 1.0e6);
+        for _ in 0..150 {
+            world.run_schedule(SimTick);
+        }
+        let (p, _) = body(world, t).unwrap();
+        let behind = (tree - v2(166.0, 100.0)).norm().dot((p - tree).norm());
+        println!("== Infantry cover: trooper went from (130,100) to ({:.1},{:.1}), {:.1} from the oak, on its far side: {:.2} (1 = straight behind)", p.x, p.y, p.dist(tree), behind);
+        assert!(p.dist(tree) < 3.0 && behind > 0.9, "infantry cover");
+    }
+
+    // 3. Troopers occupy a neutral house, fire from it, leave it, and are thrown out when it falls.
+    {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let house = spawn(world, &map, "house", NEUTRAL, v2(129.0, 129.0), 0.0);
+        let cap = defs.get(defs.id("house").unwrap()).transport.as_ref().map_or(0, |t| t.capacity) as usize;
+        let men: Vec<u32> = (0..cap).map(|k| spawn(world, &map, "trooper", 0, v2(110.0 + k as f32 * 2.0, 120.0), 0.0)).collect();
+        order(world, 0, men.clone(), Order::Load(house));
+        for _ in 0..200 {
+            world.run_schedule(SimTick);
+        }
+        let inside = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
+        let held = owner_of(world, house);
+        // An enemy tank drives up: the infantry inside shoot it, the house takes the return fire.
+        let tank = spawn(world, &map, "overtaker", 1, v2(140.0, 129.0), 3.14);
+        set_hp(world, tank, 1.0e6);
+        set_hp(world, house, 1.0e6);
+        let house_hp = hp(world, house);
+        for _ in 0..200 {
+            world.run_schedule(SimTick);
+        }
+        let dealt = 1.0e6 - hp(world, tank);
+        let men_hp: f32 = men.iter().map(|id| hp(world, *id)).sum();
+        let house_lost = house_hp - hp(world, house);
+        world.query::<(&Unit, &mut Health)>().iter_mut(world).filter(|(u, _)| u.id == tank).for_each(|(_, mut h)| h.0 = -1.0);
+        set_hp(world, house, 1.0e6);
+        // Out again, to a spot west of the house.
+        order(world, 0, vec![house], Order::Unload { pos: v2(110.0, 129.0), radius: 4.0 });
+        for _ in 0..150 {
+            world.run_schedule(SimTick);
+        }
+        let out = men.iter().filter(|id| body(world, **id).map_or(false, |b| !b.1 && b.0.dist(v2(110.0, 129.0)) < 7.0)).count();
+        let freed = owner_of(world, house);
+        // In again, then the house is destroyed.
+        order(world, 0, men.clone(), Order::Load(house));
+        for _ in 0..200 {
+            world.run_schedule(SimTick);
+        }
+        let again = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
+        set_hp(world, house, -1.0);
+        for _ in 0..20 {
+            world.run_schedule(SimTick);
+        }
+        let out_now: Vec<u32> = men.iter().copied().filter(|id| body(world, *id).map_or(false, |b| !b.1)).collect();
+        let thrown: Vec<f32> = out_now.iter().map(|id| hp(world, *id)).collect();
+        println!("== Garrison: {inside} of {cap} troopers in the house (owner now {held:?}); in 20 s they did {dealt:.0} damage to a tank, the house lost {house_lost:.0} hp, troopers' hp {men_hp:.0}");
+        println!("   unloaded {out} at the spot (house owner then {freed:?}); in again {again}; house destroyed: {} thrown out with hp {:?}", thrown.len(), thrown);
+        let full = defs.get(defs.id("trooper").unwrap()).hp;
+        assert!(inside == cap && held == Some(0) && dealt > 0.0 && house_lost > 0.0 && (men_hp - full * cap as f32).abs() < 0.01, "garrison");
+        assert!(out == cap && freed == Some(NEUTRAL) && again == cap && thrown.len() == cap && thrown.iter().all(|h| *h > 0.0 && *h < full * 0.7), "garrison exit");
+    }
+}
+
+/// Bombing runs, fighter-bombers and the SAM site (`--combattest`, or alone with `LR_TEST=air`).
+fn air_tests(defs: &Defs) {
+    use std::collections::HashMap;
+    let faction = defs.playable_factions()[0] as u8;
+    struct Side<'a> {
+        name: &'a str,
+        owner: u8,
+        n: usize,
+        at: V2,
+        yaw: f32,
+    }
+    let run = |title: &str, sides: &[Side], orders: &dyn Fn(&HashMapIds) -> Vec<(u8, Vec<u32>, Order)>, ticks: u32| {
+        if sides.iter().any(|s| defs.id(s.name).is_none()) {
+            println!("== {title}: skipped (unit missing)");
+            return;
+        }
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(192, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let world = app.world_mut();
+        setup_game(world, map.clone(), &setup);
+        for p in world.resource_mut::<Game>().players.iter_mut() {
+            p.energy = 100000.0;
+            p.max_energy = 100000.0;
+        }
+        let mut ids: HashMapIds = Default::default();
+        for s in sides {
+            for k in 0..s.n {
+                let side = V2::from_angle(s.yaw).perp();
+                let pos = s.at + side * ((k as f32 - (s.n as f32 - 1.0) * 0.5) * 4.0);
+                let mut game = world.resource::<Game>().clone();
+                let id = {
+                    let mut commands = world.commands();
+                    spawn_unit(&mut commands, defs, &mut game, &map, defs.id(s.name).unwrap(), s.owner, pos, s.yaw, true, 0)
+                };
+                world.insert_resource(game);
+                ids.entry(s.name.to_string()).or_default().push(id);
+            }
+        }
+        world.flush();
+        for (owner, list, o) in orders(&ids) {
+            world.resource_mut::<CommandQueue>().0.push((owner, Command::Orders { ids: list, orders: vec![o], queue: false }));
+        }
+        let all: Vec<(String, u32)> = ids.iter().flat_map(|(k, v)| v.iter().map(move |id| (k.clone(), *id))).collect();
+        let hp0: HashMap<u32, f32> = world.query::<(&Unit, &Health)>().iter(world).map(|(u, h)| (u.id, h.0)).collect();
+        let mut shots: std::collections::HashSet<u32> = Default::default();
+        let mut first: Option<u32> = None;
+        let trace = std::env::var("LR_TRACE").unwrap_or_default();
+        for t in 0..ticks {
+            world.run_schedule(SimTick);
+            if !trace.is_empty() && t % 5 == 0 {
+                if let Some(list) = ids.get(&trace) {
+                    let mut q = world.query::<(&Unit, &Body, &Weapons, &Orders, &Mover)>();
+                    for (u, b, wsn, o, m) in q.iter(world).filter(|(u, ..)| list.contains(&u.id)) {
+                        println!("   t={:.1} #{} ({:.0},{:.0}) yaw {:.0} targets {:?} cd {:?} orders {} goal {:?} extend {:.1}", t as f32 / 10.0, u.id, b.pos.x, b.pos.y, b.yaw.to_degrees(), wsn.list.iter().map(|w| w.target).collect::<Vec<_>>(), wsn.list.iter().map(|w| w.cd.round()).collect::<Vec<_>>(), o.0.len(), m.goal.map(|g| (g.x.round(), g.y.round())), m.extend);
+                    }
+                }
+            }
+            for p in world.query::<&Projectile>().iter(world) {
+                if p.kind != PROJ_SHELL && shots.insert(p.id) && first.is_none() {
+                    first = Some(t);
+                }
+            }
+        }
+        let hp: HashMap<u32, f32> = world.query::<(&Unit, &Health)>().iter(world).map(|(u, h)| (u.id, h.0)).collect();
+        println!("== {title}  ({}s; bombs/missiles released {}, first after {:.1}s)", ticks / 10, shots.len(), first.map_or(-1.0, |t| t as f32 / 10.0));
+        for s in sides {
+            let mine: Vec<u32> = all.iter().filter(|(n, _)| n == s.name).map(|a| a.1).collect();
+            let alive = mine.iter().filter(|id| hp.contains_key(id)).count();
+            let lost: f32 = mine.iter().map(|id| hp0[id] - hp.get(id).copied().unwrap_or(0.0)).sum();
+            let total: f32 = mine.iter().map(|id| hp0[id]).sum();
+            println!("   P{} {:12} {alive}/{} alive, hp lost {lost:.0} of {total:.0}", s.owner, s.name, s.n);
+        }
+    };
+    type HashMapIds = HashMap<String, Vec<u32>>;
+    let first = |ids: &HashMapIds, n: &str| ids[n][0];
+    let every = |ids: &HashMapIds, n: &str| ids[n].clone();
+    let e = 0.0;
+    let w = std::f32::consts::PI;
+    run(
+        "3 Firebrands, attack order on the middle one of 5 parked mortars",
+        &[Side { name: "bomber", owner: 0, n: 3, at: v2(40.0, 190.0), yaw: e }, Side { name: "pike", owner: 1, n: 5, at: v2(190.0, 190.0), yaw: w }, Side { name: "radar_tower", owner: 0, n: 1, at: v2(130.0, 150.0), yaw: e }],
+        &|ids| vec![(0, every(ids, "bomber"), Order::Attack(ids["pike"][2]))],
+        900,
+    );
+    run(
+        "3 Firebrands attack-move across 5 parked mortars",
+        &[Side { name: "bomber", owner: 0, n: 3, at: v2(40.0, 190.0), yaw: e }, Side { name: "pike", owner: 1, n: 5, at: v2(190.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "bomber"), Order::AttackMove(v2(330.0, 190.0)))],
+        900,
+    );
+    run(
+        "3 Firebrands, attack order on a driving mortar (5 driving)",
+        &[Side { name: "bomber", owner: 0, n: 3, at: v2(40.0, 190.0), yaw: e }, Side { name: "pike", owner: 1, n: 5, at: v2(190.0, 190.0), yaw: w }, Side { name: "radar_tower", owner: 0, n: 1, at: v2(130.0, 150.0), yaw: e }],
+        &|ids| vec![(0, every(ids, "bomber"), Order::Attack(ids["pike"][2])), (1, every(ids, "pike"), Order::Patrol(v2(190.0, 100.0)))],
+        900,
+    );
+    run(
+        "Delivery Boy, attack order on a land factory",
+        &[Side { name: "delivery_boy", owner: 0, n: 1, at: v2(40.0, 190.0), yaw: e }, Side { name: "land_factory", owner: 1, n: 1, at: v2(190.0, 190.0), yaw: w }, Side { name: "radar_tower", owner: 0, n: 1, at: v2(130.0, 150.0), yaw: e }],
+        &|ids| vec![(0, every(ids, "delivery_boy"), Order::Attack(first(ids, "land_factory")))],
+        900,
+    );
+    run(
+        "2 fighter-bombers attack-move: 2 Kestrels overhead, 5 parked mortars",
+        &[
+            Side { name: "fighter_bomber", owner: 0, n: 2, at: v2(40.0, 190.0), yaw: e },
+            Side { name: "air_scout", owner: 1, n: 2, at: v2(150.0, 190.0), yaw: w },
+            Side { name: "pike", owner: 1, n: 5, at: v2(190.0, 190.0), yaw: w },
+        ],
+        &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(330.0, 190.0)))],
+        900,
+    );
+    run(
+        "2 fighter-bombers vs 2 interceptors",
+        &[Side { name: "fighter_bomber", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n: 2, at: v2(200.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(300.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(40.0, 190.0)))],
+        600,
+    );
+    run(
+        "SAM site, 4 Firebrands fly over it",
+        &[Side { name: "sam", owner: 0, n: 1, at: v2(190.0, 190.0), yaw: e }, Side { name: "bomber", owner: 1, n: 4, at: v2(30.0, 200.0), yaw: e }],
+        &|ids| vec![(1, every(ids, "bomber"), Order::Move(v2(360.0, 200.0)))],
+        600,
+    );
+    run(
+        "SAM site, 3 interceptors circle 60 away",
+        &[Side { name: "sam", owner: 0, n: 1, at: v2(190.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n: 3, at: v2(250.0, 190.0), yaw: e }],
+        &|_| vec![],
+        900,
+    );
 }
 
 /// Loopback check of discovery, the handshake and the netplay: a host with three AIs and a client
@@ -2283,6 +2822,15 @@ fn main() {
         return selftest();
     }
     if args.iter().any(|a| a == "--combattest") {
+        if std::env::var("LR_TEST").as_deref() == Ok("infantry") {
+            return infantry_tests(&load_defs());
+        }
+        if std::env::var("LR_TEST").as_deref() == Ok("air") {
+            return air_tests(&load_defs());
+        }
+        if std::env::var("LR_TEST").as_deref() == Ok("scavenger") {
+            return scavenger_tests(&load_defs());
+        }
         return combattest();
     }
     if args.iter().any(|a| a == "--nettest") {
@@ -2317,5 +2865,6 @@ fn main() {
     .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
     longrange::settings::tolerate_render_errors(&mut app);
     longrange::settings::add_window_icon(&mut app);
+    longrange::settings::gl_window_display(&mut app);
     app.run();
 }

@@ -14,8 +14,8 @@ pub fn register(app: &mut App) {
         (
             // Inner tuples need their own chain(): the outer one only orders the groups.
             (begin_tick, census_build, crate::ai::ai_system, apply_commands, visibility, income).chain(),
-            (think, factories, build_progress, locomotion, separation, carry).chain(),
-            (weapons, projectiles, apply_reclaim, apply_capture, deaths, apply_ground, control_points, victory).chain(),
+            (think, factories, build_progress, locomotion, separation, carry, garrisons).chain(),
+            (weapons, projectiles, debris_fall, apply_reclaim, apply_capture, deaths, apply_ground, control_points, victory).chain(),
         )
             .chain(),
     );
@@ -85,7 +85,8 @@ fn census_build(
         });
     }
     wrecks.0.clear();
-    wrecks.0.extend(wq.iter().map(|w| (w.id, w.pos, w.mass, w.def)));
+    // Falling debris cannot be reclaimed, hit or hidden behind until it lands.
+    wrecks.0.extend(wq.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.def, w.piece)));
     wrecks.0.sort_by_key(|w| w.0);
 }
 
@@ -133,7 +134,7 @@ fn apply_commands(
                             *pos = map.clamp(*pos);
                         }
                         Order::Terraform { pos, radius, height } => {
-                            if !df.is_engineer() || !radius.is_finite() || !height.is_finite() {
+                            if !df.is_engineer() || !defs.rules.terraforming || !radius.is_finite() || !height.is_finite() {
                                 continue;
                             }
                             *pos = map.clamp(*pos);
@@ -170,6 +171,7 @@ fn apply_commands(
                         if let Some(mut m) = mover {
                             m.path.clear();
                             m.stuck = 0;
+                            m.cover = None;
                         }
                     }
                     if ord.0.len() >= 96 {
@@ -189,10 +191,13 @@ fn apply_commands(
             Command::Stop { ids } => {
                 for id in ids {
                     let Some(e) = owned(id) else { continue };
-                    let Ok((_, _, mut ord, factory, mover, weapons, upgrading, _)) = q.get_mut(e) else { continue };
+                    let Ok((_, b, mut ord, factory, mover, weapons, upgrading, _)) = q.get_mut(e) else { continue };
                     ord.0.clear();
                     if let Some(mut m) = mover {
                         m.path.clear();
+                        // Infantry look for cover around where they were stopped.
+                        m.anchor = b.pos;
+                        m.cover = None;
                     }
                     if let Some(mut w) = weapons {
                         w.focus = 0;
@@ -325,8 +330,10 @@ fn apply_commands(
 /// up and reaches further, sight tells what the contact is.
 #[allow(clippy::too_many_arguments)]
 fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, mut q: Query<&mut Intel>) {
-    // Trees, rocks and wrecks block sight like hills do (not radar).
+    // Trees, rocks and wrecks block sight like hills do (not radar); the rules can switch either off.
     let block = sight_block(&features, &wrecks, &defs, &map);
+    let (hills_sight, hills_radar) = (defs.rules.sight_blocked_by_terrain, defs.rules.radar_blocked_by_terrain);
+    let near2 = defs.rules.near_sight * defs.rules.near_sight;
     struct Viewer {
         pos: V2,
         eye: Vec3,
@@ -337,9 +344,18 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     }
     let mut viewers = vec![];
     for c in &census.list {
-        if !c.done || c.hosted || c.team == TEAM_NEUTRAL {
+        if !c.done || c.team == TEAM_NEUTRAL {
             continue;
         }
+        // Infantry inside a building look out from its roof; nobody sees out of a transport.
+        let top = if c.hosted {
+            match census.get(c.host).filter(|h| defs.get(h.def).is_garrison()) {
+                Some(h) => h.height,
+                None => continue,
+            }
+        } else {
+            c.height.max(1.0)
+        };
         let d = defs.get(c.def);
         let power_out = game.players.get(c.owner as usize).map_or(false, |p| p.power_out);
         let radar = if power_out || c.paused { 0.0 } else { d.radar };
@@ -348,8 +364,8 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         }
         viewers.push(Viewer {
             pos: c.pos,
-            eye: c.pos.at(c.y + c.height.max(1.0) + defs.rules.radar_los_height),
-            look: c.pos.at(c.y + c.height.max(1.0) + defs.rules.vision_los_height),
+            eye: c.pos.at(c.y + top + defs.rules.radar_los_height),
+            look: c.pos.at(c.y + top + defs.rules.vision_los_height),
             vis2: d.vision * d.vision,
             radar2: radar * radar,
             team: c.team,
@@ -367,10 +383,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             }
             let d2 = (v.pos - c.pos).len2();
             // Anything this close is seen regardless (no hiding behind the viewer's own bump).
-            if seen & bit == 0 && d2 < v.vis2 && (d2 < 36.0 || map.los_blocked(v.look, head, &block)) {
+            if seen & bit == 0 && d2 < v.vis2 && (d2 < near2 || map.sight_line(v.look, head, &block, hills_sight)) {
                 seen |= bit;
             }
-            if radar & bit == 0 && !stealth && d2 < v.radar2 && map.los(v.eye, head) {
+            if radar & bit == 0 && !stealth && d2 < v.radar2 && (!hills_radar || map.los(v.eye, head)) {
                 radar |= bit;
             }
         }
@@ -459,15 +475,27 @@ fn think(
         let mut focus = 0u32;
         let mut ground: Option<(V2, f32)> = None;
         let w0 = df.weapons.first();
+        // What the unit's guns can hit between them (a fighter-bomber has one of each).
+        let (any_land, any_air) = (df.weapons.iter().any(|w| w.hits_land), df.weapons.iter().any(|w| w.hits_air));
+        let air_range = df.weapons.iter().filter(|w| w.hits_air).map(|w| w.range).fold(0.0, f32::max);
         let reach = |target_r: f32| df.build_range().max(2.0) + target_r + df.radius();
+        // Infantry: a spot behind a tree, rock or wreck near `anchor`, re-chosen every half second.
+        let infantry = df.is_infantry() && !is_struct && !plane;
+        let mut in_cover = false;
+        let cover = |mover: &mut Option<Mut<Mover>>, anchor: Option<V2>, search: f32| -> Option<V2> {
+            let m = mover.as_mut()?;
+            let anchor = anchor.unwrap_or(m.anchor);
+            if (game.tick + id) % 5 == 0 || m.cover.map_or(false, |c| c.dist(anchor) > search + 1.0) {
+                m.cover = cover_spot(&defs, &census, &features, &wrecks, &map, &nav, id, team, df, pos, anchor, search);
+            }
+            m.cover.filter(|c| c.dist(pos) > 0.3)
+        };
 
         match orders.0.first().copied() {
             None => {
-                if plane {
-                    if let Some(w) = w0.filter(|w| w.hits_air) {
-                        if let Some(t) = census.nearest_enemy(pos, team, w.range + 45.0, 0.0, false, true) {
-                            goal = Some(t.pos);
-                        }
+                if plane && any_air {
+                    if let Some(t) = census.nearest_enemy(pos, team, air_range + 45.0, 0.0, false, true) {
+                        goal = Some(t.pos);
                     }
                 }
                 // Engineering stations pick their own work.
@@ -495,6 +523,10 @@ fn think(
                     });
                     work = best.map_or(0, |b| b.1);
                 }
+                if infantry {
+                    in_cover = true;
+                    goal = cover(&mut mover, None, defs.rules.cover_search);
+                }
             }
             Some(Order::Move(p)) => {
                 if is_struct || pos.dist(p) <= arrive {
@@ -510,7 +542,13 @@ fn think(
                 let mut engaged = false;
                 if let Some(w) = w0 {
                     if plane {
-                        if let Some(t) = census.nearest_enemy(pos, team, w.range + 45.0, 0.0, w.hits_land, w.hits_air) {
+                        // Bombers (fighter-bombers too) go for ground targets first, fighters for
+                        // aircraft; either takes the other kind when there is nothing else.
+                        let ground_first = df.weapons.iter().any(|w| w.kind == WeaponKind::Bomb);
+                        let land_t = || if any_land { census.nearest_enemy(pos, team, df.max_range() + 45.0, 0.0, true, false) } else { None };
+                        let air_t = || if any_air { census.nearest_enemy(pos, team, air_range + 45.0, 0.0, false, true) } else { None };
+                        let t = if ground_first { land_t().or_else(air_t) } else { air_t().or_else(land_t) };
+                        if let Some(t) = t {
                             goal = Some(t.pos);
                             engaged = true;
                         }
@@ -520,6 +558,10 @@ fn think(
                 }
                 if is_struct {
                     pop = true;
+                } else if engaged && infantry {
+                    // Fighting on the way: into cover close to where the fight found them.
+                    in_cover = true;
+                    goal = cover(&mut mover, Some(pos), defs.rules.cover_search * 0.6);
                 } else if !engaged {
                     if pos.dist(p) <= arrive.max(1.5) {
                         pop = true;
@@ -632,8 +674,8 @@ fn think(
                 _ => pop = true,
             },
             Some(Order::Reclaim(fid)) if is_feature(fid) => match features.get(fid) {
-                // Trees and rocks: engineers only (scavengers work on wrecks).
-                Some(f) if df.can_assist() => {
+                // Trees and rocks: engineers and scavengers.
+                Some(f) if df.can_assist() || df.is_scavenger() => {
                     let fr = defs.rules.features.get(f.def as usize).map_or(0.5, |d| d.radius());
                     if pos.dist(f.pos) > reach(fr) {
                         if is_struct {
@@ -680,7 +722,7 @@ fn think(
                 },
             },
             Some(Order::Capture(tid)) => match census.get(tid) {
-                Some(t) if df.is_engineer() && t.hp > 0.0 && t.done && !t.hosted && !t.air && t.team != team && t.known_to(team) && !defs.factions.iter().any(|f| f.commander == Some(t.def)) => {
+                Some(t) if df.is_engineer() && t.hp > 0.0 && t.done && !t.hosted && !t.air && t.team != team && t.known_to(team) && !defs.factions.iter().any(|f| f.commander == Some(t.def)) && !defs.get(t.def).is_garrison() => {
                     if pos.dist(t.pos) > reach(t.radius) {
                         goal = Some(t.pos);
                     } else {
@@ -690,7 +732,7 @@ fn think(
                 }
                 _ => pop = true,
             },
-            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid).copied() {
+            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid && w.4 <= 0.0).copied() {
                 Some(w) if df.is_scavenger() => {
                     let wd = defs.get(w.3);
                     if let Some(done) = effects.revived.iter().find(|r| r.0 == wid) {
@@ -713,7 +755,7 @@ fn think(
                 let best = wrecks
                     .0
                     .iter()
-                    .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
+                    .filter(|w| w.4 <= 0.0 && w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
                     .filter(|w| !defs.get(w.3).is_structure() || can_place(&defs, &map, &nav.occ, w.3, w.1))
                     .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
                     .copied();
@@ -733,7 +775,7 @@ fn think(
             }
             Some(Order::Terraform { pos: c, radius, height }) => {
                 let limit = defs.rules.terraform_max;
-                if !df.is_engineer() || terraform_left(&map, &terrain, &nav.occ, c, radius, height, limit) < 0.05 {
+                if !df.is_engineer() || !defs.rules.terraforming || terraform_left(&map, &terrain, &nav.occ, c, radius, height, limit) < 0.05 {
                     pop = true;
                 } else if pos.dist(c) > df.build_range().max(2.0) + radius + df.radius() {
                     goal = Some(c);
@@ -744,7 +786,9 @@ fn think(
             Some(Order::Load(tid)) => {
                 pop = true;
                 let near = |t: &Cen| pos.dist(t.pos) <= 2.5 + t.radius + df.radius();
-                if let Some(tr) = &df.transport {
+                if is_struct {
+                    // An occupiable building does not fetch anybody: infantry walk in.
+                } else if let Some(tr) = &df.transport {
                     // A transport fetching one unit.
                     if let Some(t) = census.get(tid).filter(|t| t.owner == owner && t.done && !t.hosted && t.hp > 0.0 && carriable(defs.get(t.def))) {
                         let free = room(&effects, id, tr.capacity) >= defs.get(t.def).cargo as i32 && !effects.loaded.iter().any(|l| l.0 == tid);
@@ -756,8 +800,8 @@ fn think(
                             effects.loaded.push((tid, id));
                         }
                     }
-                } else if let Some(t) = census.get(tid).filter(|t| t.team == team && t.done && !t.hosted && t.hp > 0.0 && carriable(df)) {
-                    // A unit walking up to a transport and boarding it.
+                } else if let Some(t) = census.get(tid).filter(|t| t.done && !t.hosted && t.hp > 0.0 && carriable(df) && may_board(&defs, df, t, team)) {
+                    // A unit walking up to a transport (or infantry to a building) and getting in.
                     if let Some(tr) = &defs.get(t.def).transport {
                         if room(&effects, tid, tr.capacity) >= df.cargo as i32 {
                             if near(t) {
@@ -775,7 +819,7 @@ fn think(
             }
             Some(Order::LoadArea { pos: c, radius }) => {
                 pop = true;
-                if let Some(tr) = &df.transport {
+                if let Some(tr) = df.transport.as_ref().filter(|_| !is_struct) {
                     let free = room(&effects, id, tr.capacity);
                     let mut best: Option<(f32, u32)> = None;
                     census.near(c, radius.max(1.0), |t| {
@@ -813,6 +857,20 @@ fn think(
                 let cargo: Vec<&Cen> = census.list.iter().filter(|t| t.host == id).collect();
                 if df.transport.is_none() || cargo.is_empty() {
                     pop = true;
+                } else if is_struct {
+                    // Infantry leave an occupied building on the side facing the spot and walk there.
+                    let n = cargo.len() as f32;
+                    let face = (c - pos).angle();
+                    for (k, t) in cargo.iter().enumerate() {
+                        let dest = set_down(&map, &nav, c + V2::from_angle(k as f32 * 2.4) * (radius.max(1.5) * ((k as f32 + 0.5) / n).sqrt()));
+                        let door = set_down(&map, &nav, pos + V2::from_angle(face + (k as f32 - n * 0.5) * 0.3) * (df.radius() + 1.2));
+                        commands.entity(t.e).remove::<Hosted>().insert((
+                            Body { pos: door, y: map.h(door), yaw: (dest - door).angle(), vel: v2(0.0, 0.0) },
+                            Orders(vec![Order::Move(dest)]),
+                            Mover { anchor: dest, path_goal: door, ..default() },
+                        ));
+                    }
+                    pop = true;
                 } else if pos.dist(c) > arrive.max(1.5) {
                     goal = Some(c);
                 } else {
@@ -832,14 +890,14 @@ fn think(
                 }
             }
             Some(Order::ReclaimArea { pos: c, radius }) => {
-                // The nearest wreck, tree or rock in the circle (scavengers: wrecks only).
+                // The nearest wreck, tree or rock in the circle.
                 let wreck = wrecks
                     .0
                     .iter()
                     .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0)
                     .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
                     .map(|w| (w.0, w.1, 0.5));
-                let feature = if df.can_assist() {
+                let feature = if df.can_assist() || df.is_scavenger() {
                     features.nearest(c, radius, pos).map(|(fid, fp)| (fid, fp, features.get(fid).and_then(|f| defs.rules.features.get(f.def as usize)).map_or(0.5, |d| d.radius())))
                 } else {
                     None
@@ -875,6 +933,9 @@ fn think(
         }
         if let Some(m) = mover.as_mut() {
             m.goal = goal;
+            if !in_cover {
+                m.cover = None;
+            }
         }
         if let Some(w) = weapons.as_mut() {
             w.focus = focus;
@@ -892,10 +953,127 @@ fn think(
     }
 }
 
+/// Can unit type `df` of `team` get into `t`? Transports take their own side; infantry also
+/// walk into an empty (neutral) building or one their side already holds.
+fn may_board(defs: &Defs, df: &crate::data::UnitDef, t: &Cen, team: u8) -> bool {
+    if defs.get(t.def).is_garrison() {
+        df.is_infantry() && (t.team == team || t.owner == NEUTRAL)
+    } else {
+        t.team == team
+    }
+}
+
+/// The nearest spot a land unit can stand on (off buildings and cliffs).
+fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
+    let p = map.clamp(p);
+    if nav.at(map, p) == 0 {
+        return p;
+    }
+    let (cx, cy) = map.cell_of(p);
+    nearest_free(&nav.occ, map.n, cx, cy).map_or(p, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL))
+}
+
+/// Infantry cover: where to stand so that a tree, rock or wreck is between the unit and the
+/// nearest known armed enemy; within `search` of `anchor`, not taken by another unit of the side,
+/// preferring spots close to the unit and to the anchor. None when there is no threat or no cover.
+#[allow(clippy::too_many_arguments)]
+fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckList, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, anchor: V2, search: f32) -> Option<V2> {
+    let rules = &defs.rules;
+    let mut threat: Option<(f32, V2)> = None;
+    census.near(pos, rules.cover_threat_range, |c| {
+        if c.air || c.hp <= 0.0 || !hostile(team, c.team) || !c.known_to(team) {
+            return;
+        }
+        // Infantry inside a building shoot from it.
+        if c.hosted && !census.get(c.host).map_or(false, |h| h.structure) {
+            return;
+        }
+        if !defs.get(c.def).weapons.iter().any(|w| w.hits_land) {
+            return;
+        }
+        let d = c.pos.dist(pos);
+        if threat.map_or(true, |t| d < t.0) {
+            threat = Some((d, c.pos));
+        }
+    });
+    let (_, enemy) = threat?;
+    let me = df.radius();
+    // Too low to hide behind (bushes, small stones).
+    let low = (df.height() * 0.45).max(0.7);
+    let mut best: Option<(f32, V2)> = None;
+    let mut consider = |at: V2, r: f32, h: f32| {
+        if h < low || at.dist(enemy) < r + 1.0 {
+            return;
+        }
+        let spot = at + (at - enemy).norm() * (r * 0.8 + me + 0.2);
+        if spot.dist(anchor) > search || nav.at(map, spot) != 0 {
+            return;
+        }
+        let mut taken = false;
+        census.near(spot, 2.0, |o| {
+            if o.id != id && o.team == team && !o.air && !o.hosted && o.pos.dist(spot) < me + o.radius * 0.8 {
+                taken = true;
+            }
+        });
+        if taken {
+            return;
+        }
+        let score = spot.dist(pos) + spot.dist(anchor) * 0.5;
+        if best.map_or(true, |b| score < b.0) {
+            best = Some((score, spot));
+        }
+    };
+    features.near(anchor, search + 3.0, |_, s| {
+        if rules.features.get(s.def as usize).map_or(false, |d| d.cover() > 0.05) {
+            consider(s.pos, s.radius, s.height);
+        }
+    });
+    if rules.wreck_cover > 0.05 {
+        for &(_, wp, mass, wd, piece) in &wrecks.0 {
+            // Debris too small to hide behind does not count.
+            if mass > 0.0 && wp.dist(anchor) <= search + 3.0 && (piece <= 0.0 || piece >= rules.debris.sight_size) {
+                let (r, top) = Wreck::shape(defs, wd, piece);
+                consider(wp, r, top);
+            }
+        }
+    }
+    best.map(|b| b.1)
+}
+
+/// Occupied buildings of the map belong to the side inside (they can be shot at and the side sees
+/// from them); once empty they are neutral again. Buildings of playable factions keep their owner.
+fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q: Query<(&mut Unit, &mut Orders), With<Structure>>) {
+    // Host -> owner of its lowest-id rider (the census is in id order).
+    let mut inside: BTreeMap<u32, u8> = BTreeMap::new();
+    for c in &census.list {
+        if c.hosted && c.done && c.hp > 0.0 {
+            inside.entry(c.host).or_insert(c.owner);
+        }
+    }
+    for (rider, host) in &effects.loaded {
+        if let Some(r) = census.get(*rider) {
+            inside.entry(*host).or_insert(r.owner);
+        }
+    }
+    for c in &census.list {
+        let d = defs.get(c.def);
+        if !d.is_garrison() || c.hp <= 0.0 || c.owner == HOSTILE || defs.factions.get(d.faction as usize).map_or(true, |f| f.playable) {
+            continue;
+        }
+        let want = inside.get(&c.id).copied().unwrap_or(NEUTRAL);
+        if want != c.owner {
+            if let Ok((mut u, mut o)) = q.get_mut(c.e) {
+                u.owner = want;
+                o.0.clear();
+            }
+        }
+    }
+}
+
 /// Turns a wreck into a construction site of `owner` that already holds the wreck's mass;
 /// finishing it costs the rest, like any building work. Returns the new unit's id.
 #[allow(clippy::too_many_arguments)]
-fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId), owner: u8) -> u32 {
+fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId, f32), owner: u8) -> u32 {
     let wd = defs.get(w.3);
     let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
     let sid = spawn_unit_built(commands, defs, game, map, w.3, owner, w.1, PI * 0.5, Some(built), 0);
@@ -932,7 +1110,16 @@ fn factories(
                             exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                         }
                     }
-                    let rally = f.rally.unwrap_or(exit + v2(0.0, 6.0));
+                    let mut rally = f.rally.unwrap_or(exit + v2(0.0, 6.0));
+                    // The default rally point can fall on a building next to the factory (an
+                    // extractor): units then pushed against it forever and the AI never gave
+                    // them new orders. Move it to the nearest free cell like the exit.
+                    if f.rally.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
+                        let (cx, cy) = map.cell_of(rally);
+                        if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                            rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                        }
+                    }
                     let pos = if pd.is_air() { body.pos } else { exit };
                     commands.entity(p.e).remove::<Hosted>().insert((
                         Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: PI * 0.5, vel: v2(0.0, 0.0) },
@@ -1117,8 +1304,14 @@ fn locomotion(
                     desired = (g - body.pos).angle();
                     let off = wrap(desired - body.yaw).abs();
                     let turn_radius = mv.speed / turn.max(0.1);
-                    if body.pos.dist(g) < turn_radius * 1.1 && off > 1.0 {
-                        m.extend = 2.5;
+                    // Bombers need a straight run-in at least as long as their bombs carry
+                    // forward: with the target behind them they fly on until there is room.
+                    let throw = if df.weapons.iter().any(|w| w.kind == WeaponKind::Bomb) { mv.speed * (2.0 * mv.altitude.max(1.0) / defs.rules.gravity).sqrt() } else { 0.0 };
+                    if throw > 0.0 && off > 1.0 && body.pos.dist(g) < throw + turn_radius * 0.6 {
+                        desired = body.yaw;
+                    } else if body.pos.dist(g) < turn_radius * 1.1 && off > 1.0 {
+                        // Too close to turn onto it: fly out and come back round.
+                        m.extend = 2.0 / turn.max(0.1);
                         desired = body.yaw;
                     }
                 } else if body.pos.dist(m.anchor) > mv.speed / turn.max(0.1) * 1.5 {
@@ -1370,7 +1563,7 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
             // Mortars and howitzers pick a charge for a steep (about 65 degree) arc instead of
             // always lobbing at full power, which would keep shells in the air for ages.
             WeaponKind::HighArc => ballistic(d, to.y, (g * d / 0.766).sqrt().clamp(8.0, w.speed * 1.5), g, true, true).unwrap(),
-            WeaponKind::Missile => (0.35, d / w.speed.max(1.0), w.speed),
+            WeaponKind::Missile => (if w.launch_pitch > 0.0 { w.launch_pitch.to_radians() } else { 0.35 }, d / w.speed.max(1.0), w.speed),
             WeaponKind::Bomb => (0.0, 0.0, 0.0),
         };
         best = Solution { yaw, pitch, speed, point };
@@ -1387,7 +1580,7 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn weapons(
-    mut q: Query<(&Unit, &Body, &mut Weapons, Option<&mut Mover>), (Without<UnderConstruction>, Without<Hosted>)>,
+    mut q: Query<(&Unit, &Body, &mut Weapons, Option<&mut Mover>, Option<&Hosted>), Without<UnderConstruction>>,
     census: Res<Census>,
     defs: Res<Defs>,
     map: Res<MapData>,
@@ -1398,21 +1591,32 @@ fn weapons(
 ) {
     let g = defs.rules.gravity;
     let tick = game.tick;
-    for (u, body, mut ws, mut mover) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         let team = game.team_of(u.owner);
-        let origin = body.pos.at(body.y + df.height() * 0.8);
+        let mut origin = body.pos.at(body.y + df.height() * 0.8);
+        if let Some(h) = hosted {
+            // Only infantry inside a building fire (from its windows and roof); transport riders do not.
+            let Some(host) = census.get(h.0).filter(|c| c.done && defs.get(c.def).is_garrison()) else { continue };
+            let spot = host.pos + V2::from_angle(u.id as f32 * 2.4) * (host.radius * 0.45);
+            origin = spot.at(host.y + host.height * 0.85 + 0.2);
+        }
         let plane = df.is_plane();
         let (focus, ground) = (ws.focus, ws.ground);
         for (wi, w) in df.weapons.iter().enumerate() {
             let Some(st) = ws.list.get_mut(wi) else { continue };
             st.cd = (st.cd - DT).max(0.0);
             let fixed = w.turret.is_none();
+            let bomb = w.kind == WeaponKind::Bomb;
+            // Bombs carry forward as far as the bomber flies while they fall, so a bomber has to
+            // pick its target up well before it is overhead, whatever the JSON range says.
+            let reach = if bomb { w.range.max(df.mv.speed * (2.0 * df.mv.altitude.max(1.0) / g).sqrt() + 12.0) } else { w.range };
+            let drop = |tp: Vec3, tv: V2| bomb_drop(w, body, df.mv.speed, tp, tv, g);
 
             // --- target selection
             let in_envelope = |c: &Cen| -> bool {
                 let d = c.pos.dist(body.pos);
-                d <= w.range && d >= w.min_range && c.hp > 0.0 && !c.hosted && if c.air { w.hits_air } else { w.hits_land }
+                d <= reach && d >= w.min_range && c.hp > 0.0 && !c.hosted && if c.air { w.hits_air } else { w.hits_land }
             };
             let mut target: Option<&Cen> = None;
             let mut gpoint: Option<Vec3> = None;
@@ -1436,7 +1640,24 @@ fn weapons(
                         target = Some(c);
                     }
                 }
-                if target.is_none() && (st.target != 0 || (tick + u.id) % 3 == 0) {
+                if bomb && census.get(focus).is_none() {
+                    // Without an attack order a bomber drops on whatever it is lined up with:
+                    // the target ahead whose stick would land closest.
+                    let mut best = (f32::MAX, 0u32);
+                    census.near(body.pos, reach, |c| {
+                        if !census.valid_target(c, team, w.hits_land, w.hits_air) {
+                            return;
+                        }
+                        let d = drop(c.center(), c.vel);
+                        if d.along > -d.tol {
+                            let score = d.cross.abs() * 3.0 + d.along.max(0.0);
+                            if score < best.0 {
+                                best = (score, c.id);
+                            }
+                        }
+                    });
+                    target = census.get(best.1);
+                } else if target.is_none() && (st.target != 0 || (tick + u.id) % 3 == 0) {
                     target = census.nearest_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air);
                 }
             }
@@ -1466,21 +1687,22 @@ fn weapons(
                 continue;
             };
 
-            // --- bombs: release when the fall will carry them onto the target
-            if w.kind == WeaponKind::Bomb {
+            // --- bombs: release when the fall will carry the middle of the stick onto the target
+            // (SupCom style: the bomber runs over the target, the bombs are nudged onto it,
+            // the bomber flies on and comes round for the next pass)
+            if bomb {
                 st.yaw = body.yaw;
-                let fall = (2.0 * (body.y - tp.y).max(0.5) / g).sqrt();
-                let speed = body.vel.len();
-                let aim = flat(tp) + tv * fall;
-                let to = aim - body.pos;
-                let off = wrap(to.angle() - body.yaw).abs();
-                if st.cd <= 0.0 && st.burst == 0 && off < 0.25 && (to.len() - speed * fall).abs() < speed * DT + 1.0 + w.salvo as f32 * 0.5 {
+                let d = drop(tp, tv);
+                if st.cd <= 0.0 && st.burst == 0 && d.along <= d.speed * DT * 0.5 && d.along > -d.tol && d.cross.abs() < d.tol {
                     st.cd = w.reload;
                     st.burst = w.salvo.saturating_sub(1);
                     st.burst_cd = w.salvo_delay;
+                    let fix = d.miss * (1.0 / d.fall.max(0.3));
+                    st.fix = if fix.len() > 6.0 { fix.norm() * 6.0 } else { fix };
                     fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st);
                     if let Some(m) = mover.as_mut() {
-                        m.extend = 3.5;
+                        // Fly on past the target before turning, so the next run starts lined up.
+                        m.extend = m.extend.max(2.5 / df.mv.turn.to_radians().max(0.1) + d.half);
                     }
                 }
                 continue;
@@ -1524,11 +1746,40 @@ fn weapons(
     }
 }
 
+/// Where a bomb stick released now would land, relative to the target.
+struct Drop {
+    /// Target point minus the impact point of the stick's middle bomb.
+    miss: V2,
+    /// `miss` along the flight path (positive = the target is still ahead of the impact) and across it.
+    along: f32,
+    cross: f32,
+    /// Seconds a bomb falls, half the time the stick takes to drop, the bomber's speed.
+    fall: f32,
+    half: f32,
+    speed: f32,
+    /// How far off the bombs may be pushed onto the target.
+    tol: f32,
+}
+
+fn bomb_drop(w: &WeaponDef, body: &Body, cruise: f32, tp: Vec3, tv: V2, g: f32) -> Drop {
+    let vel = if body.vel.len() > 0.5 { body.vel } else { V2::from_angle(body.yaw) * cruise };
+    let speed = vel.len().max(0.1);
+    let dir = vel * (1.0 / speed);
+    let half = (w.salvo.max(1) - 1) as f32 * 0.5 * w.salvo_delay;
+    // Fall time under the tick integration (velocity first, then position).
+    let h = (body.y - 0.3 - tp.y).max(0.3);
+    let fall = (2.0 * h / g + DT * DT * 0.25).sqrt() - DT * 0.5;
+    let aim = flat(tp) + tv * (half + fall);
+    let impact = body.pos + vel * (half + fall);
+    let miss = aim - impact;
+    Drop { miss, along: miss.dot(dir), cross: miss.dot(dir.perp()), fall, half, speed, tol: 3.5 + w.radius * 0.5 }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &WeaponState) {
     let spread = w.spread.to_radians();
     let (vel, kind, pos) = match w.kind {
-        WeaponKind::Bomb => (body.vel.at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
+        WeaponKind::Bomb => ((body.vel + st.fix).at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
         WeaponKind::Missile => {
             let d = dir_from(st.yaw, st.pitch.max(0.3));
             (d * w.speed, PROJ_MISSILE, origin + d * 0.5)
@@ -1567,6 +1818,7 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
         turn: w.turn_rate,
         hits_land: w.hits_land,
         hits_air: w.hits_air,
+        from: flat(origin),
     };
     spawn_projectile(commands, shot);
 }
@@ -1597,7 +1849,9 @@ fn projectiles(
         if p.kind == PROJ_MISSILE {
             let speed = vel.length().max(1.0);
             if let Some(t) = census.get(p.target).filter(|t| t.hp > 0.0) {
-                let want = (t.center() - a).normalize_or_zero();
+                // Lead pursuit: steer for where the target will be when the missile gets there.
+                let tgo = (t.center() - a).length() / speed;
+                let want = (t.center() + t.vel.at(0.0) * tgo - a).normalize_or_zero();
                 let cur = vel / speed;
                 let ang = fm::acos(cur.dot(want).clamp(-1.0, 1.0));
                 let max = p.turn.to_radians() * DT;
@@ -1650,6 +1904,8 @@ fn projectiles(
                 _ => {}
             }
         }
+        // Cover: trees, rocks and wrecks the shot flies through on the way soak up part of it.
+        soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
         let w = map.world();
         let Some((at, victim)) = hit else {
             if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > w + 20.0 || b.z > w + 20.0 {
@@ -1667,7 +1923,7 @@ fn projectiles(
         fx.push(at, FX_BLAST, p.radius.max(0.25 + p.damage.sqrt() * 0.05));
         // Shells that land on the ground leave a hole.
         let rules = &defs.rules;
-        if rules.crater_scale > 0.0 && p.damage >= rules.crater_min_damage && (victim == 0 || p.radius > 0.0) && at.y - map.height(at.x, at.z) < 1.5 && at.y > map.water - 0.5 {
+        if rules.craters_on() && p.damage >= rules.crater_min_damage && (victim == 0 || p.radius > 0.0) && at.y - map.height(at.x, at.z) < 1.5 && at.y > map.water - 0.5 {
             let depth = rules.crater_scale * p.damage.sqrt() * if p.radius > 0.0 { 1.0 } else { 0.5 };
             effects.craters.push((flat(at), p.radius * 0.5, depth));
         }
@@ -1694,6 +1950,72 @@ fn projectiles(
     damage_wrecks(&wreck_hits, &mut wq, &defs, &mut fx, &mut commands);
 }
 
+/// A shot flying from `a` to `b` this tick passes trees, rocks and wrecks: each one whose axis it
+/// passes closest to within this stretch (so every one counts once over the flight) and that it
+/// goes through takes its `cover` share of the shot's damage, which the shot loses. Cover within
+/// `rules.cover_grace` of the shooter is left out. `end`: the shot stops at `b` (hits something).
+#[allow(clippy::too_many_arguments)]
+fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, wreck_hits: &mut Vec<(u32, f32)>) {
+    let rules = &defs.rules;
+    let seg = b - a;
+    let seg2 = Vec2::new(seg.x, seg.z);
+    let len2 = seg2.length_squared();
+    if p.damage <= 0.0 || len2 < 1e-6 {
+        return;
+    }
+    // (position along the stretch, feature index or wreck id, is a feature, cover share)
+    let mut cross: Vec<(f32, u32, bool, f32)> = vec![];
+    let through = |pos: V2, r: f32, top: f32| -> Option<f32> {
+        if pos.dist(p.from) - r < rules.cover_grace {
+            return None;
+        }
+        let t = Vec2::new(pos.x - a.x, pos.y - a.z).dot(seg2) / len2;
+        if t < 0.0 || if end { t > 1.0 } else { t >= 1.0 } {
+            return None;
+        }
+        let at = a + seg * t;
+        let ground = map.h(pos);
+        (Vec2::new(at.x - pos.x, at.z - pos.y).length() < r && at.y > ground - 0.3 && at.y < ground + top + 0.2).then_some(t)
+    };
+    features.near(flat((a + b) * 0.5), seg2.length() * 0.5 + 4.0, |i, s| {
+        let cover = rules.features.get(s.def as usize).map_or(0.0, |d| d.cover());
+        if cover > 0.0 {
+            if let Some(t) = through(s.pos, s.radius, s.height) {
+                cross.push((t, i as u32, true, cover));
+            }
+        }
+    });
+    if rules.wreck_cover > 0.0 {
+        let (lo, hi) = (flat(a), flat(b));
+        let (x0, x1, z0, z1) = (lo.x.min(hi.x) - 4.0, lo.x.max(hi.x) + 4.0, lo.y.min(hi.y) - 4.0, lo.y.max(hi.y) + 4.0);
+        for &(id, pos, mass, def, piece) in &wrecks.0 {
+            if mass <= 0.0 || pos.x < x0 || pos.x > x1 || pos.y < z0 || pos.y > z1 {
+                continue;
+            }
+            let (r, top) = Wreck::shape(defs, def, piece);
+            if let Some(t) = through(pos, r, top) {
+                cross.push((t, id, false, rules.wreck_cover));
+            }
+        }
+    }
+    if cross.is_empty() {
+        return;
+    }
+    cross.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.2.cmp(&y.2)).then(x.1.cmp(&y.1)));
+    for (_, key, is_feature, cover) in cross {
+        let soak = p.damage * cover.clamp(0.0, 1.0);
+        p.damage -= soak;
+        if is_feature {
+            if let Some(f) = features.list.get(key as usize).copied() {
+                features.set_left(key as usize, f.left - soak / f.hp);
+            }
+        } else if let Some(w) = wrecks.0.iter().find(|w| w.0 == key) {
+            let d = defs.get(w.3);
+            wreck_hits.push((key, soak * defs.armor_mult(p.dtype as usize, d.armor_id)));
+        }
+    }
+}
+
 /// Weapon damage to the reclaimables around an impact at `at`: a shell (`radius` 0) hurts what it
 /// lands on, a blast everything within its radius, with the same fall-off as for units. A tree or
 /// rock loses the share of its worth that the damage is of its hit points (changed at once); hits
@@ -1717,15 +2039,16 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
     for (i, left) in hit {
         features.set_left(i, left);
     }
-    for &(id, pos, mass, def) in &wrecks.0 {
+    for &(id, pos, mass, def, piece) in &wrecks.0 {
         let d = defs.get(def);
-        let horiz = (pos.dist(centre) - d.radius() * 0.7).max(0.0);
+        let (r, h) = Wreck::shape(defs, def, piece);
+        let horiz = (pos.dist(centre) - r).max(0.0);
         if mass <= 0.0 || horiz >= reach {
             continue;
         }
         let ground = map.h(pos);
         // (As high as it blocks sight, see `sight_block`.)
-        let top = ground + d.height() * if d.is_structure() { 0.35 } else { 0.8 };
+        let top = ground + h;
         if let Some(dmg) = hurt(horiz, ground, top) {
             wreck_hits.push((id, dmg * defs.armor_mult(dtype, d.armor_id)));
         }
@@ -1753,7 +2076,8 @@ fn damage_wrecks(hits: &[(u32, f32)], q: &mut Query<(Entity, &mut Wreck)>, defs:
         w.mass -= dmg * per_hp;
         if w.mass <= 0.01 {
             w.mass = 0.0;
-            fx.push(w.pos.at(w.y + d.height() * 0.3), FX_BLAST, d.radius() * 0.8 + 0.3);
+            let (r, h) = Wreck::shape(defs, w.def, w.piece);
+            fx.push(w.pos.at(w.y + h * 0.8), FX_BLAST, r * 1.1 + 0.3);
             commands.entity(e).despawn();
             gone.push(e);
         }
@@ -1764,7 +2088,7 @@ fn damage_wrecks(hits: &[(u32, f32)], q: &mut Query<(Entity, &mut Wreck)>, defs:
 #[allow(clippy::too_many_arguments)]
 fn apply_reclaim(
     mut q: Query<(Entity, &mut Wreck)>,
-    mut units: Query<(&Unit, &mut Health)>,
+    mut units: Query<(&Unit, &mut Health, Option<&Shed>)>,
     census: Res<Census>,
     defs: Res<Defs>,
     mut effects: ResMut<Effects>,
@@ -1787,12 +2111,14 @@ fn apply_reclaim(
     // Standing buildings: every hit point taken is worth its share of the wreck value.
     let unit_jobs: Vec<(u32, f32, u8)> = effects.reclaim_unit.drain(..).collect();
     for (id, amount, player) in unit_jobs {
-        let Some((u, mut h)) = census.get(id).and_then(|c| units.get_mut(c.e).ok()) else { continue };
+        let Some((u, mut h, shed)) = census.get(id).and_then(|c| units.get_mut(c.e).ok()) else { continue };
         if h.0 <= 0.0 {
             continue;
         }
         let d = defs.get(u.def);
-        let per_hp = (d.cost.mass * defs.rules.wreck_mass_fraction / d.hp.max(1.0)).max(1e-4);
+        // What it already dropped as debris is not in it any more.
+        let worth = (d.cost.mass * defs.rules.wreck_mass_fraction - shed.map_or(0.0, |s| s.0)).max(0.0);
+        let per_hp = (worth / d.hp.max(1.0)).max(1e-4);
         let hp = (amount / per_hp).min(h.0);
         h.0 -= hp;
         if let Some(p) = game.players.get_mut(player as usize) {
@@ -1888,7 +2214,7 @@ fn apply_capture(
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn deaths(
-    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>)>,
+    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>, Option<&Shed>)>,
     mut wrecks: Query<(Entity, &mut Wreck)>,
     (mut features, wreck_list): (ResMut<Features>, Res<WreckList>),
     census: Res<Census>,
@@ -1898,28 +2224,59 @@ fn deaths(
     mut effects: ResMut<Effects>,
     mut nav: ResMut<Nav>,
     mut fx: ResMut<FxLog>,
+    mut rng: ResMut<SimRng>,
     mut commands: Commands,
 ) {
+    let dr = &defs.rules.debris;
+    let drops = dr.enabled && defs.rules.wrecks;
+    // Mass buildings dropped as debris this tick, on top of their `Shed`: (unit id, entity, mass).
+    let mut shed_now: Vec<(u32, Entity, f32)> = vec![];
+    let mut new_pieces = 0;
     for (id, dmg, dtype) in effects.damage.drain(..) {
-        if let Some(c) = census.get(id) {
-            if let Ok((_, u, _, mut h, _, _)) = q.get_mut(c.e) {
-                h.0 -= dmg * defs.armor_mult(dtype, defs.get(u.def).armor_id);
+        let Some(c) = census.get(id) else { continue };
+        let Ok((e, u, b, mut h, uc, hosted, shed)) = q.get_mut(c.e) else { continue };
+        let d = defs.get(u.def);
+        let real = dmg * defs.armor_mult(dtype, d.armor_id);
+        let standing = h.0 > 0.0;
+        h.0 -= real;
+        // A hard hit on a finished building breaks pieces off it: their mass leaves its wreck value.
+        if drops && standing && uc.is_none() && hosted.is_none() && d.is_structure() && d.wreck && !d.is_air() && real >= dr.min_hit * d.hp {
+            let value = d.cost.mass * defs.rules.wreck_mass_fraction;
+            let done = shed.map_or(0.0, |s| s.0) + shed_now.iter().filter(|s| s.0 == id).map(|s| s.2).sum::<f32>();
+            let share = (real / d.hp.max(1.0)).min(1.0);
+            let mass = (share * value * dr.hit_share).min(value * dr.max_shed - done);
+            let n = ((mass / dr.min_mass.max(0.01)) as u32).min(dr.hit_pieces.max(1)).min(1 + (share / 0.04) as u32);
+            if n > 0 {
+                new_pieces += drop_debris(&mut commands, &mut game, &mut rng.0, d, u.def, b, mass, n, false);
+                match shed_now.iter_mut().find(|s| s.0 == id) {
+                    Some(s) => s.2 += mass,
+                    None => shed_now.push((id, e, mass)),
+                }
             }
         }
+    }
+    // (Queued before the despawns below: a building destroyed this tick gets it first, harmlessly.)
+    for &(_, e, mass) in &shed_now {
+        let old = q.get(e).ok().and_then(|x| x.6.copied()).map_or(0.0, |s| s.0);
+        commands.entity(e).insert(Shed(old + mass));
     }
     let tick = game.tick;
     let mut blasts: Vec<(V2, f32, f32, f32, u8)> = vec![];
     let mut new_wrecks = 0;
     let reclaimed = std::mem::take(&mut effects.reclaimed);
-    for (e, u, b, mut h, uc, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, mut h, uc, hosted, shed) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         let player_dead = game.players.get(u.owner as usize).map_or(false, |p| !p.alive);
         if player_dead && (u.id + tick) % 6 == 0 {
             h.0 = -1.0;
         }
         if let Some(host) = hosted {
+            // Riders die with their transport (a commander inside takes its side with it).
             if census.get(host.0).is_none() {
                 commands.entity(e).despawn();
+                if game.players.get(u.owner as usize).map_or(false, |p| defs.factions[p.faction as usize].commander == Some(u.def)) {
+                    game.players[u.owner as usize].alive = false;
+                }
             }
             continue;
         }
@@ -1930,6 +2287,17 @@ fn deaths(
         if d.is_structure() {
             nav.dirty = true;
         }
+        if d.is_garrison() {
+            // Infantry inside are thrown out of the ruin, hurt (unless it was taken apart quietly).
+            let inside: Vec<&Cen> = census.list.iter().filter(|r| r.host == u.id && r.done).collect();
+            for (k, r) in inside.iter().enumerate() {
+                let p = set_down(&map, &nav, b.pos + V2::from_angle(k as f32 * 2.4 + u.id as f32) * (d.radius() + 1.0));
+                commands.entity(r.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: (p - b.pos).angle(), vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));
+                if !reclaimed.contains(&u.id) {
+                    effects.damage.push((r.id, r.max_hp * defs.rules.garrison_eject_damage, 0));
+                }
+            }
+        }
         // Taken apart by an engineer: nothing is left, and nothing blows up.
         if reclaimed.contains(&u.id) {
             continue;
@@ -1938,9 +2306,9 @@ fn deaths(
         // A wreck holds a share of the mass that actually went into the unit.
         let invested = d.cost.mass * uc.map_or(1.0, |x| x.0.clamp(0.0, 1.0));
         if uc.is_some() {
-            if d.wreck && !d.is_air() && invested * defs.rules.wreck_mass_fraction >= 5.0 {
+            if d.wreck && defs.rules.wrecks && !d.is_air() && invested * defs.rules.wreck_mass_fraction >= 5.0 {
                 let id = game.alloc();
-                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw });
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw, ..default() });
                 new_wrecks += 1;
             }
             continue;
@@ -1952,10 +2320,23 @@ fn deaths(
         let is_commander = game.players.get(u.owner as usize).map_or(false, |p| defs.factions[p.faction as usize].commander == Some(u.def));
         if is_commander {
             game.players[u.owner as usize].alive = false;
-        } else if d.wreck && !d.is_air() && d.cost.mass * defs.rules.wreck_mass_fraction >= 5.0 {
-            let id = game.alloc();
-            spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: d.cost.mass * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw });
-            new_wrecks += 1;
+        } else if d.wreck && defs.rules.wrecks && !d.is_air() {
+            // What its debris already took is not in the wreck; a destroyed building spills more around it.
+            let shed = shed.map_or(0.0, |s| s.0) + shed_now.iter().filter(|s| s.0 == u.id).map(|s| s.2).sum::<f32>();
+            let mut mass = (d.cost.mass * defs.rules.wreck_mass_fraction - shed).max(0.0);
+            if drops && d.is_structure() {
+                let burst = mass * dr.death_share;
+                let n = ((burst / dr.min_mass.max(0.01)) as u32).min(dr.death_pieces);
+                if n > 0 {
+                    new_pieces += drop_debris(&mut commands, &mut game, &mut rng.0, d, u.def, b, burst, n, true);
+                    mass -= burst;
+                }
+            }
+            if mass >= 5.0 {
+                let id = game.alloc();
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass, pos: b.pos, y: b.y, yaw: b.yaw, ..default() });
+                new_wrecks += 1;
+            }
         }
     }
     let mut wreck_hits: Vec<(u32, f32)> = vec![];
@@ -1963,7 +2344,7 @@ fn deaths(
     for (pos, y, damage, radius, owner) in blasts {
         hurt_reclaimables(pos.at(y + 0.5), radius, damage, blast_type, &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
         let team = game.team_of(owner);
-        if defs.rules.crater_scale > 0.0 && y - map.h(pos) < 3.0 {
+        if defs.rules.craters_on() && y - map.h(pos) < 3.0 {
             effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
         }
         census.near(pos, radius + 4.0, |c| {
@@ -1975,13 +2356,90 @@ fn deaths(
         });
     }
     let gone = damage_wrecks(&wreck_hits, &mut wrecks, &defs, &mut fx, &mut commands);
-    // Keep the wreck count bounded: drop the oldest.
-    let total = wrecks.iter().count() - gone.len() + new_wrecks;
-    if total > defs.rules.max_wrecks {
-        let mut all: Vec<(u32, Entity)> = wrecks.iter().filter(|(e, _)| !gone.contains(e)).map(|(e, w)| (w.id, e)).collect();
-        all.sort();
-        for (_, e) in all.into_iter().take(total - defs.rules.max_wrecks) {
-            commands.entity(e).despawn();
+    // Keep the number of wrecks and of pieces of debris bounded (each on its own): drop the oldest.
+    let (mut whole, mut pieces) = (new_wrecks, new_pieces);
+    for (e, w) in &wrecks {
+        if !gone.contains(&e) {
+            if w.piece > 0.0 {
+                pieces += 1;
+            } else {
+                whole += 1;
+            }
+        }
+    }
+    if whole > defs.rules.max_wrecks || pieces > dr.max {
+        let mut all: Vec<(u32, Entity, bool)> = wrecks.iter().filter(|(e, _)| !gone.contains(e)).map(|(e, w)| (w.id, e, w.piece > 0.0)).collect();
+        all.sort_by_key(|x| x.0);
+        let (mut cut_whole, mut cut_pieces) = (whole.saturating_sub(defs.rules.max_wrecks), pieces.saturating_sub(dr.max));
+        for (_, e, piece) in all {
+            let cut = if piece { &mut cut_pieces } else { &mut cut_whole };
+            if *cut > 0 {
+                *cut -= 1;
+                commands.entity(e).despawn();
+            }
+        }
+    }
+}
+
+/// Drops `n` pieces of debris holding `mass` in all from building `d` standing at `b`: off its
+/// walls, falling close by (a hard hit), or spilling out all round (`burst`: it was destroyed).
+/// They fall in `debris_fall`. Returns how many it made.
+#[allow(clippy::too_many_arguments)]
+fn drop_debris(commands: &mut Commands, game: &mut Game, rng: &mut Rng, d: &crate::data::UnitDef, def: DefId, b: &Body, mass: f32, n: u32, burst: bool) -> usize {
+    let weights: Vec<f32> = (0..n).map(|_| rng.range(0.6, 1.4)).collect();
+    let sum: f32 = weights.iter().sum::<f32>().max(1e-3);
+    let (r, h) = (d.radius(), d.height());
+    for w in weights {
+        let m = mass * w / sum;
+        let dir = V2::from_angle(rng.range(-PI, PI));
+        // From the wall of the (square, unrotated) footprint in that direction.
+        let edge = r / dir.x.abs().max(dir.y.abs()).max(0.5);
+        let start = b.pos + dir * (edge * rng.range(0.85, 1.0));
+        let y = b.y + h * if burst { rng.range(0.3, 0.8) } else { rng.range(0.5, 0.95) };
+        // A hit: pieces break off and drop almost straight down. Destroyed: they spill out further.
+        let (out, up) = if burst { (rng.range(1.0, 2.6), rng.range(0.6, 1.8)) } else { (rng.range(0.3, 1.1), rng.range(0.0, 0.6)) };
+        let id = game.alloc();
+        let yaw = rng.range(-PI, PI);
+        // Bigger for heavier pieces and bigger buildings.
+        let piece = (0.2 + 0.1 * m.sqrt() + 0.07 * r).min(2.5);
+        spawn_wreck(commands, Wreck { id, def, mass: m, pos: start, y, yaw, piece, falling: true, vel: Vec3::new(dir.x * out, up, dir.y * out).into() });
+    }
+    n as usize
+}
+
+/// Falling debris: gravity until it reaches the ground, where it hurts the units it lands on and
+/// then lies as a reclaimable piece.
+fn debris_fall(mut q: Query<&mut Wreck>, census: Res<Census>, defs: Res<Defs>, map: Res<MapData>, mut effects: ResMut<Effects>, mut fx: ResMut<FxLog>) {
+    let g = defs.rules.gravity;
+    let dr = &defs.rules.debris;
+    for mut w in q.iter_mut().sort_by_key::<&Wreck, _>(|w| w.id) {
+        if !w.falling {
+            continue;
+        }
+        let mut v = w.vel.v();
+        v.y -= g * DT;
+        let pos = map.clamp(w.pos + v2(v.x * DT, v.z * DT));
+        let y = w.y + v.y * DT;
+        let ground = map.h(pos);
+        w.pos = pos;
+        if y > ground {
+            w.y = y;
+            w.vel = v.into();
+            continue;
+        }
+        w.y = ground;
+        w.falling = false;
+        w.vel = V3::default();
+        fx.push(pos.at(ground + 0.1), FX_DEBRIS, w.piece);
+        let dmg = (w.mass * dr.land_damage).min(dr.land_damage_max);
+        if dmg > 0.0 {
+            // Units only: a piece landing next to a building falls past its walls.
+            let r = w.piece * 0.5;
+            census.near(pos, r + 6.0, |c| {
+                if c.hp > 0.0 && !c.hosted && !c.air && !c.structure && c.pos.dist(pos) < c.radius + r {
+                    effects.damage.push((c.id, dmg, 0));
+                }
+            });
         }
     }
 }

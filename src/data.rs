@@ -45,6 +45,9 @@ fn one_u8() -> u8 {
 fn yes() -> bool {
     true
 }
+fn near_sight() -> f32 {
+    6.0
+}
 fn crater_scale() -> f32 {
     0.025
 }
@@ -78,6 +81,57 @@ fn cp_bleed() -> f32 {
 fn reclaim_energy_factor() -> f32 {
     5.0
 }
+fn wreck_cover() -> f32 {
+    0.5
+}
+fn cover_grace() -> f32 {
+    2.5
+}
+fn cover_search() -> f32 {
+    10.0
+}
+fn cover_threat_range() -> f32 {
+    100.0
+}
+fn garrison_eject_damage() -> f32 {
+    0.4
+}
+/// Debris: pieces that break off buildings. Their mass comes out of the building's wreck value
+/// (`wreck_mass_fraction` of its cost), so damaging and repairing a building makes no mass.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DebrisRules {
+    /// Off: buildings drop nothing.
+    pub enabled: bool,
+    /// A single hit doing at least this share of a finished building's hit points breaks pieces off.
+    pub min_hit: f32,
+    /// Such a hit drops this share of the wreck value the damage stands for (damage / hp x value).
+    pub hit_share: f32,
+    /// Hits drop at most this share of the wreck value in all; the rest stays for the wreck.
+    pub max_shed: f32,
+    /// A destroyed building drops this share of the wreck value it has left around its wreck.
+    pub death_share: f32,
+    /// Pieces a destroyed building drops (fewer for small ones: see `min_mass`).
+    pub death_pieces: u32,
+    /// Most pieces one hit breaks off.
+    pub hit_pieces: u32,
+    /// No piece holds less mass than this.
+    pub min_mass: f32,
+    /// At most this many pieces lie around; the oldest go first.
+    pub max: usize,
+    /// A falling piece hurts units it lands on: this much damage per mass, at most `land_damage_max`.
+    pub land_damage: f32,
+    pub land_damage_max: f32,
+    /// Pieces at least this big block sight like wrecks.
+    pub sight_size: f32,
+}
+
+impl Default for DebrisRules {
+    fn default() -> Self {
+        DebrisRules { enabled: true, min_hit: 0.08, hit_share: 0.5, max_shed: 0.5, death_share: 0.3, death_pieces: 6, hit_pieces: 4, min_mass: 1.5, max: 300, land_damage: 2.0, land_damage_max: 40.0, sight_size: 0.9 }
+    }
+}
+
 fn wreck_hp() -> f32 {
     0.5
 }
@@ -136,6 +190,10 @@ pub struct FeatureDef {
     /// Weapon damage that destroys it; 0 = a default for its shape and size (see `max_hp`).
     #[serde(default)]
     pub hp: f32,
+    /// Share of a shot's damage it soaks up when the shot passes through it (cover);
+    /// leave it out for a default by shape (see `cover`).
+    #[serde(default)]
+    pub cover: Option<f32>,
 }
 
 impl FeatureDef {
@@ -172,6 +230,17 @@ impl FeatureDef {
                 FeatureShape::Rock => 400.0,
             }
     }
+    /// Share of the damage of a shot passing through that it takes instead of what is behind it.
+    pub fn cover(&self) -> f32 {
+        self.cover
+            .unwrap_or(match self.shape {
+                FeatureShape::Pine => 0.3,
+                FeatureShape::Broadleaf => 0.35,
+                FeatureShape::Bush => 0.15,
+                FeatureShape::Rock => 0.65,
+            })
+            .clamp(0.0, 1.0)
+    }
     /// Reclaim work in mass units (energy comes `reclaim_energy_factor` times faster than mass).
     pub fn work(&self, rules: &Rules) -> f32 {
         self.mass + self.energy / rules.reclaim_energy_factor.max(0.01)
@@ -194,6 +263,9 @@ pub struct Rules {
     /// A wreck's hit points as a share of the unit's (weapons wear wrecks down).
     #[serde(default = "wreck_hp")]
     pub wreck_hp: f32,
+    /// Buildings dropping pieces of debris when hit hard or destroyed.
+    #[serde(default)]
+    pub debris: DebrisRules,
     pub reclaim_rate: f32,
     pub repair_rate: f32,
     pub radar_fade_secs: f32,
@@ -210,6 +282,28 @@ pub struct Rules {
     pub capture_energy: f32,
     #[serde(default)]
     pub friendly_fire: bool,
+    /// Switches for whole game features (the preset editor's "Switches" section).
+    /// Engineers can level, raise and lower the ground.
+    #[serde(default = "yes")]
+    pub terraforming: bool,
+    /// Heavy hits and blasts dig craters (their size: `crater_*`).
+    #[serde(default = "yes")]
+    pub craters: bool,
+    /// Destroyed units leave wrecks.
+    #[serde(default = "yes")]
+    pub wrecks: bool,
+    /// Hills block sight.
+    #[serde(default = "yes")]
+    pub sight_blocked_by_terrain: bool,
+    /// Standing trees, rocks and wrecks block sight.
+    #[serde(default = "yes")]
+    pub sight_blocked_by_reclaimables: bool,
+    /// Hills block radar.
+    #[serde(default = "yes")]
+    pub radar_blocked_by_terrain: bool,
+    /// Everything closer than this to a unit is seen, whatever stands in between.
+    #[serde(default = "near_sight")]
+    pub near_sight: f32,
     /// Shell holes: depth = `crater_scale` x sqrt(damage); 0 switches craters off.
     #[serde(default = "crater_scale")]
     pub crater_scale: f32,
@@ -243,6 +337,22 @@ pub struct Rules {
     /// Reclaiming trees and rocks: energy comes this many times faster than mass.
     #[serde(default = "reclaim_energy_factor")]
     pub reclaim_energy_factor: f32,
+    /// Share of a shot's damage a wreck soaks up when the shot passes through it.
+    #[serde(default = "wreck_cover")]
+    pub wreck_cover: f32,
+    /// Trees, rocks and wrecks closer than this to where a shot was fired give no cover from it
+    /// (a unit fires over or around its own cover).
+    #[serde(default = "cover_grace")]
+    pub cover_grace: f32,
+    /// Infantry: how far from where they were sent they look for cover.
+    #[serde(default = "cover_search")]
+    pub cover_search: f32,
+    /// Infantry take cover from known armed enemies up to this far away.
+    #[serde(default = "cover_threat_range")]
+    pub cover_threat_range: f32,
+    /// Infantry thrown out of a destroyed building lose this share of their hit points.
+    #[serde(default = "garrison_eject_damage")]
+    pub garrison_eject_damage: f32,
     /// Reclaimable trees and rocks maps can place.
     #[serde(default)]
     pub features: Vec<FeatureDef>,
@@ -257,6 +367,30 @@ pub struct Rules {
     pub armor_table: Vec<Vec<f32>>,
     #[serde(skip)]
     pub armor_names: Vec<String>,
+}
+
+impl Rules {
+    /// Craters are dug at all.
+    pub fn craters_on(&self) -> bool {
+        self.craters && self.crater_scale > 0.0
+    }
+    /// The game features this data switches off (for the lobby).
+    pub fn switched_off(&self) -> Vec<&'static str> {
+        let mut out = vec![];
+        for (on, name) in [
+            (self.terraforming, "terraforming"),
+            (self.craters_on(), "craters"),
+            (self.wrecks, "wrecks"),
+            (self.sight_blocked_by_terrain, "hills blocking sight"),
+            (self.sight_blocked_by_reclaimables, "trees, rocks and wrecks blocking sight"),
+            (self.radar_blocked_by_terrain, "hills blocking radar"),
+        ] {
+            if !on {
+                out.push(name);
+            }
+        }
+        out
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -410,6 +544,9 @@ pub struct WeaponDef {
     /// Missile turn rate, degrees per second.
     #[serde(default)]
     pub turn_rate: f32,
+    /// Missiles: launch elevation in degrees (90 = straight up, like a cold-launched SAM); 0 = a low 20 degrees.
+    #[serde(default)]
+    pub launch_pitch: f32,
     #[serde(skip)]
     pub dtype: usize,
     #[serde(skip)]
@@ -597,6 +734,14 @@ impl UnitDef {
     }
     pub fn has_category(&self, c: &str) -> bool {
         self.categories.iter().any(|x| x == c)
+    }
+    /// Foot soldiers (category "infantry"): they take cover and can occupy buildings.
+    pub fn is_infantry(&self) -> bool {
+        self.has_category("infantry")
+    }
+    /// A building infantry can occupy and fire from (a structure with a `transport` block).
+    pub fn is_garrison(&self) -> bool {
+        self.is_structure() && self.transport.is_some()
     }
 }
 

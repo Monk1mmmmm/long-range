@@ -55,6 +55,8 @@ pub struct Ghost {
 pub struct IntelMemory {
     pub ghosts: HashMap<u32, Ghost>,
     tick: u32,
+    /// `Game.reveal_props` has been applied.
+    props_known: bool,
 }
 
 pub fn reveal(game: &Game, me: u8) -> bool {
@@ -65,8 +67,8 @@ pub fn reveal(game: &Game, me: u8) -> bool {
 
 /// Map cells within `radius` of `pos` that `eye` has a clear line to (everything within `near`
 /// counts regardless, like in the simulation's own visibility test). `block`: trees, rocks and
-/// wrecks that block the line too (sight; radar passes them).
-fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, block: Option<&[f32]>) -> Vec<u32> {
+/// wrecks that block the line too (sight; radar passes them, empty). `terrain`: hills block it.
+fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, block: &[f32], terrain: bool) -> Vec<u32> {
     let n = map.n as i32;
     let (cx, cy, rc) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32, (radius / CELL) as i32);
     let mut out = vec![];
@@ -77,7 +79,7 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, bloc
         while x <= (cx + rc).min(n - 1) {
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
             let dist = c.dist(pos);
-            if dist <= radius && (dist < near || block.map_or_else(|| map.los(eye, c.at(map.h(c) + 1.5)), |b| map.los_blocked(eye, c.at(map.h(c) + 1.5), b))) {
+            if dist <= radius && (dist < near || map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain)) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     if x + dx < n && y + dy < n {
                         out.push(((y + dy) * n + x + dx) as u32);
@@ -101,7 +103,7 @@ pub fn update_intel(
     mut mem: ResMut<IntelMemory>,
     tex: Option<Res<FogTexture>>,
     mut images: ResMut<Assets<Image>>,
-    q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Has<Hosted>, Has<Paused>)>,
+    q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Option<&Hosted>, Has<Paused>)>,
     (features, wrecks): (Res<Features>, Res<WreckList>),
 ) {
     if mem.tick == game.tick {
@@ -122,19 +124,29 @@ pub fn update_intel(
         let mut sight_budget = 60;
         let mut alive = std::collections::HashSet::new();
         let mut looking = std::collections::HashSet::new();
+        // Infantry inside a building look out from its roof (as in `sim::systems::visibility`).
+        let garrisons: HashMap<u32, f32> = q.iter().filter(|(u, ..)| defs.get(u.def).is_garrison()).map(|(u, ..)| (u.id, defs.get(u.def).height())).collect();
         for (u, b, _, uc, hosted, paused) in &q {
-            if game.team_of(u.owner) != team || uc || hosted {
+            let roof = match hosted {
+                Some(h) => match garrisons.get(&h.0) {
+                    Some(r) => Some(*r),
+                    None => continue,
+                },
+                None => None,
+            };
+            if game.team_of(u.owner) != team || uc {
                 continue;
             }
             let d = defs.get(u.def);
+            let top = roof.unwrap_or(d.height().max(1.0));
             let power_out = game.players.get(u.owner as usize).map_or(false, |p| p.power_out);
             if d.radar > 0.0 && !power_out && !paused {
                 alive.insert(u.id);
                 let stale = fog.radar.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL * 1.5 || c.1 != d.radar);
                 if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
                     budget -= 1;
-                    let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.radar_los_height);
-                    fog.radar.insert(u.id, (b.pos, d.radar, covered_cells(&map, eye, b.pos, d.radar, 0.0, None)));
+                    let eye = b.pos.at(b.y + top + defs.rules.radar_los_height);
+                    fog.radar.insert(u.id, (b.pos, d.radar, covered_cells(&map, eye, b.pos, d.radar, 0.0, &[], defs.rules.radar_blocked_by_terrain)));
                 }
                 if let Some(c) = fog.radar.get(&u.id) {
                     for i in &c.2 {
@@ -149,8 +161,8 @@ pub fn update_intel(
                 let stale = fog.sight.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL || c.1 != d.vision);
                 if stale && (sight_budget > 0 || !fog.sight.contains_key(&u.id)) {
                     sight_budget -= 1;
-                    let eye = b.pos.at(b.y + d.height().max(1.0) + defs.rules.vision_los_height);
-                    fog.sight.insert(u.id, (b.pos, d.vision, covered_cells(&map, eye, b.pos, d.vision, 6.0, Some(&block))));
+                    let eye = b.pos.at(b.y + top + defs.rules.vision_los_height);
+                    fog.sight.insert(u.id, (b.pos, d.vision, covered_cells(&map, eye, b.pos, d.vision, defs.rules.near_sight, &block, defs.rules.sight_blocked_by_terrain)));
                 }
             }
         }
@@ -185,12 +197,22 @@ pub fn update_intel(
     }
 
     // --- contact memory
+    // Lobby option: the map's neutral and hostile buildings start out as remembered buildings.
+    if game.reveal_props && !mem.props_known {
+        mem.props_known = true;
+        for (u, b, _, _, hosted, _) in &q {
+            let d = defs.get(u.def);
+            if (u.owner == NEUTRAL || u.owner == HOSTILE) && d.is_structure() && hosted.is_none() && game.team_of(u.owner) != team {
+                mem.ghosts.insert(u.id, Ghost { id: u.id, def: Some(u.def), owner: u.owner, pos: b.pos, y: b.y, structure: true, last_tick: game.tick, live: false });
+            }
+        }
+    }
     for g in mem.ghosts.values_mut() {
         g.live = false;
     }
     for (u, b, intel, _, hosted, _) in &q {
         let ut = game.team_of(u.owner);
-        if ut == team || hosted {
+        if ut == team || hosted.is_some() {
             continue;
         }
         let d = defs.get(u.def);

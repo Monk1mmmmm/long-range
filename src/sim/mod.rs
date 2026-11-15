@@ -139,6 +139,10 @@ pub struct WeaponState {
     pub target: u32,
     /// Muzzle speed of the current firing solution (indirect weapons vary their charge).
     pub speed: f32,
+    /// Bombs: sideways push given to every bomb of the current stick so that it lands on the
+    /// target (the bomber is never lined up exactly).
+    #[serde(default)]
+    pub fix: V2,
 }
 
 #[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
@@ -197,17 +201,45 @@ pub struct Mover {
     pub extend: f32,
     /// Planes circle here when idle.
     pub anchor: V2,
+    /// Infantry: the spot behind a tree, rock or wreck they are taking cover at (re-chosen every
+    /// few ticks, cleared by a new order).
+    #[serde(default)]
+    pub cover: Option<V2>,
 }
 
-#[derive(Component, Clone, Serialize, Deserialize, Debug)]
+/// A unit's wreck, or a piece of debris a building dropped (`piece` > 0).
+#[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Wreck {
     pub id: u32,
+    /// The unit it is (a piece of): model, armor and how much mass each hit point is worth.
     pub def: DefId,
     pub mass: f32,
     pub pos: V2,
     pub y: f32,
     pub yaw: f32,
+    /// Debris: size of the piece in world units (0 = a unit's whole wreck). Pieces are reclaimed
+    /// like wrecks but never revived.
+    pub piece: f32,
+    /// Debris still falling (`vel` its velocity): not reclaimable or in `WreckList` until it lands.
+    pub falling: bool,
+    pub vel: V3,
 }
+
+impl Wreck {
+    /// Footprint radius and height above the ground (what blocks sight, takes hits and gives cover).
+    pub fn shape(defs: &Defs, def: DefId, piece: f32) -> (f32, f32) {
+        if piece > 0.0 {
+            return (piece * 0.5, piece * 0.45);
+        }
+        let d = defs.get(def);
+        (d.radius() * 0.7, d.height() * if d.is_structure() { 0.35 } else { 0.8 })
+    }
+}
+
+/// Mass of its wreck value a building has already dropped as debris (taken off its wreck and
+/// off what reclaiming it gives).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Shed(pub f32);
 
 pub const PROJ_SHELL: u8 = 0;
 pub const PROJ_MISSILE: u8 = 1;
@@ -228,6 +260,10 @@ pub struct Projectile {
     pub turn: f32,
     pub hits_land: bool,
     pub hits_air: bool,
+    /// Where it was fired from (on the ground plane): cover right next to the shooter does not
+    /// stop its own shots (`rules.cover_grace`).
+    #[serde(default)]
+    pub from: V2,
 }
 
 // ---------------------------------------------------------------------------- resources
@@ -275,6 +311,10 @@ pub struct Game {
     /// Points every team started with (the full length of the HUD bars).
     #[serde(default)]
     pub cp_start: f32,
+    /// Lobby option: every player knows the map's neutral and hostile buildings from the start
+    /// (the view puts them into its contact memory; the simulation's intel is unchanged).
+    #[serde(default)]
+    pub reveal_props: bool,
 }
 
 pub const MODE_ANNIHILATION: u8 = 0;
@@ -315,6 +355,8 @@ pub fn hostile(a: u8, b: u8) -> bool {
 pub const FX_BLAST: u8 = 0;
 pub const FX_MUZZLE: u8 = 1;
 pub const FX_DEATH: u8 = 2;
+/// A piece of debris hit the ground (dust; drawn at the high effects level only).
+pub const FX_DEBRIS: u8 = 3;
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Fx {
@@ -552,9 +594,10 @@ impl Census {
     }
 }
 
-/// Wrecks at the start of the tick, for reclaim orders.
+/// Wrecks and landed debris at the start of the tick, for reclaim orders:
+/// (id, position, mass, def, piece size; 0 = a whole wreck).
 #[derive(Resource, Default)]
-pub struct WreckList(pub Vec<(u32, V2, f32, DefId)>);
+pub struct WreckList(pub Vec<(u32, V2, f32, DefId, f32)>);
 
 /// Effects on other entities are queued and applied by dedicated systems.
 #[derive(Resource, Default)]
@@ -613,14 +656,21 @@ pub struct FeatureState {
 
 /// Per map cell, how high above the ground sight is blocked: standing trees and rocks plus wrecks
 /// (a wreck blocks up to the height of its collapsed model). Radar is not blocked by these.
+/// Empty when the rules switch that off (`sight_blocked_by_reclaimables`).
 pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, defs: &Defs, map: &MapData) -> std::borrow::Cow<'a, [f32]> {
+    if !defs.rules.sight_blocked_by_reclaimables {
+        return std::borrow::Cow::Borrowed(&[]);
+    }
     if wrecks.0.is_empty() || features.sight.len() != map.n * map.n {
         return std::borrow::Cow::Borrowed(&features.sight[..]);
     }
     let mut v = features.sight.clone();
     for w in &wrecks.0 {
-        let d = defs.get(w.3);
-        let h = d.height() * if d.is_structure() { 0.35 } else { 0.8 };
+        // Small pieces of debris do not block sight.
+        if w.4 > 0.0 && w.4 < defs.rules.debris.sight_size {
+            continue;
+        }
+        let h = Wreck::shape(defs, w.3, w.4).1;
         let (cx, cy) = map.cell_of(w.1);
         if map.inside(cx, cy) {
             let c = cy as usize * map.n + cx as usize;
@@ -1030,6 +1080,7 @@ pub fn spawn_unit_built(commands: &mut Commands, defs: &Defs, game: &mut Game, m
         put(&mut em, None::<Paused>);
         put(&mut em, structure.then_some(Structure));
         put(&mut em, (!structure).then(|| Mover { anchor: pos, path_goal: pos, ..default() }));
+        put(&mut em, None::<Shed>);
     });
     id
 }
@@ -1124,6 +1175,8 @@ pub struct UnitSnap {
     pub paused: bool,
     pub structure: bool,
     pub capture: Option<Capture>,
+    /// Mass dropped as debris (`Shed`).
+    pub shed: f32,
 }
 
 /// The complete simulation state between two ticks, in id order. It is what a joining or
@@ -1160,9 +1213,9 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
         &Intel,
         Has<Paused>,
         Has<Structure>,
-        Option<&Capture>,
+        (Option<&Capture>, Option<&Shed>),
     )>();
-    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure, cap) in q.iter(world) {
+    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure, (cap, shed)) in q.iter(world) {
         s.units.push(UnitSnap {
             unit: *u,
             body: *b,
@@ -1179,6 +1232,7 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
             paused,
             structure,
             capture: cap.copied(),
+            shed: shed.map_or(0.0, |s| s.0),
         });
     }
     s.units.sort_by_key(|u| u.unit.id);
@@ -1290,9 +1344,10 @@ pub fn restore(world: &mut World, s: &Snapshot) {
         put(&mut em, u.paused.then_some(Paused));
         put(&mut em, u.structure.then_some(Structure));
         put(&mut em, u.capture);
+        put(&mut em, (u.shed > 0.0).then_some(Shed(u.shed)));
     }
     for (id, e) in have {
-        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure, Capture)>();
+        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure, Capture)>().remove::<Shed>();
         limbo.units.insert(id, e);
     }
     let mut q = world.query::<(Entity, &Projectile)>();

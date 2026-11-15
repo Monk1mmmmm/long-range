@@ -126,10 +126,15 @@ pub fn render(icon: &IconDef, tier: u8) -> Vec<u8> {
             // The wrench of a fighting engineer goes to the left, its other glyphs to the right,
             // both a bit smaller, so they do not run into each other.
             let side = icon.glyphs.len() > 1 && icon.glyphs.iter().any(|g| g == "eng");
+            // Anti-air missiles: a small chevron under the anti-air umbrella.
+            let tucked = icon.glyphs.iter().any(|g| g == "arc");
             for g in &icon.glyphs {
                 glyph = glyph.min(if side {
                     let (s, cx) = (0.62, if g == "eng" { -0.25 } else { 0.25 });
                     glyph_sd(g, (x - cx) / s, y / s) * s - 0.02
+                } else if tucked && g == "chevron" {
+                    let s = 0.5;
+                    glyph_sd(g, x / s, (y - 0.15) / s) * s
                 } else {
                     glyph_sd(g, x, y)
                 });

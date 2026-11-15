@@ -63,6 +63,11 @@ impl HudAssets {
     }
 }
 
+/// Can a `rider` get into `host`? Transports take whatever is carriable, buildings infantry only.
+fn rides_in(rider: &UnitDef, host: &UnitDef) -> bool {
+    host.transport.is_some() && carriable(rider) && (!host.is_garrison() || rider.is_infantry())
+}
+
 /// Plain per-frame copy of a unit's state, so UI code does not juggle ECS borrows.
 #[derive(Clone)]
 struct Info {
@@ -126,8 +131,8 @@ enum Context {
     Capture(Vec<u32>, u32),
     Load(Vec<u32>, u32),
     Assist(Vec<u32>, u32),
-    /// Engineers reclaim the wreck, scavengers revive it.
-    Wreck { builders: Vec<u32>, scavs: Vec<u32>, id: u32 },
+    /// `reclaim` take the wreck apart, `revive` bring it back (scavengers on a whole wreck).
+    Wreck { reclaim: Vec<u32>, revive: Vec<u32>, id: u32 },
     /// A tree or rock.
     Feature(Vec<u32>, u32),
     Move,
@@ -307,13 +312,20 @@ impl Frame<'_> {
     }
 
     /// The context order of a right-click at `ground` with `hover` under the pointer.
-    fn context(&self, view: &ViewState, hover: Option<usize>, ground: V2, wrecks: &[(u32, V2, f32)], features: &Features) -> Context {
+    fn context(&self, view: &ViewState, hover: Option<usize>, ground: V2, wrecks: &[(u32, V2, f32, f32)], features: &Features) -> Context {
         let units = self.selected(view);
         if let Some(h) = hover {
             let s = &self.seen[h];
             if s.enemy {
                 return if s.contact == Contact::Stale { Context::AttackGround(s.pos) } else { Context::Attack(s.id) };
             } else if self.game.team_of(s.owner) != self.team {
+                // An empty building: infantry go in.
+                if let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.owner == NEUTRAL && s.contact != Contact::Stale) {
+                    let inf: Vec<u32> = units.iter().filter(|u| rides_in(self.d(u.def), hd)).map(|u| u.id).collect();
+                    if !inf.is_empty() {
+                        return Context::Load(inf, s.id);
+                    }
+                }
                 // Neutral: engineers take it over.
                 let ids: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_engineer()).map(|u| u.id).collect();
                 if !ids.is_empty() && s.contact != Contact::Stale {
@@ -322,8 +334,8 @@ impl Frame<'_> {
             } else if s.contact == Contact::Visible {
                 let sd = s.def.map(|d| self.d(d));
                 // A transport: units that can ride get in. A unit, with transports selected: they fetch it.
-                let riders: Vec<u32> = units.iter().filter(|u| carriable(self.d(u.def))).map(|u| u.id).collect();
-                let carriers: Vec<u32> = units.iter().filter(|u| self.d(u.def).transport.is_some() && u.id != s.id).map(|u| u.id).collect();
+                let riders: Vec<u32> = units.iter().filter(|u| sd.map_or(false, |hd| rides_in(self.d(u.def), hd))).map(|u| u.id).collect();
+                let carriers: Vec<u32> = units.iter().filter(|u| self.d(u.def).transport.is_some() && !self.d(u.def).is_structure() && u.id != s.id).map(|u| u.id).collect();
                 if sd.map_or(false, |d| d.transport.is_some()) && !riders.is_empty() {
                     return Context::Load(riders, s.id);
                 } else if sd.map_or(false, carriable) && s.mine && !carriers.is_empty() {
@@ -335,19 +347,25 @@ impl Frame<'_> {
                 }
             }
         }
-        // A wreck: engineers reclaim it, scavengers bring it back to life.
+        // A wreck: engineers reclaim it, scavengers bring it back to life (debris, which cannot
+        // come back, they reclaim too).
         let builders: Vec<u32> = units.iter().filter(|u| self.d(u.def).can_assist()).map(|u| u.id).collect();
         let scavs: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_scavenger()).map(|u| u.id).collect();
         if !(builders.is_empty() && scavs.is_empty()) {
-            if let Some(w) = wrecks.iter().filter(|w| w.1.dist(ground) < 1.5).min_by(|a, b| a.1.dist(ground).partial_cmp(&b.1.dist(ground)).unwrap()) {
-                return Context::Wreck { builders, scavs, id: w.0 };
+            if let Some(w) = wrecks.iter().filter(|w| w.1.dist(ground) < pick(w, 1.5)).min_by(|a, b| a.1.dist(ground).partial_cmp(&b.1.dist(ground)).unwrap()) {
+                return if w.3 > 0.0 {
+                    Context::Wreck { reclaim: builders.into_iter().chain(scavs).collect(), revive: vec![], id: w.0 }
+                } else {
+                    Context::Wreck { reclaim: builders, revive: scavs, id: w.0 }
+                };
             }
         }
-        // A tree or rock: reclaimed when only builders are selected (a mixed group just drives
-        // through the forest).
-        if builders.len() == units.len() && !builders.is_empty() {
+        // A tree or rock: reclaimed when only engineers and scavengers are selected (a mixed group
+        // just drives through the forest).
+        let reclaimers: Vec<u32> = builders.iter().chain(&scavs).copied().collect();
+        if reclaimers.len() == units.len() && !reclaimers.is_empty() {
             if let Some((fid, _)) = features.nearest(ground, 1.4, ground) {
-                return Context::Feature(builders, fid);
+                return Context::Feature(reclaimers, fid);
             }
         }
         Context::Move
@@ -602,7 +620,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     // Units inside a transport cannot be selected until they are set down.
     view.sel.retain(|id| infos.get(id).map_or(false, |u| u.owner == me && (u.host == 0 || u.built.is_some())));
-    let wrecks: Vec<(u32, V2, f32)> = p.wrecks.iter().map(|w| (w.id, w.pos, w.mass)).collect();
+    // (id, position, mass, piece size: 0 = a whole wreck). Falling debris cannot be clicked yet.
+    let wrecks: Vec<(u32, V2, f32, f32)> = p.wrecks.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.piece)).collect();
 
     // ---------------------------------------------------------------- HUD geometry
     let mm = rect(8.0, sh - MM - 8.0, MM, MM);
@@ -778,7 +797,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // A fixed draw order (far to near, then by id): overlapping icons must not swap places from
     // frame to frame, which they did when this list came straight out of a hash map.
     seen.sort_by(|a, b| a.sp.y.total_cmp(&b.sp.y).then(a.id.cmp(&b.id)));
-    let icon_scale = if p.settings.big_icons { 1.5 } else { 1.0 };
+    // Strategic icons replace the models from this zoom on (and for models too small to make out).
+    let icons_zoom = view.cam_dist >= p.settings.icon_dist.max(1.0);
     let fr = Frame { defs, game, map, infos: &infos, seen: &seen, team, sw, sh, mouse };
     let _ = (fr.team, fr.sw, fr.sh, fr.game);
     let hover = fr.hover(over_hud);
@@ -847,12 +867,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     }
                     Mode::Reclaim => {
                         let mut ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist() || fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
-                        // A wreck, else a tree or rock (engineers only), under the click.
-                        let single = wrecks.iter().filter(|w| w.1.dist(start) < 2.0).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap()).map(|w| (w.0, w.1)).or_else(|| {
-                            let f = features.nearest(start, 1.6, start)?;
-                            ids.retain(|id| fr.selected(view).iter().any(|u| u.id == *id && fr.d(u.def).can_assist()));
-                            Some(f)
-                        });
+                        // A wreck, else a tree or rock, under the click.
+                        let single = wrecks.iter().filter(|w| w.1.dist(start) < pick(w, 2.0)).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap()).map(|w| (w.0, w.1)).or_else(|| features.nearest(start, 1.6, start));
                         // A click straight on a standing building takes that building apart
                         // (never a dragged circle: that only collects wrecks, trees and rocks).
                         let building = hover.filter(|h| seen[*h].contact == Contact::Visible && seen[*h].def.map_or(false, |d| fr.d(d).is_structure()) && (seen[*h].mine || game.team_of(seen[*h].owner) != team));
@@ -871,7 +887,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     }
                     Mode::Revive => {
                         let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
-                        let single = wrecks.iter().filter(|w| w.1.dist(start) < 2.0).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap());
+                        let single = wrecks.iter().filter(|w| w.3 <= 0.0 && w.1.dist(start) < 2.0).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap());
                         let order = match (single, radius < 1.5) {
                             (Some(w), true) => Some(Order::Revive(w.0)),
                             (None, true) => None,
@@ -890,12 +906,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     }
                     Mode::Load => {
                         let sel = fr.selected(view);
-                        let carriers: Vec<u32> = sel.iter().filter(|u| fr.d(u.def).transport.is_some()).map(|u| u.id).collect();
-                        let riders: Vec<u32> = sel.iter().filter(|u| carriable(fr.d(u.def))).map(|u| u.id).collect();
-                        let target = hover.filter(|h| radius < 1.5 && seen[*h].contact == Contact::Visible && game.team_of(seen[*h].owner) == team).map(|h| &seen[h]);
+                        let carriers: Vec<u32> = sel.iter().filter(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure()).map(|u| u.id).collect();
+                        // Our own transports and buildings, and empty buildings (infantry only).
+                        let ours = |s: &Seen| game.team_of(s.owner) == team || (s.owner == NEUTRAL && s.def.map_or(false, |d| fr.d(d).is_garrison()));
+                        let target = hover.filter(|h| radius < 1.5 && seen[*h].contact == Contact::Visible && ours(&seen[*h])).map(|h| &seen[h]);
                         match target.and_then(|s| s.def.map(|d| (s, fr.d(d)))) {
                             // Click on a transport: the selected units get in.
-                            Some((s, d)) if d.transport.is_some() && !riders.is_empty() => out.push(Command::Orders { ids: riders, orders: vec![Order::Load(s.id)], queue: shift }),
+                            Some((s, d)) if d.transport.is_some() && sel.iter().any(|u| rides_in(fr.d(u.def), d)) => {
+                                let riders: Vec<u32> = sel.iter().filter(|u| rides_in(fr.d(u.def), d)).map(|u| u.id).collect();
+                                out.push(Command::Orders { ids: riders, orders: vec![Order::Load(s.id)], queue: shift })
+                            }
                             // Click on a unit: the selected transports fetch it.
                             Some((s, d)) if carriable(d) && s.mine && !carriers.is_empty() => out.push(Command::Orders { ids: carriers, orders: vec![Order::Load(s.id)], queue: shift }),
                             Some(_) => {}
@@ -1019,12 +1039,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     Context::Capture(ids, id) => out.push(order(ids, Order::Capture(id))),
                     Context::Load(ids, id) => out.push(order(ids, Order::Load(id))),
                     Context::Assist(ids, id) => out.push(order(ids, Order::Assist(id))),
-                    Context::Wreck { builders, scavs, id } => {
-                        if !builders.is_empty() {
-                            out.push(order(builders, Order::Reclaim(id)));
+                    Context::Wreck { reclaim, revive, id } => {
+                        if !reclaim.is_empty() {
+                            out.push(order(reclaim, Order::Reclaim(id)));
                         }
-                        if !scavs.is_empty() {
-                            out.push(order(scavs, Order::Revive(id)));
+                        if !revive.is_empty() {
+                            out.push(order(revive, Order::Revive(id)));
                         }
                     }
                     Context::Feature(ids, id) => out.push(order(ids, Order::Reclaim(id))),
@@ -1441,9 +1461,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let d = s.def.map(|d| defs.get(d));
         match (s.contact, d) {
             (Contact::Visible, Some(d)) => {
-                let size = icons::icon_size(d) * icon_scale;
-                // Strategic icon once the model gets small on screen.
-                if s.rpx * 2.0 < size * 0.8 {
+                let size = icons::icon_size(d);
+                // Strategic icon once the camera is far enough out, or the model is a speck.
+                if icons_zoom || s.rpx * 2.0 < 5.0 {
                     let tex = p.assets.icon(&ctx, d);
                     if selected_here {
                         bg.circle_stroke(s.sp, size * 0.62, Stroke::new(1.5, Color32::WHITE));
@@ -1453,7 +1473,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             (_, Some(d)) => {
                 // Known type, not in sight: dimmed icon (radar contact or remembered building).
-                let size = icons::icon_size(d) * icon_scale;
+                let size = icons::icon_size(d);
                 let a = if s.contact == Contact::Stale { 0.5 * s.fade } else { 0.85 };
                 let tex = p.assets.icon(&ctx, d);
                 bg.image(tex.id(), egui::Rect::from_center_size(s.sp, egui::vec2(size, size)), UV, col.gamma_multiply(a));
@@ -1463,7 +1483,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             (_, None) => {
                 let a = if s.contact == Contact::Stale { 0.8 * s.fade } else { 1.0 };
-                bg.image(blip.id(), egui::Rect::from_center_size(s.sp, egui::vec2(15.0 * icon_scale, 15.0 * icon_scale)), UV, col.gamma_multiply(a));
+                bg.image(blip.id(), egui::Rect::from_center_size(s.sp, egui::vec2(15.0, 15.0)), UV, col.gamma_multiply(a));
             }
         }
         if hover == Some(k) {
@@ -1503,7 +1523,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         // Reload of the main gun: the whole point of slow, heavy weapons.
         if s.mine {
-            if let (Some(wd), Some(ws)) = (d.weapons.first(), u.weapons.first()) {
+            // (the slowest one: a fighter-bomber's bombs, not its guns)
+            let main = (0..d.weapons.len()).max_by(|a, b| d.weapons[*a].reload.total_cmp(&d.weapons[*b].reload)).unwrap_or(0);
+            if let (Some(wd), Some(ws)) = (d.weapons.get(main), u.weapons.get(main)) {
                 if wd.reload >= 2.5 && (ws.cd > 0.0 || selected_here) {
                     let ready = ws.cd <= 0.0;
                     bar(1.0 - ws.cd / wd.reload, if ready { rgba(120, 220, 255, 255) } else { rgba(255, 170, 40, 255) }, 2.0);
@@ -1554,6 +1576,75 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     bg.image(tx.id(), egui::Rect::from_center_size(Pos2::new(sp.x - wd * 0.5 + 10.0, sp.y), egui::vec2(14.0, 14.0)), UV, rgba(190, 215, 240, 255));
                 }
                 bg.text(Pos2::new(sp.x + 8.0, sp.y), Align2::CENTER_CENTER, t, FontId::proportional(13.0), rgba(210, 230, 250, 255));
+            }
+        }
+    }
+    // Reclaim and revive orders: what the circle being dragged (or the wreck, tree or rock under
+    // the pointer) yields, or what bringing its wrecks back costs.
+    if matches!(view.mode, Mode::Reclaim | Mode::Revive) && !over_hud {
+        let revive = view.mode == Mode::Revive;
+        let (c, r) = match view.drag_start {
+            Some(a) if a.dist(ground) >= 1.5 => (a, a.dist(ground)),
+            Some(a) => (a, 0.0),
+            None => (ground, 0.0),
+        };
+        let live: Vec<&Wreck> = p.wrecks.iter().filter(|w| !w.falling && w.mass > 0.0 && (!revive || w.piece <= 0.0)).collect();
+        let near = |w: &&&Wreck| if r > 0.0 { w.pos.dist(c) <= r } else { w.pos.dist(c) < if w.piece > 0.0 { (w.piece * 0.6).max(0.8) } else { 2.0 } };
+        let mut picked: Vec<&Wreck> = live.iter().filter(near).copied().collect();
+        if r <= 0.0 {
+            // A click takes the nearest one only.
+            picked.sort_by(|a, b| a.pos.dist(c).total_cmp(&b.pos.dist(c)));
+            picked.truncate(1);
+        }
+        let mut trees: Vec<(f32, f32)> = vec![];
+        if !revive {
+            let worth = |f: &FeatureState| defs.rules.features.get(f.def as usize).map(|d| (d.mass * f.left, d.energy * f.left));
+            if r > 0.0 {
+                features.near(c, r, |_, f| trees.extend(worth(f)));
+            } else if picked.is_empty() {
+                trees.extend(features.nearest(c, 1.6, c).and_then(|(id, _)| features.get(id)).and_then(worth));
+            }
+        }
+        let (mass, energy, what) = if revive {
+            // A revived wreck starts as a site holding its mass; the rest is paid like building it.
+            let cost = |w: &Wreck| {
+                let d = fr.d(w.def);
+                let left = 1.0 - (w.mass / d.cost.mass.max(1.0)).clamp(0.05, 0.95);
+                (d.cost.mass * left, d.cost.energy * left)
+            };
+            let (m, e) = picked.iter().map(|w| cost(w)).fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
+            let what = match picked.as_slice() {
+                [w] => format!("Revive {}:", fr.d(w.def).name),
+                l => format!("Revive {} wreck{}:", l.len(), if l.len() == 1 { "" } else { "s" }),
+            };
+            (m, e, what)
+        } else {
+            let m = picked.iter().map(|w| w.mass).sum::<f32>() + trees.iter().map(|t| t.0).sum::<f32>();
+            let e = trees.iter().map(|t| t.1).sum::<f32>();
+            (m, e, "Reclaim:".to_string())
+        };
+        if r > 0.0 || !picked.is_empty() || !trees.is_empty() {
+            let tex = p.assets.order_icons(&ctx);
+            let font = FontId::proportional(13.0);
+            let tc = if revive { rgba(255, 215, 150, 255) } else { rgba(210, 230, 250, 255) };
+            let mut parts: Vec<(Option<&str>, String)> = vec![(None, what)];
+            parts.push((Some("mass"), format!("{mass:.0}")));
+            if energy >= 0.5 || revive {
+                parts.push((Some("energy"), format!("{energy:.0}")));
+            }
+            let galleys: Vec<_> = parts.iter().map(|(_, t)| ctx.fonts_mut(|f| f.layout_no_wrap(t.clone(), font.clone(), tc))).collect();
+            let wd: f32 = parts.iter().zip(&galleys).map(|((icon, _), g)| g.size().x + if icon.is_some() { 18.0 } else { 0.0 } + 8.0).sum::<f32>() + 4.0;
+            let at = Pos2::new(mouse.x + 18.0, mouse.y + 24.0);
+            bg.rect_filled(egui::Rect::from_min_size(at, egui::vec2(wd, 20.0)), 4.0, rgba(0, 0, 0, 190));
+            let mut x = at.x + 6.0;
+            for ((icon, _), g) in parts.iter().zip(galleys) {
+                if let Some(tx) = icon.and_then(|i| tex.get(i)) {
+                    bg.image(tx.id(), egui::Rect::from_center_size(Pos2::new(x + 7.0, at.y + 10.0), egui::vec2(14.0, 14.0)), UV, tc);
+                    x += 18.0;
+                }
+                let w = g.size().x;
+                bg.galley(Pos2::new(x, at.y + 10.0 - g.size().y * 0.5), g, tc);
+                x += w + 8.0;
             }
         }
     }
@@ -1846,7 +1937,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if let Some(tr) = &ld.transport {
                 let aboard: Vec<&Info> = infos.values().filter(|c| c.host == u.id).collect();
                 let used: u32 = aboard.iter().map(|c| fr.d(c.def).cargo as u32).sum();
-                text(ix, y, &format!("Cargo: {} / {}", used, tr.capacity), 12.0, rgba(180, 225, 255, 255));
+                let label = if ld.is_garrison() { "Infantry inside" } else { "Cargo" };
+                text(ix, y, &format!("{label}: {} / {}", used, tr.capacity), 12.0, rgba(180, 225, 255, 255));
                 y += 17.0;
             }
             if let Some(pr) = u.upg {
@@ -2046,14 +2138,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if units.iter().any(|u| fr.d(u.def).is_scavenger()) && action("revive", "Revive wrecks as your own units (drag = area)", "J", view.mode == Mode::Revive) {
             new_mode = Some(Mode::Revive);
         }
-        if can_capture && action("terraform", "Terraform: level, raise or lower the ground", "", view.mode == Mode::Terraform) {
+        if can_capture && fr.defs.rules.terraforming && action("terraform", "Terraform: level, raise or lower the ground", "", view.mode == Mode::Terraform) {
             new_mode = Some(Mode::Terraform);
         }
-        let any_transport = units.iter().any(|u| fr.d(u.def).transport.is_some());
+        // Occupied buildings only let their infantry out.
+        let any_transport = units.iter().any(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure());
+        let any_holder = units.iter().any(|u| fr.d(u.def).transport.is_some());
         if (any_transport || units.iter().any(|u| carriable(fr.d(u.def)))) && action("load", if any_transport { "Load units (drag = area)" } else { "Board a transport" }, "L", view.mode == Mode::Load) {
             new_mode = Some(Mode::Load);
         }
-        if any_transport && action("unload", "Unload (drag = area)", "K", view.mode == Mode::Unload) {
+        if any_holder && action("unload", "Unload (drag = area)", "K", view.mode == Mode::Unload) {
             new_mode = Some(Mode::Unload);
         }
         if can_assist && faf && action("assist", "Assist / repair", "I", view.mode == Mode::Assist) {
@@ -2186,7 +2280,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 Context::Capture(..) => Some(CursorKind::Capture),
                 Context::Load(..) => Some(CursorKind::Load),
                 Context::Assist(..) => Some(CursorKind::Assist),
-                Context::Wreck { builders, .. } => Some(if builders.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
+                Context::Wreck { reclaim, .. } => Some(if reclaim.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
                 Context::Feature(..) => Some(CursorKind::Reclaim),
                 // Only buildings that cannot move or set a rally point: nothing to do.
                 Context::Move if fr.selected(view).iter().all(|u| fr.d(u.def).is_structure() && !fr.d(u.def).is_factory()) => None,
@@ -2232,8 +2326,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
         Mode::Revive => "REVIVE: click a wreck, or drag a circle to bring back everything inside".to_string(),
         Mode::Terraform if view.terra_delta == 0.0 => "TERRAFORM: drag a circle to level it to the height at its centre.  Mouse wheel: raise or lower instead".to_string(),
         Mode::Terraform => format!("TERRAFORM: drag a circle to {} it by {:.0}.  Mouse wheel changes the amount (0 = level)", if view.terra_delta > 0.0 { "raise" } else { "lower" }, view.terra_delta.abs()),
-        Mode::Load if selected.iter().any(|u| fr.d(u.def).transport.is_some()) => "LOAD: click a unit, or drag a circle to pick up everything inside".to_string(),
-        Mode::Load => "LOAD: click the transport to board".to_string(),
+        Mode::Load if selected.iter().any(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure()) => "LOAD: click a unit, or drag a circle to pick up everything inside".to_string(),
+        Mode::Load => "LOAD: click the transport to board (infantry: or a building to occupy)".to_string(),
         Mode::Unload => "UNLOAD: click or drag a circle; the cargo is set down spread over it".to_string(),
         Mode::Place(d) if fr.d(d).needs_deposit => format!("BUILD {}: click a deposit, or drag a circle to queue every deposit inside", fr.d(d).name),
         Mode::Place(d) => format!("BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.", fr.d(d).name),
@@ -2336,4 +2430,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
 
 fn ld_is_factory(units: &[&Info], fr: &Frame) -> bool {
     units.iter().find(|u| !fr.d(u.def).builds.is_empty()).map_or(false, |u| fr.d(u.def).is_factory())
+}
+
+/// How close to a wreck a click has to be: `base` for a whole wreck, less for a small piece of
+/// debris (so a click on the building it fell from still means the building).
+fn pick(w: &(u32, V2, f32, f32), base: f32) -> f32 {
+    if w.3 > 0.0 {
+        (w.3 * 0.6).max(0.8)
+    } else {
+        base
+    }
 }

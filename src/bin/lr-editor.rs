@@ -86,9 +86,21 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     let place = |map: &mut MapData, occ: &mut Vec<u8>, name: &str, pos: V2, owner: u8, yaw: f32| -> bool {
         let Some(d) = defs.id(name) else { return false };
         let f = defs.get(d).footprint.max(1);
-        // All four rotated copies must fit.
-        let spots: Vec<V2> = (0..kk).map(|k| longrange::sim::snap(defs, map, d, rot(pos, k))).collect();
-        for s in &spots {
+        // All rotated copies must fit and stay apart; copies that land on the same spot (a building
+        // in the very centre) are placed once.
+        let mut spots: Vec<(V2, usize)> = vec![];
+        for k in 0..kk {
+            let s = longrange::sim::snap(defs, map, d, rot(pos, k));
+            if !spots.iter().any(|(q, _)| q.dist(s) < 0.01) {
+                spots.push((s, k));
+            }
+        }
+        for (i, (a, _)) in spots.iter().enumerate() {
+            if spots[..i].iter().any(|(b, _)| (a.x - b.x).abs() < (f + 1) as f32 * CELL && (a.y - b.y).abs() < (f + 1) as f32 * CELL) {
+                return false;
+            }
+        }
+        for (s, _) in &spots {
             let (x0, y0) = foot_origin(*s, f);
             for y in y0 - 1..y0 + f + 1 {
                 for x in x0 - 1..x0 + f + 1 {
@@ -101,14 +113,14 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
                 return false;
             }
         }
-        for (k, s) in spots.iter().enumerate() {
+        for (s, k) in spots.iter() {
             let (x0, y0) = foot_origin(*s, f);
             for y in y0..y0 + f {
                 for x in x0..x0 + f {
                     occ[y as usize * n + x as usize] = 2;
                 }
             }
-            map.props.push(Prop { def: name.into(), pos: *s, yaw: yaw + k as f32 * step, owner });
+            map.props.push(Prop { def: name.into(), pos: *s, yaw: yaw + *k as f32 * step, owner });
         }
         true
     };
@@ -123,21 +135,35 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     let mut tries = 0;
     while made < towns && tries < 400 {
         tries += 1;
-        let center = v2(rng.range(30.0, w - 30.0), rng.range(30.0, w - 30.0));
+        let center = v2(rng.range(40.0, w - 40.0), rng.range(40.0, w - 40.0));
         let (cx, cy) = map.cell_of(center);
         if map.blocked[cy as usize * n + cx as usize] != 0 || map.starts.iter().any(|s| s.dist(center) < 70.0) {
             continue;
         }
         let list: &[&str] = if made % 2 == 0 { &homes } else { &industry };
+        // Towns are dense: each building takes the free lot nearest the centre, so neighbours end
+        // up one cell apart (`place` keeps that cell free) - a street about 1.5 tanks wide.
+        // The jitter on the distance keeps the outline from being a perfect disc.
+        let mut lots: Vec<(f32, V2)> = vec![];
+        for dy in -15..=15 {
+            for dx in -15..=15 {
+                let off = v2(dx as f32 * CELL, dy as f32 * CELL);
+                let d = off.len();
+                if d <= 30.0 {
+                    lots.push((d * rng.range(0.75, 1.25), off));
+                }
+            }
+        }
+        lots.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let size = 10 + rng.below(9);
         let mut placed = 0;
-        for _ in 0..40 {
-            if placed >= 9 {
+        for _ in 0..size + 6 {
+            if placed >= size {
                 break;
             }
             let name = list[rng.below(list.len())];
-            let off = v2((rng.below(7) as f32 - 3.0) * 6.0, (rng.below(7) as f32 - 3.0) * 6.0);
             let yaw = rng.below(4) as f32 * std::f32::consts::FRAC_PI_2;
-            if place(map, &mut occ, name, center + off, PROP_NEUTRAL, yaw) {
+            if lots.iter().any(|(_, off)| place(map, &mut occ, name, center + *off, PROP_NEUTRAL, yaw)) {
                 placed += 1;
             }
         }
@@ -146,10 +172,10 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
         }
     }
     // Hostile outpost guarding the centre.
-    place(map, &mut occ, "comm_tower", c + v2(1.0, 1.0), PROP_NEUTRAL, 0.0);
-    place(map, &mut occ, "high_command", c + v2(10.0, 8.0), PROP_NEUTRAL, 0.0);
-    place(map, &mut occ, "bunker", c + v2(-14.0, -2.0), PROP_HOSTILE, 0.0);
-    place(map, &mut occ, "bunker", c + v2(-8.0, -16.0), PROP_HOSTILE, 0.0);
+    place(map, &mut occ, "comm_tower", c, PROP_NEUTRAL, 0.0);
+    place(map, &mut occ, "high_command", c + v2(14.0, 10.0), PROP_NEUTRAL, 0.0);
+    place(map, &mut occ, "bunker", c + v2(-20.0, -3.0), PROP_HOSTILE, 0.0);
+    place(map, &mut occ, "bunker", c + v2(-10.0, -22.0), PROP_HOSTILE, 0.0);
     clear_under_props(map, defs);
 }
 
@@ -717,5 +743,6 @@ fn main() {
         .add_systems(Update, longrange::view::terrain::map_edge_sync);
     longrange::settings::tolerate_render_errors(&mut app);
     longrange::settings::add_window_icon(&mut app);
+    longrange::settings::gl_window_display(&mut app);
     app.run();
 }

@@ -32,7 +32,7 @@ cargo run                         # game (dev profile: our code opt 1, dependenc
 cargo run --features dev          # same, Bevy linked dynamically: much faster rebuilds (never for releases)
 cargo run --release
 cargo run -- --skirmish           # straight into a game vs 3 AIs
-cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats
+cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats (LR_MAP=name: on a premade map)
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
 cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
@@ -44,6 +44,7 @@ scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   #
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
+.venv/bin/python tools/osm_map.py NAME --bbox S,W,N,E      # map of a real place (OSM + terrain tiles) -> assets/maps/NAME, see tools/README.md
 # The converters need numpy + Pillow: they live in the project venv (python3 -m venv .venv; .venv/bin/pip install numpy pillow).
 ```
 
@@ -86,6 +87,13 @@ The Windows exe can be run straight from WSL (`dist/.../longrange.exe --skirmish
 Render errors go to `render-errors.log` and the settings window. Overrides: `LR_BACKEND`, `LR_RENDERER=full`.
 Wine's DX12 (vkd3d) panics inside wgpu's format query (`wgpu-hal dx12/adapter.rs`, CheckFeatureSupport) no matter
 what we do; test Windows builds under Wine with `LR_BACKEND=vulkan`.
+Linux OpenGL (`settings::linux_gl`): Bevy 0.20 makes the wgpu instance without a display handle, so EGL is
+"surfaceless" and Bevy panics with "failed to choose present mode". We build the renderer ourselves
+(`RenderCreation::Manual`) on our own X11 connection, force winit onto X11 (Xwayland) and repoint each window's
+`RawHandleWrapper` display at that connection (`gl_window_display`). Under WSL with GPU support "auto" means
+this path with Mesa's d3d12 driver (`GALLIUM_DRIVER=d3d12` and `MESA_EXTENSION_OVERRIDE=+GL_EXT_texture_shadow_lod`
+are set in-process; without the extension every PBR shader fails: black 3D view). WSL's Vulkan is llvmpipe:
+seconds-long frames, and WSLg's Wayland compositor then drops the window ("Broken pipe").
 Never replace the camera `Projection` wholesale each frame: it resets `aspect_ratio` and frustum culling then
 drops terrain at the screen sides (edit `fov/near/far` in place).
 
@@ -152,11 +160,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/models.rs` | GLB/box model loading, team-colour texture baking |
 | `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), land beyond the border (`apron_mesh`: the map mirrored on all sides, blurred, hazy, built once), dashed map edge (`map_edge_sync` re-widens it with the camera distance), water, deposits, sun, minimap pixels |
 | `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
-| `src/view/fx.rs` | projectile visuals and explosions |
+| `src/view/fx.rs` | projectile visuals and explosions (fewer puffs, no flash lights at the low effects level) |
+| `src/view/debris.rs` | debris pieces: jagged chunk meshes, falling/tumbling, shown by the effects level |
 | `src/view/flora.rs` | trees and rocks: procedural models (detail setting), one merged mesh per 16-cell chunk |
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
+| `src/preset_form.rs` | the preset editor's form view: one `Field` (JSON path, label, kind + default, tooltip) per setting of rules.json, units and weapons; edits a `serde_json::Value`, keys it does not know stay |
 | `src/bin/lr-editor.rs` | map editor and map generation CLI |
 | `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource`; `settings::add_window_icon` puts it on the running window (winit sets none) |
 
@@ -167,6 +177,18 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `high_arc` (indirect, raise their charge to reach), `missile` (homing, limited turn rate), `bomb`.
   Hits are resolved against terrain and unit cylinders, so shots miss, fall short or hit hills.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
+- **Bombers** (SupCom style, `systems.rs::bomb_drop`): a bomb weapon's reach is at least the forward
+  throw (speed x fall time) + 12, whatever its JSON `range`. The stick is released so that its middle
+  bomb lands on the target (moving targets are led) and every bomb gets the same small sideways push
+  (`WeaponState.fix`) onto it; without an attack order a bomber drops on the target it is best lined up
+  with. Locomotion keeps a bomber flying on until it has a run-in as long as its throw, then it comes
+  round. A bomber must detect targets beyond its throw, hence the radar on bombers. Planes on
+  attack-move go for ground targets first when they carry bombs (fighter-bomber), else aircraft first.
+  Missiles lead their target; `launch_pitch` (deg) makes a SAM launch near-vertically.
+- **Switches** (`rules.json`, the form's "Switches" section): `terraforming`, `craters`, `wrecks`,
+  `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `radar_blocked_by_terrain` (all default on),
+  `near_sight` (6: always seen within it). The lobby lists those switched off (`Rules::switched_off`).
+  A new rule needs a `Field` in `preset_form.rs` too, or it only shows in the JSON view.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
   over terrain (`map.los`). Vision needs it too and is also blocked by standing trees, rocks and wrecks
   (`sim::sight_block`: per-cell blocker height, `map.los_blocked`; the end cells never block). Within 6
@@ -175,14 +197,45 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   buildings once detected stay as ghosts until the spot is seen again and found empty. Right-clicking a
   ghost issues ground fire at its position.
 - **Reclaimables** (the user's word for trees, rocks and wrecks together): shells do not stop at them, but a
+  shell flying through one loses its `cover` share of the damage to it (cover, below), and a
   shell landing on one or a blast (radius, death blasts) wears it down (`systems::hurt_reclaimables`): trees and
   rocks have `hp` in `rules.json: features` (times the map's scale; `left` drops by damage / hp), wrecks have
   `rules.wreck_hp` x the unit's hp (armor applies) and lose mass in step. At zero they are gone.
   Unfinished buildings are ordinary targets (5% hp at placement, hp grows with progress).
+- **Debris** (`rules.debris`): a single hit of at least `min_hit` of a finished building's hp, and its
+  destruction, drop pieces of debris. A piece is a `Wreck` with `piece` > 0 (its size; never revived) that
+  first falls (`falling`, `vel`, moved by `systems::debris_fall`; not in `WreckList` until it lands, then it
+  hurts the units it lands on). Their mass comes out of the building's wreck value: the unit's `Shed`
+  component (snapshot field `shed`) counts what it dropped, the wreck and reclaiming the standing building
+  give that much less, so damage + repair makes no mass. Pieces have their own cap (`debris.max`), take
+  shell damage like wrecks, and those at least `sight_size` big block sight (`Wreck::shape`).
+  View: `Settings::effects` 0 low (pieces appear on landing, boxes without shadows, fewer explosion
+  puffs, no flash lights), 1 medium, 2 high (dust where pieces land, `FX_DEBRIS`).
+- **Cover** (`systems::soak_cover`, called in `projectiles` for every flight segment): each tree, rock or wreck
+  a shot passes through (closest approach to its axis inside this tick's segment, so each counts once) takes
+  its share of the damage: `features[].cover` (default by shape: pine 0.3, broadleaf 0.35, bush 0.15, rock
+  0.65) or `rules.wreck_cover`; the shot flies on with the rest. Cover within `rules.cover_grace` of the shooter
+  (`Projectile.from`) does not count, so units fire out from behind their own. Cover wears away under fire.
+- **Infantry** (`"categories": ["infantry"]`, `UnitDef::is_infantry`: Trooper, Flak/AT/SAM Trooper): idle or
+  engaged on attack-move/patrol, `think` sends them to `cover_spot`, behind the nearest tree/rock/wreck (at
+  least 0.7 tall) on the far side from the closest known armed enemy within `cover_threat_range`, within
+  `cover_search` of `Mover.anchor` (0.6x of it around themselves when fighting). Re-chosen every 5 ticks and
+  kept in `Mover.cover`; a new order or Stop clears it (Stop also moves the anchor to where they stand).
+- **Garrisons**: a structure with a `transport` block (`UnitDef::is_garrison`; most civilian houses, civic and
+  industrial buildings, the bunker) takes infantry only (`Order::Load(building)`, right-click a neutral or own
+  building). Riders keep `Hosted`, can't be targeted, fire from the roof (`weapons` takes hosted riders of a
+  garrison, origin at the building's top) and see from it (`visibility`, `intel.rs`). `systems::garrisons`
+  gives a map building to the owner of its lowest-id rider and back to `NEUTRAL` when empty (playable
+  factions' buildings and `HOSTILE` ones keep their owner); garrisonable buildings can't be captured.
+  `Unload` from a building sets them down at its side and walks them to the spot. When the building dies,
+  `deaths` throws them out with `rules.garrison_eject_damage` x max hp damage (none if reclaimed);
+  riders of a mobile transport still die with it.
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Overtaker/Pike/MBFAG/
   radar car, T2 Crony/Dragoon/Robin/Sparky, T3 Bohdana. Change `tier` in JSON to move a unit.
+  Our own additions (not in the mod; they reuse the trooper model): T1 Flak Trooper (AA gun), T2 AT Trooper
+  (guided missile) and SAM Trooper (homing AA missile).
 - **Energy stall**: upkeep and construction share energy proportionally (`build_progress`, `Player.power`);
   pumps produce at that fraction, radars cut out below 0.5. `Paused` (Tab / `Command::Pause`) switches a
   unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
@@ -192,14 +245,18 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   turn time + travel time for both (`systems.rs::locomotion`).
 - **Lobby**: players on the left; on the right the map preview (`terrain::map_preview`, start numbers drawn
   on top) and the tabs Game options (mode, points, data preset, players / re-roll for random maps, "AI
-  reclaims trees and rocks" -> `Ai.reclaim`) and Map (list with thumbnails). The random map is made when
+  reclaims trees and rocks" -> `Ai.reclaim`, "Neutral and hostile buildings known from the start" -> `Game.reveal_props`: `intel.rs` puts
+  them into the contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). The random map is made when
   chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
   the picture in `LobbyInfo.preview`.
 - **Model scale**: JSON `scale` = the blueprint's `UniformScale` for stock SupCom models (factories,
   storages, pumps, air, engineers...). The mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) and the box-model
-  APC/air transport are 2.5x that, with sizes and footprints to match; Mining Town buildings are 2.5x too,
-  stock UEF civilian buildings 1x.
+  APC/air transport are 2.5x that, with sizes and footprints to match. Civilian map buildings were doubled
+  on request (Mining Town 5x, stock UEF civilian 2x; box models, sizes and footprints too: a house takes 2x2
+  cells). Towns are dense: one free cell (a street ~1.5 tanks wide) between footprints, never touching
+  (footprints block movement) - the editor's `add_settlements` packs lots nearest the town centre, `osm_map.py`
+  places with `margin=1`.
 - **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under the body (SupCom style);
   the loader rejects two units with the same icon (playable factions only; map buildings share icons by kind). Shapes: land (diamond), bot, air (triangle), structure
   (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
@@ -207,13 +264,15 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   stored resource), cargo (transports), frame, bar, land / tri (outlines of what a factory builds).
 - **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
   a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.
-  `ReclaimArea` only collects wrecks. Scavengers: `Revive(wreck)` / `ReviveArea`.
+  `ReclaimArea` collects wrecks, debris, trees and rocks, not buildings. Scavengers reclaim
+  every reclaimable and revive whole wrecks (`Revive(wreck)` / `ReviveArea`; debris cannot come back). While a
+  reclaim or revive order is being given, the HUD shows what the circle (or the thing under the pointer) yields or costs.
 - **Trees and rocks** (map "features"): types in `rules.json: features` (class tree/rock, shape, mass,
   energy, size, weight); a map holds `feature_kinds` + `features` (saved as one line each, "kind x z yaw
   scale"). Random lobby maps, `--generate` and the editor's Scatter call `MapData::scatter_features`
   (symmetric, keeps bases/deposits/water clear). In the sim, `sim::Features` keeps the share left of each
   one (snapshot field `features` is the diff against the map); feature `i` has id `FEATURE_ID0 + i`, so
-  `Reclaim(id)` and `ReclaimArea` take them (engineers only, not scavengers). A new building site
+  `Reclaim(id)` and `ReclaimArea` take them (engineers and scavengers). A new building site
   flattens what stands on its footprint. They never block movement or shots. Reclaim work =
   mass + energy / `reclaim_energy_factor`. Idle AI engineers reclaim nearby rocks/trees when low.
   Drawing: per-chunk meshes rebuilt on change; Bevy's CPU frustum culling skips off-screen chunks
@@ -226,7 +285,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Transports** (`transport: {capacity}` in the unit JSON; `cargo` = slots a unit takes, 0 = not carriable):
   riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
-  `LoadArea`, `Unload`. Riders die with their transport.
+  `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated).
 - **Control points** (`Game.mode == MODE_POINTS`): `Game.points` / `Game.scores` (points left per team, start `Game.cp_start`,
   picked in the lobby or `rules.cp_start_points`). A team holding fewer points than its strongest opponent loses
   `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
@@ -240,7 +299,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - `assets/data/rules.json` - gravity, start resources, wreck/reclaim/repair rates, radar fade, craters,
   terraforming, control points, armor table (armor -> damage type -> multiplier), colours.
 - `assets/data/presets/<name>/` - a preset: its own `rules.json` and `factions/*.json`, made and edited in the
-  main menu (Game data presets), chosen by the host in the lobby.
+  main menu (Game data presets: form view with tooltips, or raw JSON), chosen by the host in the lobby.
 - `assets/data/factions/coalition.json` - the playable faction (the mod roster).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
@@ -263,10 +322,9 @@ transport aircraft are JSON box models.
 - No music, navy, air staging or shields. One playable faction (the format supports more).
 - No friendly-fire by default (`rules.friendly_fire`).
 - The hostile side only holds positions; it has no AI.
-- The AI does not use scavengers, transports or terraforming. Maps cannot place their own control points.
+- The AI does not use scavengers, transports, terraforming or garrisons (its infantry do take cover). Maps cannot place their own control points.
 - The minimap picture and the cached fog/radar shadows do not follow craters and terraforming; the
   minimap does not show trees and rocks.
-- The preset editor is JSON text per unit; there are no per-field widgets.
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
   is not cheat-proof. No reconnect or joining a running game yet (the full-state message would allow it).
 - Mispredicted effects are not undone: a muzzle flash or explosion the rollback corrected away has still been shown.

@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Make a game map of a real place from open data.
 
-    .venv/bin/python tools/osm_map.py NAME LAT LON [--km 10] [--cells 384] [--players 4]
-        [--relief 0.85] [--starts "x,z;x,z;..."] [--seed 1] [--title "Shown name"]
+    .venv/bin/python tools/osm_map.py NAME --bbox SOUTH,WEST,NORTH,EAST [options]
+    .venv/bin/python tools/osm_map.py NAME --center LAT,LON [--km 10] [options]
+    options: [--cells 384] [--players 4] [--relief 0.85] [--starts "x,z;x,z;..."] [--seed 1]
+             [--title "Shown name"] [--max-props 700]
+
+The rectangle is given in degrees (copy it from openstreetmap.org: Export shows the box of the view,
+or right-click > "Show address" for a point). Game maps are square, so a rectangle is widened on its
+short side to a square around the same centre.
 
 Elevation: AWS Terrain Tiles (Mapzen "terrarium" PNGs, zoom 13, ~12 m per pixel).
 Everything else: OpenStreetMap through the Overpass API (buildings, forests and their leaf type,
@@ -10,7 +16,7 @@ scrub, parks, water, rocks, towers, power pylons, churches).
 Downloads are cached in tools/out/osm_cache. Output: assets/maps/NAME/{map.json,height.png} and a
 picture tools/out/NAME_preview.png (terrain shading, forests, buildings, deposits, starts).
 
-The square is KM kilometres wide around LAT/LON; north is up (-z). Heights are true scale times
+North is up (-z). Heights are true scale times
 --relief. One prop is placed per real building where the game building (2-3x the size of a real
 one) still fits; trees follow the forest outlines; rocks come from OSM rocks plus steep forest
 slopes. Start positions are picked in open, flat ground (or given in world units with --starts),
@@ -26,6 +32,7 @@ import math
 import os
 import random
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -35,6 +42,7 @@ from PIL import Image, ImageDraw
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "tools", "out", "osm_cache")
 UA = "lr-mapgen/1.0"
+OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
 CELL = 2.0
 Z = 13
 
@@ -46,9 +54,23 @@ def fetch(url, name, data=None):
         with open(path, "rb") as f:
             return f.read()
     body = urllib.parse.urlencode({"data": data}).encode() if data else None
-    req = urllib.request.Request(url, data=body, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        raw = r.read()
+    urls = OVERPASS if url == "overpass" else [url]
+    raw, err = None, None
+    for attempt in range(6):
+        u = urls[attempt % len(urls)]
+        try:
+            req = urllib.request.Request(u, data=body, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=300) as r:
+                raw = r.read()
+            if data and b"runtime error" in raw[:4000]:
+                raise RuntimeError(raw[:300].decode(errors="replace"))
+            break
+        except Exception as e:  # busy servers answer 429/502/504 or a timeout remark
+            raw, err = None, e
+            print(f"  {u}: {e}, retrying", file=sys.stderr)
+            time.sleep(5 + attempt * 5)
+    if raw is None:
+        sys.exit(f"download failed: {err}")
     with open(path, "wb") as f:
         f.write(raw)
     return raw
@@ -117,10 +139,11 @@ def elevation_grid(geo, n):
 
 def overpass(geo, name):
     bb = f"{geo.s:.5f},{geo.w:.5f},{geo.n:.5f},{geo.e:.5f}"
-    q = f"""[out:json][timeout:300];
-(
-  way["building"]({bb});
-  way["landuse"~"^(forest|residential|industrial|commercial|retail|farmyard|cemetery|quarry|reservoir|basin)$"]({bb});
+    head = "[out:json][timeout:240];\n(\n"
+    # Two queries: one big answer is more likely to time out at a busy server's gateway.
+    parts = {
+        "buildings": f'  way["building"]({bb});\n',
+        "land": f"""  way["landuse"~"^(forest|residential|industrial|commercial|retail|farmyard|cemetery|quarry|reservoir|basin)$"]({bb});
   relation["landuse"~"^(forest|residential|industrial|reservoir)$"]({bb});
   way["natural"~"^(wood|scrub|water|rock|bare_rock|scree|heath)$"]({bb});
   relation["natural"~"^(wood|water|scrub)$"]({bb});
@@ -130,10 +153,13 @@ def overpass(geo, name):
   node["man_made"~"^(water_tower|tower|mast)$"]({bb});
   way["man_made"~"^(water_tower|tower)$"]({bb});
   node["power"="tower"]({bb});
-);
-out geom;"""
-    raw = fetch("https://overpass-api.de/api/interpreter", f"overpass_{name}.json", data=q)
-    return json.loads(raw)["elements"]
+""",
+    }
+    els = []
+    for part, body in parts.items():
+        raw = fetch("overpass", f"overpass_{name}_{part}.json", data=head + body + ");\nout geom;")
+        els += json.loads(raw)["elements"]
+    return els
 
 
 def join_rings(segs):
@@ -281,23 +307,32 @@ def orient(ring):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("name")
-    ap.add_argument("lat", type=float)
-    ap.add_argument("lon", type=float)
-    ap.add_argument("--km", type=float, default=10.0)
+    ap.add_argument("--bbox", default="", help="SOUTH,WEST,NORTH,EAST in degrees")
+    ap.add_argument("--center", default="", help="LAT,LON (with --km)")
+    ap.add_argument("--km", type=float, default=10.0, help="side of the square with --center")
     ap.add_argument("--cells", type=int, default=384)
     ap.add_argument("--players", type=int, default=4)
     ap.add_argument("--relief", type=float, default=0.85, help="vertical scale against true scale")
     ap.add_argument("--starts", default="", help="'x,z;x,z;...' in world units (default: picked automatically)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--title", default="")
-    ap.add_argument("--max-props", type=int, default=700)
+    ap.add_argument("--max-props", type=int, default=600, help="buildings (pylons and the outpost come on top)")
     a = ap.parse_args()
 
     n = a.cells
     world = n * CELL
-    geo = Geo(a.lat, a.lon, a.km, world)
+    if a.bbox:
+        s_, w_, n_, e_ = map(float, a.bbox.split(","))
+        lat, lon = (s_ + n_) / 2, (w_ + e_) / 2
+        km = max((n_ - s_) * 110.574, (e_ - w_) * 111.320 * math.cos(math.radians(lat)))
+    elif a.center:
+        lat, lon = map(float, a.center.split(","))
+        km = a.km
+    else:
+        sys.exit("give --bbox SOUTH,WEST,NORTH,EAST or --center LAT,LON")
+    geo = Geo(lat, lon, km, world)
     rng = random.Random(a.seed)
-    print(f"area lat {geo.s:.4f}..{geo.n:.4f} lon {geo.w:.4f}..{geo.e:.4f}, {1 / geo.upm:.1f} m per world unit")
+    print(f"square of {km:.2f} km: lat {geo.s:.4f}..{geo.n:.4f} lon {geo.w:.4f}..{geo.e:.4f}, {1 / geo.upm:.1f} m per world unit")
 
     # Heights.
     elev = elevation_grid(geo, n)
@@ -337,6 +372,7 @@ def main():
     print(f"{len(buildings)} buildings, {len(points)} points of interest")
 
     needle, broad, mixed = ras.arr("needle"), ras.arr("broad"), ras.arr("mixed")
+    industrial, farmyard = ras.arr("industrial"), ras.arr("farmyard")
     forest = needle | broad | mixed
     water = ras.arr("water")
     built = ras.arr("building")
@@ -346,31 +382,36 @@ def main():
 
     # Start positions: open (no forest, buildings, water), flat ground, one per sector around the centre.
     rs = Raster.RES
-    open_ = blur(forest | water | built | ras.arr("industrial") | ras.arr("residential"), int(30 * rs))
+    open_ = blur(forest | water | built | industrial | ras.arr("residential"), int(30 * rs))
     hv = heights
     slope = np.zeros((n + 1, n + 1))
     slope[:-1, :-1] = np.abs(np.diff(hv, axis=0))[:, :-1] + np.abs(np.diff(hv, axis=1))[:-1, :]
     slope_b = blur(slope, 12)
     c = world / 2
     if a.starts:
-        starts = [tuple(map(float, s.split(","))) for s in a.starts.split(";")]
+        starts = [tuple(map(float, s_.split(","))) for s_ in a.starts.split(";")]
     else:
+        # Players sit evenly around the centre (2 and 4 in the corners, like the generator) at the
+        # same distance; each may slide a little along its circle and in or out to find open, flat
+        # ground (no forest, buildings or water within ~30 units).
         starts = []
         k = a.players
+        ang0 = -3 * math.pi / 4 if k in (2, 4) else -math.pi / 2
+        rad0 = world * (0.42 if k in (2, 4) else 0.36)
         for p in range(k):
-            ang = -3 * math.pi / 4 + p * 2 * math.pi / k
+            ang = ang0 + p * 2 * math.pi / k
             best = None
-            for rad in np.arange(world * 0.26, world * 0.44, 6.0):
-                for da in np.linspace(-math.pi / k * 0.6, math.pi / k * 0.6, 25):
+            for rad in np.arange(rad0 * 0.8, rad0 * 1.08, 4.0):
+                for da in np.linspace(-0.3, 0.3, 31):
                     x, z = c + math.cos(ang + da) * rad, c + math.sin(ang + da) * rad
-                    if not (70 < x < world - 70 and 70 < z < world - 70):
+                    if not (60 < x < world - 60 and 60 < z < world - 60):
                         continue
                     o = open_[int(z * rs), int(x * rs)]
                     s = slope_b[int(z / CELL), int(x / CELL)]
-                    score = o * 3.0 + s * 4.0 + abs(rad - world * 0.36) / world * 2.0 + abs(da) * 0.3
+                    score = o * 3.0 + s * 4.0 + abs(rad - rad0) / world * 6.0 + abs(da) * 1.5
                     if best is None or score < best[0]:
                         best = (score, x, z)
-            starts.append((round(best[1], 1), round(best[2], 1)))
+            starts.append((round(float(best[1]), 1), round(float(best[2]), 1)))
     print("starts", starts)
 
     # Level the bases: blend to the mean height within 26 units, fading out by 46.
@@ -442,24 +483,23 @@ def main():
         z = sum(p[1] for p in ring) / len(ring)
         if not (0 < x < world and 0 < z < world):
             continue
-        lu = "industrial" if Raster.at(ras.arr("industrial"), x, z) else "farmyard" if Raster.at(ras.arr("farmyard"), x, z) else ""
+        lu = "industrial" if Raster.at(industrial, x, z) else "farmyard" if Raster.at(farmyard, x, z) else ""
         dense = dens[min(int(z * rs), ras.size - 1), min(int(x * rs), ras.size - 1)] > 0.22
         kind = building_kind(t, area, lu, dense, rng)
         if kind:
             prio = 3 if kind == "church" else 2 if kind in ("science_lab", "admin_hall", "water_tower") else 1
             cand.append((prio, area, x, z, yaw, kind))
-    # Important and big buildings first; houses in random order so thinning is even.
-    big = sorted([c_ for c_ in cand if c_[0] > 1 or c_[1] > 350], key=lambda c_: (-c_[0], -c_[1]))
-    small = [c_ for c_ in cand if not (c_[0] > 1 or c_[1] > 350)]
-    rng.shuffle(small)
-    for _, _, x, z, yaw, kind in big + small:
+    # Landmarks first, then a random order weighted by size (u^(1/w) sampling): the prop budget
+    # thins every town evenly, but big blocks and factories tend to get their place first.
+    cand.sort(key=lambda c_: (-c_[0], -rng.random() ** (1.0 / (1.0 + c_[1] / 300.0))))
+    for _, _, x, z, yaw, kind in cand:
         if len(props) >= a.max_props:
             break
         place(kind, x, z, yaw)
     # Power pylons along the real lines (sparse).
     pyl = 0
     for t, (x, z) in points:
-        if t.get("power") == "tower" and len(props) < a.max_props + 60:
+        if t.get("power") == "tower" and pyl < 40:
             if place("pylon", x, z, 0.0, margin=2):
                 pyl += 1
     counts = {}
@@ -508,18 +548,22 @@ def main():
     # Same offsets for every start, turned towards the map centre.
     base = [(7, 3), (-3, 7), (-7, -5), (5, -7)]
     exp_rng = random.Random(a.seed * 7 + 3)
-    expansions = []
-    while len(expansions) < 12:
-        fwd, side = exp_rng.uniform(35, 230), exp_rng.uniform(-150, 150)
-        if math.hypot(fwd, side) < 45 or any(math.hypot(fwd - e[0], side - e[1]) < 26 for e in expansions):
+    expansions = [(50, -32), (34, 52)]
+    while len(expansions) < 13:
+        fwd, side = exp_rng.uniform(-40, 190), exp_rng.uniform(-170, 170)
+        if math.hypot(fwd, side) < 45 or any(math.hypot(fwd - e[0], side - e[1]) < 30 for e in expansions):
             continue
         expansions.append((fwd, side))
     for sx, sz in starts:
         dx, dz = c - sx, c - sz
         L = math.hypot(dx, dz) or 1
         fx, fz = dx / L, dz / L
+        # The generator's home deposits, turned with the start: they are laid out for a start whose
+        # centre direction is (1, 1), and leave the AI's factory spot (towards the centre) free.
+        th = math.atan2(fz, fx) - math.pi / 4
         for ox, oz in base:
-            add_dep(sx + ox, sz + oz, search=6, keep=4)
+            rx, rz = ox * math.cos(th) - oz * math.sin(th), ox * math.sin(th) + oz * math.cos(th)
+            add_dep(sx + rx, sz + rz, search=6, keep=4)
         for fwd, side in expansions:
             add_dep(sx + fx * fwd - fz * side, sz + fz * fwd + fx * side)
     for ang in range(0, 360, 60):
@@ -555,13 +599,20 @@ def main():
         i, j = int(x / CELL), int(z / CELL)
         if blocked[j, i] or Raster.at(water, x, z) or Raster.at(built, x, z):
             return False
-        if any(math.hypot(x - sx, z - sz) < 30 for sx, sz in starts):
-            return False
+        # Every base gets the same clearing (forest around one base and fields around another
+        # made a big difference in AI test games): none within 55 units, thinning out to 75.
+        for sx, sz in starts:
+            dd = math.hypot(x - sx, z - sz)
+            if dd < 55 or (dd < 75 and rng.random() < (75 - dd) / 20):
+                return False
         if any(math.hypot(x - dx_, z - dz_) < 3.5 + r for dx_, dz_ in deposits):
             return False
-        for fx_, fz_, half in fgrid.get((int(x // 16), int(z // 16)), []) + [f for k in [(int(x // 16) + a_, int(z // 16) + b_) for a_ in (-1, 0, 1) for b_ in (-1, 0, 1) if (a_, b_) != (0, 0)] for f in fgrid.get(k, [])]:
-            if abs(x - fx_) < half + r and abs(z - fz_) < half + r:
-                return False
+        gx, gz = int(x // 16), int(z // 16)
+        for b_ in (-1, 0, 1):
+            for a_ in (-1, 0, 1):
+                for fx_, fz_, half in fgrid.get((gx + a_, gz + b_), ()):
+                    if abs(x - fx_) < half + r and abs(z - fz_) < half + r:
+                        return False
         return True
 
     def put(kind, x, z, gap, scale=None):
@@ -608,8 +659,6 @@ def main():
                 put("shrub", x, z, 2.2)
             else:
                 put(pick(mixes[layer]), x, z, 3.0)
-        elif ras.arr("scrub")[pj, pi_] if False else False:
-            pass
     scrub = ras.arr("scrub")
     park = ras.arr("park")
     rockarea = ras.arr("rock")
@@ -682,8 +731,10 @@ def main():
     for f in feats:
         kind, x, z = f.split()[:3]
         x, z = float(x) * k, float(z) * k
-        col = (120, 120, 120) if fdefs[kind]["class"] == "rock" else (30, 80, 35)
-        d.point((x, z), fill=col)
+        if fdefs[kind]["class"] == "rock":
+            d.rectangle([x - 1, z - 1, x + 1, z + 1], fill=(235, 235, 225))
+        else:
+            d.rectangle([x - 1, z - 1, x, z], fill=(25, 70, 30))
     for p in props:
         x, z = p["pos"]["x"] * k, p["pos"]["y"] * k
         h = foot[p["def"]] * CELL * k / 2

@@ -373,6 +373,15 @@ impl MapData {
     /// the terrain. The two end cells never block, so a unit next to a tree still sees past its
     /// own cover in other directions and is not hidden by the tree it stands beside.
     pub fn los_blocked(&self, a: Vec3, b: Vec3, block: &[f32]) -> bool {
+        self.sight_line(a, b, block, true)
+    }
+
+    /// `los_blocked` with the terrain switched on or off (`terrain` false: only `block` stops the
+    /// line, standing on the ground wherever it is; an empty `block` then sees everything).
+    pub fn sight_line(&self, a: Vec3, b: Vec3, block: &[f32], terrain: bool) -> bool {
+        if !terrain && block.is_empty() {
+            return true;
+        }
         let d = b - a;
         let len = Vec2::new(d.x, d.z).length();
         let steps = (len / CELL).ceil().max(1.0) as i32;
@@ -380,11 +389,13 @@ impl MapData {
         let ends = [((a.x / CELL).floor() as i32, (a.z / CELL).floor() as i32), ((b.x / CELL).floor() as i32, (b.z / CELL).floor() as i32)];
         for i in 1..steps {
             let p = a + d * (i as f32 / steps as f32);
-            let mut h = self.height(p.x, p.z);
+            let ground = self.height(p.x, p.z);
             let (cx, cy) = ((p.x / CELL).floor() as i32, (p.z / CELL).floor() as i32);
+            let mut extra = 0.0;
             if cx >= 0 && cy >= 0 && cx < n && cy < n && !ends.contains(&(cx, cy)) {
-                h += block.get((cy * n + cx) as usize).copied().unwrap_or(0.0);
+                extra = block.get((cy * n + cx) as usize).copied().unwrap_or(0.0);
             }
+            let h = if terrain || extra > 0.0 { ground + extra } else { f32::NEG_INFINITY };
             if h > p.y {
                 return false;
             }
