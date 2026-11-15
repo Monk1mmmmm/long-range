@@ -3,6 +3,50 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.5.0
+
+Not compatible with v0.4.1 in multiplayer: everybody needs this version.
+
+New
+- Debris: buildings that take a hard hit drop pieces of debris next to their walls, and a destroyed
+  building spills more around its wreck. Pieces fall, hurt units they land on, can be reclaimed like wrecks
+  and are worn down by shells; big ones block sight. Their mass comes out of the building's wreck, so
+  nothing is gained by damaging and repairing a building.
+- Settings: Effects (Low / Medium / High). Low is for slow graphics cards: debris appears where it lands
+  instead of falling, explosions are smaller and give no light.
+- Cover: trees, rocks and wrecks soak up part of every shot that passes through them, and wear away under
+  fire. Infantry move into cover on their own, on the far side from the enemy.
+- Garrisons: infantry can occupy most civilian buildings and the bunker (right-click it), fire from the
+  roof and see from it. A map building belongs to whoever holds it; when it falls, the troops are thrown
+  out hurt.
+- New units: Flak Trooper (T1, anti-air), AT Trooper and SAM Trooper (T2), the Harrier fighter-bomber and
+  the Skyspear SAM site.
+- Bombers aim like in SupCom: the stick is released so it lands on the target, moving targets are led,
+  and a bomber flies on and comes round for another run.
+- New map: Jablonec, made from a real town (`tools/osm_map.py` makes maps of real places).
+- Mouse cursors show what a click will do (move, attack, reclaim, capture, load...).
+- While giving a reclaim or revive order, the HUD shows what the circle or the thing under the pointer yields.
+- Lobby: option "Neutral and hostile buildings known from the start"; the lobby lists the rules a preset
+  switches off.
+- Game data presets: a form with a field and a tooltip for every setting (the raw JSON is still there),
+  and switches to turn off terraforming, craters, wrecks and the sight and radar blocking.
+- Settings: camera distance at which units turn into strategic icons.
+
+Changed
+- Scavengers also reclaim trees and rocks. Area reclaim collects wrecks, debris, trees and rocks.
+- Civilian map buildings are twice as large, and towns are packed with narrow streets.
+- Shells stay visible from far away (a yellow square of a size you set in the settings).
+- The land beyond the map edge is a blurred mirror of the map; the map edge is a dashed line.
+- A commander riding in a transport dies with it, and its side is defeated.
+- Engineer icons show a wrench.
+- Balance changes for bombers and anti-air.
+
+Fixed
+- Water looked uneven.
+- A blank map could crash the HUD.
+- Lobby and preset editor layout at small window sizes.
+- Linux: OpenGL works (also under WSL with GPU support).
+
 ## v0.4.1
 
 Not compatible with v0.4.0 in multiplayer: everybody needs this version.

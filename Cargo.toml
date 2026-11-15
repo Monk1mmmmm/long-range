@@ -1,6 +1,6 @@
 [package]
 name = "longrange"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 default-run = "longrange"
 
@@ -27,6 +27,10 @@ embed-resource = "3"
 # Windows: the window's title bar and taskbar icon (settings::add_window_icon). Same winit as Bevy's.
 [target.'cfg(windows)'.dependencies]
 winit = { version = "0.30", default-features = false }
+
+# Linux OpenGL: an X11 display for the renderer (settings::linux_gl). Same x11-dl as winit's.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2.21"
 
 [target.'cfg(all(windows, target_env = "msvc"))'.dependencies]
 bevy = { version = "0.20", default-features = false, features = ["3d", "statically-linked-dxc"] }

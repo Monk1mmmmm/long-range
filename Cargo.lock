@@ -3823,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "longrange"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "bevy",
  "bevy_egui",
@@ -3836,6 +3836,7 @@ dependencies = [
  "serde_json",
  "wgpu",
  "winit",
+ "x11-dl",
 ]
 
 [[package]]
