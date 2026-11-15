@@ -715,5 +715,6 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(EguiPrimaryContextPass, editor_ui);
     longrange::settings::tolerate_render_errors(&mut app);
+    longrange::settings::add_window_icon(&mut app);
     app.run();
 }

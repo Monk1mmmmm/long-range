@@ -136,7 +136,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
   with hotbuild keys chosen by unit role in `hud::hot_key`.
 - Releases: `scripts/release.sh` / `release.ps1` make two archives per platform in `dist/` (game + assets,
-  editor + assets) and publish them with `gh`.
+  editor + assets) and publish them with `gh`. They first delete everything else in `dist/` (older versions).
   The user commits and pushes themselves; do not commit, push or publish without being asked.
 
 ## Source map
@@ -161,7 +161,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/icons.rs` | procedural strategic icons |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
 | `src/bin/lr-editor.rs` | map editor and map generation CLI |
-| `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource` |
+| `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource`; `settings::add_window_icon` puts it on the running window (winit sets none) |
 
 ## Game rules worth knowing
 

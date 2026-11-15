@@ -2250,5 +2250,6 @@ fn main() {
     .add_systems(Update, dev_screenshot)
     .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
     longrange::settings::tolerate_render_errors(&mut app);
+    longrange::settings::add_window_icon(&mut app);
     app.run();
 }

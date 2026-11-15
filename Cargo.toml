@@ -1,6 +1,6 @@
 [package]
 name = "longrange"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 default-run = "longrange"
 
@@ -24,6 +24,10 @@ embed-resource = "3"
 # FXC compiler, which is extremely slow on (or fails) Bevy's PBR shaders: black 3D view, working UI.
 # wgpu can only link DXC statically with MSVC. The MinGW cross build from Linux ships dxcompiler.dll
 # next to the exe instead (scripts/release.sh), which settings::render_plugin picks up.
+# Windows: the window's title bar and taskbar icon (settings::add_window_icon). Same winit as Bevy's.
+[target.'cfg(windows)'.dependencies]
+winit = { version = "0.30", default-features = false }
+
 [target.'cfg(all(windows, target_env = "msvc"))'.dependencies]
 bevy = { version = "0.20", default-features = false, features = ["3d", "statically-linked-dxc"] }
 

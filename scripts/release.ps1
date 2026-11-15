@@ -23,6 +23,17 @@ Set-Location (Join-Path $PSScriptRoot "..")
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not $Tag) { $Tag = "v$version" }
 New-Item -ItemType Directory -Force dist | Out-Null
+# Clear out what earlier runs left in dist\: bundles and archives of other versions, the old release
+# text, anything else. Only this version's bundles of a platform not built in this run (-Only) are kept.
+foreach ($f in Get-ChildItem -Force dist) {
+    $keep = $false
+    if ($f.Name -like "longrange-$version-linux-*" -or $f.Name -like "longrange-editor-$version-linux-*") { $keep = ($Only -eq "windows") }
+    if ($f.Name -like "longrange-$version-windows-*" -or $f.Name -like "longrange-editor-$version-windows-*") { $keep = ($Only -eq "linux") }
+    if (-not $keep) {
+        Write-Host "removing old dist\$($f.Name)"
+        Remove-Item -Recurse -Force $f.FullName
+    }
+}
 $files = @()
 
 if ($Only -eq "" -or $Only -eq "windows") {

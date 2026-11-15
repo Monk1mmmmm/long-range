@@ -3,6 +3,41 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.4.1
+
+Not compatible with v0.4.0 in multiplayer: everybody needs this version.
+
+New
+- Trees and rocks. Random maps and all premade maps now have forests and rock fields. Engineers reclaim
+  them (click one, or drag a circle): rocks give mass, trees energy. They block sight, not radar, and
+  never block movement or shots. A building placed on them clears its footprint.
+- Wrecks block sight as well, up to the height of the wreck.
+- Pause: any player can pause the whole game (Pause key, Ctrl+P, or the menu) and anyone resumes it.
+- Lobby redesigned: players on the left; the map preview with numbered start positions, a Game options tab
+  and a Map tab with thumbnails on the right. A random map is made when you pick it, so the game is played
+  on the map the preview shows ("New random map" rolls another). Clients see the preview too.
+- Lobby: click a slot to switch it between Open, AI and Closed; the host can remove a player; option
+  "AI reclaims trees and rocks".
+- New neutral town buildings: houses, apartments, a church, shops, containers, a factory and more.
+- Settings: detail level for trees and rocks (Low turns off their shadows).
+- Map editor: Brush tool for trees and rocks (left paints, right removes), Scatter for a whole map, Erase
+  works while held, Clear all. From the command line: `lr-editor --scatter NAME [SEED] [AMOUNT]`.
+- Windows: the game and the editor have their own program icon (the mod's icon), also in the title bar
+  and the taskbar while running.
+
+Changed
+- Control points: every team starts with a pool of points (400, or what the host picks in the lobby). A team
+  holding fewer control points than its strongest opponent loses points; a team at 0 is defeated.
+- The mod's own models (tanks, trooper and commander, buggy, radar car, windmill, solar, heavy battery,
+  turrets...) are 2.5 times bigger, as in the mod. Some buildings take more ground because of it:
+  Windmill 3x3, Solar Field 6x6, M1 Heavy Battery 3x3, HMG and Gauss Turret 2x2.
+- The map editor is now a separate download (`longrange-editor-...`), each archive with its own assets.
+
+Good to know
+- Game data presets made with v0.4.0 have no tree and rock types: maps then show no trees or rocks.
+  Make a new preset to get them.
+- The minimap does not show trees and rocks.
+
 ## v0.4.0
 
 Not compatible with earlier versions in multiplayer: everybody needs this version.

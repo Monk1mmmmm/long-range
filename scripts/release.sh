@@ -31,6 +31,26 @@ case "$ONLY" in ""|linux|windows) ;; *) echo "--only takes 'linux' or 'windows'"
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 TAG=${TAG:-v$VERSION}
 mkdir -p dist
+
+# Clear out what earlier runs left in dist/: bundles and archives of other versions, the old
+# release text, anything else. Only this version's bundles of a platform not built in this run
+# (--only) are kept; the ones built now are emptied and remade below.
+clean_dist() {
+    local f keep
+    for f in dist/* dist/.[!.]*; do
+        [ -e "$f" ] || continue
+        keep=0
+        case "${f#dist/}" in
+            longrange-"$VERSION"-linux-*|longrange-editor-"$VERSION"-linux-*) [ "$ONLY" = windows ] && keep=1 ;;
+            longrange-"$VERSION"-windows-*|longrange-editor-"$VERSION"-windows-*) [ "$ONLY" = linux ] && keep=1 ;;
+        esac
+        if [ "$keep" = 0 ]; then
+            echo "removing old $f"
+            rm -rf -- "$f"
+        fi
+    done
+}
+clean_dist
 FILES=()
 
 # The two programs are built one after the other: linking both at once needs more memory
@@ -68,10 +88,8 @@ bundle() { # <platform name> <cargo output dir> <exe suffix>
 bundle_one() { # <archive name> <program> <cargo output dir> <exe suffix>
     local name="$1" out
     local dir="dist/${name:?}"
-    # Start from an empty bundle folder.
-    if [ -d "$dir" ]; then
-        find "$dir" -mindepth 1 -delete
-    fi
+    # Start from an empty bundle folder and no old archive.
+    rm -rf -- "$dir" "dist/$name.zip" "dist/$name.tar.gz"
     mkdir -p "$dir"
     cp "$3/$2$4" "$dir/"
     if [ -n "$DXC_DIR" ]; then
@@ -82,7 +100,6 @@ bundle_one() { # <archive name> <program> <cargo output dir> <exe suffix>
     if [ -f LICENSE ]; then cp LICENSE "$dir/"; fi
     if [ "$4" = ".exe" ]; then
         out="dist/$name.zip"
-        if [ -f "$out" ]; then unlink "$out"; fi
         (cd dist && zip -qr "$name.zip" "$name")
     else
         out="dist/$name.tar.gz"

@@ -159,6 +159,42 @@ pub fn tolerate_render_errors(app: &mut App) {
     }));
 }
 
+/// Shows the program icon in the window's title bar and the taskbar (Windows).
+///
+/// `build.rs` puts the icon into the exe as resource 1, which Explorer shows, but winit registers its
+/// window class without an icon, so the running window would show the generic one. Other systems
+/// have nothing to do here (Linux desktops take the icon from a .desktop file, Wayland ignores it).
+pub fn add_window_icon(app: &mut App) {
+    #[cfg(windows)]
+    app.add_systems(Update, set_window_icon);
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
+#[cfg(windows)]
+fn set_window_icon(mut done: Local<bool>, window: Query<Entity, With<PrimaryWindow>>, _main_thread: bevy::ecs::system::NonSendMarker) {
+    use winit::dpi::PhysicalSize;
+    use winit::platform::windows::{IconExtWindows, WindowExtWindows};
+    use winit::window::Icon;
+    if *done {
+        return;
+    }
+    let Ok(entity) = window.single() else { return };
+    bevy::winit::WINIT_WINDOWS.with_borrow(|windows| {
+        // The window is made a frame or two after start-up.
+        let Some(w) = windows.get_window(entity) else { return };
+        *done = true;
+        // Small icon: title bar; big icon: taskbar and Alt+Tab. Windows picks the nearest size in the file.
+        match (Icon::from_resource(1, Some(PhysicalSize::new(16, 16))), Icon::from_resource(1, Some(PhysicalSize::new(32, 32)))) {
+            (Ok(small), Ok(big)) => {
+                w.set_window_icon(Some(small));
+                w.set_taskbar_icon(Some(big));
+            }
+            (Err(e), _) | (_, Err(e)) => warn!("program icon not found in the executable: {e}"),
+        }
+    });
+}
+
 /// Applies the live settings (anti-aliasing, vsync, fullscreen, shadow resolution).
 pub fn apply_settings(
     settings: Res<Settings>,
