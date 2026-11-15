@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
+pub mod cursor;
 pub mod flora;
 pub mod fx;
 pub mod hud;
@@ -406,11 +407,14 @@ impl Plugin for ViewPlugin {
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, terrain::terrain_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
                 .chain()
                 .run_if(in_game),
         );
         app.add_systems(Update, sound::play_ui);
         app.add_systems(bevy_egui::EguiPrimaryContextPass, hud::ui_system.run_if(in_game));
+        app.init_resource::<cursor::CursorWant>().init_resource::<cursor::CursorImages>();
+        app.add_systems(Startup, cursor::take_over_from_egui);
+        app.add_systems(PostUpdate, cursor::apply_cursor.after(bevy_egui::EguiPostUpdateSet::ProcessOutput));
     }
 }

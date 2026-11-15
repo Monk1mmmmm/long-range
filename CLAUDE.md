@@ -35,7 +35,7 @@ cargo run -- --skirmish           # straight into a game vs 3 AIs
 cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
 cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
-cargo run -- --icons out.png      # every strategic icon and order icon in one picture (look at it after icon changes)
+cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
 cargo run --bin lr-editor         # map editor
 cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns, trees, rocks -> assets/maps
 cargo run --bin lr-editor -- --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
@@ -61,11 +61,7 @@ session's Xwayland and `WAYLAND_DISPLAY` unset; screenshot with `WAYLAND_DISPLAY
 The first xdotool mouse move lands at the window centre - do a throwaway move before the first click.
 `swaymsg seat cursor ...` does not reach clients in headless mode.
 
-### Building on this machine
-
-**Do not compile here.** The user builds themselves: do not run `cargo build/check/run/test` or the release
-scripts on this laptop. Make the changes, then ask the user to run the command and send back the output.
-The notes below are for them (and for reading build logs).
+### Building
 
 Link one binary at a time (`cargo build --bin longrange`, then `--bin lr-editor`). `cargo build --bins` links
 both in parallel, which filled 8 GB RAM + 8 GB swap and thrashed for half an hour without finishing. The release
@@ -154,11 +150,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/hud.rs` | camera, selection, orders, overlays, HUD panels (one egui pass) |
 | `src/view/intel.rs` | fog grid, terrain-shadowed radar coverage, contact memory (ghosts/blips) |
 | `src/view/models.rs` | GLB/box model loading, team-colour texture baking |
-| `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), water, deposits, sun, minimap pixels |
+| `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), land beyond the border (`apron_mesh`: the map mirrored on all sides, blurred, hazy, built once), dashed map edge (`map_edge_sync` re-widens it with the camera distance), water, deposits, sun, minimap pixels |
 | `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
 | `src/view/fx.rs` | projectile visuals and explosions |
 | `src/view/flora.rs` | trees and rocks: procedural models (detail setting), one merged mesh per 16-cell chunk |
-| `src/view/icons.rs` | procedural strategic icons |
+| `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
+| `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
 | `src/bin/lr-editor.rs` | map editor and map generation CLI |
 | `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource`; `settings::add_window_icon` puts it on the running window (winit sets none) |
@@ -177,6 +174,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
   buildings once detected stay as ghosts until the spot is seen again and found empty. Right-clicking a
   ghost issues ground fire at its position.
+- **Reclaimables** (the user's word for trees, rocks and wrecks together): shells do not stop at them, but a
+  shell landing on one or a blast (radius, death blasts) wears it down (`systems::hurt_reclaimables`): trees and
+  rocks have `hp` in `rules.json: features` (times the map's scale; `left` drops by damage / hp), wrecks have
+  `rules.wreck_hp` x the unit's hp (armor applies) and lose mass in step. At zero they are gone.
+  Unfinished buildings are ordinary targets (5% hp at placement, hp grows with progress).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Overtaker/Pike/MBFAG/
@@ -201,7 +203,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under the body (SupCom style);
   the loader rejects two units with the same icon (playable factions only; map buildings share icons by kind). Shapes: land (diamond), bot, air (triangle), structure
   (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
-  arc = anti-air, chevron = missile, ring = scout, wave = radar, eng, mass (funnel), bolt, store (tray under a
+  arc = anti-air, chevron = missile, ring = scout, wave = radar, eng (wrench; beside a second glyph it sits on the left), mass (funnel), bolt, store (tray under a
   stored resource), cargo (transports), frame, bar, land / tri (outlines of what a factory builds).
 - **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
   a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.

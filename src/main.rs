@@ -1855,6 +1855,64 @@ fn combattest() {
         println!("== Sight through a tree line: enemy {:.0} away seen behind the trees: {behind_trees}, after they are gone: {in_the_open}", a.dist(b));
         assert!(!behind_trees && in_the_open, "trees block sight");
     }
+    // 7d. Weapons destroy reclaimables and unfinished buildings: a Pike shells a grove with a rock
+    // and a wreck in it, a Crony shoots an enemy windmill left half built.
+    {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(192, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.rebuild_blocked();
+        let (pine, rock) = (map.feature_kind("pine"), map.feature_kind("rock"));
+        let spot = v2(170.0, 180.0);
+        for k in 0..4 {
+            map.features.push(Feature { kind: pine, pos: spot + V2::from_angle(k as f32 * 1.57) * 2.0, yaw: 0.0, scale: 1.0 });
+        }
+        map.features.push(Feature { kind: rock, pos: spot, yaw: 0.0, scale: 1.0 });
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        setup_game(app.world_mut(), map.clone(), &setup);
+        let world = app.world_mut();
+        let pike = spawn(world, &map, "pike", 0, v2(100.0, 180.0), 0.0);
+        spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
+        spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
+        let mut game = world.resource::<Game>().clone();
+        let (wreck, site) = {
+            let mut commands = world.commands();
+            let id = game.alloc();
+            let crony = defs.id("crony").unwrap();
+            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction, pos: spot + v2(1.0, -2.5), y: 2.0, yaw: 0.0 });
+            let site = longrange::sim::spawn_unit_built(&mut commands, &defs, &mut game, &map, defs.id("windmill").unwrap(), 1, v2(140.0, 100.0), 0.0, Some(0.5), 0);
+            (id, site)
+        };
+        world.insert_resource(game);
+        for p in world.resource_mut::<Game>().players.iter_mut() {
+            p.energy = 4000.0;
+            p.max_energy = 4000.0;
+        }
+        world.flush();
+        let before = make_snapshot(world);
+        order(world, vec![pike], Order::AttackGround { pos: spot, radius: 3.0 });
+        let (mut site_gone, mut wreck_gone, mut grove_gone) = (None, None, None);
+        for t in 0..900u32 {
+            world.run_schedule(SimTick);
+            if site_gone.is_none() && !world.query::<&Unit>().iter(world).any(|u| u.id == site) {
+                site_gone = Some(t + 1);
+            }
+            if wreck_gone.is_none() && !world.query::<&Wreck>().iter(world).any(|w| w.id == wreck) {
+                wreck_gone = Some(t + 1);
+            }
+            if grove_gone.is_none() && (0..4).all(|i| !world.resource::<Features>().alive(i)) {
+                grove_gone = Some(t + 1);
+            }
+        }
+        let rock_left = world.resource::<Features>().list[4].left;
+        let after = make_snapshot(world);
+        restore(world, &before);
+        let back = (0..5).filter(|i| world.resource::<Features>().alive(*i)).count() == 5 && world.query::<&Wreck>().iter(world).any(|w| w.id == wreck);
+        restore(world, &after);
+        let same = state_hash(&make_snapshot(world)) == state_hash(&after);
+        println!("== Weapons vs reclaimables: 4 pines gone after {grove_gone:?} ticks, wreck after {wreck_gone:?}, rock {:.0}% left.  Half-built enemy windmill destroyed after {site_gone:?} ticks.  Rollback restores them: {back}, hash equal {same}", rock_left * 100.0);
+        assert!(grove_gone.is_some() && wreck_gone.is_some() && rock_left < 1.0 && site_gone.is_some() && back && same, "weapons vs reclaimables and sites");
+    }
     // 8. Craters and terraforming, and a state that is saved and restored with them.
     {
         let (mut app, map) = flat_world(192);
@@ -2177,20 +2235,24 @@ fn nettest() {
     println!("nettest OK");
 }
 
-/// Developer aid: `--icons FILE.png` draws every strategic icon and order icon into one picture.
+/// Developer aid: `--icons FILE.png` draws every strategic icon, order icon and mouse cursor
+/// (at 64 and 32 px) into one picture.
 fn icon_sheet(path: &str) {
-    use longrange::view::icons;
+    use longrange::view::{cursor, icons};
     let defs = load_defs();
     let orders = ["move", "attack_move", "patrol", "ground", "reclaim", "revive", "capture", "terraform", "load", "unload", "assist", "stop", "pause", "resume", "repeat", "upgrade", "mass", "energy", "time", "power", "flag"];
     let (cell, cols) = (icons::ICON + 8, 12);
-    let n = defs.units.len() + orders.len();
+    let n0 = defs.units.len() + orders.len();
+    let cur0 = (n0 + cols - 1) / cols * cols;
+    let ncur = cursor::CursorKind::ALL.len();
+    let n = cur0 + 2 * ncur;
     let rows = (n + cols - 1) / cols;
     let mut img = image::RgbaImage::from_pixel((cols * cell) as u32, (rows * cell) as u32, image::Rgba([40, 60, 45, 255]));
-    let mut blit = |k: usize, px: &[u8], tint: [f32; 3]| {
+    let mut blit_sized = |k: usize, px: &[u8], tint: [f32; 3], size: usize| {
         let (ox, oy) = ((k % cols) * cell + 4, (k / cols) * cell + 4);
-        for y in 0..icons::ICON {
-            for x in 0..icons::ICON {
-                let s = &px[(y * icons::ICON + x) * 4..];
+        for y in 0..size {
+            for x in 0..size {
+                let s = &px[(y * size + x) * 4..];
                 let a = s[3] as f32 / 255.0;
                 let dst = img.get_pixel_mut((ox + x) as u32, (oy + y) as u32);
                 for c in 0..3 {
@@ -2200,13 +2262,17 @@ fn icon_sheet(path: &str) {
         }
     };
     for (k, d) in defs.units.iter().enumerate() {
-        blit(k, &icons::render(&d.icon, d.tier), [0.3, 0.6, 1.0]);
+        blit_sized(k, &icons::render(&d.icon, d.tier), [0.3, 0.6, 1.0], icons::ICON);
     }
     for (k, o) in orders.iter().enumerate() {
-        blit(defs.units.len() + k, &icons::render_order(o), [1.0, 1.0, 1.0]);
+        blit_sized(defs.units.len() + k, &icons::render_order(o), [1.0, 1.0, 1.0], icons::ICON);
+    }
+    for (k, c) in cursor::CursorKind::ALL.iter().enumerate() {
+        blit_sized(cur0 + k, &c.pixels(64), [1.0, 1.0, 1.0], 64);
+        blit_sized(cur0 + ncur + k, &c.pixels(32), [1.0, 1.0, 1.0], 32);
     }
     match img.save(path) {
-        Ok(()) => println!("wrote {path}: {} unit icons in data order, then {} order icons", defs.units.len(), orders.len()),
+        Ok(()) => println!("wrote {path}: {} unit icons in data order, {} order icons, then the {ncur} cursors at 64 and at 32 px", defs.units.len(), orders.len()),
         Err(e) => eprintln!("{path}: {e}"),
     }
 }

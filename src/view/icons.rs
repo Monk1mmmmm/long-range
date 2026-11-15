@@ -72,9 +72,14 @@ fn glyph_sd(g: &str, x: f32, y: f32) -> f32 {
         }
         "bar" => seg(x, y, -0.3, 0.36, 0.3, 0.36) - 0.06,
         "eng" => {
-            // Wrench-like open square.
-            let d = (x.abs().max(y.abs()) - 0.22).abs() - 0.06;
-            d.max(-(seg(x, y, 0.0, -0.3, 0.0, -0.1) - 0.09))
+            // An open-end wrench lying diagonally, jaw at the top right.
+            let (cx, cy) = (0.13, -0.13);
+            let handle = seg(x, y, -0.24, 0.24, cx, cy) - 0.065;
+            let head = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt() - 0.17;
+            // Jaw coordinates: u points out of the head (up-right), v across it.
+            let (u, v) = (((x - cx) - (y - cy)) * 0.7071, ((x - cx) + (y - cy)) * 0.7071);
+            let jaw = (v.abs() - 0.065).max(-u);
+            handle.min(head).max(-jaw)
         }
         // A funnel with a drop under it.
         "mass" => (poly(x, y, &[(-0.33, -0.34), (0.33, -0.34), (0.0, 0.12)]).abs() - 0.055).min((x * x + (y - 0.3) * (y - 0.3)).sqrt() - 0.08),
@@ -118,8 +123,16 @@ pub fn render(icon: &IconDef, tier: u8) -> Vec<u8> {
             let fill = (0.5 - body / aa).clamp(0.0, 1.0);
             let edge = (0.5 - (body - outline) / aa).clamp(0.0, 1.0);
             let mut glyph = f32::MAX;
+            // The wrench of a fighting engineer goes to the left, its other glyphs to the right,
+            // both a bit smaller, so they do not run into each other.
+            let side = icon.glyphs.len() > 1 && icon.glyphs.iter().any(|g| g == "eng");
             for g in &icon.glyphs {
-                glyph = glyph.min(glyph_sd(g, x, y));
+                glyph = glyph.min(if side {
+                    let (s, cx) = (0.62, if g == "eng" { -0.25 } else { 0.25 });
+                    glyph_sd(g, (x - cx) / s, y / s) * s - 0.02
+                } else {
+                    glyph_sd(g, x, y)
+                });
             }
             if icon.shape == "commander" {
                 glyph = glyph.min((x * x + y * y).sqrt() - 0.25);
@@ -172,7 +185,8 @@ pub fn icon_size(d: &UnitDef) -> f32 {
 
 /// Order-button icons (original artwork, drawn from distance fields like the unit icons).
 /// Kinds: move, attack_move, patrol, ground, reclaim, stop, pause, resume, repeat, upgrade, assist.
-pub fn render_order(kind: &str) -> Vec<u8> {
+/// Distance field of an order glyph; coordinates are in about -1..1 with y down.
+fn order_sd(kind: &str, x: f32, y: f32) -> f32 {
     let t = 0.085;
     let tri = |x: f32, y: f32, a: (f32, f32), b: (f32, f32), c: (f32, f32)| poly(x, y, &[a, b, c]);
     // An arrow from (ax, ay) to (bx, by) with a triangular head.
@@ -186,7 +200,7 @@ pub fn render_order(kind: &str) -> Vec<u8> {
         shaft.min(tri(x, y, (bx, by), (base.0 + px * head * 0.75, base.1 + py * head * 0.75), (base.0 - px * head * 0.75, base.1 - py * head * 0.75)))
     };
     let ring = |x: f32, y: f32, cx: f32, cy: f32, r: f32| (((x - cx).powi(2) + (y - cy).powi(2)).sqrt() - r).abs() - t * 0.85;
-    let sd = |x: f32, y: f32| -> f32 {
+    {
         match kind {
             "move" => arrow(x, y, -0.45, 0.55, 0.5, -0.5, 0.42),
             "attack_move" => {
@@ -246,7 +260,11 @@ pub fn render_order(kind: &str) -> Vec<u8> {
             "time" => ring(x, y, 0.0, 0.0, 0.68).min(seg(x, y, 0.0, 0.0, 0.0, -0.42) - t * 0.8).min(seg(x, y, 0.0, 0.0, 0.3, 0.16) - t * 0.8),
             _ => seg(x, y, -0.5, 0.0, 0.5, 0.0).min(seg(x, y, 0.0, -0.5, 0.0, 0.5)) - t * 1.3,
         }
-    };
+    }
+}
+
+pub fn render_order(kind: &str) -> Vec<u8> {
+    let sd = |x: f32, y: f32| order_sd(kind, x, y);
     let mut out = vec![0u8; ICON * ICON * 4];
     let aa = 2.0 / ICON as f32;
     for py in 0..ICON {
@@ -265,3 +283,48 @@ pub fn render_order(kind: &str) -> Vec<u8> {
     }
     out
 }
+
+/// A mouse cursor of `size` x `size` pixels: a white arrow pointer (hotspot at the top-left
+/// corner, see `CURSOR_HOTSPOT`) with the order glyph `kind`, tinted, on a dark disc beside it.
+/// The layout is designed on a 32 x 32 grid and scaled.
+pub fn render_cursor(kind: &str, tint: [f32; 3], size: usize) -> Vec<u8> {
+    let k = 32.0 / size as f32;
+    let aa = k;
+    let arrow = [(1.0, 1.0), (1.0, 19.0), (5.5, 15.0), (8.5, 21.5), (11.0, 20.5), (8.0, 14.0), (14.0, 14.0)];
+    let (bx, by, br) = (21.5, 21.5, 10.0);
+    let mut out = vec![0u8; size * size * 4];
+    for py in 0..size {
+        for px in 0..size {
+            let (u, v) = ((px as f32 + 0.5) * k, (py as f32 + 0.5) * k);
+            let cover = |d: f32| (0.5 - d / aa).clamp(0.0, 1.0);
+            // Layers bottom to top as (colour, alpha), composited with premultiplied "over".
+            let disc = ((u - bx).powi(2) + (v - by).powi(2)).sqrt() - br;
+            let (gx, gy) = ((u - bx) / br * 1.1, (v - by) / br * 1.1);
+            let g = order_sd(kind, gx, gy) * br / 1.1;
+            let a = poly(u, v, &arrow);
+            let layers = [
+                ([0.05, 0.06, 0.08], cover(disc) * 0.6),
+                ([0.0, 0.0, 0.0], cover(g - 1.0)),
+                (tint, cover(g)),
+                ([0.0, 0.0, 0.0], cover(a - 1.1)),
+                ([1.0, 1.0, 1.0], cover(a)),
+            ];
+            let (mut c, mut al) = ([0.0f32; 3], 0.0f32);
+            for (col, la) in layers {
+                for j in 0..3 {
+                    c[j] = col[j] * la + c[j] * (1.0 - la);
+                }
+                al = la + al * (1.0 - la);
+            }
+            let i = (py * size + px) * 4;
+            for j in 0..3 {
+                out[i + j] = if al > 0.0 { (c[j] / al * 255.0).round().clamp(0.0, 255.0) as u8 } else { 0 };
+            }
+            out[i + 3] = (al * 255.0).round() as u8;
+        }
+    }
+    out
+}
+
+/// The arrow tip of `render_cursor` on its 32 x 32 design grid.
+pub const CURSOR_HOTSPOT: f32 = 1.0;

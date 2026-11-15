@@ -713,7 +713,8 @@ fn main() {
         .insert_resource(defs)
         .init_resource::<ModelCache>()
         .add_systems(Startup, setup)
-        .add_systems(EguiPrimaryContextPass, editor_ui);
+        .add_systems(EguiPrimaryContextPass, editor_ui)
+        .add_systems(Update, longrange::view::terrain::map_edge_sync);
     longrange::settings::tolerate_render_errors(&mut app);
     longrange::settings::add_window_icon(&mut app);
     app.run();

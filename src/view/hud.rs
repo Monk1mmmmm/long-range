@@ -1,5 +1,6 @@
 //! In-game UI in one egui pass: camera, selection and order input, world overlays
 //! (icons, bars, blips) and the HUD panels. Everything is painted by hand on egui layers.
+use super::cursor::CursorKind;
 use super::icons;
 use super::intel::{FogGrid, IntelMemory};
 use super::terrain::{minimap_pixels, MainCamera};
@@ -117,6 +118,21 @@ enum MoveKind {
     Patrol,
 }
 
+/// What a right-click would do with the current selection (shown by the cursor before the click).
+enum Context {
+    Attack(u32),
+    /// A remembered building: shell the spot where it stood.
+    AttackGround(V2),
+    Capture(Vec<u32>, u32),
+    Load(Vec<u32>, u32),
+    Assist(Vec<u32>, u32),
+    /// Engineers reclaim the wreck, scavengers revive it.
+    Wreck { builders: Vec<u32>, scavs: Vec<u32>, id: u32 },
+    /// A tree or rock.
+    Feature(Vec<u32>, u32),
+    Move,
+}
+
 #[derive(SystemParam)]
 pub struct UiParams<'w, 's> {
     contexts: EguiContexts<'w, 's>,
@@ -136,6 +152,7 @@ pub struct UiParams<'w, 's> {
     #[allow(clippy::type_complexity)]
     units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Option<&'static Hosted>, Has<Paused>, Option<&'static Capture>)>,
     ui_sounds: ResMut<'w, super::sound::UiSounds>,
+    cursor: ResMut<'w, super::cursor::CursorWant>,
     wrecks: Query<'w, 's, &'static Wreck>,
     features: Res<'w, Features>,
     camera: Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<MainCamera>>,
@@ -287,6 +304,53 @@ impl Frame<'_> {
             .collect();
         let asg = assign(&from, &pts);
         out.push(Command::Orders { ids: movers.iter().map(|u| u.id).collect(), orders: asg.iter().map(|k| mk(pts[*k])).collect(), queue });
+    }
+
+    /// The context order of a right-click at `ground` with `hover` under the pointer.
+    fn context(&self, view: &ViewState, hover: Option<usize>, ground: V2, wrecks: &[(u32, V2, f32)], features: &Features) -> Context {
+        let units = self.selected(view);
+        if let Some(h) = hover {
+            let s = &self.seen[h];
+            if s.enemy {
+                return if s.contact == Contact::Stale { Context::AttackGround(s.pos) } else { Context::Attack(s.id) };
+            } else if self.game.team_of(s.owner) != self.team {
+                // Neutral: engineers take it over.
+                let ids: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_engineer()).map(|u| u.id).collect();
+                if !ids.is_empty() && s.contact != Contact::Stale {
+                    return Context::Capture(ids, s.id);
+                }
+            } else if s.contact == Contact::Visible {
+                let sd = s.def.map(|d| self.d(d));
+                // A transport: units that can ride get in. A unit, with transports selected: they fetch it.
+                let riders: Vec<u32> = units.iter().filter(|u| carriable(self.d(u.def))).map(|u| u.id).collect();
+                let carriers: Vec<u32> = units.iter().filter(|u| self.d(u.def).transport.is_some() && u.id != s.id).map(|u| u.id).collect();
+                if sd.map_or(false, |d| d.transport.is_some()) && !riders.is_empty() {
+                    return Context::Load(riders, s.id);
+                } else if sd.map_or(false, carriable) && s.mine && !carriers.is_empty() {
+                    return Context::Load(carriers, s.id);
+                }
+                let ids: Vec<u32> = view.sel.iter().copied().filter(|id| *id != s.id).collect();
+                if !ids.is_empty() {
+                    return Context::Assist(ids, s.id);
+                }
+            }
+        }
+        // A wreck: engineers reclaim it, scavengers bring it back to life.
+        let builders: Vec<u32> = units.iter().filter(|u| self.d(u.def).can_assist()).map(|u| u.id).collect();
+        let scavs: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_scavenger()).map(|u| u.id).collect();
+        if !(builders.is_empty() && scavs.is_empty()) {
+            if let Some(w) = wrecks.iter().filter(|w| w.1.dist(ground) < 1.5).min_by(|a, b| a.1.dist(ground).partial_cmp(&b.1.dist(ground)).unwrap()) {
+                return Context::Wreck { builders, scavs, id: w.0 };
+            }
+        }
+        // A tree or rock: reclaimed when only builders are selected (a mixed group just drives
+        // through the forest).
+        if builders.len() == units.len() && !builders.is_empty() {
+            if let Some((fid, _)) = features.nearest(ground, 1.4, ground) {
+                return Context::Feature(builders, fid);
+            }
+        }
+        Context::Move
     }
 
     /// Positions for a dragged row of buildings (at any angle), a dragged block of them (`grid`),
@@ -948,65 +1012,23 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if path_len(&path) >= 2.5 {
                 fr.order_move(view, &path, if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
             } else if !units.is_empty() {
-                // Context order.
-                let mut done = false;
-                if let Some(h) = hover {
-                    let s = &seen[h];
-                    if s.enemy {
-                        // A remembered building can still be shelled where it stood.
-                        let order = if s.contact == Contact::Stale { Order::AttackGround { pos: s.pos, radius: 0.0 } } else { Order::Attack(s.id) };
-                        out.push(Command::Orders { ids: view.sel.clone(), orders: vec![order], queue: shift });
-                        done = true;
-                    } else if game.team_of(s.owner) != team {
-                        // Neutral: engineers take it over.
-                        let ids: Vec<u32> = units.iter().filter(|u| fr.d(u.def).is_engineer()).map(|u| u.id).collect();
-                        if !ids.is_empty() && s.contact != Contact::Stale {
-                            out.push(Command::Orders { ids, orders: vec![Order::Capture(s.id)], queue: shift });
-                            done = true;
-                        }
-                    } else if s.contact == Contact::Visible {
-                        let sd = s.def.map(|d| fr.d(d));
-                        // A transport: units that can ride get in. A unit, with transports selected: they fetch it.
-                        let riders: Vec<u32> = units.iter().filter(|u| carriable(fr.d(u.def))).map(|u| u.id).collect();
-                        let carriers: Vec<u32> = units.iter().filter(|u| fr.d(u.def).transport.is_some() && u.id != s.id).map(|u| u.id).collect();
-                        if sd.map_or(false, |d| d.transport.is_some()) && !riders.is_empty() {
-                            out.push(Command::Orders { ids: riders, orders: vec![Order::Load(s.id)], queue: shift });
-                            done = true;
-                        } else if sd.map_or(false, carriable) && s.mine && !carriers.is_empty() {
-                            out.push(Command::Orders { ids: carriers, orders: vec![Order::Load(s.id)], queue: shift });
-                            done = true;
-                        } else {
-                            let ids: Vec<u32> = view.sel.iter().copied().filter(|id| *id != s.id).collect();
-                            if !ids.is_empty() {
-                                out.push(Command::Orders { ids, orders: vec![Order::Assist(s.id)], queue: shift });
-                                done = true;
-                            }
-                        }
-                    }
-                }
-                if !done {
-                    // A wreck: engineers reclaim it, scavengers bring it back to life.
-                    let builders: Vec<u32> = units.iter().filter(|u| fr.d(u.def).can_assist()).map(|u| u.id).collect();
-                    let scavs: Vec<u32> = units.iter().filter(|u| fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
-                    if let (false, Some(w)) = (builders.is_empty() && scavs.is_empty(), wrecks.iter().filter(|w| w.1.dist(ground) < 1.5).min_by(|a, b| a.1.dist(ground).partial_cmp(&b.1.dist(ground)).unwrap())) {
+                let order = |ids: Vec<u32>, o: Order| Command::Orders { ids, orders: vec![o], queue: shift };
+                match fr.context(view, hover, ground, &wrecks, features) {
+                    Context::Attack(id) => out.push(order(view.sel.clone(), Order::Attack(id))),
+                    Context::AttackGround(pos) => out.push(order(view.sel.clone(), Order::AttackGround { pos, radius: 0.0 })),
+                    Context::Capture(ids, id) => out.push(order(ids, Order::Capture(id))),
+                    Context::Load(ids, id) => out.push(order(ids, Order::Load(id))),
+                    Context::Assist(ids, id) => out.push(order(ids, Order::Assist(id))),
+                    Context::Wreck { builders, scavs, id } => {
                         if !builders.is_empty() {
-                            out.push(Command::Orders { ids: builders, orders: vec![Order::Reclaim(w.0)], queue: shift });
+                            out.push(order(builders, Order::Reclaim(id)));
                         }
                         if !scavs.is_empty() {
-                            out.push(Command::Orders { ids: scavs, orders: vec![Order::Revive(w.0)], queue: shift });
-                        }
-                        done = true;
-                    } else if builders.len() == units.len() && !builders.is_empty() {
-                        // A tree or rock: reclaimed when only builders are selected (a mixed
-                        // group just drives through the forest).
-                        if let Some((fid, _)) = features.nearest(ground, 1.4, ground) {
-                            out.push(Command::Orders { ids: builders, orders: vec![Order::Reclaim(fid)], queue: shift });
-                            done = true;
+                            out.push(order(scavs, Order::Revive(id)));
                         }
                     }
-                }
-                if !done {
-                    fr.order_move(view, &[ground], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
+                    Context::Feature(ids, id) => out.push(order(ids, Order::Reclaim(id))),
+                    Context::Move => fr.order_move(view, &[ground], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out),
                 }
             }
         }
@@ -2149,6 +2171,43 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         view.mode = m;
     }
+    // The cursor shows what a click would do: the active order mode, else the right-click
+    // context order of the selection.
+    p.cursor.0 = if over_hud || view.box_start.is_some() {
+        None
+    } else {
+        let enemy_under = hover.map_or(false, |h| seen[h].enemy && seen[h].contact != Contact::Stale);
+        match view.mode {
+            Mode::None if view.pathing == Some(1) && path_len(&view.path) >= 2.5 => Some(if alt { CursorKind::AttackMove } else { CursorKind::Move }),
+            Mode::None if fr.selected(view).is_empty() => None,
+            Mode::None => match fr.context(view, hover, ground, &wrecks, features) {
+                Context::Attack(_) => Some(CursorKind::Attack),
+                Context::AttackGround(_) => Some(CursorKind::Ground),
+                Context::Capture(..) => Some(CursorKind::Capture),
+                Context::Load(..) => Some(CursorKind::Load),
+                Context::Assist(..) => Some(CursorKind::Assist),
+                Context::Wreck { builders, .. } => Some(if builders.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
+                Context::Feature(..) => Some(CursorKind::Reclaim),
+                // Only buildings that cannot move or set a rally point: nothing to do.
+                Context::Move if fr.selected(view).iter().all(|u| fr.d(u.def).is_structure() && !fr.d(u.def).is_factory()) => None,
+                Context::Move => Some(if alt { CursorKind::AttackMove } else { CursorKind::Move }),
+            },
+            Mode::AttackMove if enemy_under => Some(CursorKind::Attack),
+            Mode::AttackMove => Some(CursorKind::AttackMove),
+            Mode::Patrol => Some(CursorKind::Patrol),
+            Mode::Move => Some(CursorKind::Move),
+            Mode::GroundAttack if enemy_under && view.drag_start.map_or(true, |d| d.dist(ground) < 1.5) => Some(CursorKind::Attack),
+            Mode::GroundAttack => Some(CursorKind::Ground),
+            Mode::Reclaim => Some(CursorKind::Reclaim),
+            Mode::Revive => Some(CursorKind::Revive),
+            Mode::Assist => Some(CursorKind::Assist),
+            Mode::Capture => Some(CursorKind::Capture),
+            Mode::Load => Some(CursorKind::Load),
+            Mode::Unload => Some(CursorKind::Unload),
+            Mode::Terraform => Some(CursorKind::Terraform),
+            Mode::Place(_) => None,
+        }
+    };
     // Sounds: the unit answers when it is newly selected, and an order gets a short blip.
     if view.sel != view.last_sel {
         if let Some(u) = view.sel.iter().find(|id| !view.last_sel.contains(id)).and_then(|id| infos.get(id)) {

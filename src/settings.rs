@@ -29,11 +29,13 @@ pub struct Settings {
     pub sfx_volume: f32,
     /// Model detail of trees and rocks: 0 = low (also no shadows), 1 = medium, 2 = high.
     pub flora_detail: u8,
+    /// Smallest on-screen size of a projectile in pixels; far away they become yellow squares this big.
+    pub projectile_px: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, sfx_volume: 0.6, flora_detail: 1 }
+        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0 }
     }
 }
 
@@ -311,6 +313,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         } else {
             ui.label(egui::RichText::new("this build has no sound").weak());
         }
+        ui.end_row();
+        ui.label("Projectile size");
+        ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(" px"));
         ui.end_row();
         ui.label("Strategic icons");
         ui.checkbox(&mut s.big_icons, "Bigger");

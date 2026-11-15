@@ -18,6 +18,8 @@ pub struct FxAssets {
     shell_mat: Handle<StandardMaterial>,
     missile_mat: Handle<StandardMaterial>,
     bomb_mat: Handle<StandardMaterial>,
+    /// Flat yellow for projectiles drawn at their minimum screen size (SupCom style).
+    far_mat: Handle<StandardMaterial>,
 }
 
 impl FxAssets {
@@ -33,6 +35,8 @@ impl FxAssets {
             shell_mat: materials.add(glow(LinearRgba::rgb(9.0, 6.0, 2.0))),
             missile_mat: materials.add(StandardMaterial { base_color: Color::srgb(0.9, 0.9, 0.92), ..default() }),
             bomb_mat: materials.add(StandardMaterial { base_color: Color::srgb(0.15, 0.16, 0.15), ..default() }),
+            // Emissive above 1 so the tonemapper leaves it a saturated bright yellow (a plain unlit colour came out dull).
+            far_mat: materials.add(glow(LinearRgba::rgb(6.0, 5.0, 0.3))),
         }
     }
 }
@@ -52,7 +56,15 @@ pub struct FlashLight(f32, f32);
 #[derive(Component)]
 pub struct ProjVisual {
     trail: f32,
+    /// Scale of the model at its true size, and its own material.
+    base: Vec3,
+    mat: Handle<StandardMaterial>,
+    /// Drawn as the yellow screen-size square.
+    far: bool,
 }
+
+/// Enlarged more than this, a projectile becomes a camera-facing yellow square.
+const PROJ_FAR_FACTOR: f32 = 1.6;
 
 pub fn projectile_visuals(
     mut commands: Commands,
@@ -60,9 +72,15 @@ pub fn projectile_visuals(
     view: Res<ViewState>,
     time: Res<Time>,
     fog: Res<FogGrid>,
+    settings: Res<crate::settings::Settings>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     fresh: Query<(Entity, &Projectile), Without<ProjVisual>>,
-    mut q: Query<(&Projectile, &mut Transform, &mut Visibility, &mut ProjVisual)>,
+    mut q: Query<(&Projectile, &mut Transform, &mut Visibility, &mut ProjVisual, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
+    let screen_h = window.single().map_or(1080.0, |w| w.height()).max(1.0);
+    // Pixels covered by one world unit at distance 1.
+    let px_per_unit = screen_h / (2.0 * (super::hud::FOV * 0.5).tan());
+    let min_px = settings.projectile_px.clamp(1.0, 40.0);
     for (e, p) in &fresh {
         let big = (p.damage.sqrt() * 0.07).clamp(0.35, 1.6);
         let (mat, scale) = match p.kind {
@@ -70,15 +88,36 @@ pub fn projectile_visuals(
             PROJ_BOMB => (assets.bomb_mat.clone(), Vec3::new(2.0, 2.0, 0.7) * big),
             _ => (assets.shell_mat.clone(), Vec3::new(big, big, (0.6 + big).min(2.2))),
         };
-        commands.entity(e).insert((Mesh3d(assets.shell.clone()), MeshMaterial3d(mat), Transform::from_translation(p.pos.v()).with_scale(scale), Visibility::Hidden, NotShadowCaster, ProjVisual { trail: 0.0 }));
+        commands.entity(e).insert((Mesh3d(assets.shell.clone()), MeshMaterial3d(mat.clone()), Transform::from_translation(p.pos.v()).with_scale(scale), Visibility::Hidden, NotShadowCaster, ProjVisual { trail: 0.0, base: scale, mat, far: false }));
     }
     let alpha = (((time.elapsed_secs_f64() - view.tick_time) / DT as f64) as f32).clamp(0.0, 1.0);
-    for (p, mut t, mut vis, mut pv) in &mut q {
+    for (p, mut t, mut vis, mut pv, mut mat) in &mut q {
         let vel = p.vel.v();
         let pos = p.pos.v() - vel * (DT * (1.0 - alpha));
         t.translation = pos;
-        if vel.length_squared() > 0.01 {
-            t.look_to(vel.normalize(), Vec3::Y);
+        // Never thinner than the projectile size setting on screen: the cross-section is enlarged and the length kept
+        // at least as long, so a distant shell turns into a small square of fixed screen size.
+        let to_cam = view.cam_pos - pos;
+        let width = pv.base.x.min(pv.base.y) * 0.12; // the shell mesh is 0.12 thick
+        let width_px = width * px_per_unit / to_cam.length().max(0.1);
+        let k = (min_px / width_px).max(1.0);
+        let far = k > PROJ_FAR_FACTOR;
+        if far {
+            // A cube seen face-on: a flat square.
+            let side = width * k / 0.12;
+            t.scale = Vec3::new(side, side, side * 0.12);
+            if to_cam.length_squared() > 0.01 {
+                t.look_to(-to_cam.normalize(), Vec3::Y);
+            }
+        } else {
+            t.scale = Vec3::new(pv.base.x * k, pv.base.y * k, pv.base.z.max(pv.base.x * k * 0.12));
+            if vel.length_squared() > 0.01 {
+                t.look_to(vel.normalize(), Vec3::Y);
+            }
+        }
+        if far != pv.far {
+            pv.far = far;
+            mat.0 = if far { assets.far_mat.clone() } else { pv.mat.clone() };
         }
         let want = if fog.visible(flat(pos)) { Visibility::Visible } else { Visibility::Hidden };
         if *vis != want {

@@ -603,6 +603,10 @@ pub struct FeatureState {
     pub left: f32,
     /// Height above the ground: it blocks sight up to there.
     pub height: f32,
+    /// Footprint radius on the ground.
+    pub radius: f32,
+    /// Hit points when untouched; damage takes `left` down by its share of them.
+    pub hp: f32,
     /// Map cell it stands in.
     pub cell: u32,
 }
@@ -652,10 +656,13 @@ impl Features {
         let last = map.n.saturating_sub(1) as i32;
         for (i, m) in map.features.iter().enumerate() {
             let def = kinds.get(m.kind as usize).copied().unwrap_or(u16::MAX);
-            let height = defs.rules.features.get(def as usize).map_or(0.0, |d| d.height() * m.scale);
+            let fd = defs.rules.features.get(def as usize);
+            let height = fd.map_or(0.0, |d| d.height() * m.scale);
+            let radius = fd.map_or(0.0, |d| d.radius() * m.scale);
+            let hp = fd.map_or(1.0, |d| (d.max_hp() * m.scale).max(1.0));
             let (cx, cy) = map.cell_of(m.pos);
             let cell = (cy.clamp(0, last) as usize * map.n + cx.clamp(0, last) as usize) as u32;
-            f.list.push(FeatureState { def, pos: m.pos, left: if def == u16::MAX { 0.0 } else { 1.0 }, height, cell });
+            f.list.push(FeatureState { def, pos: m.pos, left: if def == u16::MAX { 0.0 } else { 1.0 }, height, radius, hp, cell });
             let c = f.cell(m.pos);
             f.grid[c].push(i as u32);
             if def != u16::MAX {

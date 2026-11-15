@@ -1572,16 +1572,20 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
 }
 
 /// Moves projectiles under gravity and resolves hits against terrain and unit volumes.
+#[allow(clippy::too_many_arguments)]
 fn projectiles(
     mut q: Query<(Entity, &mut Projectile)>,
+    mut wq: Query<(Entity, &mut Wreck)>,
     census: Res<Census>,
     defs: Res<Defs>,
     map: Res<MapData>,
     game: Res<Game>,
     mut effects: ResMut<Effects>,
     mut fx: ResMut<FxLog>,
+    (mut features, wreck_list): (ResMut<Features>, Res<WreckList>),
     mut commands: Commands,
 ) {
+    let mut wreck_hits: Vec<(u32, f32)> = vec![];
     let g = defs.rules.gravity;
     let ff = defs.rules.friendly_fire;
     for (e, mut p) in q.iter_mut().sort_by_key::<&Projectile, _>(|p| p.id) {
@@ -1682,7 +1686,79 @@ fn projectiles(
         } else if victim != 0 {
             effects.damage.push((victim, p.damage, p.dtype as usize));
         }
+        // Trees, rocks and wrecks never stop a shot, but what lands on them or blasts next to them wears them down.
+        if p.radius > 0.0 || victim == 0 {
+            hurt_reclaimables(at, p.radius, p.damage, p.dtype as usize, &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
+        }
     }
+    damage_wrecks(&wreck_hits, &mut wq, &defs, &mut fx, &mut commands);
+}
+
+/// Weapon damage to the reclaimables around an impact at `at`: a shell (`radius` 0) hurts what it
+/// lands on, a blast everything within its radius, with the same fall-off as for units. A tree or
+/// rock loses the share of its worth that the damage is of its hit points (changed at once); hits
+/// on wrecks are added to `wreck_hits` as (wreck id, damage after armor) for `damage_wrecks`.
+#[allow(clippy::too_many_arguments)]
+pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, wreck_hits: &mut Vec<(u32, f32)>) {
+    let reach = radius.max(0.3);
+    let centre = flat(at);
+    let hurt = |horiz: f32, ground: f32, top: f32| -> Option<f32> {
+        let vert = (at.y - top).max(0.0) + (ground - 0.5 - at.y).max(0.0);
+        let d = (horiz * horiz + vert * vert).sqrt();
+        (d < reach).then(|| if radius > 0.0 { damage * (1.0 - 0.6 * d / radius) } else { damage })
+    };
+    let mut hit: Vec<(usize, f32)> = vec![];
+    features.near(centre, reach + 6.0, |i, s| {
+        let ground = map.h(s.pos);
+        if let Some(dmg) = hurt((s.pos.dist(centre) - s.radius).max(0.0), ground, ground + s.height) {
+            hit.push((i, s.left - dmg / s.hp));
+        }
+    });
+    for (i, left) in hit {
+        features.set_left(i, left);
+    }
+    for &(id, pos, mass, def) in &wrecks.0 {
+        let d = defs.get(def);
+        let horiz = (pos.dist(centre) - d.radius() * 0.7).max(0.0);
+        if mass <= 0.0 || horiz >= reach {
+            continue;
+        }
+        let ground = map.h(pos);
+        // (As high as it blocks sight, see `sight_block`.)
+        let top = ground + d.height() * if d.is_structure() { 0.35 } else { 0.8 };
+        if let Some(dmg) = hurt(horiz, ground, top) {
+            wreck_hits.push((id, dmg * defs.armor_mult(dtype, d.armor_id)));
+        }
+    }
+}
+
+/// Applies weapon damage to wrecks: every hit point a whole wreck of that unit has
+/// (`rules.wreck_hp` of the unit's) is worth the same share of its mass. Returns the wrecks
+/// destroyed (already despawned).
+fn damage_wrecks(hits: &[(u32, f32)], q: &mut Query<(Entity, &mut Wreck)>, defs: &Defs, fx: &mut FxLog, commands: &mut Commands) -> Vec<Entity> {
+    let mut gone = vec![];
+    if hits.is_empty() {
+        return gone;
+    }
+    for (e, mut w) in q.iter_mut().sort_by_key::<&Wreck, _>(|w| w.id) {
+        if w.mass <= 0.0 {
+            continue;
+        }
+        let dmg: f32 = hits.iter().filter(|h| h.0 == w.id).map(|h| h.1).sum();
+        if dmg <= 0.0 {
+            continue;
+        }
+        let d = defs.get(w.def);
+        let per_hp = d.cost.mass * defs.rules.wreck_mass_fraction / (d.hp * defs.rules.wreck_hp).max(1.0);
+        w.mass -= dmg * per_hp;
+        if w.mass <= 0.01 {
+            w.mass = 0.0;
+            fx.push(w.pos.at(w.y + d.height() * 0.3), FX_BLAST, d.radius() * 0.8 + 0.3);
+            commands.entity(e).despawn();
+            gone.push(e);
+        }
+    }
+    gone
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1813,7 +1889,8 @@ fn apply_capture(
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn deaths(
     mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>)>,
-    wrecks: Query<(Entity, &Wreck)>,
+    mut wrecks: Query<(Entity, &mut Wreck)>,
+    (mut features, wreck_list): (ResMut<Features>, Res<WreckList>),
     census: Res<Census>,
     defs: Res<Defs>,
     map: Res<MapData>,
@@ -1881,7 +1958,10 @@ fn deaths(
             new_wrecks += 1;
         }
     }
+    let mut wreck_hits: Vec<(u32, f32)> = vec![];
+    let blast_type = 3.min(defs.rules.damage_types.len() - 1);
     for (pos, y, damage, radius, owner) in blasts {
+        hurt_reclaimables(pos.at(y + 0.5), radius, damage, blast_type, &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
         let team = game.team_of(owner);
         if defs.rules.crater_scale > 0.0 && y - map.h(pos) < 3.0 {
             effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
@@ -1890,14 +1970,15 @@ fn deaths(
             let flat = (c.pos.dist(pos) - c.radius * 0.7).max(0.0);
             let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
             if d < radius && c.hp > 0.0 && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
-                effects.damage.push((c.id, damage * (1.0 - 0.6 * d / radius), 3.min(defs.rules.damage_types.len() - 1)));
+                effects.damage.push((c.id, damage * (1.0 - 0.6 * d / radius), blast_type));
             }
         });
     }
+    let gone = damage_wrecks(&wreck_hits, &mut wrecks, &defs, &mut fx, &mut commands);
     // Keep the wreck count bounded: drop the oldest.
-    let total = wrecks.iter().count() + new_wrecks;
+    let total = wrecks.iter().count() - gone.len() + new_wrecks;
     if total > defs.rules.max_wrecks {
-        let mut all: Vec<(u32, Entity)> = wrecks.iter().map(|(e, w)| (w.id, e)).collect();
+        let mut all: Vec<(u32, Entity)> = wrecks.iter().filter(|(e, _)| !gone.contains(e)).map(|(e, w)| (w.id, e)).collect();
         all.sort();
         for (_, e) in all.into_iter().take(total - defs.rules.max_wrecks) {
             commands.entity(e).despawn();

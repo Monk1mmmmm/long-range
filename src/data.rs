@@ -78,6 +78,9 @@ fn cp_bleed() -> f32 {
 fn reclaim_energy_factor() -> f32 {
     5.0
 }
+fn wreck_hp() -> f32 {
+    0.5
+}
 fn trunk_color() -> [f32; 3] {
     [0.33, 0.24, 0.16]
 }
@@ -130,6 +133,9 @@ pub struct FeatureDef {
     /// How often the map generator picks it among the features of its class.
     #[serde(default = "one")]
     pub weight: f32,
+    /// Weapon damage that destroys it; 0 = a default for its shape and size (see `max_hp`).
+    #[serde(default)]
+    pub hp: f32,
 }
 
 impl FeatureDef {
@@ -153,6 +159,19 @@ impl FeatureDef {
                 FeatureShape::Rock => 0.6,
             }
     }
+    /// Hit points at the map's scale 1.
+    pub fn max_hp(&self) -> f32 {
+        if self.hp > 0.0 {
+            return self.hp;
+        }
+        self.size
+            * match self.shape {
+                FeatureShape::Pine => 80.0,
+                FeatureShape::Broadleaf => 110.0,
+                FeatureShape::Bush => 20.0,
+                FeatureShape::Rock => 400.0,
+            }
+    }
     /// Reclaim work in mass units (energy comes `reclaim_energy_factor` times faster than mass).
     pub fn work(&self, rules: &Rules) -> f32 {
         self.mass + self.energy / rules.reclaim_energy_factor.max(0.01)
@@ -172,6 +191,9 @@ pub struct Rules {
     pub start_energy: f32,
     pub wreck_mass_fraction: f32,
     pub max_wrecks: usize,
+    /// A wreck's hit points as a share of the unit's (weapons wear wrecks down).
+    #[serde(default = "wreck_hp")]
+    pub wreck_hp: f32,
     pub reclaim_rate: f32,
     pub repair_rate: f32,
     pub radar_fade_secs: f32,

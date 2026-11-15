@@ -161,72 +161,202 @@ fn chunk_mesh(map: &MapData, cx: usize, cy: usize) -> Mesh {
     mesh
 }
 
-/// Distances from the map border at which the apron has rows of vertices.
-const APRON: [f32; 8] = [0.0, 2.0, 6.0, 14.0, 30.0, 62.0, 110.0, 170.0];
+/// The map's heights and colours (`[h, r, g, b]` per vertex), blurred more and more: level 0 is the
+/// map itself, level `L` is blurred about `2^(L-1)` cells wide. The land beyond the border picks the
+/// level that fits its distance from the edge.
+struct BlurLevels {
+    n: usize,
+    levels: Vec<Vec<[f32; 4]>>,
+}
 
-/// The land beyond the playable area: the border heights carried outwards and sloping down into
-/// the sea, in dimmed colours. It meets the terrain vertex for vertex, so there is no gap.
+impl BlurLevels {
+    fn new(map: &MapData, count: usize) -> Self {
+        let n = map.n;
+        let w = n + 1;
+        let base: Vec<[f32; 4]> = (0..w * w)
+            .map(|i| {
+                let c = terrain_color(map, (i % w) as f32 * CELL, (i / w) as f32 * CELL);
+                [map.heights[i], c[0], c[1], c[2]]
+            })
+            .collect();
+        // Mirrored at the ends, like the land outside (folded again for radii wider than the map).
+        let fold = |j: i64| -> usize {
+            let p = (w as i64 - 1).max(1) * 2;
+            let j = j.rem_euclid(p);
+            (if j >= w as i64 { p - j } else { j }) as usize
+        };
+        // One box blur of radius `r` along rows or columns, with running sums.
+        let pass = |v: &mut Vec<[f32; 4]>, r: usize, along_x: bool| {
+            let mut sums = vec![[0f32; 4]; w + 2 * r + 1];
+            for line in 0..w {
+                let at = |i: usize| if along_x { line * w + i } else { i * w + line };
+                for k in 0..w + 2 * r {
+                    let s = v[at(fold(k as i64 - r as i64))];
+                    let p = sums[k];
+                    sums[k + 1] = [p[0] + s[0], p[1] + s[1], p[2] + s[2], p[3] + s[3]];
+                }
+                let inv = 1.0 / (2 * r + 1) as f32;
+                for i in 0..w {
+                    let (a, b) = (sums[i], sums[i + 2 * r + 1]);
+                    v[at(i)] = [(b[0] - a[0]) * inv, (b[1] - a[1]) * inv, (b[2] - a[2]) * inv, (b[3] - a[3]) * inv];
+                }
+            }
+        };
+        let mut levels = vec![base];
+        for l in 1..count {
+            let mut v = levels[l - 1].clone();
+            let r = 1usize << (l - 1);
+            // Two passes each way: close enough to a gaussian.
+            for _ in 0..2 {
+                pass(&mut v, r, true);
+                pass(&mut v, r, false);
+            }
+            levels.push(v);
+        }
+        BlurLevels { n, levels }
+    }
+    /// Bilinear sample of level `l` at a world position inside the map.
+    fn sample(&self, l: usize, x: f32, z: f32) -> [f32; 4] {
+        let (w, v) = (self.n + 1, &self.levels[l.min(self.levels.len() - 1)]);
+        let fx = (x / CELL).clamp(0.0, self.n as f32 - 0.001);
+        let fz = (z / CELL).clamp(0.0, self.n as f32 - 0.001);
+        let (ix, iz) = (fx as usize, fz as usize);
+        let (tx, tz) = (fx - ix as f32, fz - iz as f32);
+        let i = iz * w + ix;
+        let k = [(1.0 - tx) * (1.0 - tz), tx * (1.0 - tz), (1.0 - tx) * tz, tx * tz];
+        let mut out = [0f32; 4];
+        for (j, id) in [i, i + 1, i + w, i + w + 1].into_iter().enumerate() {
+            for (o, s) in out.iter_mut().zip(v[id]) {
+                *o += s * k[j];
+            }
+        }
+        out
+    }
+    /// Blurred `radius` world units wide (0 = sharp), between the two nearest levels.
+    fn blurred(&self, radius: f32, x: f32, z: f32) -> [f32; 4] {
+        let s = radius / CELL;
+        let l = if s <= 1.0 { s } else { 1.0 + s.log2() };
+        let l = l.clamp(0.0, (self.levels.len() - 1) as f32);
+        let (l0, t) = (l.floor() as usize, l.fract());
+        let a = self.sample(l0, x, z);
+        if t < 1e-3 {
+            return a;
+        }
+        let b = self.sample(l0 + 1, x, z);
+        std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
+    }
+}
+
+/// Folds a coordinate back into `0..=world` the way a mirror would, again and again.
+fn mirror(x: f32, world: f32) -> f32 {
+    let p = x.rem_euclid(2.0 * world);
+    if p > world { 2.0 * world - p } else { p }
+}
+
+/// How wide the land beyond the border is blurred at this distance from the edge.
+const APRON_BLUR: f32 = 0.1;
+
+/// The land beyond the playable area, like BAR's: the map mirrored at its border on all four sides,
+/// sharp at the edge and blurred more the further out it lies, a little darker and hazier with
+/// distance, sinking into the sea at the far end. Its inner rim is the map border vertex for vertex.
 fn apron_mesh(map: &MapData) -> Mesh {
     let (n, world) = (map.n, map.world());
-    let reach = APRON[APRON.len() - 1];
-    let sea = map.water - 5.0;
-    let (mut pos, mut nrm, mut uv, mut col, mut idx) = (vec![], vec![], vec![], vec![], vec![]);
-    // One vertex: `edge` is the nearest point on the border, `out` how far outside it lies.
-    let mut vertex = |edge: V2, at: V2| -> u32 {
-        let out = at.dist(edge);
-        let t = (out / reach).clamp(0.0, 1.0);
-        let t = t * t * (3.0 - 2.0 * t);
-        let wobble = (noise(at.x * 0.03, at.y * 0.03, map.seed ^ 77) - 0.5) * 9.0 * (t * (1.0 - t) * 4.0);
-        let h0 = map.height(edge.x, edge.y);
-        let c = terrain_color(map, edge.x, edge.y);
-        let dim = 1.0 - 0.5 * t;
-        pos.push([at.x, h0 + (sea - h0) * t + wobble, at.y]);
-        nrm.push([0.0, 1.0, 0.0]);
-        uv.push([at.x / 12.0, at.y / 12.0]);
-        col.push([c[0] * dim * 0.5, c[1] * dim * 0.5, c[2] * dim * 0.56, 1.0]);
+    let reach = world.max(160.0);
+    // Rows outwards: one cell apart at the edge, wider in step with the blur further out.
+    let mut dist = vec![0.0f32];
+    while *dist.last().unwrap() < reach {
+        let d = *dist.last().unwrap();
+        dist.push(d + (d * 0.12).max(CELL));
+    }
+    let levels = 2 + (reach * APRON_BLUR / CELL).max(1.0).log2().ceil() as usize;
+    let blur = BlurLevels::new(map, levels);
+    let sea = map.water - 4.0;
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    // Height and colour at a point `d` outside the map.
+    let sample = |x: f32, z: f32, d: f32| -> [f32; 4] {
+        let mut s = blur.blurred(d * APRON_BLUR, mirror(x, world), mirror(z, world));
+        let t = smooth((d - reach * 0.55) / (reach * 0.45));
+        s[0] += (sea - s[0]) * t;
+        s
+    };
+    let (mut pos, mut nrm, mut uv, mut col) = (vec![], vec![], vec![], vec![]);
+    let mut vertex = |x: f32, z: f32, d: f32| -> u32 {
+        let s = sample(x, z, d);
+        let n = if d <= 0.0 {
+            map.normal(x, z)
+        } else {
+            // Slopes over about the blur width, so far-out normals are as smooth as the heights.
+            let e = (d * APRON_BLUR * 0.5).max(CELL * 0.5);
+            let h = |x: f32, z: f32| sample(x, z, d)[0];
+            Vec3::new(h(x - e, z) - h(x + e, z), 2.0 * e, h(x, z - e) - h(x, z + e)).normalize()
+        };
+        // No detail texture out here: match its average brightness (sRGB 175/255, 0.43 linear),
+        // then darken and grey it a little, and a light haze far out.
+        let c = [s[1], s[2], s[3]];
+        let grey = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
+        let far = smooth(d / reach);
+        let desat = 0.08 + 0.22 * far;
+        let dim = 0.43 * (0.97 - 0.22 * far);
+        let haze = 0.18 * far;
+        let hz = [0.07, 0.085, 0.11];
+        let out: [f32; 3] = std::array::from_fn(|i| {
+            let v = (c[i] + (grey - c[i]) * desat) * dim;
+            v + (hz[i] - v) * haze
+        });
+        pos.push([x, s[0], z]);
+        nrm.push(n.to_array());
+        uv.push([x / 12.0, z / 12.0]);
+        col.push([out[0], out[1], out[2], 1.0]);
         pos.len() as u32 - 1
     };
-    // A grid of vertex indices, `w` wide, turned into triangles that face up.
-    let quads = |ids: &[u32], w: usize, flip: bool, idx: &mut Vec<u32>| {
+    let rows = dist.len();
+    let mut idx: Vec<u32> = vec![];
+    // A grid of vertex indices, `w` wide, in triangles (turned to face up below).
+    let quads = |ids: &[u32], w: usize, idx: &mut Vec<u32>| {
         for r in 0..ids.len() / w - 1 {
             for c in 0..w - 1 {
                 let (a, b, d, e) = (ids[r * w + c], ids[r * w + c + 1], ids[(r + 1) * w + c], ids[(r + 1) * w + c + 1]);
-                if flip {
-                    idx.extend_from_slice(&[a, b, d, b, e, d]);
-                } else {
-                    idx.extend_from_slice(&[a, d, b, b, d, e]);
-                }
+                idx.extend_from_slice(&[a, d, b, b, d, e]);
             }
         }
     };
-    // Four sides: rows run along the border, columns go outwards.
-    for (side, (ox, oz)) in [(0.0f32, -1.0f32), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)].into_iter().enumerate() {
-        let mut ids = vec![];
+    // Four sides: one column per border vertex, rows going outwards.
+    for (ox, oz) in [(0.0f32, -1.0f32), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)] {
+        let mut ids = Vec::with_capacity((n + 1) * rows);
         for i in 0..=n {
             let f = i as f32 * CELL;
-            let edge = match side {
-                0 => v2(f, 0.0),
-                1 => v2(world, f),
-                2 => v2(f, world),
+            let edge = match (ox as i32, oz as i32) {
+                (0, -1) => v2(f, 0.0),
+                (1, 0) => v2(world, f),
+                (0, 1) => v2(f, world),
                 _ => v2(0.0, f),
             };
-            for d in APRON {
-                ids.push(vertex(edge, edge + v2(ox, oz) * d));
+            for &d in &dist {
+                ids.push(vertex(edge.x + ox * d, edge.y + oz * d, d));
             }
         }
-        quads(&ids, APRON.len(), side == 0 || side == 3, &mut idx);
+        quads(&ids, rows, &mut idx);
     }
     // Four corners.
     for (cx, cz) in [(0.0f32, 0.0f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
-        let corner = v2(cx * world, cz * world);
         let (sx, sz) = (cx * 2.0 - 1.0, cz * 2.0 - 1.0);
-        let mut ids = vec![];
-        for a in APRON {
-            for b in APRON {
-                ids.push(vertex(corner, corner + v2(sx * b, sz * a)));
+        let mut ids = Vec::with_capacity(rows * rows);
+        for &a in &dist {
+            for &b in &dist {
+                ids.push(vertex(cx * world + sx * b, cz * world + sz * a, (a * a + b * b).sqrt()));
             }
         }
-        quads(&ids, APRON.len(), sx * sz > 0.0, &mut idx);
+        quads(&ids, rows, &mut idx);
+    }
+    // Every triangle faces up (same turn as the terrain chunks' triangles seen from above).
+    for t in idx.chunks_exact_mut(3) {
+        let [p, q, r] = [pos[t[0] as usize], pos[t[1] as usize], pos[t[2] as usize]];
+        if (q[0] - p[0]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[0] - p[0]) > 0.0 {
+            t.swap(1, 2);
+        }
     }
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
@@ -298,8 +428,26 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
             }
         }
     }
-    // Beyond the border the land carries on for a stretch and sinks into the sea.
-    commands.spawn((Mesh3d(meshes.add(apron_mesh(map))), MeshMaterial3d(ground.clone()), Transform::IDENTITY, NotShadowCaster, GameScene));
+    // Beyond the border: the map mirrored and blurred, sinking into the sea further out. No detail
+    // texture there, so it looks soft next to the playable ground.
+    let soft = materials.add(StandardMaterial { perceptual_roughness: 1.0, reflectance: 0.1, ..default() });
+    commands.spawn((Mesh3d(meshes.add(apron_mesh(map))), MeshMaterial3d(soft), Transform::IDENTITY, NotShadowCaster, GameScene));
+    // The map border as a dashed line (its width follows the camera, see `map_edge_sync`).
+    commands.spawn((
+        Mesh3d(meshes.add(edge_mesh(map, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.95, 0.93, 0.80, 0.8),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            depth_bias: 12.0,
+            ..default()
+        })),
+        Transform::IDENTITY,
+        NotShadowCaster,
+        NotShadowReceiver,
+        MapEdge { width: 1.0 },
+        GameScene,
+    ));
     // Further out: a dark sea floor (unlit, so it shows no lighting or shadow seams) under the water.
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 12.0, world * 12.0))),
@@ -312,7 +460,7 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     // Water covers the map and the sea around it; it takes no shadows (cascade borders showed up
     // as rectangles on it).
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 12.0, world * 12.0))),
+        Mesh3d(meshes.add(water_mesh(world * 12.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
             alpha_mode: AlphaMode::Blend,
@@ -336,6 +484,104 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     ));
     commands.insert_resource(GlobalAmbientLight { color: Color::srgb(0.75, 0.82, 1.0), brightness: 260.0, ..default() });
     fog_img
+}
+
+/// The water surface: a flat square of side `size` centred on the origin.
+///
+/// Transparent meshes are drawn in the order of their bounding-box centres. The fog-of-war
+/// overlays are one mesh per terrain chunk, so with a plain plane (centre = map centre) the chunks
+/// nearer the camera were drawn after the water and the far ones before it, which showed as
+/// squares of darker and lighter water. An extra vertex far below, used by no triangle, moves the
+/// water's centre behind everything else, so it is always drawn first and the fog lies evenly on it.
+fn water_mesh(size: f32) -> Mesh {
+    let h = size * 0.5;
+    let positions = vec![[-h, 0.0, -h], [h, 0.0, -h], [h, 0.0, h], [-h, 0.0, h], [0.0, -100_000.0, 0.0]];
+    let uvs = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.5, 0.5]];
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; 5])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(vec![0, 3, 2, 0, 2, 1]))
+}
+
+/// The dashed line along the map border. `width` is the line's width the mesh was built for; it
+/// follows the camera distance (rebuilt in steps), so the line stays about as wide on screen.
+#[derive(Component)]
+pub struct MapEdge {
+    pub width: f32,
+}
+
+fn edge_mesh(map: &MapData, width: f32) -> Mesh {
+    let world = map.world();
+    let (dash, gap) = ((width * 14.0).max(5.0), (width * 9.0).max(3.0));
+    let half = width * 0.5;
+    let lift = 0.12 + width * 0.4;
+    let (mut pos, mut idx) = (vec![], vec![]);
+    // Corners in turn; each side runs from one to the next, `inward` points into the map.
+    let corners = [v2(0.0, 0.0), v2(world, 0.0), v2(world, world), v2(0.0, world)];
+    for s in 0..4 {
+        let (a, b) = (corners[s], corners[(s + 1) % 4]);
+        let dir = (b - a) * (1.0 / world);
+        let inward = v2(-dir.y, dir.x);
+        let mut t = 0.0;
+        while t < world {
+            let end = (t + dash).min(world);
+            let pieces = ((end - t) / CELL).ceil().max(1.0) as usize;
+            let first = pos.len() as u32;
+            for i in 0..=pieces {
+                let p = a + dir * (t + (end - t) * i as f32 / pieces as f32);
+                let y = map.height(p.x, p.y).max(map.height(p.x + inward.x * half, p.y + inward.y * half)).max(map.water) + lift;
+                for side in [-1.0, 1.0] {
+                    let q = p + inward * (half * side);
+                    pos.push([q.x, y, q.y]);
+                }
+            }
+            for i in 0..pieces as u32 {
+                let (p0, p1, q0, q1) = (first + i * 2, first + i * 2 + 1, first + i * 2 + 2, first + i * 2 + 3);
+                idx.extend_from_slice(&[p0, p1, q0, q0, p1, q1]);
+            }
+            t += dash + gap;
+        }
+    }
+    for t in idx.chunks_exact_mut(3) {
+        let [p, q, r] = [pos[t[0] as usize], pos[t[1] as usize], pos[t[2] as usize]];
+        if (q[0] - p[0]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[0] - p[0]) > 0.0 {
+            t.swap(1, 2);
+        }
+    }
+    let nrm = vec![[0.0, 1.0, 0.0]; pos.len()];
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
+    mesh.insert_indices(Indices::U32(idx));
+    mesh
+}
+
+/// Line width for a camera this far from the nearest point of the border, in steps of 1.4x.
+fn edge_width(dist: f32) -> f32 {
+    let w = (dist * 0.003).clamp(0.25, 12.0);
+    0.25 * 1.4f32.powf(((w / 0.25).ln() / 1.4f32.ln()).round())
+}
+
+/// Rebuilds the map-edge line when the camera has moved far enough nearer or further for its width
+/// to change a step. Runs in the game and in the editor.
+pub fn map_edge_sync(map: Option<Res<MapData>>, camera: Query<&GlobalTransform, With<MainCamera>>, mut edges: Query<(&mut MapEdge, &Mesh3d)>, mut meshes: ResMut<Assets<Mesh>>) {
+    let (Some(map), Ok(cam)) = (map, camera.single()) else { return };
+    let c = cam.translation();
+    let world = map.world();
+    // Nearest border point.
+    let (x, z) = (c.x.clamp(0.0, world), c.z.clamp(0.0, world));
+    let b = if (x.min(world - x)) < (z.min(world - z)) { v2(if x < world - x { 0.0 } else { world }, z) } else { v2(x, if z < world - z { 0.0 } else { world }) };
+    let dist = c.distance(b.at(map.height(b.x, b.y).max(map.water)));
+    let w = edge_width(dist);
+    for (mut e, mesh) in &mut edges {
+        if (e.width - w).abs() > 1e-3 {
+            e.width = w;
+            if let Some(m) = meshes.get_mut(&mesh.0) {
+                *m.into_inner() = edge_mesh(&map, w);
+            }
+        }
+    }
 }
 
 #[derive(Component)]
