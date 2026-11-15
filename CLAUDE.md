@@ -35,6 +35,7 @@ cargo run -- --skirmish           # straight into a game vs 3 AIs
 cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
 cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
+cargo run -- --icons out.png      # every strategic icon and order icon in one picture (look at it after icon changes)
 cargo run --bin lr-editor         # map editor
 cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns -> assets/maps
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
@@ -44,7 +45,8 @@ python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stat
 
 Debug environment variables: `LR_SPEED=8` (fast-forward a hosted game), `LR_WATCH=1` (an AI also plays the local
 slot), `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmish`), `LR_DUEL=1` (stages a tank
-fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`).
+fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED=n` (another map and AI seed
+for `--selftest`: one game proves little, compare a few).
 
 ### Testing the window without a desktop
 
@@ -105,7 +107,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   - anything that survives from one tick to the next must be in `sim::Snapshot` (`make_snapshot`/`restore`),
     which is also the state a client joins with and the repair sent when a client's state hash differs;
   - new simulation objects are created with `spawn_unit` / `spawn_projectile` / `spawn_wreck` (they reuse the
-    entity a rolled-back object had, so models do not flicker), never with `commands.spawn`.
+    entity a rolled-back object had, so models do not flicker), never with `commands.spawn`;
+  - terrain heights change only through `sim::Ground::set` (craters, terraforming): it records the vertex in
+    `Ground.changed` (the snapshot's `ground` list, a diff against the map the game started on), updates
+    `map.blocked` around it and tells the view which chunks to rebuild. Writing `map.heights` directly
+    desyncs rollback, joining and the state hash.
 - The AI runs on the host only; its commands reach clients inside the turns.
 - Units refer to each other by network id (`u32`), never by `Entity`.
 - ECS layout: one entity per unit with `Unit`, `Body`, `Health`, `Orders`, `Intel` plus optional `Weapons`,
@@ -115,6 +121,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   cross-entity effects in `Effects` (damage, reclaim) instead of holding conflicting mutable queries.
 - All content lives in JSON under `assets/data`. Never hard-code unit stats or unit names in Rust; the AI finds
   units by role (extractor, generator, factory...).
+- The `Defs` resource is whatever data set the current game uses: the built-in data, a preset the host chose,
+  or the host's data received in `S2C::Start`. `main.rs::restore_defs` puts the built-in data back on the way
+  to the main menu. `Defs.pack` (`data::DataPack`) holds the file texts it was built from.
+- The JSON files under `assets/data` have CRLF line endings; keep them (the data hash is taken of the bytes).
 - Owners 250/251 are the neutral and hostile sides (teams 14/15). Neutral units are never auto-targeted.
 - 2-10 players (`sim::MAX_PLAYERS`). `Intel.seen/radar` are `u16` team bitmasks. A map's number of start
   positions decides the lobby slot count; `MapData::generate(cells, seed, players)` is k-fold symmetric.
@@ -128,10 +138,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 
 | Path | Contents |
 |---|---|
-| `src/data.rs` | JSON schema (`UnitDef`, `WeaponDef`, `Rules`...), loading, validation, data hash |
+| `src/data.rs` | JSON schema (`UnitDef`, `WeaponDef`, `Rules`...), `DataPack` (file texts, presets on disk, assets sent along), loading, validation, data hash |
 | `src/map.rs` | `V2`/`V3`, heightmap `MapData`, generator, save/load, line of sight, raycast, A* |
-| `src/sim/mod.rs` | components, resources, `Order`/`Command`, spawning, state save/restore |
-| `src/sim/systems.rs` | tick systems: commands, visibility, economy, orders, factories, build, movement, weapons, projectiles, deaths |
+| `src/sim/mod.rs` | components, resources, `Order`/`Command`, spawning, `Ground` (changed terrain), control point placement, state save/restore |
+| `src/sim/systems.rs` | tick systems: commands, visibility, economy, orders (`think`), factories, build, movement, transports (`carry`), weapons, projectiles, reclaim, capture, deaths, craters/terraform (`apply_ground`), control points, victory |
 | `src/ai.rs` | skirmish AI and formation assignment |
 | `src/net.rs` | TCP host/client, UDP LAN discovery, message types |
 | `src/netplay.rs` | `HostSim` (turn scheduling, hash check) and `ClientSim` (prediction, rollback, resync) |
@@ -139,10 +149,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/hud.rs` | camera, selection, orders, overlays, HUD panels (one egui pass) |
 | `src/view/intel.rs` | fog grid, terrain-shadowed radar coverage, contact memory (ghosts/blips) |
 | `src/view/models.rs` | GLB/box model loading, team-colour texture baking |
-| `src/view/terrain.rs` | terrain chunks, water, deposits, sun, minimap pixels |
+| `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), water, deposits, sun, minimap pixels |
+| `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
 | `src/view/fx.rs` | projectile visuals and explosions |
 | `src/view/icons.rs` | procedural strategic icons |
-| `src/main.rs` | menu, lobby, host/client session loop, headless tests |
+| `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
 | `src/bin/lr-editor.rs` | map editor and map generation CLI |
 
 ## Game rules worth knowing
@@ -168,36 +179,59 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Engineering station** (`build.station`): immobile builder that assists anything in range by itself.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
-- **Icons**: `icon: {shape, glyphs}` plus tier pips; the loader rejects two units with the same icon.
-  Glyphs: plus = direct fire, dot = artillery, arc = anti-air, chevron = missile, ring = scout, wave = radar,
-  eng, mass, bolt, frame, bar, land, tri.
+- **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under the body (SupCom style);
+  the loader rejects two units with the same icon. Shapes: land (diamond), bot, air (triangle), structure
+  (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
+  arc = anti-air, chevron = missile, ring = scout, wave = radar, eng, mass (funnel), bolt, store (tray under a
+  stored resource), cargo (transports), frame, bar, land / tri (outlines of what a factory builds).
+- **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
+  a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.
+  `ReclaimArea` only collects wrecks. Scavengers: `Revive(wreck)` / `ReviveArea`.
+- **Terrain**: ground hits of `crater_min_damage` or more dig craters; `Order::Terraform {pos, radius, height}`
+  moves the circle towards `height` for energy. Vertices under buildings and on the map border are locked.
+  Craters are limited so they never block a cell or dig below the water (`sim::dig_crater`), which keeps
+  pathfinding and the AI out of trouble. Terraforming may build walls and pits.
+- **Transports** (`transport: {capacity}` in the unit JSON; `cargo` = slots a unit takes, 0 = not carriable):
+  riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
+  already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
+  `LoadArea`, `Unload`. Riders die with their transport.
+- **Control points** (`Game.mode == MODE_POINTS`): `Game.points` / `Game.scores` (per team), rules `cp_*`.
+- **Selection**: a box takes fighting units first, then builders (`build` present), then buildings.
+- **Selection sounds**: `view::sound::select_sound` picks by role, `"select_sound"` in the unit JSON overrides.
 - Bohdana was nerfed on request: 4500 mass / 40000 energy, 40 s reload, 3 s aim, 10 deg/s traverse.
 - Mobile speeds are roughly 1.25x the mod's values (user asked for slightly quicker units).
 
 ## Data files
 
-- `assets/data/rules.json` - gravity, start resources, wreck/reclaim/repair rates, radar fade, armor table
-  (armor -> damage type -> multiplier), colours.
+- `assets/data/rules.json` - gravity, start resources, wreck/reclaim/repair rates, radar fade, craters,
+  terraforming, control points, armor table (armor -> damage type -> multiplier), colours.
+- `assets/data/presets/<name>/` - a preset: its own `rules.json` and `factions/*.json`, made and edited in the
+  main menu (Game data presets), chosen by the host in the lobby.
 - `assets/data/factions/coalition.json` - the playable faction (the mod roster).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
 - `assets/maps/<name>/map.json` + `height.png` (16-bit) - premade maps; `props` are pre-placed neutral
   (owner 0) or hostile (owner 1) units of any faction.
-- Host and clients must have identical data: a hash of these files is checked on join.
+- Host and clients play with identical data: a client whose data hash differs gets the host's `DataPack`
+  (and asset files the built-in data does not refer to) with `S2C::Start`.
 
 ## Asset pipeline
 
 `tools/convert_assets.py` reads the mod's `.scm` models (`tools/scm.py`) and `.bp` blueprints (`tools/bp.py`)
 and writes `assets/models/<name>.glb` (one node per bone, so turret/barrel bones named in the weapon's
 `turret` block can be rotated), `<name>_albedo.png`, `<name>_team.png` (team mask from SpecTeam alpha),
-`<name>_normal.png`, and `assets/icons/units/<name>.png` portraits. The mod ships no commander or radar tower
-model: the commander reuses the trooper mesh at 3x scale, the radar tower is a JSON box model.
+`<name>_normal.png`, and `assets/icons/units/<name>.png` portraits. The mod ships no commander, radar tower or
+transport model: the commander reuses the trooper mesh at 3x scale; the radar tower, the APC and the
+transport aircraft are JSON box models.
 
 ## Not done yet / ideas
 
-- No sound, navy, transports, air staging or shields. One playable faction (the format supports more).
-- Vision is not blocked by terrain (only radar is). No friendly-fire by default (`rules.friendly_fire`).
-- The hostile side only holds positions; it has no AI. Neutral buildings cannot be captured.
+- No music, navy, air staging or shields. One playable faction (the format supports more).
+- No friendly-fire by default (`rules.friendly_fire`).
+- The hostile side only holds positions; it has no AI.
+- The AI does not use scavengers, transports or terraforming. Maps cannot place their own control points.
+- The minimap picture and the cached fog/radar shadows do not follow craters and terraforming.
+- The preset editor is JSON text per unit; there are no per-field widgets.
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
   is not cheat-proof. No reconnect or joining a running game yet (the full-state message would allow it).
 - Mispredicted effects are not undone: a muzzle flash or explosion the rollback corrected away has still been shown.

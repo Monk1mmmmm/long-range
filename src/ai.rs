@@ -194,7 +194,7 @@ pub fn ai_system(
             } else {
                 // Combat units, biased toward the higher tiers we can pay for.
                 let budget = p.mass + p.income_m * 120.0;
-                let pool: Vec<&&UnitDef> = opts.iter().filter(|d| !d.is_engineer() && !d.is_scavenger() && d.cost.mass <= budget.max(80.0)).collect();
+                let pool: Vec<&&UnitDef> = opts.iter().filter(|d| !d.is_engineer() && !d.is_scavenger() && d.transport.is_none() && d.cost.mass <= budget.max(80.0)).collect();
                 let weight = |d: &UnitDef| (d.tier as f32).powi(2) * if d.armed() { 3.0 } else { 0.6 };
                 let sum: f32 = pool.iter().map(|d| weight(d)).sum();
                 let mut roll = ai.rng.f() * sum;
@@ -228,13 +228,21 @@ pub fn ai_system(
             .iter()
             .filter(|(u, _, orders, _, uc, _, hosted)| {
                 let d = defs.get(u.def);
-                u.owner == me && !uc && !hosted && orders.0.is_empty() && !d.is_structure() && !d.is_engineer()
+                u.owner == me && !uc && !hosted && orders.0.is_empty() && !d.is_structure() && d.build.is_none() && d.transport.is_none()
             })
             .map(|(u, b, ..)| (u.id, b.pos))
             .collect();
         if !army.is_empty() {
+            // Control points mode: the nearest point we do not hold, once a few units are ready.
+            // (Idle units standing on a point they are taking get the same order again and stay.)
+            let point = game.points.iter().filter(|cp| cp.owner != team).min_by(|a, b| a.pos.dist(start).partial_cmp(&b.pos.dist(start)).unwrap()).map(|cp| cp.pos);
             if let Some(t) = census.nearest_enemy(start, team, 70.0, 0.0, true, false) {
                 out.push(Command::Orders { ids: army.iter().map(|a| a.0).collect(), orders: vec![Order::AttackMove(t.pos)], queue: false });
+            } else if let (Some(cp), true) = (point, army.len() >= 3 && army.len() < (5 + ai.wave * 3).min(28) as usize && game.tick % 50 < 10) {
+                let land: Vec<u32> = army.iter().filter(|a| census.get(a.0).map_or(false, |c| !c.air && c.pos.dist(cp) > 5.0)).map(|a| a.0).collect();
+                if !land.is_empty() {
+                    out.push(Command::Orders { ids: land, orders: vec![Order::AttackMove(cp)], queue: false });
+                }
             } else if army.len() >= (5 + ai.wave * 3).min(28) as usize && game.tick % 100 < 10 {
                 let target = census
                     .list

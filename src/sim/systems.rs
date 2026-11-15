@@ -14,8 +14,8 @@ pub fn register(app: &mut App) {
         (
             // Inner tuples need their own chain(): the outer one only orders the groups.
             (begin_tick, census_build, crate::ai::ai_system, apply_commands, visibility, income).chain(),
-            (think, factories, build_progress, locomotion, separation).chain(),
-            (weapons, projectiles, apply_reclaim, apply_capture, deaths, victory).chain(),
+            (think, factories, build_progress, locomotion, separation, carry).chain(),
+            (weapons, projectiles, apply_reclaim, apply_capture, deaths, apply_ground, control_points, victory).chain(),
         )
             .chain(),
     );
@@ -34,6 +34,7 @@ fn begin_tick(
     fx.tick.clear();
     effects.sites.clear();
     effects.revived.clear();
+    effects.loaded.clear();
     nav.paths_left = 30;
     if nav.dirty || nav.occ.len() != map.blocked.len() {
         nav.occ = map.blocked.clone();
@@ -50,11 +51,11 @@ fn census_build(
     mut wrecks: ResMut<WreckList>,
     game: Res<Game>,
     defs: Res<Defs>,
-    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Has<Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>)>,
+    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>)>,
     wq: Query<&Wreck>,
 ) {
     census.clear();
-    for (e, u, b, h, i, uc, hosted, builder, factory, upgrading, paused) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         census.push(Cen {
             e,
@@ -69,7 +70,8 @@ fn census_build(
             hp: h.0,
             max_hp: d.hp,
             done: !uc,
-            hosted,
+            hosted: host.is_some(),
+            host: host.map_or(0, |h| h.0),
             air: d.is_air(),
             structure: d.is_structure(),
             radius: d.radius(),
@@ -114,12 +116,37 @@ fn apply_commands(
                 }
                 for (k, id) in ids.iter().enumerate() {
                     let Some(e) = owned(*id) else { continue };
+                    // Units riding in a transport take no orders.
+                    if census.get(*id).map_or(false, |c| c.hosted && c.done) {
+                        continue;
+                    }
                     let Ok((u, b, mut ord, factory, mover, _, _, _)) = q.get_mut(e) else { continue };
                     let df = defs.get(u.def);
                     let mut o = if orders.len() == ids.len() { orders[k] } else { orders[0] };
                     match &mut o {
                         Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) => *p = map.clamp(*p),
                         Order::AttackGround { pos, .. } | Order::ReclaimArea { pos, .. } => *pos = map.clamp(*pos),
+                        Order::ReviveArea { pos, radius } => {
+                            if !df.is_scavenger() || !radius.is_finite() {
+                                continue;
+                            }
+                            *pos = map.clamp(*pos);
+                        }
+                        Order::Terraform { pos, radius, height } => {
+                            if !df.is_engineer() || !radius.is_finite() || !height.is_finite() {
+                                continue;
+                            }
+                            *pos = map.clamp(*pos);
+                            *radius = radius.clamp(1.0, 24.0);
+                        }
+                        Order::LoadArea { pos, radius } | Order::Unload { pos, radius } => {
+                            if df.transport.is_none() || !radius.is_finite() {
+                                continue;
+                            }
+                            *pos = map.clamp(*pos);
+                            *radius = radius.clamp(0.0, 60.0);
+                        }
+                        Order::Load(_) if df.transport.is_none() && !carriable(df) => continue,
                         Order::Build { def: bd, pos } => {
                             if !df.builds.contains(bd) || !df.is_engineer() {
                                 continue;
@@ -399,11 +426,22 @@ fn think(
     mut nav: ResMut<Nav>,
     mut game: ResMut<Game>,
     mut effects: ResMut<Effects>,
+    terrain: Res<Ground>,
     mut commands: Commands,
 ) {
+    // Free cargo slots of a transport, counting what was loaded earlier in this tick.
+    let room = |effects: &Effects, tid: u32, cap: u8| -> i32 {
+        let aboard: i32 = census.list.iter().filter(|c| c.host == tid).map(|c| defs.get(c.def).cargo as i32).sum();
+        let coming: i32 = effects.loaded.iter().filter(|l| l.1 == tid).filter_map(|l| census.get(l.0)).map(|c| defs.get(c.def).cargo as i32).sum();
+        cap as i32 - aboard - coming
+    };
     for (u, body, mut orders, mut mover, mut builder, mut weapons) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         if df.is_factory() {
+            continue;
+        }
+        // Taken aboard a transport earlier in this tick.
+        if effects.loaded.iter().any(|l| l.0 == u.id) {
             continue;
         }
         let (pos, id, owner) = (body.pos, u.id, u.owner);
@@ -600,7 +638,23 @@ fn think(
                         work = wid;
                     }
                 }
-                _ => pop = true,
+                Some(_) => pop = true,
+                // Not a wreck: a standing building, taken apart for its mass (own or enemy).
+                None => match census.get(wid) {
+                    Some(t) if df.can_assist() && t.structure && t.hp > 0.0 && !t.hosted && (t.owner == owner || (t.team != team && t.known_to(team))) => {
+                        if pos.dist(t.pos) > reach(t.radius) {
+                            if is_struct {
+                                pop = true;
+                            } else {
+                                goal = Some(t.pos);
+                            }
+                        } else {
+                            effects.reclaim_unit.push((wid, df.build_rate() * defs.rules.reclaim_rate * DT, owner));
+                            work = wid;
+                        }
+                    }
+                    _ => pop = true,
+                },
             },
             Some(Order::Capture(tid)) => match census.get(tid) {
                 Some(t) if df.is_engineer() && t.hp > 0.0 && t.done && !t.hosted && !t.air && t.team != team && t.known_to(team) && !defs.factions.iter().any(|f| f.commander == Some(t.def)) => {
@@ -624,21 +678,136 @@ fn think(
                     } else if wd.is_structure() && !can_place(&defs, &map, &nav.occ, w.3, w.1) {
                         pop = true;
                     } else {
-                        // The wreck becomes a construction site that already holds the wreck's
-                        // mass; finishing it costs the rest, like any building work.
-                        let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
-                        let sid = spawn_unit_built(&mut commands, &defs, &mut game, &map, w.3, owner, w.1, PI * 0.5, Some(built), 0);
-                        if wd.is_structure() {
-                            nav.stamp(&map, w.1, wd.footprint, 2);
-                        }
-                        effects.reclaim.push((wid, 1.0e9, u8::MAX));
-                        effects.revived.push((wid, sid));
+                        let sid = revive(&mut commands, &defs, &mut game, &map, &mut nav, &mut effects, w, owner);
                         orders.0[0] = Order::Assist(sid);
                         work = sid;
                     }
                 }
                 _ => pop = true,
             },
+            Some(Order::ReviveArea { pos: c, radius }) => {
+                // The nearest wreck in the circle that can come back (a building needs its plot free).
+                let best = wrecks
+                    .0
+                    .iter()
+                    .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
+                    .filter(|w| !defs.get(w.3).is_structure() || can_place(&defs, &map, &nav.occ, w.3, w.1))
+                    .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
+                    .copied();
+                match best {
+                    Some(w) if df.is_scavenger() => {
+                        if pos.dist(w.1) > reach(defs.get(w.3).radius()) {
+                            goal = Some(w.1);
+                        } else {
+                            // Finish this one, then come back to the area order for the next.
+                            let sid = revive(&mut commands, &defs, &mut game, &map, &mut nav, &mut effects, w, owner);
+                            orders.0.insert(0, Order::Assist(sid));
+                            work = sid;
+                        }
+                    }
+                    _ => pop = true,
+                }
+            }
+            Some(Order::Terraform { pos: c, radius, height }) => {
+                let limit = defs.rules.terraform_max;
+                if !df.is_engineer() || terraform_left(&map, &terrain, &nav.occ, c, radius, height, limit) < 0.05 {
+                    pop = true;
+                } else if pos.dist(c) > df.build_range().max(2.0) + radius + df.radius() {
+                    goal = Some(c);
+                } else if !census.get(id).map_or(false, |c| c.paused) {
+                    effects.terraform.push((c, radius, height, df.build_rate() * defs.rules.terraform_rate * DT, owner));
+                }
+            }
+            Some(Order::Load(tid)) => {
+                pop = true;
+                let near = |t: &Cen| pos.dist(t.pos) <= 2.5 + t.radius + df.radius();
+                if let Some(tr) = &df.transport {
+                    // A transport fetching one unit.
+                    if let Some(t) = census.get(tid).filter(|t| t.owner == owner && t.done && !t.hosted && t.hp > 0.0 && carriable(defs.get(t.def))) {
+                        let free = room(&effects, id, tr.capacity) >= defs.get(t.def).cargo as i32 && !effects.loaded.iter().any(|l| l.0 == tid);
+                        if free && !near(t) {
+                            goal = Some(t.pos);
+                            pop = false;
+                        } else if free {
+                            commands.entity(t.e).insert(Hosted(id));
+                            effects.loaded.push((tid, id));
+                        }
+                    }
+                } else if let Some(t) = census.get(tid).filter(|t| t.team == team && t.done && !t.hosted && t.hp > 0.0 && carriable(df)) {
+                    // A unit walking up to a transport and boarding it.
+                    if let Some(tr) = &defs.get(t.def).transport {
+                        if room(&effects, tid, tr.capacity) >= df.cargo as i32 {
+                            if near(t) {
+                                if let Some(me) = census.get(id) {
+                                    commands.entity(me.e).insert(Hosted(tid));
+                                    effects.loaded.push((id, tid));
+                                }
+                            } else {
+                                goal = Some(t.pos);
+                                pop = false;
+                            }
+                        }
+                    }
+                }
+            }
+            Some(Order::LoadArea { pos: c, radius }) => {
+                pop = true;
+                if let Some(tr) = &df.transport {
+                    let free = room(&effects, id, tr.capacity);
+                    let mut best: Option<(f32, u32)> = None;
+                    census.near(c, radius.max(1.0), |t| {
+                        if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || t.id == id || !carriable(defs.get(t.def)) || defs.get(t.def).cargo as i32 > free {
+                            return;
+                        }
+                        if effects.loaded.iter().any(|l| l.0 == t.id) {
+                            return;
+                        }
+                        let d = pos.dist(t.pos);
+                        if best.map_or(true, |b| d < b.0 || (d == b.0 && t.id < b.1)) {
+                            best = Some((d, t.id));
+                        }
+                    });
+                    if let Some(t) = best.and_then(|b| census.get(b.1)) {
+                        pop = false;
+                        if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() {
+                            commands.entity(t.e).insert(Hosted(id));
+                            effects.loaded.push((t.id, id));
+                        } else {
+                            goal = Some(t.pos);
+                        }
+                    }
+                }
+            }
+            Some(Order::Unload { pos: c, radius }) => {
+                // A ground transport cannot stop on a cliff or a building: the nearest free spot will do.
+                let mut c = c;
+                if !df.is_air() && nav.at(&map, c) != 0 {
+                    let (cx, cy) = map.cell_of(c);
+                    if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                        c = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                    }
+                }
+                let cargo: Vec<&Cen> = census.list.iter().filter(|t| t.host == id).collect();
+                if df.transport.is_none() || cargo.is_empty() {
+                    pop = true;
+                } else if pos.dist(c) > arrive.max(1.5) {
+                    goal = Some(c);
+                } else {
+                    // Everybody out, spread over the circle (a spiral from the middle).
+                    let n = cargo.len() as f32;
+                    for (k, t) in cargo.iter().enumerate() {
+                        let mut p = map.clamp(c + V2::from_angle(k as f32 * 2.4) * (radius.max(1.5) * ((k as f32 + 0.5) / n).sqrt()));
+                        if nav.at(&map, p) != 0 {
+                            let (cx, cy) = map.cell_of(p);
+                            if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                                p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                            }
+                        }
+                        commands.entity(t.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));
+                    }
+                    pop = true;
+                }
+            }
             Some(Order::ReclaimArea { pos: c, radius }) => {
                 let best = wrecks
                     .0
@@ -682,6 +851,21 @@ fn think(
             }
         }
     }
+}
+
+/// Turns a wreck into a construction site of `owner` that already holds the wreck's mass;
+/// finishing it costs the rest, like any building work. Returns the new unit's id.
+#[allow(clippy::too_many_arguments)]
+fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId), owner: u8) -> u32 {
+    let wd = defs.get(w.3);
+    let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
+    let sid = spawn_unit_built(commands, defs, game, map, w.3, owner, w.1, PI * 0.5, Some(built), 0);
+    if wd.is_structure() {
+        nav.stamp(map, w.1, wd.footprint, 2);
+    }
+    effects.reclaim.push((w.0, 1.0e9, u8::MAX));
+    effects.revived.push((w.0, sid));
+    sid
 }
 
 #[allow(clippy::type_complexity)]
@@ -748,6 +932,7 @@ fn build_progress(
     mut q: Query<(Entity, &mut Unit, &mut Health, Option<&Builder>, Option<&mut UnderConstruction>, Option<&mut Upgrading>)>,
     census: Res<Census>,
     defs: Res<Defs>,
+    effects: Res<Effects>,
     mut game: ResMut<Game>,
     mut commands: Commands,
 ) {
@@ -762,6 +947,10 @@ fn build_progress(
             jobs.push((u.owner, e, d.build_rate().max(5.0)));
         }
         if let Some(b) = builder {
+            // A building this player is taking apart is not repaired at the same time.
+            if effects.reclaim_unit.iter().any(|r| r.0 == b.work && r.2 == u.owner) {
+                continue;
+            }
             if let Some(t) = census.get(b.work) {
                 if t.e != e {
                     jobs.push((u.owner, t.e, d.build_rate()));
@@ -1083,6 +1272,17 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
                     }
                 }
             }
+        }
+    }
+}
+
+/// Units riding in a transport (or waiting inside a factory) travel with it.
+fn carry(census: Res<Census>, mut riders: Query<(&Hosted, &mut Body)>, hosts: Query<&Body, Without<Hosted>>) {
+    for (h, mut b) in &mut riders {
+        if let Some(host) = census.get(h.0).and_then(|c| hosts.get(c.e).ok()) {
+            b.pos = host.pos;
+            b.y = host.y;
+            b.vel = host.vel;
         }
     }
 }
@@ -1422,6 +1622,12 @@ fn projectiles(
         };
         commands.entity(e).despawn();
         fx.push(at, FX_BLAST, p.radius.max(0.25 + p.damage.sqrt() * 0.05));
+        // Shells that land on the ground leave a hole.
+        let rules = &defs.rules;
+        if rules.crater_scale > 0.0 && p.damage >= rules.crater_min_damage && (victim == 0 || p.radius > 0.0) && at.y - map.height(at.x, at.z) < 1.5 && at.y > map.water - 0.5 {
+            let depth = rules.crater_scale * p.damage.sqrt() * if p.radius > 0.0 { 1.0 } else { 0.5 };
+            effects.craters.push((flat(at), p.radius * 0.5, depth));
+        }
         if p.radius > 0.0 {
             census.near(flat(at), p.radius + 6.0, |c| {
                 if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) {
@@ -1440,7 +1646,34 @@ fn projectiles(
     }
 }
 
-fn apply_reclaim(mut q: Query<(Entity, &mut Wreck)>, mut effects: ResMut<Effects>, mut game: ResMut<Game>, mut commands: Commands) {
+fn apply_reclaim(
+    mut q: Query<(Entity, &mut Wreck)>,
+    mut units: Query<(&Unit, &mut Health)>,
+    census: Res<Census>,
+    defs: Res<Defs>,
+    mut effects: ResMut<Effects>,
+    mut game: ResMut<Game>,
+    mut commands: Commands,
+) {
+    // Standing buildings: every hit point taken is worth its share of the wreck value.
+    let unit_jobs: Vec<(u32, f32, u8)> = effects.reclaim_unit.drain(..).collect();
+    for (id, amount, player) in unit_jobs {
+        let Some((u, mut h)) = census.get(id).and_then(|c| units.get_mut(c.e).ok()) else { continue };
+        if h.0 <= 0.0 {
+            continue;
+        }
+        let d = defs.get(u.def);
+        let per_hp = (d.cost.mass * defs.rules.wreck_mass_fraction / d.hp.max(1.0)).max(1e-4);
+        let hp = (amount / per_hp).min(h.0);
+        h.0 -= hp;
+        if let Some(p) = game.players.get_mut(player as usize) {
+            p.mass = (p.mass + hp * per_hp).min(p.max_mass.max(1.0));
+        }
+        if h.0 <= 0.001 {
+            h.0 = 0.0;
+            effects.reclaimed.push(id);
+        }
+    }
     if effects.reclaim.is_empty() {
         return;
     }
@@ -1530,6 +1763,7 @@ fn deaths(
     wrecks: Query<(Entity, &Wreck)>,
     census: Res<Census>,
     defs: Res<Defs>,
+    map: Res<MapData>,
     mut game: ResMut<Game>,
     mut effects: ResMut<Effects>,
     mut nav: ResMut<Nav>,
@@ -1546,6 +1780,7 @@ fn deaths(
     let tick = game.tick;
     let mut blasts: Vec<(V2, f32, f32, f32, u8)> = vec![];
     let mut new_wrecks = 0;
+    let reclaimed = std::mem::take(&mut effects.reclaimed);
     for (e, u, b, mut h, uc, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         let player_dead = game.players.get(u.owner as usize).map_or(false, |p| !p.alive);
@@ -1564,6 +1799,10 @@ fn deaths(
         commands.entity(e).despawn();
         if d.is_structure() {
             nav.dirty = true;
+        }
+        // Taken apart by an engineer: nothing is left, and nothing blows up.
+        if reclaimed.contains(&u.id) {
+            continue;
         }
         fx.push(b.pos.at(b.y + d.height() * 0.5), FX_DEATH, d.radius() * 1.6 + 0.6);
         // A wreck holds a share of the mass that actually went into the unit.
@@ -1591,6 +1830,9 @@ fn deaths(
     }
     for (pos, y, damage, radius, owner) in blasts {
         let team = game.team_of(owner);
+        if defs.rules.crater_scale > 0.0 && y - map.h(pos) < 3.0 {
+            effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
+        }
         census.near(pos, radius + 4.0, |c| {
             let flat = (c.pos.dist(pos) - c.radius * 0.7).max(0.0);
             let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
@@ -1607,6 +1849,104 @@ fn deaths(
         for (_, e) in all.into_iter().take(total - defs.rules.max_wrecks) {
             commands.entity(e).despawn();
         }
+    }
+}
+
+/// Applies this tick's craters and terraforming to the terrain.
+fn apply_ground(mut effects: ResMut<Effects>, mut map: ResMut<MapData>, mut ground: ResMut<Ground>, mut nav: ResMut<Nav>, mut game: ResMut<Game>, defs: Res<Defs>) {
+    if effects.craters.is_empty() && effects.terraform.is_empty() {
+        return;
+    }
+    let rules = &defs.rules;
+    let (map, ground) = (&mut *map, &mut *ground);
+    for (pos, radius, depth) in effects.craters.drain(..) {
+        dig_crater(map, ground, &nav.occ, pos, radius.min(12.0), depth.min(2.0), rules.crater_max_depth);
+    }
+    for (pos, radius, height, volume, player) in effects.terraform.drain(..) {
+        let targets = terraform_targets(map, ground, &nav.occ, pos, radius, height, rules.terraform_max);
+        let total: f32 = targets.iter().map(|(i, t)| (t - map.heights[*i]).abs()).sum();
+        let Some(pl) = game.players.get_mut(player as usize) else { continue };
+        if total <= 0.0 {
+            continue;
+        }
+        // Moving earth takes energy; with too little of it the work slows down.
+        let mut moved = volume.min(total);
+        let cost = moved * rules.terraform_energy;
+        if cost > pl.energy {
+            moved *= (pl.energy / cost).clamp(0.0, 1.0);
+        }
+        pl.energy = (pl.energy - moved * rules.terraform_energy).max(0.0);
+        let share = moved / total;
+        for (i, t) in targets {
+            let h = map.heights[i];
+            ground.set(map, i, if share >= 0.999 { t } else { h + (t - h) * share });
+        }
+    }
+    // Slopes changed: the next tick rebuilds the navigation grid from the new passability.
+    nav.dirty = true;
+}
+
+/// Control points mode: a team alone at a point takes it over, held points earn score, and the
+/// first team to reach the limit wins.
+fn control_points(mut game: ResMut<Game>, census: Res<Census>, defs: Res<Defs>) {
+    if game.mode != MODE_POINTS || game.winner.is_some() {
+        return;
+    }
+    let rules = &defs.rules;
+    let step = DT / rules.cp_capture_secs.max(0.1);
+    let game = &mut *game;
+    if game.scores.len() < 16 {
+        game.scores.resize(16, 0.0);
+    }
+    let mut alive = 0u16;
+    for p in &game.players {
+        if p.alive && p.team < 14 {
+            alive |= 1 << p.team;
+        }
+    }
+    for p in game.points.iter_mut() {
+        // Only finished ground units of living players hold a point (no aircraft, no buildings).
+        let mut teams = 0u16;
+        census.near(p.pos, rules.cp_radius, |c| {
+            if c.done && !c.hosted && !c.air && !c.structure && c.hp > 0.0 && c.team < 14 {
+                teams |= 1 << c.team;
+            }
+        });
+        teams &= alive;
+        if teams.count_ones() == 1 {
+            let t = teams.trailing_zeros() as u8;
+            if p.owner == t {
+                p.by = t;
+                p.progress = 0.0;
+            } else if p.by == t {
+                p.progress += step;
+                if p.progress >= 1.0 {
+                    p.owner = t;
+                    p.progress = 0.0;
+                }
+            } else {
+                // Somebody else's capture has to be undone first.
+                p.progress -= step * 2.0;
+                if p.progress <= 0.0 {
+                    p.by = t;
+                    p.progress = 0.0;
+                }
+            }
+        } else if teams == 0 && p.progress > 0.0 {
+            p.progress = (p.progress - step * 0.5).max(0.0);
+        }
+        if p.owner < 14 && alive & (1 << p.owner) != 0 {
+            game.scores[p.owner as usize] += DT;
+        }
+    }
+    let mut best: Option<(f32, u8)> = None;
+    for (t, s) in game.scores.iter().enumerate() {
+        if *s >= rules.cp_score_limit && best.map_or(true, |b| *s > b.0) {
+            best = Some((*s, t as u8));
+        }
+    }
+    if let Some((_, t)) = best {
+        game.winner = Some(t);
     }
 }
 

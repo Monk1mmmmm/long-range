@@ -11,6 +11,17 @@
   "radar_los_height": 4.0,
   "power_stall_pump_factor": 0.25,
   "friendly_fire": false,
+  "_comment_terrain": "Craters: depth = crater_scale x sqrt(damage), never deeper than crater_max_depth below the original ground; 0 = no craters. Terraforming moves terraform_rate height per build power and second, at terraform_energy per unit, within terraform_max of the original ground.",
+  "crater_scale": 0.025,
+  "crater_max_depth": 2.0,
+  "crater_min_damage": 35,
+  "terraform_rate": 0.6,
+  "terraform_energy": 15,
+  "terraform_max": 12,
+  "_comment_points": "Control points mode: units within cp_radius take a point in cp_capture_secs; every held point gives one score per second; first team to cp_score_limit wins.",
+  "cp_radius": 12,
+  "cp_capture_secs": 20,
+  "cp_score_limit": 400,
   "commander_death": {
     "damage": 1500,
     "radius": 20

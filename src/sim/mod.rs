@@ -7,7 +7,8 @@ use crate::map::*;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 pub mod systems;
 
@@ -42,6 +43,16 @@ pub enum Order {
     Capture(u32),
     /// Scavengers: rebuild a wreck as a unit of their own side.
     Revive(u32),
+    /// Scavengers: revive every wreck in the circle, nearest first.
+    ReviveArea { pos: V2, radius: f32 },
+    /// Engineers: bring the ground inside the circle to `height`.
+    Terraform { pos: V2, radius: f32, height: f32 },
+    /// For a transport: pick that unit up. For anything else: board that transport.
+    Load(u32),
+    /// Transports: pick up own units inside the circle until full.
+    LoadArea { pos: V2, radius: f32 },
+    /// Transports: set the cargo down spread over the circle.
+    Unload { pos: V2, radius: f32 },
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -154,7 +165,7 @@ pub struct Factory {
     pub building: u32,
 }
 
-/// The unit is still inside the factory with this id.
+/// The unit is inside the factory (while being built) or the transport with this id.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Hosted(pub u32);
 
@@ -253,6 +264,30 @@ pub struct Game {
     pub players: Vec<Player>,
     pub winner: Option<u8>,
     pub next_id: u32,
+    /// `MODE_ANNIHILATION` or `MODE_POINTS`.
+    #[serde(default)]
+    pub mode: u8,
+    /// Control points mode: the positions to hold and the score of every team.
+    #[serde(default)]
+    pub points: Vec<ControlPoint>,
+    #[serde(default)]
+    pub scores: Vec<f32>,
+}
+
+pub const MODE_ANNIHILATION: u8 = 0;
+pub const MODE_POINTS: u8 = 1;
+/// `ControlPoint::owner` of a point nobody holds.
+pub const NOBODY: u8 = 255;
+
+/// A position teams fight over in control points mode.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub struct ControlPoint {
+    pub pos: V2,
+    /// Team holding it, or `NOBODY`.
+    pub owner: u8,
+    /// Team currently taking it and how far along it is (0..1).
+    pub by: u8,
+    pub progress: f32,
 }
 
 impl Game {
@@ -383,8 +418,9 @@ pub fn can_place(defs: &Defs, map: &MapData, occ: &[u8], d: DefId, p: V2) -> boo
             hi = hi.max(h);
         }
     }
-    // Big buildings need reasonably level ground.
-    if hi - lo > 1.2 + f as f32 * 0.5 {
+    // Big buildings need reasonably level ground. (Extractors go on their deposit whatever shells
+    // have done to it.)
+    if !df.needs_deposit && hi - lo > 1.2 + f as f32 * 0.5 {
         return false;
     }
     let half = f as f32 * CELL * 0.5;
@@ -394,6 +430,11 @@ pub fn can_place(defs: &Defs, map: &MapData, occ: &[u8], d: DefId, p: V2) -> boo
     } else {
         !on_dep
     }
+}
+
+/// Can this unit ride in a transport?
+pub fn carriable(d: &crate::data::UnitDef) -> bool {
+    !d.is_structure() && !d.is_air() && d.cargo > 0 && d.transport.is_none()
 }
 
 /// Per-tick read-only view of every unit, so systems can look at other units
@@ -413,6 +454,8 @@ pub struct Cen {
     pub max_hp: f32,
     pub done: bool,
     pub hosted: bool,
+    /// Id of the factory or transport the unit is inside (0 = none).
+    pub host: u32,
     pub air: bool,
     pub structure: bool,
     pub radius: f32,
@@ -523,6 +566,221 @@ pub struct Effects {
     pub capture: Vec<(u32, f32, u8)>,
     /// Wrecks turned back into units this tick: (wreck id, new unit id).
     pub revived: Vec<(u32, u32)>,
+    /// Reclaim work on live buildings this tick: (unit id, mass, player).
+    pub reclaim_unit: Vec<(u32, f32, u8)>,
+    /// Buildings reclaimed down to nothing this tick: they leave no wreck.
+    pub reclaimed: Vec<u32>,
+    /// Shell holes to dig this tick: (centre, radius, depth).
+    pub craters: Vec<(V2, f32, f32)>,
+    /// Terraforming work this tick: (centre, radius, wanted height, volume, player).
+    pub terraform: Vec<(V2, f32, f32, f32, u8)>,
+    /// Units taken aboard a transport this tick: (unit, transport).
+    pub loaded: Vec<(u32, u32)>,
+}
+
+// ---------------------------------------------------------------------------- changing terrain
+
+/// The terrain as changed during the game (shell craters, terraforming), kept as the difference
+/// to the map everybody started with. `MapData::heights` always holds the current heights; this
+/// resource remembers which vertices differ so a state can be saved, restored and hashed cheaply.
+#[derive(Resource, Default)]
+pub struct Ground {
+    /// Heights of the map as it was loaded.
+    pub base: Vec<f32>,
+    /// Changed vertices: index into `MapData::heights` -> current height.
+    pub changed: BTreeMap<u32, f32>,
+    /// Order-independent fingerprint of `changed`.
+    pub hash: u64,
+    /// World positions whose terrain changed since the view last looked (drained by the view).
+    pub touched: Vec<V2>,
+    /// Too many changes to list (or nobody is looking): the view redraws all of the terrain.
+    pub touched_all: bool,
+    saved: Option<(u64, Arc<Vec<(u32, f32)>>)>,
+}
+
+fn ground_mix(idx: u32, h: f32) -> u64 {
+    let mut x = (idx as u64 + 1).wrapping_mul(0x9E3779B97F4A7C15) ^ (h.to_bits() as u64).wrapping_mul(0xC2B2AE3D27D4EB4F);
+    x ^= x >> 29;
+    x = x.wrapping_mul(0xBF58476D1CE4E5B9);
+    x ^ (x >> 32)
+}
+
+impl Ground {
+    pub fn new(map: &MapData) -> Ground {
+        Ground { base: map.heights.clone(), ..default() }
+    }
+
+    /// Sets one vertex and keeps the passability of the cells around it up to date.
+    pub fn set(&mut self, map: &mut MapData, idx: usize, h: f32) {
+        if idx >= map.heights.len() || map.heights[idx] == h {
+            return;
+        }
+        let key = idx as u32;
+        if let Some(old) = self.changed.get(&key) {
+            self.hash ^= ground_mix(key, *old);
+        }
+        if self.base.get(idx).copied() == Some(h) {
+            self.changed.remove(&key);
+        } else {
+            self.changed.insert(key, h);
+            self.hash ^= ground_mix(key, h);
+        }
+        map.heights[idx] = h;
+        let (x, y) = (idx % (map.n + 1), idx / (map.n + 1));
+        map.reblock_around(x, y);
+        let p = v2(x as f32 * CELL, y as f32 * CELL);
+        if self.touched.len() >= 2048 {
+            self.touched.clear();
+            self.touched_all = true;
+        }
+        if !self.touched_all && self.touched.last().map_or(true, |l| l.dist(p) > 6.0) {
+            self.touched.push(p);
+        }
+    }
+
+    /// The changed vertices in index order, for a snapshot. Shared until the terrain changes again.
+    pub fn save(&mut self) -> Arc<Vec<(u32, f32)>> {
+        match &self.saved {
+            Some((h, v)) if *h == self.hash && v.len() == self.changed.len() => v.clone(),
+            _ => {
+                let v = Arc::new(self.changed.iter().map(|(k, h)| (*k, *h)).collect::<Vec<_>>());
+                self.saved = Some((self.hash, v.clone()));
+                v
+            }
+        }
+    }
+
+    /// Makes the terrain match a saved list of changed vertices.
+    pub fn load(&mut self, map: &mut MapData, to: &Arc<Vec<(u32, f32)>>) {
+        if let Some((h, v)) = &self.saved {
+            if *h == self.hash && Arc::ptr_eq(v, to) {
+                return;
+            }
+        }
+        // Vertices changed here but not in the saved state go back to the original map.
+        let stale: Vec<u32> = self.changed.keys().copied().filter(|k| to.binary_search_by_key(k, |e| e.0).is_err()).collect();
+        for k in stale {
+            let h = self.base[k as usize];
+            self.set(map, k as usize, h);
+        }
+        for (k, h) in to.iter() {
+            self.set(map, *k as usize, *h);
+        }
+        self.saved = Some((self.hash, to.clone()));
+    }
+}
+
+/// True for vertices that must keep their height: the map border (it joins the land beyond the
+/// map) and the corners of cells a building stands on.
+fn ground_locked(map: &MapData, occ: &[u8], x: usize, y: usize) -> bool {
+    let n = map.n;
+    if x == 0 || y == 0 || x >= n || y >= n {
+        return true;
+    }
+    for (cx, cy) in [(x - 1, y - 1), (x, y - 1), (x - 1, y), (x, y)] {
+        if occ.get(cy * n + cx).copied() == Some(2) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The vertices inside a circle, as (index, distance from the centre), in index order.
+fn ground_circle(map: &MapData, occ: &[u8], pos: V2, radius: f32) -> Vec<(usize, f32)> {
+    let n = map.n as i32;
+    let (x0, x1) = (((pos.x - radius) / CELL).floor() as i32, ((pos.x + radius) / CELL).ceil() as i32);
+    let (y0, y1) = (((pos.y - radius) / CELL).floor() as i32, ((pos.y + radius) / CELL).ceil() as i32);
+    let mut out = vec![];
+    for y in y0.max(0)..=y1.min(n) {
+        for x in x0.max(0)..=x1.min(n) {
+            let d = v2(x as f32 * CELL, y as f32 * CELL).dist(pos);
+            if d <= radius && !ground_locked(map, occ, x as usize, y as usize) {
+                out.push((y as usize * (map.n + 1) + x as usize, d));
+            }
+        }
+    }
+    out
+}
+
+/// Digs a bowl-shaped hole, never deeper than `max_depth` below the original ground.
+///
+/// Craters dent the ground but never close it to traffic: a vertex is not lowered further than
+/// `CRATER_STEP` below its highest neighbour (the passability limit is 1.7 across a cell, see
+/// `MapData::cell_blocked`), and dry land is not dug down to the water. Heavy shelling therefore
+/// makes holes wider rather than steeper.
+pub fn dig_crater(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, radius: f32, depth: f32, max_depth: f32) {
+    const CRATER_STEP: f32 = 1.4;
+    // At least one vertex has to lie inside, whatever the size of the blast.
+    let radius = radius.max(CELL * 1.3);
+    let side = map.n + 1;
+    for (i, d) in ground_circle(map, occ, pos, radius) {
+        let t = d / radius;
+        let k = (1.0 - t * t) * (1.0 - t * t);
+        let h = map.heights[i];
+        let mut floor = ground.base[i] - max_depth;
+        if ground.base[i] > map.water + 0.1 {
+            floor = floor.max(map.water + 0.1);
+        }
+        // Locked vertices are never inside the circle, so all eight neighbours exist.
+        let (x, y) = (i % side, i / side);
+        for (nx, ny) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)] {
+            floor = floor.max(map.heights[ny * side + nx] - CRATER_STEP);
+        }
+        let new = (h - depth * k).max(floor).min(h);
+        ground.set(map, i, new);
+    }
+}
+
+/// Where a terraforming order wants each vertex of its circle: (index, wanted height).
+/// Heights stay within `limit` of the original ground.
+pub fn terraform_targets(map: &MapData, ground: &Ground, occ: &[u8], pos: V2, radius: f32, height: f32, limit: f32) -> Vec<(usize, f32)> {
+    ground_circle(map, occ, pos, radius.max(CELL * 0.8)).into_iter().map(|(i, _)| (i, height.clamp(ground.base[i] - limit, ground.base[i] + limit))).collect()
+}
+
+/// Height difference still to be moved by a terraforming order (sum over its vertices).
+pub fn terraform_left(map: &MapData, ground: &Ground, occ: &[u8], pos: V2, radius: f32, height: f32, limit: f32) -> f32 {
+    terraform_targets(map, ground, occ, pos, radius, height, limit).iter().map(|(i, t)| (t - map.heights[*i]).abs()).sum()
+}
+
+/// Positions of the control points for a map: the centre, the middle between neighbouring starts
+/// and the half-way marks towards the centre, moved off cliffs and water.
+pub fn control_point_spots(map: &MapData) -> Vec<V2> {
+    let c = map.center();
+    let mut starts = map.starts.clone();
+    starts.sort_by(|a, b| (*a - c).angle().total_cmp(&(*b - c).angle()));
+    let k = starts.len();
+    let mut want = vec![c];
+    for i in 0..k {
+        want.push(starts[i].lerp(starts[(i + 1) % k], 0.5));
+    }
+    for s in &starts {
+        want.push(s.lerp(c, 0.5));
+    }
+    if k == 2 {
+        // Two players face each other across the centre: add the flanks.
+        let side = (starts[0] - c).perp() * 0.7;
+        want.push(map.clamp(c + side));
+        want.push(map.clamp(c - side));
+    }
+    let mut out: Vec<V2> = vec![];
+    for p in want {
+        let (cx, cy) = map.cell_of(map.clamp(p));
+        let Some((x, y)) = nearest_free(&map.blocked, map.n, cx, cy) else { continue };
+        let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+        if out.iter().all(|o| o.dist(p) > 24.0) && starts.iter().all(|s| s.dist(p) > 28.0) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Switches a freshly set up game to control points mode.
+pub fn enable_control_points(world: &mut World) {
+    let spots = control_point_spots(world.resource::<MapData>());
+    let mut game = world.resource_mut::<Game>();
+    game.mode = MODE_POINTS;
+    game.points = spots.into_iter().map(|pos| ControlPoint { pos, owner: NOBODY, by: NOBODY, progress: 0.0 }).collect();
+    game.scores = vec![0.0; 16];
 }
 
 #[derive(Resource)]
@@ -621,6 +879,7 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
     world.flush();
     world.insert_resource(game);
     world.insert_resource(nav);
+    world.insert_resource(Ground::new(&map));
     world.insert_resource(map);
     world.insert_resource(SimRng(Rng(seed ^ 0xABCDEF123 | 1)));
     world.insert_resource(Census::default());
@@ -671,6 +930,8 @@ pub struct Snapshot {
     pub units: Vec<UnitSnap>,
     pub projectiles: Vec<Projectile>,
     pub wrecks: Vec<Wreck>,
+    /// Terrain vertices that differ from the map the game started on: (index, height).
+    pub ground: Arc<Vec<(u32, f32)>>,
 }
 
 pub fn make_snapshot(world: &mut World) -> Snapshot {
@@ -718,6 +979,9 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
     let mut q = world.query::<&Wreck>();
     s.wrecks = q.iter(world).cloned().collect();
     s.wrecks.sort_by_key(|w| w.id);
+    if let Some(mut g) = world.get_resource_mut::<Ground>() {
+        s.ground = g.save();
+    }
     s
 }
 
@@ -840,6 +1104,12 @@ pub fn restore(world: &mut World, s: &Snapshot) {
         limbo.wrecks.insert(id, e);
     }
     world.insert_resource(limbo);
+    // Terrain: undo the craters and earthworks the saved state does not have, redo the ones it has.
+    world.resource_scope(|world, mut map: Mut<MapData>| {
+        if let Some(mut g) = world.get_resource_mut::<Ground>() {
+            g.load(&mut map, &s.ground);
+        }
+    });
     world.insert_resource(s.game.clone());
     world.insert_resource(SimRng(Rng(s.rng)));
     world.insert_resource(Effects { damage: s.damage.clone(), ..default() });
@@ -853,6 +1123,7 @@ pub fn join_game(world: &mut World, mut map: MapData, s: &Snapshot) {
     clear_game(world);
     map.rebuild_blocked();
     world.insert_resource(Nav { occ: map.blocked.clone(), ..default() });
+    world.insert_resource(Ground::new(&map));
     world.insert_resource(map);
     world.insert_resource(Census::default());
     world.insert_resource(WreckList::default());

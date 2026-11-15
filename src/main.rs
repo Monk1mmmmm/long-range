@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use longrange::ai::{Ai, Ais};
-use longrange::data::{asset_root, Defs};
+use longrange::data::{asset_root, DataPack, Defs};
 use longrange::map::*;
 use longrange::net::*;
 use longrange::netplay::{ClientSim, HostSim};
@@ -21,6 +21,8 @@ struct Slot {
     team: u8,
     faction: u8,
     conn: u32,
+    /// Fingerprint of that player's game data (from `Hello`).
+    hash: u64,
 }
 
 struct HostLobby {
@@ -33,9 +35,27 @@ struct HostLobby {
     players: usize,
     dirty: bool,
     lan_ip: String,
+    /// `MODE_ANNIHILATION` or `MODE_POINTS`.
+    mode: u8,
+    /// Game data: 0 = built-in, k = `presets[k - 1]`.
+    preset: usize,
+    presets: Vec<String>,
 }
 
 impl HostLobby {
+    fn mode_label(&self) -> &'static str {
+        if self.mode == MODE_POINTS {
+            "Control points (hold positions to score)"
+        } else {
+            "Annihilation (destroy the commanders)"
+        }
+    }
+    fn preset_label(&self) -> String {
+        match self.preset {
+            0 => "built-in".to_string(),
+            k => self.presets.get(k - 1).cloned().unwrap_or_default(),
+        }
+    }
     fn map_label(&self) -> String {
         match SIZES.get(self.map_choice) {
             Some((n, name)) => format!("Random, {name} ({} x {})", *n as f32 * CELL, *n as f32 * CELL),
@@ -63,7 +83,7 @@ impl HostLobby {
         }
         while self.slots.len() < n {
             let k = self.slots.len() as u8;
-            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, conn: 0 });
+            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, conn: 0, hash: 0 });
         }
         self.dirty = true;
     }
@@ -72,6 +92,7 @@ impl HostLobby {
             slots: self.slots.iter().map(|s| SlotInfo { kind: s.kind, name: s.name.clone(), team: s.team, faction: s.faction }).collect(),
             map_name: self.map_label(),
             you,
+            extra: format!("Mode: {}.  Game data: {}", self.mode_label(), self.preset_label()),
         }
     }
 }
@@ -92,8 +113,123 @@ struct Session {
     acc: f32,
 }
 
+/// The preset editor: a preset is a named copy of the game data that can be changed freely.
+#[derive(Default)]
+struct PresetUi {
+    names: Vec<String>,
+    /// The preset being edited (with changes that may not be saved yet).
+    pack: Option<DataPack>,
+    new_name: String,
+    /// 0 = rules.json, k = faction file k - 1.
+    file: usize,
+    /// Units of the open faction file: (id, name).
+    units: Vec<(String, String)>,
+    unit: usize,
+    /// The JSON being edited: the rules file, or one unit.
+    text: String,
+    msg: String,
+    confirm_delete: bool,
+}
+
+impl PresetUi {
+    fn new() -> PresetUi {
+        PresetUi { names: DataPack::list(&asset_root()), ..Default::default() }
+    }
+    fn open(&mut self, name: &str) {
+        match DataPack::preset(&asset_root(), name) {
+            Ok(p) => {
+                self.pack = Some(p);
+                self.file = 0;
+                self.unit = 0;
+                self.msg.clear();
+                self.show();
+            }
+            Err(e) => self.msg = e,
+        }
+        self.confirm_delete = false;
+    }
+    /// Puts the selected file or unit into the text box.
+    fn show(&mut self) {
+        let Some(pack) = &self.pack else { return };
+        self.units.clear();
+        if self.file == 0 || self.file > pack.factions.len() {
+            self.file = 0;
+            self.text = pack.rules.clone();
+            return;
+        }
+        let v: serde_json::Value = serde_json::from_str(&pack.factions[self.file - 1].1).unwrap_or_default();
+        let list = v["units"].as_array().cloned().unwrap_or_default();
+        self.units = list.iter().map(|u| (u["id"].as_str().unwrap_or("?").to_string(), u["name"].as_str().unwrap_or("").to_string())).collect();
+        self.unit = self.unit.min(list.len().saturating_sub(1));
+        self.text = list.get(self.unit).map(|u| serde_json::to_string_pretty(u).unwrap_or_default()).unwrap_or_default();
+    }
+    /// The pack with the text box written back into it.
+    fn edited(&self) -> Result<DataPack, String> {
+        let mut pack = self.pack.clone().ok_or("no preset open")?;
+        if self.file == 0 {
+            serde_json::from_str::<serde_json::Value>(&self.text).map_err(|e| format!("rules.json: {e}"))?;
+            pack.rules = self.text.clone();
+        } else {
+            let f = pack.factions.get_mut(self.file - 1).ok_or("no such file")?;
+            let mut v: serde_json::Value = serde_json::from_str(&f.1).map_err(|e| e.to_string())?;
+            let u: serde_json::Value = serde_json::from_str(&self.text).map_err(|e| format!("unit JSON: {e}"))?;
+            let list = v["units"].as_array_mut().ok_or("the faction file has no units")?;
+            match list.get_mut(self.unit) {
+                Some(slot) => *slot = u,
+                None => list.push(u),
+            }
+            f.1 = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+        }
+        Ok(pack)
+    }
+    /// Checks the edited data the way the game loads it, and writes the preset if it is sound.
+    fn save(&mut self) {
+        let done = self.edited().and_then(|pack| {
+            Defs::from_pack(pack.clone())?;
+            pack.save(&asset_root())?;
+            Ok(pack)
+        });
+        match done {
+            Ok(pack) => {
+                self.msg = format!("Saved preset '{}'.", pack.name);
+                self.pack = Some(pack);
+                self.show();
+            }
+            Err(e) => self.msg = format!("Not saved: {e}"),
+        }
+    }
+    /// Adds a copy of the open unit behind it, or removes the open unit (kept in memory until saved).
+    fn change_units(&mut self, copy: bool) {
+        let Ok(mut pack) = self.edited() else {
+            self.msg = "Fix the JSON in the text box first.".into();
+            return;
+        };
+        let Some(f) = pack.factions.get_mut(self.file.wrapping_sub(1)) else { return };
+        let mut v: serde_json::Value = serde_json::from_str(&f.1).unwrap_or_default();
+        let Some(list) = v["units"].as_array_mut() else { return };
+        if self.unit >= list.len() {
+            return;
+        }
+        if copy {
+            let mut u = list[self.unit].clone();
+            u["id"] = format!("{}_copy", u["id"].as_str().unwrap_or("unit")).into();
+            u["name"] = format!("{} copy", u["name"].as_str().unwrap_or("Unit")).into();
+            list.insert(self.unit + 1, u);
+            self.unit += 1;
+            self.msg = "Copied. Give the copy its own id and icon (shape, glyphs or tier), then save.".into();
+        } else {
+            list.remove(self.unit);
+            self.msg = "Removed (not saved yet). Saving fails if something still refers to the unit.".into();
+        }
+        f.1 = serde_json::to_string_pretty(&v).unwrap_or_default();
+        self.pack = Some(pack);
+        self.show();
+    }
+}
+
 enum Screen {
     Menu,
+    Presets(PresetUi),
     HostLobby(HostLobby),
     ClientLobby(ClientLobby),
     Game(Session),
@@ -108,6 +244,15 @@ struct AppState {
     discovery: Discovery,
     skirmish: bool,
     settings_open: bool,
+    /// The built-in game data; a lobby or a host may put a preset in its place for one game.
+    base_defs: Defs,
+}
+
+/// Back to the built-in game data (after a game or lobby that used a preset or the host's data).
+fn restore_defs(world: &mut World, base: &Defs) {
+    if world.resource::<Defs>().hash != base.hash {
+        world.insert_resource(base.clone());
+    }
 }
 
 fn local_ip() -> String {
@@ -123,11 +268,11 @@ fn local_ip() -> String {
 fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     let host = Host::start(name)?;
     let faction = defs.playable_factions().first().copied().unwrap_or(0) as u8;
-    let mut slots: Vec<Slot> = (0..4).map(|k| Slot { kind: 0, name: String::new(), team: k, faction, conn: 0 }).collect();
+    let mut slots: Vec<Slot> = (0..4).map(|k| Slot { kind: 0, name: String::new(), team: k, faction, conn: 0, hash: 0 }).collect();
     slots[0].kind = 2;
     slots[0].name = name.to_string();
     slots[2].kind = 3;
-    Ok(HostLobby { host, slots, map_choice: 1, maps: MapData::list(&asset_root()), players: 4, dirty: true, lan_ip: local_ip() })
+    Ok(HostLobby { host, slots, map_choice: 1, maps: MapData::list(&asset_root()), players: 4, dirty: true, lan_ip: local_ip(), mode: MODE_ANNIHILATION, preset: 0, presets: DataPack::list(&asset_root()) })
 }
 
 fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
@@ -138,6 +283,7 @@ fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
     };
     let mut setup = vec![];
     let mut remote = vec![];
+    let mut hashes = vec![];
     let mut ais = vec![];
     for (k, s) in l.slots.iter().enumerate() {
         if s.kind < 2 || k >= map.starts.len() {
@@ -149,12 +295,16 @@ fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
             ais.push(Ai::new(idx, seed));
         } else if s.conn != 0 {
             remote.push((s.conn, idx));
+            hashes.push((s.conn, s.hash));
         }
         let name = if s.kind == 3 { format!("AI {}", k + 1) } else { s.name.clone() };
         setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, faction: s.faction });
     }
     let sent_map = map.clone();
     setup_game(world, map, &setup);
+    if l.mode == MODE_POINTS {
+        enable_control_points(world);
+    }
     world.insert_resource(Ais(ais));
     // LR_DUEL=1 stages a tank fight next to the first start (visual testing of combat).
     if std::env::var("LR_DUEL").is_ok() {
@@ -186,8 +336,20 @@ fn start_game(world: &mut World, l: HostLobby) -> Result<Session, String> {
     // Clients get the map and the complete starting state; from then on only commands travel.
     if !remote.is_empty() {
         let state = frame(TAG_SNAP, bincode::serialize(&make_snapshot(world)).map_err(|e| e.to_string())?);
+        // Players whose game data differs from ours (a preset, another version) get ours,
+        // together with the model and picture files the standard game does not have.
+        let defs = world.resource::<Defs>().clone();
+        let mut pack: Option<DataPack> = None;
         for (conn, idx) in &remote {
-            l.host.send_msg(*conn, &S2C::Start { map: sent_map.clone(), you: *idx });
+            let differs = hashes.iter().any(|h| h.0 == *conn && h.1 != defs.hash);
+            if differs && pack.is_none() {
+                let mut p = (*defs.pack).clone();
+                if let Ok(standard) = Defs::load(&asset_root()) {
+                    p.attach_assets(&asset_root(), &defs, &standard);
+                }
+                pack = Some(p);
+            }
+            l.host.send_msg(*conn, &S2C::Start { map: sent_map.clone(), you: *idx, data: if differs { pack.clone() } else { None } });
             l.host.send(*conn, &state);
         }
     }
@@ -311,6 +473,7 @@ fn session_update(world: &mut World) {
     }
     if let Some(msg) = over {
         leave_game(world);
+        restore_defs(world, &app.base_defs);
         app.message = msg;
         app.screen = Screen::Menu;
         app.discovery = Discovery::new();
@@ -457,6 +620,11 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(14.0);
+                    if ui.add_sized([440.0, 34.0], egui::Button::new("Game data presets")).clicked() {
+                        next = Some(Screen::Presets(PresetUi::new()));
+                        app.message.clear();
+                    }
+                    ui.add_space(6.0);
                     if ui.add_sized([440.0, 34.0], egui::Button::new("Settings")).clicked() {
                         app.settings_open = true;
                     }
@@ -475,13 +643,12 @@ fn menu_ui(world: &mut World) {
                     while let Ok(ev) = l.host.events.try_recv() {
                         match ev {
                             HostEvent::Msg(id, C2S::Hello { name, data_hash }) => {
-                                if data_hash != defs.hash {
-                                    l.host.send_msg(id, &S2C::Kicked("Your game data (assets/data) differs from the host's.".into()));
-                                    l.host.kick(id);
-                                } else if let Some(s) = l.slots.iter_mut().find(|s| s.kind == 0) {
+                                // Different game data is fine: that player gets ours when the game starts.
+                                if let Some(s) = l.slots.iter_mut().find(|s| s.kind == 0) {
                                     s.kind = 2;
                                     s.name = name.chars().take(16).collect();
                                     s.conn = id;
+                                    s.hash = data_hash;
                                 } else {
                                     l.host.send_msg(id, &S2C::Kicked("The game is full.".into()));
                                     l.host.kick(id);
@@ -544,6 +711,31 @@ fn menu_ui(world: &mut World) {
                         l.players = if l.players >= MAX_PLAYERS { 2 } else { l.players + 1 };
                         l.resize_slots(playable.first().copied().unwrap_or(0) as u8);
                     }
+                    if ui.add_sized([480.0, 30.0], egui::Button::new(format!("Mode: {}", l.mode_label()))).clicked() {
+                        l.mode = if l.mode == MODE_POINTS { MODE_ANNIHILATION } else { MODE_POINTS };
+                        l.dirty = true;
+                    }
+                    // Game data: the built-in values or one of the presets (main menu -> Game data presets).
+                    if ui.add_sized([480.0, 30.0], egui::Button::new(format!("Game data: {}", l.preset_label()))).clicked() && !l.presets.is_empty() {
+                        let k = (l.preset + 1) % (l.presets.len() + 1);
+                        let name = if k == 0 { String::new() } else { l.presets[k - 1].clone() };
+                        match Defs::load_preset(&asset_root(), &name) {
+                            Ok(d) => {
+                                l.preset = k;
+                                let f = d.playable_factions().first().copied().unwrap_or(0) as u8;
+                                for s in l.slots.iter_mut() {
+                                    s.faction = f;
+                                }
+                                world.insert_resource(d);
+                                l.dirty = true;
+                                app.message.clear();
+                            }
+                            Err(e) => app.message = format!("Preset '{name}' cannot be used: {e}"),
+                        }
+                    }
+                    if !app.message.is_empty() {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
+                    }
                     if l.dirty {
                         l.dirty = false;
                         for (k, s) in l.slots.iter().enumerate() {
@@ -573,7 +765,19 @@ fn menu_ui(world: &mut World) {
                         match l.client.frames.try_recv() {
                             Ok(Some((TAG_MSG, data))) => match bincode::deserialize::<S2C>(&data) {
                                 Ok(S2C::Lobby(i)) => l.info = Some(i),
-                                Ok(S2C::Start { map, you }) => l.pending = Some((map, you)),
+                                Ok(S2C::Start { map, you, data }) => {
+                                    // The host plays with other game data than ours: use the host's for this game.
+                                    if let Some(pack) = data {
+                                        match Defs::from_pack(pack.clone()) {
+                                            Ok(d) => {
+                                                pack.store_assets(&asset_root());
+                                                world.insert_resource(d);
+                                            }
+                                            Err(e) => lost = Some(format!("The host's game data could not be used: {e}")),
+                                        }
+                                    }
+                                    l.pending = Some((map, you));
+                                }
                                 Ok(S2C::Kicked(why)) => lost = Some(why),
                                 Ok(_) => {}
                                 Err(_) => lost = Some("Protocol mismatch - are both players on the same version?".into()),
@@ -602,6 +806,7 @@ fn menu_ui(world: &mut World) {
                             }
                             ui.add_space(8.0);
                             ui.label(format!("Map: {}", i.map_name));
+                            ui.label(&i.extra);
                             ui.label("Waiting for the host to start...");
                         }
                         None => {
@@ -621,10 +826,15 @@ fn menu_ui(world: &mut World) {
                         next = Some(Screen::Menu);
                     }
                 }
-                Screen::Game(_) => {}
+                Screen::Game(_) | Screen::Presets(_) => {}
             }
         });
     });
+    if let Screen::Presets(p) = &mut app.screen {
+        if presets_ui(&ctx, p) {
+            next = Some(Screen::Menu);
+        }
+    }
     if app.settings_open && next.is_none() {
         use longrange::settings::{settings_ui, RenderErrors, Settings, StartSettings};
         let mut s = world.resource::<Settings>().clone();
@@ -643,9 +853,158 @@ fn menu_ui(world: &mut World) {
         }
     }
     if let Some(n) = next {
+        if matches!(n, Screen::Menu) {
+            restore_defs(world, &app.base_defs);
+        }
         app.screen = n;
     }
     world.insert_non_send(app);
+}
+
+/// The preset editor. Returns true when the player goes back to the main menu.
+fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
+    let mut back = false;
+    let open_name = p.pack.as_ref().map(|k| k.name.clone());
+    egui::Area::new(egui::Id::new("presets")).anchor(egui::Align2::CENTER_TOP, [0.0, 16.0]).show(ctx, |ui| {
+        ui.set_width(1040.0);
+        ui.label(egui::RichText::new("GAME DATA PRESETS").size(30.0).color(egui::Color32::from_rgb(255, 215, 100)));
+        ui.label("A preset is a named copy of the game data (unit stats, costs, rules) that you can change. The host picks one in the lobby; the other players receive it when the game starts.");
+        ui.add_space(8.0);
+        ui.horizontal_top(|ui| {
+            // --- the presets
+            ui.vertical(|ui| {
+                ui.set_width(230.0);
+                ui.label(egui::RichText::new("Presets").strong());
+                let mut open: Option<String> = None;
+                for n in &p.names {
+                    if ui.add_sized([220.0, 26.0], egui::Button::selectable(open_name.as_deref() == Some(n.as_str()), n.as_str())).clicked() {
+                        open = Some(n.clone());
+                    }
+                }
+                if p.names.is_empty() {
+                    ui.label(egui::RichText::new("none yet").weak());
+                }
+                if let Some(n) = open {
+                    p.open(&n);
+                }
+                ui.add_space(10.0);
+                ui.label("New preset:");
+                ui.add(egui::TextEdit::singleline(&mut p.new_name).desired_width(214.0).char_limit(32).hint_text("name"));
+                let from = open_name.clone().unwrap_or_default();
+                if ui.add_sized([220.0, 26.0], egui::Button::new(if from.is_empty() { "Create from the built-in data".to_string() } else { format!("Create as a copy of '{from}'") })).clicked() {
+                    let name = longrange::data::clean_name(&p.new_name);
+                    let made = if name.is_empty() {
+                        Err("Type a name first (letters, digits, spaces, - and _).".to_string())
+                    } else if p.names.contains(&name) {
+                        Err(format!("There already is a preset '{name}'."))
+                    } else {
+                        // Unsaved edits of the open preset are part of the copy.
+                        p.edited().or_else(|_| DataPack::preset(&asset_root(), &from)).and_then(|mut pack| {
+                            pack.name = name.clone();
+                            pack.save(&asset_root())
+                        })
+                    };
+                    match made {
+                        Ok(()) => {
+                            p.names = DataPack::list(&asset_root());
+                            p.new_name.clear();
+                            p.open(&name);
+                            p.msg = format!("Created '{name}'.");
+                        }
+                        Err(e) => p.msg = e,
+                    }
+                }
+                if let Some(n) = open_name.clone() {
+                    ui.add_space(10.0);
+                    if ui.add_sized([220.0, 26.0], egui::Button::new(if p.confirm_delete { format!("Really delete '{n}'?") } else { format!("Delete '{n}'") })).clicked() {
+                        if p.confirm_delete {
+                            p.msg = match DataPack::delete(&asset_root(), &n) {
+                                Ok(()) => format!("Deleted '{n}'."),
+                                Err(e) => e,
+                            };
+                            p.names = DataPack::list(&asset_root());
+                            p.pack = None;
+                            p.confirm_delete = false;
+                        } else {
+                            p.confirm_delete = true;
+                        }
+                    }
+                }
+                ui.add_space(14.0);
+                if ui.add_sized([220.0, 32.0], egui::Button::new("Back")).clicked() {
+                    back = true;
+                }
+            });
+            let Some(pack) = p.pack.clone() else {
+                ui.label("Pick a preset on the left, or create one.");
+                return;
+            };
+            // --- its files and units
+            ui.vertical(|ui| {
+                ui.set_width(210.0);
+                ui.label(egui::RichText::new("Files").strong());
+                let mut pick: Option<usize> = None;
+                if ui.add_sized([200.0, 24.0], egui::Button::selectable(p.file == 0, "rules.json")).clicked() {
+                    pick = Some(0);
+                }
+                for (k, f) in pack.factions.iter().enumerate() {
+                    if ui.add_sized([200.0, 24.0], egui::Button::selectable(p.file == k + 1, f.0.as_str())).clicked() {
+                        pick = Some(k + 1);
+                    }
+                }
+                let mut pick_unit: Option<usize> = None;
+                if p.file > 0 {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new("Units").strong());
+                    egui::ScrollArea::vertical().id_salt("preset_units").max_height(430.0).show(ui, |ui| {
+                        for (k, (id, name)) in p.units.iter().enumerate() {
+                            let label = if name.is_empty() { id.clone() } else { format!("{name}  ({id})") };
+                            if ui.add_sized([190.0, 20.0], egui::Button::selectable(p.unit == k, label)).clicked() {
+                                pick_unit = Some(k);
+                            }
+                        }
+                    });
+                }
+                // Switching keeps what was typed, as long as it is valid JSON.
+                if pick.is_some() || pick_unit.is_some() {
+                    match p.edited() {
+                        Ok(e) => {
+                            p.pack = Some(e);
+                            p.file = pick.unwrap_or(p.file);
+                            p.unit = pick_unit.unwrap_or(if pick.is_some() { 0 } else { p.unit });
+                            p.msg.clear();
+                            p.show();
+                        }
+                        Err(e) => p.msg = format!("{e}  (fix it before switching)"),
+                    }
+                }
+            });
+            // --- the text
+            ui.vertical(|ui| {
+                ui.set_width(580.0);
+                ui.horizontal(|ui| {
+                    if ui.add_sized([150.0, 28.0], egui::Button::new("Check and save")).clicked() {
+                        p.save();
+                    }
+                    if p.file > 0 {
+                        if ui.add_sized([110.0, 28.0], egui::Button::new("Copy unit")).clicked() {
+                            p.change_units(true);
+                        }
+                        if ui.add_sized([110.0, 28.0], egui::Button::new("Remove unit")).clicked() {
+                            p.change_units(false);
+                        }
+                    }
+                });
+                if !p.msg.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 210, 100), &p.msg);
+                }
+                egui::ScrollArea::vertical().id_salt("preset_text").max_height(500.0).show(ui, |ui| {
+                    ui.add(egui::TextEdit::multiline(&mut p.text).code_editor().desired_width(570.0).desired_rows(28));
+                });
+            });
+        });
+    });
+    back
 }
 
 fn setup(mut commands: Commands) {
@@ -721,12 +1080,14 @@ fn selftest() {
     let mut app = headless(defs.clone());
     // LR_PLAYERS=10 runs the self-test with that many AIs (2-10).
     let n = std::env::var("LR_PLAYERS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4).clamp(2, MAX_PLAYERS);
-    let map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345, n);
+    // LR_SEED=n plays another map and AI seed (to tell an effect from the luck of one game).
+    let seed = std::env::var("LR_SEED").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345 + seed, n);
     let faction = defs.playable_factions()[0] as u8;
     let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i}"), team: i as u8, is_ai: true, slot: i, faction }).collect();
     let world = app.world_mut();
     setup_game(world, map, &setup);
-    world.insert_resource(Ais((0..n).map(|i| Ai::new(i as u8, 99)).collect()));
+    world.insert_resource(Ais((0..n).map(|i| Ai::new(i as u8, 99 + seed)).collect()));
     let t0 = std::time::Instant::now();
     for t in 0..36000u32 {
         world.run_schedule(SimTick);
@@ -1043,6 +1404,155 @@ fn combattest() {
         let p = &world.resource::<Game>().players[0];
         println!("== Capture: neutral windmill taken over after {:?} ticks.  Revive: wreck ({wreck_mass:.0} mass) back as our tank after {:?} ticks, wrecks left {wrecks_left}.  Energy left {:.0}, mass {:.0}", captured, revived, p.energy, p.mass);
     }
+    // A flat two-player world for the scenarios below.
+    let flat_world = |n: usize| -> (App, MapData) {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(n, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        setup_game(app.world_mut(), map.clone(), &setup);
+        for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
+            p.energy = 100000.0;
+            p.max_energy = 100000.0;
+        }
+        (app, map)
+    };
+    let order = |world: &mut World, ids: Vec<u32>, o: Order| world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids, orders: vec![o], queue: false }));
+    // 7. Reclaiming a standing building, and reviving every wreck in a circle.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let eng = spawn(world, &map, "engineer", 0, v2(100.0, 100.0), 0.0);
+        let mill = spawn(world, &map, "windmill", 0, v2(107.0, 101.0), 0.0);
+        let scav = spawn(world, &map, "scavenger", 0, v2(100.0, 140.0), 0.0);
+        let mut game = world.resource::<Game>().clone();
+        {
+            let mut commands = world.commands();
+            for k in 0..3 {
+                let id = game.alloc();
+                spawn_wreck(&mut commands, Wreck { id, def: defs.id("crony").unwrap(), mass: 200.0, pos: v2(110.0 + k as f32 * 4.0, 140.0), y: 2.0, yaw: 0.0 });
+            }
+        }
+        world.insert_resource(game);
+        world.flush();
+        // The commander's storage holds 650; keep the bank empty so the reclaimed mass shows.
+        world.resource_mut::<Game>().players[0].mass = 0.0;
+        order(world, vec![eng], Order::Reclaim(mill));
+        let mut gone = None;
+        let mut gained = 0.0;
+        for t in 0..2500u32 {
+            world.run_schedule(SimTick);
+            let alive = world.query::<&Unit>().iter(world).any(|u| u.id == mill);
+            if !alive && gone.is_none() {
+                gone = Some(t);
+                // (The commander's own income of 1 mass per second is in there too.)
+                gained = world.resource::<Game>().players[0].mass - (t + 1) as f32 * 0.1;
+                order(world, vec![scav], Order::ReviveArea { pos: v2(114.0, 140.0), radius: 10.0 });
+            }
+            // Reviving costs mass: keep the bank filled once the reclaim result has been read.
+            if gone.is_some() {
+                world.resource_mut::<Game>().players[0].mass = 600.0;
+            }
+        }
+        let wrecks = world.query::<&Wreck>().iter(world).count();
+        let tanks = world.query::<(&Unit, Has<UnderConstruction>)>().iter(world).filter(|(u, uc)| u.owner == 0 && !uc && defs.get(u.def).id == "crony").count();
+        let worth = defs.get(defs.id("windmill").unwrap()).cost.mass * defs.rules.wreck_mass_fraction;
+        println!("== Reclaim of a standing windmill: gone after {gone:?} ticks, {gained:.0} mass gained (worth {worth:.0}), wrecks left behind {wrecks}.  Area revive: {tanks} of 3 wrecks back as our tanks");
+        assert!(gone.is_some() && (gained - worth).abs() < 2.0 && wrecks == 0 && tanks == 3, "reclaim / area revive");
+    }
+    // 8. Craters and terraforming, and a state that is saved and restored with them.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let pike = spawn(world, &map, "pike", 0, v2(100.0, 180.0), 0.0);
+        let eng = spawn(world, &map, "engineer", 0, v2(100.0, 100.0), 0.0);
+        world.flush();
+        order(world, vec![pike], Order::AttackGround { pos: v2(150.0, 180.0), radius: 5.0 });
+        order(world, vec![eng], Order::Terraform { pos: v2(110.0, 100.0), radius: 5.0, height: 5.0 });
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let mid = make_snapshot(world);
+        let mid_heights = world.resource::<MapData>().heights.clone();
+        for _ in 0..600 {
+            world.run_schedule(SimTick);
+        }
+        let end = make_snapshot(world);
+        let end_heights = world.resource::<MapData>().heights.clone();
+        let (changed, lowest) = (end.ground.len(), end_heights.iter().cloned().fold(f32::MAX, f32::min));
+        let plateau = world.resource::<MapData>().h(v2(110.0, 100.0));
+        let idle = world.query::<(&Unit, &Orders)>().iter(world).find(|(u, _)| u.id == eng).map_or(false, |(_, o)| o.0.is_empty());
+        // Roll back to the middle, and forward again: the terrain has to follow both ways.
+        restore(world, &mid);
+        let back_ok = world.resource::<MapData>().heights == mid_heights && state_hash(&make_snapshot(world)) == state_hash(&mid);
+        restore(world, &end);
+        let fwd_ok = world.resource::<MapData>().heights == end_heights && state_hash(&make_snapshot(world)) == state_hash(&end);
+        // The blocked-cell grid kept up to date cell by cell must equal a full rebuild.
+        let mut fresh = world.resource::<MapData>().clone();
+        fresh.rebuild_blocked();
+        let blocked_ok = fresh.blocked == world.resource::<MapData>().blocked;
+        println!("== Terrain: {changed} vertices changed, deepest crater {:.2} below the ground; terraformed plateau at {plateau:.2} (asked for 5.00), engineer done: {idle}", 2.0 - lowest);
+        println!("   state restored backwards: {back_ok}, forwards: {fwd_ok}, passability grid consistent: {blocked_ok}; changed vertices after 30 s: {}, after 90 s: {}", mid.ground.len(), end.ground.len());
+        assert!(changed > 0 && lowest < 1.9 && (plateau - 5.0).abs() < 0.05 && idle && back_ok && fwd_ok && blocked_ok, "terrain");
+    }
+    // 9. Transports: an aircraft picks up an area and sets it down elsewhere; tanks board an APC.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let stork = spawn(world, &map, "air_transport", 0, v2(90.0, 100.0), 0.0);
+        let apc = spawn(world, &map, "apc", 0, v2(100.0, 140.0), 0.0);
+        let tanks: Vec<u32> = (0..10).map(|k| spawn(world, &map, "crony", 0, v2(100.0 + (k % 5) as f32 * 2.5, 100.0 + (k / 5) as f32 * 2.5), 0.0)).collect();
+        let riders: Vec<u32> = (0..3).map(|k| spawn(world, &map, "overtaker", 0, v2(110.0 + k as f32 * 2.5, 146.0), 0.0)).collect();
+        world.flush();
+        order(world, vec![stork], Order::LoadArea { pos: v2(105.0, 101.0), radius: 12.0 });
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0 }], queue: true }));
+        order(world, riders.clone(), Order::Load(apc));
+        let (mut most, mut in_apc) = (0, 0);
+        for t in 0..900u32 {
+            world.run_schedule(SimTick);
+            let mut q = world.query::<&Hosted>();
+            most = most.max(q.iter(world).filter(|h| h.0 == stork).count());
+            in_apc = in_apc.max(q.iter(world).filter(|h| h.0 == apc).count());
+            if t == 200 {
+                world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![apc], orders: vec![Order::Unload { pos: v2(150.0, 150.0), radius: 4.0 }], queue: false }));
+            }
+        }
+        let mut q = world.query::<(&Unit, &Body, Has<Hosted>)>();
+        let moved = q.iter(world).filter(|(u, b, h)| tanks.contains(&u.id) && !h && b.pos.dist(v2(220.0, 220.0)) < 8.0).count();
+        let left = q.iter(world).filter(|(u, b, h)| tanks.contains(&u.id) && !h && b.pos.dist(v2(105.0, 101.0)) < 14.0).count();
+        let out = q.iter(world).filter(|(u, b, h)| riders.contains(&u.id) && !h && b.pos.dist(v2(150.0, 150.0)) < 7.0).count();
+        let cap = defs.get(defs.id("air_transport").unwrap()).transport.as_ref().map_or(0, |t| t.capacity);
+        println!("== Transport aircraft (capacity {cap}) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down at its target");
+        assert!(most == cap as usize && moved == most && left == 10 - most && in_apc == 3 && out == 3, "transports");
+    }
+    // 10. Control points: a tank alone on a point takes it and the team scores.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        enable_control_points(world);
+        let points: Vec<V2> = world.resource::<Game>().points.iter().map(|p| p.pos).collect();
+        spawn(world, &map, "crony", 0, points[0] + v2(2.0, 0.0), 0.0);
+        spawn(world, &map, "crony", 0, points[1] + v2(2.0, 0.0), 0.0);
+        spawn(world, &map, "crony", 1, points[1] + v2(-3.0, 0.0), 0.0);
+        world.flush();
+        let mut taken = None;
+        let mut won = None;
+        for t in 0..6000u32 {
+            world.run_schedule(SimTick);
+            let g = world.resource::<Game>();
+            if g.points[0].owner == 0 && taken.is_none() {
+                taken = Some(t);
+            }
+            if g.winner.is_some() {
+                won = Some((t, g.winner));
+                break;
+            }
+        }
+        let g = world.resource::<Game>();
+        println!("== Control points: {} on the map; point 1 taken after {taken:?} ticks; score team 1: {:.0}, team 2: {:.0}; game ended: {won:?}", points.len(), g.scores[0], g.scores[1]);
+        assert!(points.len() >= 3 && taken.is_some() && won.map_or(false, |w| w.1 == Some(0)), "control points");
+    }
 }
 
 /// Loopback check of discovery, the handshake and the netplay: a host with three AIs and a client
@@ -1075,7 +1585,7 @@ fn nettest() {
     let map = MapData::generate(128, 7, 4);
     let faction = defs.playable_factions()[0] as u8;
     let setup: Vec<PlayerSetup> = (0..4).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, faction }).collect();
-    host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1 });
+    host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1, data: None });
     let hw = happ.world_mut();
     setup_game(hw, map, &setup);
     hw.insert_resource(Ais(vec![Ai::new(0, 7), Ai::new(2, 7), Ai::new(3, 7)]));
@@ -1089,7 +1599,7 @@ fn nettest() {
     while csim.is_none() {
         let (tag, data) = client.frames.recv_timeout(Duration::from_secs(5)).expect("frame").expect("open");
         if tag == TAG_MSG {
-            if let Ok(S2C::Start { map, you }) = bincode::deserialize::<S2C>(&data) {
+            if let Ok(S2C::Start { map, you, .. }) = bincode::deserialize::<S2C>(&data) {
                 println!("client got Start: map {} cells ({} bytes), you={you}", map.n, data.len());
                 start = Some(map);
             }
@@ -1213,6 +1723,40 @@ fn nettest() {
     println!("nettest OK");
 }
 
+/// Developer aid: `--icons FILE.png` draws every strategic icon and order icon into one picture.
+fn icon_sheet(path: &str) {
+    use longrange::view::icons;
+    let defs = load_defs();
+    let orders = ["move", "attack_move", "patrol", "ground", "reclaim", "revive", "capture", "terraform", "load", "unload", "assist", "stop", "pause", "resume", "repeat", "upgrade", "mass", "energy", "time", "power", "flag"];
+    let (cell, cols) = (icons::ICON + 8, 12);
+    let n = defs.units.len() + orders.len();
+    let rows = (n + cols - 1) / cols;
+    let mut img = image::RgbaImage::from_pixel((cols * cell) as u32, (rows * cell) as u32, image::Rgba([40, 60, 45, 255]));
+    let mut blit = |k: usize, px: &[u8], tint: [f32; 3]| {
+        let (ox, oy) = ((k % cols) * cell + 4, (k / cols) * cell + 4);
+        for y in 0..icons::ICON {
+            for x in 0..icons::ICON {
+                let s = &px[(y * icons::ICON + x) * 4..];
+                let a = s[3] as f32 / 255.0;
+                let dst = img.get_pixel_mut((ox + x) as u32, (oy + y) as u32);
+                for c in 0..3 {
+                    dst.0[c] = (dst.0[c] as f32 * (1.0 - a) + s[c] as f32 * tint[c] * a) as u8;
+                }
+            }
+        }
+    };
+    for (k, d) in defs.units.iter().enumerate() {
+        blit(k, &icons::render(&d.icon, d.tier), [0.3, 0.6, 1.0]);
+    }
+    for (k, o) in orders.iter().enumerate() {
+        blit(defs.units.len() + k, &icons::render_order(o), [1.0, 1.0, 1.0]);
+    }
+    match img.save(path) {
+        Ok(()) => println!("wrote {path}: {} unit icons in data order, then {} order icons", defs.units.len(), orders.len()),
+        Err(e) => eprintln!("{path}: {e}"),
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--selftest") {
@@ -1223,6 +1767,9 @@ fn main() {
     }
     if args.iter().any(|a| a == "--nettest") {
         return nettest();
+    }
+    if let Some(k) = args.iter().position(|a| a == "--icons") {
+        return icon_sheet(args.get(k + 1).map_or("icons.png", |s| s.as_str()));
     }
     let defs = load_defs();
     let mut name = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into());
@@ -1238,10 +1785,10 @@ fn main() {
     }).set(longrange::settings::render_plugin(&settings)).set(longrange::settings::log_plugin()))
     .add_plugins(bevy_egui::EguiPlugin::default())
     .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
-    .insert_resource(defs)
+    .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))
     .insert_resource(settings)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), discovery: Discovery::new(), skirmish: args.iter().any(|a| a == "--skirmish"), settings_open: false })
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), discovery: Discovery::new(), skirmish: args.iter().any(|a| a == "--skirmish"), settings_open: false, base_defs: defs })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)

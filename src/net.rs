@@ -12,8 +12,8 @@ use std::time::Duration;
 
 pub const TCP_PORT: u16 = 47800;
 pub const UDP_PORT: u16 = 47801;
-const MAGIC_Q: &[u8] = b"LRT3?";
-const MAGIC_A: &[u8] = b"LRT3!";
+const MAGIC_Q: &[u8] = b"LRT4?";
+const MAGIC_A: &[u8] = b"LRT4!";
 /// Frame tags.
 pub const TAG_MSG: u8 = 0;
 pub const TAG_SNAP: u8 = 1;
@@ -34,11 +34,14 @@ pub struct LobbyInfo {
     pub slots: Vec<SlotInfo>,
     pub map_name: String,
     pub you: i8,
+    /// Game mode and data preset, as text.
+    pub extra: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum C2S {
-    /// `data_hash` must match the host's game data (rules and factions).
+    /// `data_hash` tells the host whether this player has the same game data (rules and
+    /// factions); if not, the host sends its own with `Start`.
     Hello { name: String, data_hash: u64 },
     /// Lobby: the client asks for another faction.
     Faction(u8),
@@ -53,8 +56,9 @@ pub enum C2S {
 #[derive(Serialize, Deserialize)]
 pub enum S2C {
     Lobby(LobbyInfo),
-    /// Followed by a `TAG_SNAP` frame with the starting state.
-    Start { map: MapData, you: u8 },
+    /// Followed by a `TAG_SNAP` frame with the starting state. `data` is the host's game data
+    /// (a preset, or simply another version), sent to players whose own data differs.
+    Start { map: MapData, you: u8, data: Option<crate::data::DataPack> },
     Kicked(String),
     /// Every command of one simulation tick: (player, the sender's `seq` or 0, command).
     Turn { tick: u32, cmds: Vec<(u8, u32, Command)> },

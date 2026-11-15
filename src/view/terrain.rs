@@ -56,6 +56,47 @@ pub fn update_chunks(map: &MapData, meshes: &mut Assets<Mesh>, chunks: &Query<(&
     }
 }
 
+/// Rebuilds the terrain meshes around craters and earthworks made since the last frame, and keeps
+/// what lies on the ground there (deposit markers, wrecks) on it.
+pub fn terrain_sync(
+    ground: Option<ResMut<crate::sim::Ground>>,
+    map: Res<MapData>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    chunks: Query<(&TerrainChunk, &Mesh3d)>,
+    mut snapped: Query<(&GroundSnap, &mut Transform), Without<crate::sim::Wreck>>,
+    mut wrecks: Query<(&crate::sim::Wreck, &mut Transform)>,
+) {
+    let Some(mut ground) = ground else { return };
+    if ground.touched.is_empty() && !ground.touched_all {
+        return;
+    }
+    let touched = std::mem::take(&mut ground.touched);
+    let all = std::mem::take(&mut ground.touched_all);
+    let near = |p: V2, r: f32| all || touched.iter().any(|t| (t.x - p.x).abs() < r && (t.y - p.y).abs() < r);
+    let size = CHUNK as f32 * CELL;
+    // A touched spot stands for the vertices within a few units of it; normals reach one cell further.
+    let margin = 6.0 + CELL * 2.0;
+    for (c, mesh) in chunks.iter() {
+        let (x0, y0) = (c.cx as f32 * CELL, c.cy as f32 * CELL);
+        if !all && !touched.iter().any(|t| t.x > x0 - margin && t.y > y0 - margin && t.x < x0 + size + margin && t.y < y0 + size + margin) {
+            continue;
+        }
+        if let Some(m) = meshes.get_mut(&mesh.0) {
+            *m.into_inner() = chunk_mesh(&map, c.cx, c.cy);
+        }
+    }
+    for (s, mut t) in &mut snapped {
+        if near(v2(t.translation.x, t.translation.z), 14.0) {
+            t.translation.y = map.height(t.translation.x, t.translation.z) + s.0;
+        }
+    }
+    for (w, mut t) in &mut wrecks {
+        if near(w.pos, 14.0) {
+            t.translation.y = map.h(w.pos);
+        }
+    }
+}
+
 /// Terrain colour by height, slope and a little noise.
 pub fn terrain_color(map: &MapData, x: f32, z: f32) -> [f32; 3] {
     let h = map.height(x, z);

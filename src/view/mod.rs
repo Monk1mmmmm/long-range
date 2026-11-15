@@ -30,6 +30,13 @@ pub enum Mode {
     Move,
     Assist,
     Capture,
+    /// Scavengers: click a wreck or drag a circle.
+    Revive,
+    /// Engineers: drag a circle; the wheel sets how far to raise or lower (0 = level).
+    Terraform,
+    /// Transports: click a unit or drag a circle. Other units: click a transport.
+    Load,
+    Unload,
     Place(DefId),
 }
 
@@ -71,6 +78,10 @@ pub struct ViewState {
     pub hot: (Option<KeyCode>, usize, f64, DefId),
     /// A run of a factory queue being dragged: (factory id, index of the run).
     pub queue_drag: Option<(u32, usize)>,
+    /// Terraform mode: how far to raise (+) or lower (-) the ground; 0 levels it.
+    pub terra_delta: f32,
+    /// Selection of the previous frame, to notice when it changes (selection sounds).
+    pub last_sel: Vec<u32>,
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -111,6 +122,8 @@ impl ViewState {
             preset: load_preset(),
             hot: (None, 0, 0.0, DefId::MAX),
             queue_drag: None,
+            terra_delta: 0.0,
+            last_sel: vec![],
         }
     }
 }
@@ -370,14 +383,15 @@ pub fn in_game(view: Option<Res<ViewState>>, game: Option<Res<Game>>, map: Optio
 pub struct ViewPlugin;
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LocalCommands>();
+        app.init_resource::<LocalCommands>().init_resource::<sound::UiSounds>();
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            (tick_sync, terrain::terrain_sync, intel::update_intel, unit_visuals, wreck_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
                 .chain()
                 .run_if(in_game),
         );
+        app.add_systems(Update, sound::play_ui);
         app.add_systems(bevy_egui::EguiPrimaryContextPass, hud::ui_system.run_if(in_game));
     }
 }

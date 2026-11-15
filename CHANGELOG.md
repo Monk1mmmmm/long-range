@@ -3,6 +3,47 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.4.0
+
+Not compatible with earlier versions in multiplayer: everybody needs this version.
+
+New
+- Control points mode (lobby: Mode). Hold the marked positions with ground units to score; the first team
+  to 400 wins. Destroying all enemy commanders still wins as well.
+- Shells and bombs leave craters, and engineers can terraform: drag a circle to level it, or turn the mouse
+  wheel to raise or lower it instead. Craters never block the way; earthworks can.
+- Transports: the Mule (APC, 6 units) and the Stork (aircraft, 8 units). L loads (click a unit or drag a
+  circle), K unloads over a circle, right-clicking a transport boards it.
+- Engineers capture neutral and enemy units. The Scavenger reclaims wrecks or revives them as your own
+  units; Revive (J) is its own button and takes a dragged circle.
+- Reclaim, clicked on a standing building (yours or the enemy's), takes it apart for its mass.
+- Game data presets (main menu): named copies of all unit stats and rules that you can edit in the game.
+  The host picks one in the lobby and everybody else receives it. Different data files no longer keep a
+  player out of a game: the host's are used.
+- Sound: weapons and explosions, and units that answer when selected (tracks, engines, radar beeps...).
+  Volume in the settings; `assets/sounds/<name>.wav` replaces any of them.
+- Strategic icons redrawn in SupCom's manner: wide factory blocks showing what they build, a funnel for
+  mass extractors, storages with their resource in a tray, tiers as ticks under the icon. Setting for
+  bigger icons.
+- HUD: icons for mass, energy, time and build power; an idle-engineers button; the factory queue as a row
+  of icons that can be reordered by dragging; hovering an enemy shows what it is and its hit points.
+- Building: Shift-drag a row at any angle, Ctrl-drag a filled block; Ctrl+Shift shows the mass lying around.
+- Camera: hold Space and move the mouse to turn and tilt (tap Space to reset). The land continues beyond
+  the map border instead of ending in a void.
+
+Changed
+- A selection box takes the army only: the commander, engineers and scavengers are selected only when no
+  fighting unit is in the box. Ctrl+X and Ctrl+C leave them out too.
+- Sight is blocked by hills, like radar. Infantry does not show on radar.
+- Wrecks hold a share of the mass that actually went into the unit (half-built = less).
+- Factories have fewer hit points (T3: 6000 instead of 16000). Anti-air range rings are blue.
+- The player name is remembered. Overlapping strategic icons no longer flicker.
+
+Good to know
+- The AI does not use scavengers, transports or terraforming.
+- The minimap picture does not show craters and earthworks.
+- Linux: building with sound needs `libasound2-dev`.
+
 ## v0.3.0
 
 Netcode

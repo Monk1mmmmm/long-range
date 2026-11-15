@@ -305,17 +305,35 @@ impl MapData {
         Vec3::new(-dx, 2.0 * e, -dz).normalize()
     }
 
+    /// Is this cell too steep or too deep under water to drive on?
+    fn cell_blocked(&self, x: usize, y: usize) -> bool {
+        let hs = [self.vertex(x, y), self.vertex(x + 1, y), self.vertex(x, y + 1), self.vertex(x + 1, y + 1)];
+        let (mn, mx) = (hs.iter().cloned().fold(f32::MAX, f32::min), hs.iter().cloned().fold(f32::MIN, f32::max));
+        let avg = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25;
+        (mx - mn) / CELL > 0.85 || avg < self.water - 0.3
+    }
+
     pub fn rebuild_blocked(&mut self) {
         let n = self.n;
         self.blocked = vec![0; n * n];
         for y in 0..n {
             for x in 0..n {
-                let hs = [self.vertex(x, y), self.vertex(x + 1, y), self.vertex(x, y + 1), self.vertex(x + 1, y + 1)];
-                let (mn, mx) = (hs.iter().cloned().fold(f32::MAX, f32::min), hs.iter().cloned().fold(f32::MIN, f32::max));
-                let avg = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25;
-                if (mx - mn) / CELL > 0.85 || avg < self.water - 0.3 {
+                if self.cell_blocked(x, y) {
                     self.blocked[y * n + x] = 1;
                 }
+            }
+        }
+    }
+
+    /// Updates the passability of the (up to four) cells around vertex (x, y) after its height changed.
+    pub fn reblock_around(&mut self, x: usize, y: usize) {
+        let n = self.n;
+        if n == 0 || self.blocked.len() != n * n {
+            return;
+        }
+        for cy in y.saturating_sub(1)..=y.min(n - 1) {
+            for cx in x.saturating_sub(1)..=x.min(n - 1) {
+                self.blocked[cy * n + cx] = self.cell_blocked(cx, cy) as u8;
             }
         }
     }

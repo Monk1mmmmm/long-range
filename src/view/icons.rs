@@ -1,5 +1,7 @@
-//! Strategic icons drawn from the JSON icon spec: a base shape per unit class, black glyphs
-//! for the role ("+" direct fire, "." artillery, arc anti-air, ...) and tier pips underneath.
+//! Strategic icons drawn from the JSON icon spec, in the manner of SupCom's: a base shape per unit
+//! class (diamond = vehicle, triangle = aircraft, square = building, wide block = factory), black
+//! glyphs for the role ("+" direct fire, "." artillery, arc anti-air, funnel = mass, bolt = energy...)
+//! and one short tick per tier hanging under the body.
 //! Icons are white so they can be tinted with the owner colour.
 use crate::data::{IconDef, UnitDef};
 
@@ -38,7 +40,8 @@ fn shape_sd(shape: &str, x: f32, y: f32) -> f32 {
         "land" => x.abs() + y.abs() - 0.74,
         "bot" => poly(x, y, &[(-0.6, -0.55), (0.6, -0.55), (0.6, 0.1), (0.0, 0.7), (-0.6, 0.1)]),
         "air" => poly(x, y, &[(0.0, -0.72), (0.78, 0.55), (-0.78, 0.55)]),
-        "factory" => poly(x, y, &[(-0.8, -0.35), (-0.4, -0.7), (0.4, -0.7), (0.8, -0.35), (0.8, 0.62), (-0.8, 0.62)]),
+        // A wide block, clearly bigger than any other building.
+        "factory" => (x.abs() - 0.94).max(y.abs() - 0.58),
         "commander" => (x * x + y * y).sqrt() - 0.72,
         "civilian" => (x.abs().max(y.abs()) - 0.56).abs() - 0.07,
         _ => x.abs().max(y.abs()) - 0.6,
@@ -73,11 +76,17 @@ fn glyph_sd(g: &str, x: f32, y: f32) -> f32 {
             let d = (x.abs().max(y.abs()) - 0.22).abs() - 0.06;
             d.max(-(seg(x, y, 0.0, -0.3, 0.0, -0.1) - 0.09))
         }
-        "mass" => x.abs().max(y.abs()) - 0.18,
+        // A funnel with a drop under it.
+        "mass" => (poly(x, y, &[(-0.33, -0.34), (0.33, -0.34), (0.0, 0.12)]).abs() - 0.055).min((x * x + (y - 0.3) * (y - 0.3)).sqrt() - 0.08),
+        // The tray a stored resource sits in (storage buildings).
+        "store" => seg(x, y, -0.4, 0.2, -0.4, 0.46).min(seg(x, y, -0.4, 0.46, 0.4, 0.46)).min(seg(x, y, 0.4, 0.46, 0.4, 0.2)) - 0.05,
         "bolt" => seg(x, y, 0.1, -0.32, -0.12, 0.02).min(seg(x, y, -0.12, 0.02, 0.12, 0.0)).min(seg(x, y, 0.12, 0.0, -0.1, 0.32)) - 0.06,
         "frame" => (x.abs().max(y.abs()) - 0.4).abs() - 0.045,
-        "land" => x.abs() + y.abs() - 0.26,
-        "tri" => poly(x, y, &[(0.0, -0.28), (0.3, 0.2), (-0.3, 0.2)]),
+        // A crate: carriers.
+        "cargo" => ((x.abs() - 0.3).max(y.abs() - 0.2)).abs() - 0.055,
+        // What a factory makes, as the outline of that unit class.
+        "land" => ((x.abs() + y.abs()) * 0.7071 - 0.26).abs() - 0.05,
+        "tri" => poly(x, y, &[(0.0, -0.36), (0.4, 0.26), (-0.4, 0.26)]).abs() - 0.05,
         _ => f32::MAX,
     }
 }
@@ -85,9 +94,9 @@ fn glyph_sd(g: &str, x: f32, y: f32) -> f32 {
 /// Renders an icon into RGBA pixels (ICON x ICON).
 pub fn render(icon: &IconDef, tier: u8) -> Vec<u8> {
     let mut out = vec![0u8; ICON * ICON * 4];
-    let pips = tier.min(3) as i32;
-    // Leave room for the pips below the body.
-    let (scale, oy) = if pips > 0 { (0.82, -0.14) } else { (0.95, 0.0) };
+    let pips = if icon.no_tier { 0 } else { tier.min(3) as i32 };
+    // Leave room for the tier ticks below the body.
+    let (scale, oy) = if pips > 0 { (0.82, -0.16) } else { (0.95, 0.0) };
     let aa = 2.0 / ICON as f32 / scale;
     for py in 0..ICON {
         for px in 0..ICON {
@@ -98,11 +107,11 @@ pub fn render(icon: &IconDef, tier: u8) -> Vec<u8> {
                 // A ring around the commander disc.
                 sd = sd.min(((x * x + y * y).sqrt() - 0.95).abs() - 0.05);
             }
-            // Pips: small squares in a row.
+            // Tier: short vertical ticks in a row, hanging under the body.
             let mut pip = f32::MAX;
             for k in 0..pips {
-                let cx = (k as f32 - (pips as f32 - 1.0) * 0.5) * 0.36;
-                pip = pip.min(((fx - cx).abs()).max((fy - 0.8).abs()) - 0.11);
+                let cx = (k as f32 - (pips as f32 - 1.0) * 0.5) * 0.3;
+                pip = pip.min(((fx - cx).abs() - 0.065).max((fy - 0.72).abs() - 0.17));
             }
             let body = sd.min(pip / scale);
             let outline = 0.085;
@@ -216,7 +225,20 @@ pub fn render_order(kind: &str) -> Vec<u8> {
                 .min(seg(x, y, 0.0, 0.05, 0.45, 0.55))
                 - t,
             // A flag on a pole.
-            "capture" => (seg(x, y, -0.45, -0.75, -0.45, 0.8) - t).min(tri(x, y, (-0.4, -0.72), (0.65, -0.3), (-0.4, 0.1))),
+            "capture" | "flag" => (seg(x, y, -0.45, -0.75, -0.45, 0.8) - t).min(tri(x, y, (-0.4, -0.72), (0.65, -0.3), (-0.4, 0.1))),
+            // The opposite of reclaim: something rising out of the tray.
+            "revive" => arrow(x, y, 0.0, 0.3, 0.0, -0.8, 0.42)
+                .min(seg(x, y, -0.6, 0.15, -0.6, 0.65) - t)
+                .min(seg(x, y, -0.6, 0.65, 0.6, 0.65) - t)
+                .min(seg(x, y, 0.6, 0.65, 0.6, 0.15) - t),
+            // A ground profile with a levelled mound, and an arrow pressing on it.
+            "terraform" => (seg(x, y, -0.85, 0.5, -0.45, 0.5).min(seg(x, y, -0.45, 0.5, -0.2, 0.0)).min(seg(x, y, -0.2, 0.0, 0.35, 0.0)).min(seg(x, y, 0.35, 0.0, 0.6, 0.5)).min(seg(x, y, 0.6, 0.5, 0.85, 0.5)) - t)
+                .min(arrow(x, y, 0.08, -0.85, 0.08, -0.25, 0.3)),
+            // A crate, with an arrow going in or coming out.
+            "load" | "unload" => {
+                let crate_sd = seg(x, y, -0.05, -0.5, 0.75, -0.5).min(seg(x, y, 0.75, -0.5, 0.75, 0.5)).min(seg(x, y, 0.75, 0.5, -0.05, 0.5)) - t;
+                crate_sd.min(if kind == "load" { arrow(x, y, -0.85, 0.0, 0.4, 0.0, 0.38) } else { arrow(x, y, 0.4, 0.0, -0.85, 0.0, 0.38) })
+            }
             // Resource symbols, enlarged versions of the unit-icon glyphs.
             "mass" => poly(x, y, &[(0.0, -0.72), (0.62, -0.36), (0.62, 0.36), (0.0, 0.72), (-0.62, 0.36), (-0.62, -0.36)]),
             "energy" => glyph_sd("bolt", x * 0.42, y * 0.42) / 0.42,

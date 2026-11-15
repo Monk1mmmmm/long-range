@@ -5,7 +5,10 @@ unwieldy tanks with long guns, slow turrets and long reloads, where scouting and
 
 - Real 3D terrain with hills, cliffs and water; the mod's models with rotating turrets and team colours
 - Shots are simulated projectiles: they arc, miss moving targets, fall short and hit hills
-- Flow economy (mass + energy), assisting, repair, reclaim, engineering stations
+- Flow economy (mass + energy), assisting, repair, reclaim (wrecks and standing buildings), engineering stations
+- Shells leave craters; engineers level, raise and lower the ground
+- Transport aircraft and APCs; capturing; scavengers that revive wrecks
+- Two game modes: annihilation, and control points (hold positions to score)
 - Three tiers of factories, engineers and extractors (upgrade in place)
 - Fog of war, radar blocked by terrain, radar blips that fade, remembered enemy buildings
 - Command queues, attack-move, patrol, ground fire, area reclaim, area extractor placement,
@@ -36,24 +39,29 @@ another graphics API there. Graphics errors are written to `render-errors.log` n
 
 One player clicks **Host game / Skirmish vs AI**; the others see it under **LAN games** in the main menu or
 type the host's IP (shown in the lobby) into **Or by IP**. Allow the game through Windows Firewall on private
-networks (TCP 47800, UDP 47801). Everyone needs the same `assets/data` files - the game checks this on join.
+networks (TCP 47800, UDP 47801). The game data (`assets/data`) is the host's: a player whose files differ
+receives the host's rules and units for that game.
 
 In the lobby the host clicks a slot to switch it between Open / AI / Closed, sets teams (same number = allies),
 factions and the map: random (three sizes, 2-10 players) or any map from `assets/maps`, which brings its own
-number of start positions.
+number of start positions. **Mode** switches between annihilation and control points; **Game data** picks the
+built-in values or one of your presets.
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Left click / drag | Select / box select. Double-click: all of that type on screen. Shift: add |
+| Left click / drag | Select / box select (a box takes the army; engineers and the commander only when no fighting unit is inside). Double-click: all of that type on screen. Shift: add |
 | Right click | Move; enemy: attack; friend: assist / repair / guard; wreck: reclaim |
 | Right-drag a line | Spread the selected units along the line (Alt: attack-move) |
 | Shift + order | Queue |
 | A | Attack-move (click, or drag a line) |
 | P | Patrol |
 | G | Ground fire: click a spot, or drag a circle to shell an area |
-| E | Reclaim: click a wreck, or drag a circle to collect everything inside |
+| E | Reclaim: click a wreck or a building (yours or the enemy's), or drag a circle to collect every wreck inside |
+| J | Revive (scavengers): click a wreck, or drag a circle to bring back everything inside |
+| L / K | Load / unload a transport: click, or drag a circle. Right-clicking a transport boards it |
+| Terraform button | Engineers: drag a circle to level it; the mouse wheel sets how far to raise or lower instead |
 | S | Stop (also cancels factory queues and upgrades) |
 | Tab | Pause / resume: builders and factories stop working, pumps and radars switch off and cost no energy |
 | U | Upgrade (pumps and factories go up a tier) |
@@ -86,7 +94,8 @@ Hotbuild keys work on a selected engineer (starts placing that building) or fact
 Pressing the same key again within a second cycles to the next unit of that class; the letter is shown on each
 build button.
 
-Both presets: Ctrl+A air, Ctrl+D land army, Ctrl+B engineers, Ctrl+X everything, Ctrl+C everything on screen,
+Both presets: J revive, L load, K unload.
+Ctrl+A air, Ctrl+D land army, Ctrl+B engineers, Ctrl+X the whole army, Ctrl+C the army on screen,
 Ctrl+Z all of the selected types, Ctrl+H factories on screen, Ctrl+Shift+D / A nearest land / air factory,
 Shift+0-9 add a group to the selection, Ctrl+K self-destruct.
 
@@ -106,6 +115,12 @@ construction (cyan).
   `missile` or `bomb`, turret speeds, aim time, spread, salvo), a `model` (a `.glb` with optional textures,
   or a list of coloured `boxes`) and an `icon` (shape + glyphs; every unit needs a unique one).
   Set `"playable": true` on a new faction file to make it selectable in the lobby.
+- Presets: **Game data presets** in the main menu makes named copies of all of the above in
+  `assets/data/presets/<name>/` and edits them (JSON text, checked before saving). The host chooses one in the
+  lobby and the other players receive it, so nobody has to copy files around.
+- Sounds are synthesised; `assets/sounds/<name>.wav` or `.ogg` replaces one (weapons: cannon, mg, artillery,
+  missile, bomb, blast, death; interface: select_tank, select_vehicle, select_infantry, select_air,
+  select_radar, select_building, select_engineer, select_commander, ack).
 - `assets/maps/<name>/` - `map.json` (deposits, start positions, pre-placed neutral/hostile objects, water
   level) and `height.png` (16-bit greyscale). Make them with `lr-editor`.
 
@@ -133,5 +148,6 @@ running again for the same tag replaces the files.
 ## Command line
 
 `--skirmish` (straight into a game against three AIs), `--selftest`, `--combattest`, `--nettest`
-(headless checks that print their results; on Windows run them through `cargo run --` to see the output).
+(headless checks that print their results; on Windows run them through `cargo run --` to see the output),
+`--icons FILE.png` (draws every strategic and order icon into one picture).
 See `CLAUDE.md` for the architecture and the debug environment variables.

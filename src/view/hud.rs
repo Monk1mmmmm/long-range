@@ -43,7 +43,7 @@ impl HudAssets {
     /// Textures of the order-button icons, created on first use.
     fn order_icons(&mut self, ctx: &egui::Context) -> HashMap<&'static str, TextureHandle> {
         if self.orders.is_empty() {
-            for k in ["move", "attack_move", "patrol", "ground", "reclaim", "stop", "pause", "resume", "repeat", "upgrade", "assist", "mass", "energy", "time", "power", "capture"] {
+            for k in ["move", "attack_move", "patrol", "ground", "reclaim", "stop", "pause", "resume", "repeat", "upgrade", "assist", "mass", "energy", "time", "power", "capture", "revive", "terraform", "load", "unload", "flag"] {
                 let px = icons::render_order(k);
                 self.orders.insert(k, ctx.load_texture(format!("order_{k}"), egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &px), egui::TextureOptions::LINEAR));
             }
@@ -82,6 +82,8 @@ struct Info {
     paused: bool,
     /// Progress of somebody's capture of this unit.
     capture: Option<f32>,
+    /// The factory or transport the unit is inside (0 = none).
+    host: u32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -132,7 +134,8 @@ pub struct UiParams<'w, 's> {
     wheel: MessageReader<'w, 's, MouseWheel>,
     gizmos: Gizmos<'w, 's>,
     #[allow(clippy::type_complexity)]
-    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Has<Hosted>, Has<Paused>, Option<&'static Capture>)>,
+    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Option<&'static Hosted>, Has<Paused>, Option<&'static Capture>)>,
+    ui_sounds: ResMut<'w, super::sound::UiSounds>,
     wrecks: Query<'w, 's, &'static Wreck>,
     camera: Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<MainCamera>>,
     settings: ResMut<'w, crate::settings::Settings>,
@@ -500,8 +503,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // ---------------------------------------------------------------- per-frame unit data
     let mut infos: HashMap<u32, Info> = HashMap::with_capacity(512);
     let mut hosted: Vec<u32> = vec![];
-    for (u, i, h, intel, orders, w, f, b, uc, up, is_hosted, paused, cap) in &p.units {
+    for (u, i, h, intel, orders, w, f, b, uc, up, host, paused, cap) in &p.units {
         let known = reveal || game.team_of(u.owner) == team || (intel.seen | intel.radar) & (1 << team) != 0;
+        let is_hosted = host.is_some();
         if is_hosted {
             hosted.push(u.id);
         }
@@ -527,10 +531,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 seen: reveal || intel.seen & (1 << team) != 0,
                 paused,
                 capture: cap.map(|c| c.progress),
+                host: host.map_or(0, |h| h.0),
             },
         );
     }
-    view.sel.retain(|id| infos.get(id).map_or(false, |u| u.owner == me));
+    // Units inside a transport cannot be selected until they are set down.
+    view.sel.retain(|id| infos.get(id).map_or(false, |u| u.owner == me && (u.host == 0 || u.built.is_some())));
     let wrecks: Vec<(u32, V2, f32)> = p.wrecks.iter().map(|w| (w.id, w.pos, w.mass)).collect();
 
     // ---------------------------------------------------------------- HUD geometry
@@ -539,7 +545,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // Idle engineers (button in the top right corner; the commander is not counted).
     let idle: Vec<(u32, V2)> = {
         let com = game.players.get(me as usize).and_then(|pl| defs.factions[pl.faction as usize].commander);
-        let mut v: Vec<(u32, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.orders.is_empty() && u.work == 0 && Some(u.def) != com && defs.get(u.def).is_engineer()).map(|u| (u.id, u.pos)).collect();
+        let mut v: Vec<(u32, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.host == 0 && u.orders.is_empty() && u.work == 0 && Some(u.def) != com && defs.get(u.def).is_engineer()).map(|u| (u.id, u.pos)).collect();
         v.sort_by_key(|x| x.0);
         v
     };
@@ -622,7 +628,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
             view.mmb_last = None;
         }
         let wheel: f32 = p.wheel.read().map(|w| w.y.signum()).sum();
-        if wheel != 0.0 && !over_hud {
+        if wheel != 0.0 && !over_hud && view.mode == Mode::Terraform {
+            // While terraforming the wheel sets how far to raise or lower the ground.
+            view.terra_delta = (view.terra_delta + wheel).clamp(-10.0, 10.0);
+        } else if wheel != 0.0 && !over_hud {
             let before = ray_ground(view, mouse);
             view.cam_dist = (view.cam_dist * if wheel > 0.0 { 0.85 } else { 1.0 / 0.85 }).clamp(6.0, world * 1.4);
             set_matrices(view);
@@ -709,6 +718,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let _ = (fr.team, fr.sw, fr.sh, fr.game);
     let hover = fr.hover(over_hud);
     let out = &mut p.out.0;
+    let out_before = out.len();
     let occ = if matches!(view.mode, Mode::Place(_)) { local_occ(map, defs, &infos, game, team, &p.mem, reveal) } else { vec![] };
     let lmb_down = p.mouse.just_pressed(MouseButton::Left);
     let lmb_up = p.mouse.just_released(MouseButton::Left);
@@ -720,7 +730,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if !view.menu_open {
         if lmb_down && !over_hud {
             match view.mode {
-                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim | Mode::Assist | Mode::Capture => view.drag_start = Some(ground),
+                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim | Mode::Assist | Mode::Capture | Mode::Revive | Mode::Terraform | Mode::Load | Mode::Unload => view.drag_start = Some(ground),
                 Mode::AttackMove | Mode::Patrol | Mode::Move => {
                     view.path = vec![ground];
                     view.pathing = Some(0);
@@ -771,15 +781,62 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         out.push(Command::Orders { ids: view.sel.clone(), orders: vec![order], queue: shift });
                     }
                     Mode::Reclaim => {
-                        let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist() || fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
+                        let mut ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist() || fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
                         let single = wrecks.iter().filter(|w| w.1.dist(start) < 2.0).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap());
-                        let order = match (single, radius < 1.5) {
-                            (Some(w), true) => Some(Order::Reclaim(w.0)),
-                            (None, true) => None,
+                        // A click straight on a standing building takes that building apart
+                        // (never a dragged circle: that only collects wrecks).
+                        let building = hover.filter(|h| seen[*h].contact == Contact::Visible && seen[*h].def.map_or(false, |d| fr.d(d).is_structure()) && (seen[*h].mine || game.team_of(seen[*h].owner) != team));
+                        let order = match (single, building, radius < 1.5) {
+                            (Some(w), _, true) => Some(Order::Reclaim(w.0)),
+                            (None, Some(h), true) => {
+                                ids = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist() && u.id != seen[h].id).map(|u| u.id).collect();
+                                Some(Order::Reclaim(seen[h].id))
+                            }
+                            (None, None, true) => None,
                             _ => Some(Order::ReclaimArea { pos: start, radius }),
                         };
                         if let (Some(o), false) = (order, ids.is_empty()) {
                             out.push(Command::Orders { ids, orders: vec![o], queue: shift });
+                        }
+                    }
+                    Mode::Revive => {
+                        let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
+                        let single = wrecks.iter().filter(|w| w.1.dist(start) < 2.0).min_by(|a, b| a.1.dist(start).partial_cmp(&b.1.dist(start)).unwrap());
+                        let order = match (single, radius < 1.5) {
+                            (Some(w), true) => Some(Order::Revive(w.0)),
+                            (None, true) => None,
+                            _ => Some(Order::ReviveArea { pos: start, radius }),
+                        };
+                        if let (Some(o), false) = (order, ids.is_empty()) {
+                            out.push(Command::Orders { ids, orders: vec![o], queue: shift });
+                        }
+                    }
+                    Mode::Terraform => {
+                        let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).is_engineer()).map(|u| u.id).collect();
+                        if !ids.is_empty() {
+                            let height = map.h(start) + view.terra_delta;
+                            out.push(Command::Orders { ids, orders: vec![Order::Terraform { pos: start, radius: radius.max(3.0), height }], queue: shift });
+                        }
+                    }
+                    Mode::Load => {
+                        let sel = fr.selected(view);
+                        let carriers: Vec<u32> = sel.iter().filter(|u| fr.d(u.def).transport.is_some()).map(|u| u.id).collect();
+                        let riders: Vec<u32> = sel.iter().filter(|u| carriable(fr.d(u.def))).map(|u| u.id).collect();
+                        let target = hover.filter(|h| radius < 1.5 && seen[*h].contact == Contact::Visible && game.team_of(seen[*h].owner) == team).map(|h| &seen[h]);
+                        match target.and_then(|s| s.def.map(|d| (s, fr.d(d)))) {
+                            // Click on a transport: the selected units get in.
+                            Some((s, d)) if d.transport.is_some() && !riders.is_empty() => out.push(Command::Orders { ids: riders, orders: vec![Order::Load(s.id)], queue: shift }),
+                            // Click on a unit: the selected transports fetch it.
+                            Some((s, d)) if carriable(d) && s.mine && !carriers.is_empty() => out.push(Command::Orders { ids: carriers, orders: vec![Order::Load(s.id)], queue: shift }),
+                            Some(_) => {}
+                            None if !carriers.is_empty() && radius >= 1.5 => out.push(Command::Orders { ids: carriers, orders: vec![Order::LoadArea { pos: start, radius }], queue: shift }),
+                            None => {}
+                        }
+                    }
+                    Mode::Unload => {
+                        let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).transport.is_some()).map(|u| u.id).collect();
+                        if !ids.is_empty() {
+                            out.push(Command::Orders { ids, orders: vec![Order::Unload { pos: start, radius: radius.max(3.0) }], queue: shift });
                         }
                     }
                     _ => {}
@@ -841,9 +898,18 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 } else {
                     let r = egui::Rect::from_two_pos(b, mouse);
                     let inside: Vec<&Seen> = seen.iter().filter(|s| s.mine && s.on_screen && r.contains(s.sp)).collect();
-                    let is_struct = |s: &Seen| s.def.map_or(false, |d| defs.get(d).is_structure());
-                    let any_mobile = inside.iter().any(|s| !is_struct(s));
-                    let ids: Vec<u32> = inside.iter().filter(|s| !any_mobile || !is_struct(s)).map(|s| s.id).collect();
+                    // A box picks the army first: fighting units and their support, without the
+                    // commander, engineers and scavengers standing among them. Without any army
+                    // unit in the box it takes the builders, and only then buildings.
+                    let rank = |s: &Seen| -> u8 {
+                        match s.def.map(|d| defs.get(d)) {
+                            Some(d) if d.is_structure() => 0,
+                            Some(d) if d.build.is_some() => 1,
+                            _ => 2,
+                        }
+                    };
+                    let top = inside.iter().map(|s| rank(s)).max().unwrap_or(0);
+                    let ids: Vec<u32> = inside.iter().filter(|s| rank(s) == top).map(|s| s.id).collect();
                     if shift {
                         for id in ids {
                             if !view.sel.contains(&id) {
@@ -893,10 +959,22 @@ pub fn ui_system(mut p: UiParams) -> Result {
                             done = true;
                         }
                     } else if s.contact == Contact::Visible {
-                        let ids: Vec<u32> = view.sel.iter().copied().filter(|id| *id != s.id).collect();
-                        if !ids.is_empty() {
-                            out.push(Command::Orders { ids, orders: vec![Order::Assist(s.id)], queue: shift });
+                        let sd = s.def.map(|d| fr.d(d));
+                        // A transport: units that can ride get in. A unit, with transports selected: they fetch it.
+                        let riders: Vec<u32> = units.iter().filter(|u| carriable(fr.d(u.def))).map(|u| u.id).collect();
+                        let carriers: Vec<u32> = units.iter().filter(|u| fr.d(u.def).transport.is_some() && u.id != s.id).map(|u| u.id).collect();
+                        if sd.map_or(false, |d| d.transport.is_some()) && !riders.is_empty() {
+                            out.push(Command::Orders { ids: riders, orders: vec![Order::Load(s.id)], queue: shift });
                             done = true;
+                        } else if sd.map_or(false, carriable) && s.mine && !carriers.is_empty() {
+                            out.push(Command::Orders { ids: carriers, orders: vec![Order::Load(s.id)], queue: shift });
+                            done = true;
+                        } else {
+                            let ids: Vec<u32> = view.sel.iter().copied().filter(|id| *id != s.id).collect();
+                            if !ids.is_empty() {
+                                out.push(Command::Orders { ids, orders: vec![Order::Assist(s.id)], queue: shift });
+                                done = true;
+                            }
                         }
                     }
                 }
@@ -963,16 +1041,17 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 view.sel = pick(&|d| d.is_air(), false);
             }
             if jp(KeyCode::KeyD) {
-                view.sel = pick(&|d| mobile(d) && !d.is_air() && !d.is_engineer(), false);
+                view.sel = pick(&|d| mobile(d) && !d.is_air() && d.build.is_none(), false);
             }
             if jp(KeyCode::KeyB) {
                 view.sel = pick(&|d| d.is_engineer(), false);
             }
+            // "All units" means the army: no commander, engineers or scavengers.
             if jp(KeyCode::KeyX) {
-                view.sel = pick(&mobile, false);
+                view.sel = pick(&|d| mobile(d) && d.build.is_none(), false);
             }
             if jp(KeyCode::KeyC) {
-                view.sel = pick(&mobile, true);
+                view.sel = pick(&|d| mobile(d) && d.build.is_none(), true);
             }
             if jp(KeyCode::KeyH) {
                 view.sel = pick(&|d| d.is_factory(), true);
@@ -1003,6 +1082,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         // --- commands
         if has_sel && !ctrl {
+            // Same keys in both presets.
+            if jp(KeyCode::KeyL) {
+                view.mode = Mode::Load;
+            }
+            if jp(KeyCode::KeyK) {
+                view.mode = Mode::Unload;
+            }
+            if jp(KeyCode::KeyJ) {
+                view.mode = Mode::Revive;
+            }
             if faf {
                 if jp(KeyCode::KeyQ) {
                     view.mode = Mode::Reclaim;
@@ -1067,7 +1156,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
         }
         if jp(KeyCode::Period) && !ctrl {
-            let mut ids: Vec<(u32, V2)> = infos.values().filter(|u| u.owner == me && fr.d(u.def).is_engineer() && u.built.is_none() && u.orders.is_empty()).map(|u| (u.id, u.pos)).collect();
+            let mut ids: Vec<(u32, V2)> = infos.values().filter(|u| u.owner == me && fr.d(u.def).is_engineer() && u.built.is_none() && u.host == 0 && u.orders.is_empty()).map(|u| (u.id, u.pos)).collect();
             if !ids.is_empty() {
                 ids.sort_by_key(|x| x.0);
                 view.idle_cycle = (view.idle_cycle + 1) % ids.len();
@@ -1166,7 +1255,24 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         (Some(*pos), Color::srgba(1.0, 0.3, 0.2, 0.8))
                     }
                     Order::Assist(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.9, 0.9, 0.3, 0.7)),
-                    Order::Reclaim(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1), Color::srgba(0.6, 1.0, 0.4, 0.7)),
+                    Order::Reclaim(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1).or_else(|| infos.get(id).map(|t| t.pos)), Color::srgba(0.6, 1.0, 0.4, 0.7)),
+                    Order::ReviveArea { pos, radius } => {
+                        ring(g, map, *pos, *radius, Color::srgba(0.5, 0.9, 1.0, 0.8));
+                        (Some(*pos), Color::srgba(0.5, 0.9, 1.0, 0.8))
+                    }
+                    Order::Terraform { pos, radius, .. } => {
+                        ring(g, map, *pos, *radius, Color::srgba(0.85, 0.65, 0.35, 0.9));
+                        (Some(*pos), Color::srgba(0.85, 0.65, 0.35, 0.9))
+                    }
+                    Order::Load(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.4, 0.8, 1.0, 0.8)),
+                    Order::LoadArea { pos, radius } => {
+                        ring(g, map, *pos, radius.max(0.6), Color::srgba(0.4, 0.8, 1.0, 0.8));
+                        (Some(*pos), Color::srgba(0.4, 0.8, 1.0, 0.8))
+                    }
+                    Order::Unload { pos, radius } => {
+                        ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.75, 0.3, 0.8));
+                        (Some(*pos), Color::srgba(1.0, 0.75, 0.3, 0.8))
+                    }
                     Order::Revive(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1), Color::srgba(0.5, 0.9, 1.0, 0.8)),
                     Order::Capture(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.8, 0.5, 1.0, 0.8)),
                     Order::ReclaimArea { pos, radius } => {
@@ -1193,6 +1299,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
             g.line(a, t, Color::srgba(0.4, 1.0, 0.55, 0.4 + 0.6 * flick));
             g.line(a, t + Vec3::new(0.3, -0.2, 0.2), Color::srgba(0.8, 1.0, 0.5, 0.3 + 0.4 * flick));
         }
+    }
+    // Control points: a ring in the holder's colour, and inside it one that grows with a capture.
+    let team_rgb = |t: u8| -> [f32; 3] { game.players.iter().find(|pl| pl.team == t).map_or([0.75, 0.75, 0.75], |pl| defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]) };
+    for cp in &game.points {
+        let c = team_rgb(cp.owner);
+        ring(g, map, cp.pos, defs.rules.cp_radius, Color::srgba(c[0], c[1], c[2], 0.9));
+        ring(g, map, cp.pos, defs.rules.cp_radius - 0.4, Color::srgba(c[0], c[1], c[2], 0.5));
+        if cp.progress > 0.0 {
+            let b = team_rgb(cp.by);
+            ring(g, map, cp.pos, (defs.rules.cp_radius * cp.progress).max(0.5), Color::srgba(b[0], b[1], b[2], 1.0));
+        }
+        let base = cp.pos.at(map.h(cp.pos).max(map.water));
+        g.line(base, base + Vec3::Y * 7.0, Color::srgba(c[0], c[1], c[2], 0.9));
     }
     // Previews for the active command.
     let preview = Color::srgba(1.0, 0.9, 0.4, 0.95);
@@ -1231,11 +1350,24 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 }
             }
         }
-        Mode::GroundAttack | Mode::Reclaim => {
-            if let Some(a) = view.drag_start {
-                let c = if view.mode == Mode::Reclaim { Color::srgba(0.6, 1.0, 0.4, 1.0) } else { Color::srgba(1.0, 0.3, 0.2, 1.0) };
-                ring(g, map, a, a.dist(ground).max(0.5), c);
-                ground_line(g, map, a, ground, c);
+        Mode::GroundAttack | Mode::Reclaim | Mode::Revive | Mode::Load | Mode::Unload | Mode::Terraform => {
+            let c = match view.mode {
+                Mode::Reclaim => Color::srgba(0.6, 1.0, 0.4, 1.0),
+                Mode::Revive => Color::srgba(0.5, 0.9, 1.0, 1.0),
+                Mode::Load => Color::srgba(0.4, 0.8, 1.0, 1.0),
+                Mode::Unload => Color::srgba(1.0, 0.75, 0.3, 1.0),
+                Mode::Terraform => Color::srgba(0.85, 0.65, 0.35, 1.0),
+                _ => Color::srgba(1.0, 0.3, 0.2, 1.0),
+            };
+            // Unloading and terraforming always cover an area, even on a plain click.
+            let least = if matches!(view.mode, Mode::Unload | Mode::Terraform) { 3.0 } else { 0.5 };
+            match view.drag_start {
+                Some(a) => {
+                    ring(g, map, a, a.dist(ground).max(least), c);
+                    ground_line(g, map, a, ground, c);
+                }
+                None if least > 1.0 && !over_hud => ring(g, map, ground, least, c),
+                None => {}
             }
         }
         _ => {}
@@ -1347,6 +1479,21 @@ pub fn ui_system(mut p: UiParams) -> Result {
             bar(pr, rgba(100, 200, 255, 255), 3.0);
         }
     }
+    // Control points: a flag in the holder's colour, with the capture progress under it.
+    if !game.points.is_empty() {
+        let tex = p.assets.order_icons(&ctx);
+        for cp in &game.points {
+            let Some((sp, _)) = w2s(view, cp.pos.at(map.h(cp.pos).max(map.water) + 7.0)) else { continue };
+            bg.circle_filled(sp, 13.0, rgba(0, 0, 0, 150));
+            if let Some(tx) = tex.get("flag") {
+                bg.image(tx.id(), egui::Rect::from_center_size(sp, egui::vec2(20.0, 20.0)), UV, rgb(team_rgb(cp.owner)));
+            }
+            if cp.progress > 0.0 {
+                bg.rect_filled(rect(sp.x - 16.0, sp.y + 15.0, 32.0, 5.0), 0.0, rgba(0, 0, 0, 200));
+                bg.rect_filled(rect(sp.x - 15.0, sp.y + 16.0, 30.0 * cp.progress.clamp(0.0, 1.0), 3.0), 0.0, rgb(team_rgb(cp.by)));
+            }
+        }
+    }
     // Ctrl+Shift: how much mass lies around, summed per spot.
     if ctrl && shift && !matches!(view.mode, Mode::Place(_)) {
         let mut piles: HashMap<(i32, i32), (f32, V2)> = HashMap::new();
@@ -1430,9 +1577,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     let secs = game.tick / 10;
     hud.text(Pos2::new(sw - 10.0, 7.0), Align2::RIGHT_TOP, format!("{:02}:{:02}   F1 help", secs / 60, secs % 60), font(14.0), rgba(205, 205, 205, 255));
+    if game.mode == MODE_POINTS {
+        let held = game.points.iter().filter(|cp| cp.owner == team).count();
+        text_c(sw * 0.5, TOP + 44.0, &format!("Control points: you hold {} of {}.  First team to {:.0} wins.", held, game.points.len(), defs.rules.cp_score_limit), 13.0, rgba(215, 215, 215, 255));
+    }
     for (k, pl) in game.players.iter().enumerate() {
         let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
-        let t = format!("{}{} (team {})", pl.name, if pl.alive { "" } else { " - defeated" }, pl.team + 1);
+        let score = if game.mode == MODE_POINTS { format!("   {:.0} pts", game.scores.get(pl.team as usize).copied().unwrap_or(0.0)) } else { String::new() };
+        let t = format!("{}{} (team {}){score}", pl.name, if pl.alive { "" } else { " - defeated" }, pl.team + 1);
         hud.text(Pos2::new(sw - 10.0, TOP + 6.0 + k as f32 * 16.0), Align2::RIGHT_TOP, t, font(13.0), if pl.alive { c } else { rgba(130, 130, 130, 255) });
     }
 
@@ -1470,6 +1622,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let d = s.def.map(|d| defs.get(d));
         let sz = if d.map_or(false, |d| d.icon.shape == "commander") { 5.0 } else if d.map_or(false, |d| d.is_structure()) { 3.0 } else { 2.0 };
         hud.rect_filled(egui::Rect::from_center_size(to_mm(s.pos), egui::vec2(sz, sz)), 0.0, c);
+    }
+    for cp in &game.points {
+        let at = to_mm(cp.pos);
+        hud.circle_filled(at, 4.5, rgba(0, 0, 0, 220));
+        hud.circle_filled(at, 3.2, rgb(team_rgb(cp.owner)));
     }
     let corners = [Pos2::new(0.0, TOP), Pos2::new(sw, TOP), Pos2::new(sw, sh), Pos2::new(0.0, sh)].map(|c| {
         let q = to_mm(ray_ground(view, c));
@@ -1584,6 +1741,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 if ld.build_rate() > 0.0 {
                     stat(&hud, x, y, 12.0, "power", &format!("{:.0}", ld.build_rate()), c);
                 }
+                y += 17.0;
+            }
+            if let Some(tr) = &ld.transport {
+                let aboard: Vec<&Info> = infos.values().filter(|c| c.host == u.id).collect();
+                let used: u32 = aboard.iter().map(|c| fr.d(c.def).cargo as u32).sum();
+                text(ix, y, &format!("Cargo: {} / {}", used, tr.capacity), 12.0, rgba(180, 225, 255, 255));
                 y += 17.0;
             }
             if let Some(pr) = u.upg {
@@ -1736,11 +1899,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let mut ax = panel.min.x + 10.0;
         let ay = panel.max.y - 36.0;
         let mut action = |icon: &str, label: &str, key: &str, active: bool| -> bool {
-            let r = rect(ax, ay, 32.0, 30.0);
-            ax += 36.0;
+            let r = rect(ax, ay, 28.0, 30.0);
+            ax += 30.0;
             let hov = button(r, active);
             if let Some(t) = order_tex.get(icon) {
-                hud.image(t.id(), egui::Rect::from_center_size(r.center(), egui::vec2(24.0, 24.0)), UV, if active { rgba(170, 255, 190, 255) } else { Color32::WHITE });
+                hud.image(t.id(), egui::Rect::from_center_size(r.center(), egui::vec2(22.0, 22.0)), UV, if active { rgba(170, 255, 190, 255) } else { Color32::WHITE });
             }
             if !key.is_empty() {
                 hud.text(Pos2::new(r.max.x - 2.0, r.max.y - 1.0), Align2::RIGHT_BOTTOM, key, font(9.5), rgba(150, 230, 255, 255));
@@ -1777,8 +1940,21 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if can_capture && action("capture", "Capture a neutral or enemy unit", "", view.mode == Mode::Capture) {
             new_mode = Some(Mode::Capture);
         }
-        if can_reclaim && action("reclaim", "Reclaim", if faf { "Q" } else { "E" }, view.mode == Mode::Reclaim) {
+        if can_reclaim && action("reclaim", "Reclaim wrecks (drag = area); click a building to take it apart", if faf { "Q" } else { "E" }, view.mode == Mode::Reclaim) {
             new_mode = Some(Mode::Reclaim);
+        }
+        if units.iter().any(|u| fr.d(u.def).is_scavenger()) && action("revive", "Revive wrecks as your own units (drag = area)", "J", view.mode == Mode::Revive) {
+            new_mode = Some(Mode::Revive);
+        }
+        if can_capture && action("terraform", "Terraform: level, raise or lower the ground", "", view.mode == Mode::Terraform) {
+            new_mode = Some(Mode::Terraform);
+        }
+        let any_transport = units.iter().any(|u| fr.d(u.def).transport.is_some());
+        if (any_transport || units.iter().any(|u| carriable(fr.d(u.def)))) && action("load", if any_transport { "Load units (drag = area)" } else { "Board a transport" }, "L", view.mode == Mode::Load) {
+            new_mode = Some(Mode::Load);
+        }
+        if any_transport && action("unload", "Unload (drag = area)", "K", view.mode == Mode::Unload) {
+            new_mode = Some(Mode::Unload);
         }
         if can_assist && faf && action("assist", "Assist / repair", "I", view.mode == Mode::Assist) {
             new_mode = Some(Mode::Assist);
@@ -1890,7 +2066,21 @@ pub fn ui_system(mut p: UiParams) -> Result {
         view.sel = s;
     }
     if let Some(m) = new_mode {
+        if m == Mode::Terraform && view.mode != Mode::Terraform {
+            view.terra_delta = 0.0;
+        }
         view.mode = m;
+    }
+    // Sounds: the unit answers when it is newly selected, and an order gets a short blip.
+    if view.sel != view.last_sel {
+        if let Some(u) = view.sel.iter().find(|id| !view.last_sel.contains(id)).and_then(|id| infos.get(id)) {
+            let com = defs.factions[player.faction as usize].commander == Some(u.def);
+            p.ui_sounds.0.push((super::sound::select_sound(fr.d(u.def), com), 0.55));
+        }
+        view.last_sel = view.sel.clone();
+    }
+    if out[out_before.min(out.len())..].iter().any(|c| matches!(c, Command::Orders { .. })) {
+        p.ui_sounds.0.push(("ack", 0.4));
     }
 
     // --- mode hint, banners
@@ -1898,10 +2088,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
         Mode::AttackMove => "ATTACK-MOVE: left-click, or drag a line to spread out   (right-click cancels)".to_string(),
         Mode::Patrol => "PATROL: left-click a point".to_string(),
         Mode::GroundAttack => "GROUND FIRE: click a spot or a unit, or drag a circle to shell an area".to_string(),
-        Mode::Reclaim => "RECLAIM: click a wreck, or drag a circle to collect everything inside".to_string(),
+        Mode::Reclaim => "RECLAIM: click a wreck or a building, or drag a circle to collect every wreck inside".to_string(),
         Mode::Move => "MOVE: left-click, or drag a line to spread out".to_string(),
         Mode::Assist => "ASSIST / REPAIR: left-click a friendly unit or building".to_string(),
         Mode::Capture => "CAPTURE: left-click a neutral or enemy unit (not commanders or aircraft)".to_string(),
+        Mode::Revive => "REVIVE: click a wreck, or drag a circle to bring back everything inside".to_string(),
+        Mode::Terraform if view.terra_delta == 0.0 => "TERRAFORM: drag a circle to level it to the height at its centre.  Mouse wheel: raise or lower instead".to_string(),
+        Mode::Terraform => format!("TERRAFORM: drag a circle to {} it by {:.0}.  Mouse wheel changes the amount (0 = level)", if view.terra_delta > 0.0 { "raise" } else { "lower" }, view.terra_delta.abs()),
+        Mode::Load if selected.iter().any(|u| fr.d(u.def).transport.is_some()) => "LOAD: click a unit, or drag a circle to pick up everything inside".to_string(),
+        Mode::Load => "LOAD: click the transport to board".to_string(),
+        Mode::Unload => "UNLOAD: click or drag a circle; the cargo is set down spread over it".to_string(),
         Mode::Place(d) if fr.d(d).needs_deposit => format!("BUILD {}: click a deposit, or drag a circle to queue every deposit inside", fr.d(d).name),
         Mode::Place(d) => format!("BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.", fr.d(d).name),
         Mode::None => String::new(),
@@ -1936,6 +2132,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
             "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.",
             "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
+            "L load / board a transport   K unload (drag = area)   J revive wrecks (scavengers, drag = area)",
+            "Reclaim: click a wreck or a building, drag = every wreck in the circle.  Terraform button: drag a circle, wheel = raise / lower.",
+            "A box selects the army; engineers and the commander only when no fighting unit is inside (or use Ctrl+B / ,).",
         ];
         let (w, h) = (820.0, lines.len() as f32 * 20.0 + 20.0);
         let r = rect(sw * 0.5 - w * 0.5, TOP + 50.0, w, h);

@@ -1,9 +1,10 @@
 //! Game data loaded from JSON: rules, factions, unit and weapon definitions.
 //! Nothing about a specific unit is hard-coded in Rust; see `assets/data`.
 use bevy::prelude::Resource;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub type DefId = u16;
 
@@ -44,6 +45,33 @@ fn one_u8() -> u8 {
 fn yes() -> bool {
     true
 }
+fn crater_scale() -> f32 {
+    0.025
+}
+fn crater_max_depth() -> f32 {
+    2.0
+}
+fn crater_min_damage() -> f32 {
+    35.0
+}
+fn terraform_rate() -> f32 {
+    0.6
+}
+fn terraform_energy() -> f32 {
+    15.0
+}
+fn terraform_max() -> f32 {
+    12.0
+}
+fn cp_radius() -> f32 {
+    12.0
+}
+fn cp_capture_secs() -> f32 {
+    20.0
+}
+fn cp_score_limit() -> f32 {
+    400.0
+}
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Blast {
@@ -74,6 +102,32 @@ pub struct Rules {
     pub capture_energy: f32,
     #[serde(default)]
     pub friendly_fire: bool,
+    /// Shell holes: depth = `crater_scale` x sqrt(damage); 0 switches craters off.
+    #[serde(default = "crater_scale")]
+    pub crater_scale: f32,
+    /// Shelling never digs deeper than this below the original ground.
+    #[serde(default = "crater_max_depth")]
+    pub crater_max_depth: f32,
+    /// Hits weaker than this leave no mark.
+    #[serde(default = "crater_min_damage")]
+    pub crater_min_damage: f32,
+    /// Terraforming: height x vertices moved per second per point of build power.
+    #[serde(default = "terraform_rate")]
+    pub terraform_rate: f32,
+    /// Energy per unit of height moved.
+    #[serde(default = "terraform_energy")]
+    pub terraform_energy: f32,
+    /// Terraforming stays within this distance of the original ground.
+    #[serde(default = "terraform_max")]
+    pub terraform_max: f32,
+    /// Control points mode: capture radius, seconds to take a point, score that wins
+    /// (every held point gives one point per second).
+    #[serde(default = "cp_radius")]
+    pub cp_radius: f32,
+    #[serde(default = "cp_capture_secs")]
+    pub cp_capture_secs: f32,
+    #[serde(default = "cp_score_limit")]
+    pub cp_score_limit: f32,
     pub commander_death: Blast,
     pub damage_types: Vec<String>,
     pub armor: HashMap<String, HashMap<String, f32>>,
@@ -151,6 +205,13 @@ pub struct BuildCap {
     /// Scavenger: cannot build or assist; reclaims wrecks and revives them for its owner.
     #[serde(default)]
     pub scavenger: bool,
+}
+
+/// A unit that carries other units.
+#[derive(Deserialize, Clone, Debug)]
+pub struct TransportDef {
+    /// Cargo slots (a unit takes `cargo` slots, 1 unless its JSON says otherwise).
+    pub capacity: u8,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,6 +351,9 @@ pub struct IconDef {
     pub shape: String,
     #[serde(default)]
     pub glyphs: Vec<String>,
+    /// Leave the tier ticks out (storage buildings and the like, as in SupCom).
+    #[serde(default)]
+    pub no_tier: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -342,6 +406,15 @@ pub struct UnitDef {
     pub wreck: bool,
     #[serde(default)]
     pub categories: Vec<String>,
+    /// Carries land units (transport plane, APC).
+    #[serde(default)]
+    pub transport: Option<TransportDef>,
+    /// Slots this unit takes in a transport; 0 = cannot be carried.
+    #[serde(default = "one_u8")]
+    pub cargo: u8,
+    /// Sound played when the unit is selected (one of `view::sound::UI_SOUNDS`); empty = by role.
+    #[serde(default)]
+    pub select_sound: String,
 
     #[serde(skip)]
     pub idx: DefId,
@@ -429,6 +502,159 @@ pub struct Faction {
     pub units: Vec<DefId>,
 }
 
+/// The text of every data file of one data set (the built-in data or a preset). This is what
+/// `Defs` is built from, what a preset is on disk, and what the host sends to the other players.
+#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+pub struct DataPack {
+    /// Name of the preset; empty for the built-in data.
+    pub name: String,
+    pub rules: String,
+    /// (file name, text) of every faction file, in file-name order.
+    pub factions: Vec<(String, String)>,
+    /// Asset files the data refers to that the standard game does not have: (path below `assets`, content).
+    #[serde(default)]
+    pub files: Vec<(String, Vec<u8>)>,
+}
+
+/// Folder below `assets/data` that holds the presets, one sub-folder each.
+pub fn presets_dir(root: &Path) -> PathBuf {
+    root.join("data/presets")
+}
+
+/// A name that is safe as a folder name.
+pub fn clean_name(name: &str) -> String {
+    name.trim().chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_')).take(32).collect::<String>().trim().to_string()
+}
+
+/// A path below `assets` that a data pack may bring along: model and picture files only, in the
+/// folders the game keeps them in, with plain names (no `..`, nothing hidden, nothing absolute).
+pub fn safe_asset_path(p: &str) -> bool {
+    let parts: Vec<&str> = p.split('/').collect();
+    let ext = p.rsplit('.').next().unwrap_or("");
+    parts.len() >= 2
+        && ["models", "icons"].contains(&parts[0])
+        && ["glb", "png"].contains(&ext)
+        && parts.iter().all(|s| !s.is_empty() && !s.starts_with('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
+}
+
+impl DataPack {
+    /// Reads `rules.json` and `factions/*.json` from a data folder.
+    pub fn read(dir: &Path, name: &str) -> Result<DataPack, String> {
+        let rules_path = dir.join("rules.json");
+        let rules = std::fs::read_to_string(&rules_path).map_err(|e| format!("{}: {e}", rules_path.display()))?;
+        let fdir = dir.join("factions");
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&fdir)
+            .map_err(|e| format!("{}: {e}", fdir.display()))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().map_or(false, |x| x == "json"))
+            .collect();
+        files.sort();
+        let mut factions = vec![];
+        for f in files {
+            let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+            factions.push((f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), text));
+        }
+        Ok(DataPack { name: name.to_string(), rules, factions, files: vec![] })
+    }
+
+    /// The built-in data (`assets/data`).
+    pub fn builtin(root: &Path) -> Result<DataPack, String> {
+        DataPack::read(&root.join("data"), "")
+    }
+
+    /// A preset by name; the empty name is the built-in data.
+    pub fn preset(root: &Path, name: &str) -> Result<DataPack, String> {
+        if name.is_empty() {
+            DataPack::builtin(root)
+        } else {
+            DataPack::read(&presets_dir(root).join(name), name)
+        }
+    }
+
+    /// Names of the presets on disk.
+    pub fn list(root: &Path) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(presets_dir(root))
+            .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.path().join("rules.json").exists()).filter_map(|e| e.file_name().into_string().ok()).collect())
+            .unwrap_or_default();
+        out.sort();
+        out
+    }
+
+    /// Writes the pack as preset `self.name` (replacing what is there).
+    pub fn save(&self, root: &Path) -> Result<(), String> {
+        let name = clean_name(&self.name);
+        if name.is_empty() {
+            return Err("A preset needs a name (letters, digits, spaces, - and _).".into());
+        }
+        let dir = presets_dir(root).join(&name);
+        let fdir = dir.join("factions");
+        std::fs::create_dir_all(&fdir).map_err(|e| format!("{}: {e}", fdir.display()))?;
+        std::fs::write(dir.join("rules.json"), &self.rules).map_err(|e| e.to_string())?;
+        // Faction files that are no longer part of the pack go away.
+        if let Ok(rd) = std::fs::read_dir(&fdir) {
+            for e in rd.filter_map(|e| e.ok()) {
+                let n = e.file_name().to_string_lossy().into_owned();
+                if n.ends_with(".json") && !self.factions.iter().any(|f| f.0 == n) {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+        for (n, text) in &self.factions {
+            if !n.ends_with(".json") || n.contains(['/', '\\']) {
+                return Err(format!("bad faction file name '{n}'"));
+            }
+            std::fs::write(fdir.join(n), text).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn delete(root: &Path, name: &str) -> Result<(), String> {
+        let name = clean_name(name);
+        if name.is_empty() {
+            return Err("The built-in data cannot be deleted.".into());
+        }
+        std::fs::remove_dir_all(presets_dir(root).join(name)).map_err(|e| e.to_string())
+    }
+
+    /// Adds the asset files this data needs that `standard` (the built-in data) does not refer to,
+    /// so players without them can still show the units. Big or odd files are left out.
+    pub fn attach_assets(&mut self, root: &Path, defs: &Defs, standard: &Defs) {
+        let known = standard.asset_paths();
+        let mut total = 0usize;
+        self.files.clear();
+        for p in defs.asset_paths() {
+            if known.contains(&p) || !safe_asset_path(&p) || self.files.iter().any(|f| f.0 == p) {
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(root.join(&p)) {
+                if bytes.len() <= 8 << 20 && total + bytes.len() <= 40 << 20 {
+                    total += bytes.len();
+                    self.files.push((p, bytes));
+                }
+            }
+        }
+    }
+
+    /// Stores the asset files that came with the pack where the game looks for them. Files that
+    /// already exist are never replaced. Returns how many were written.
+    pub fn store_assets(&self, root: &Path) -> usize {
+        let mut n = 0;
+        for (p, bytes) in &self.files {
+            let path = root.join(p);
+            if !safe_asset_path(p) || path.exists() || bytes.len() > 8 << 20 {
+                continue;
+            }
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if std::fs::write(&path, bytes).is_ok() {
+                n += 1;
+            }
+        }
+        n
+    }
+}
+
 #[derive(Resource, Clone)]
 pub struct Defs {
     pub rules: Rules,
@@ -437,6 +663,8 @@ pub struct Defs {
     pub factions: Vec<Faction>,
     /// Hash of all data files; host and clients must match.
     pub hash: u64,
+    /// The files this was built from.
+    pub pack: Arc<DataPack>,
 }
 
 fn fnv(h: &mut u64, bytes: &[u8]) {
@@ -460,12 +688,34 @@ impl Defs {
         (0..self.factions.len()).filter(|i| self.factions[*i].playable).collect()
     }
 
+    /// Every asset file the units refer to (models, textures, portraits), as paths below `assets`.
+    pub fn asset_paths(&self) -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        for u in &self.units {
+            for p in [&u.model.mesh, &u.model.albedo, &u.model.team_mask, &u.model.normal, &u.portrait].into_iter().flatten() {
+                if !out.contains(p) {
+                    out.push(p.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// The built-in game data in `assets/data`.
     pub fn load(root: &Path) -> Result<Defs, String> {
+        Defs::from_pack(DataPack::builtin(root)?)
+    }
+
+    /// A preset by name (empty = built-in).
+    pub fn load_preset(root: &Path, name: &str) -> Result<Defs, String> {
+        Defs::from_pack(DataPack::preset(root, name)?)
+    }
+
+    pub fn from_pack(pack: DataPack) -> Result<Defs, String> {
         let mut hash = 0xcbf29ce484222325u64;
-        let rules_path = root.join("data/rules.json");
-        let text = std::fs::read_to_string(&rules_path).map_err(|e| format!("{}: {e}", rules_path.display()))?;
+        let text = &pack.rules;
         fnv(&mut hash, text.as_bytes());
-        let mut rules: Rules = serde_json::from_str(&text).map_err(|e| format!("rules.json: {e}"))?;
+        let mut rules: Rules = serde_json::from_str(text).map_err(|e| format!("rules.json: {e}"))?;
         let mut armor_names: Vec<String> = rules.armor.keys().cloned().collect();
         armor_names.sort();
         rules.armor_table = armor_names
@@ -473,21 +723,19 @@ impl Defs {
             .map(|a| rules.damage_types.iter().map(|d| rules.armor[a].get(d).copied().unwrap_or(1.0)).collect())
             .collect();
         rules.armor_names = armor_names;
+        if rules.player_colors.is_empty() || rules.damage_types.is_empty() {
+            return Err("rules.json: player_colors and damage_types must not be empty".into());
+        }
 
-        let dir = root.join("data/factions");
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-            .map_err(|e| format!("{}: {e}", dir.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().map_or(false, |x| x == "json"))
-            .collect();
-        files.sort();
         let mut units: Vec<UnitDef> = vec![];
         let mut factions = vec![];
         let mut commanders = vec![];
-        for f in files {
-            let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+        if pack.factions.is_empty() {
+            return Err("no faction files".into());
+        }
+        for (fname, text) in &pack.factions {
             fnv(&mut hash, text.as_bytes());
-            let ff: FactionFile = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", f.display()))?;
+            let ff: FactionFile = serde_json::from_str(text).map_err(|e| format!("{fname}: {e}"))?;
             let fi = factions.len() as u8;
             let mut ids = vec![];
             for mut u in ff.units {
@@ -541,6 +789,12 @@ impl Defs {
                 return Err(format!("units '{}' and '{}' share the same strategic icon; every unit needs a unique one", other, u.id));
             }
         }
-        Ok(Defs { rules, units, by_name, factions, hash })
+        if units.len() >= DefId::MAX as usize {
+            return Err("too many units".into());
+        }
+        if !factions.iter().any(|f: &Faction| f.playable && f.commander.is_some()) {
+            return Err("no playable faction with a commander".into());
+        }
+        Ok(Defs { rules, units, by_name, factions, hash, pack: Arc::new(pack) })
     }
 }
