@@ -23,8 +23,10 @@ pub struct Settings {
     pub hotkeys: String,
     /// Player name used in the lobby; empty = the system user name.
     pub name: String,
-    /// Bigger strategic icons on the build menu buttons (the icons on the map keep their size).
-    pub big_icons: bool,
+    /// Size in points of the strategic icon in the corner of a build menu button.
+    pub menu_icon: f32,
+    /// Size of the strategic icons on the map, as a factor of `icons::icon_size`.
+    pub icon_scale: f32,
     /// Camera distance from which units are drawn as strategic icons instead of models.
     pub icon_dist: f32,
     /// Volume of shots and explosions, 0 (off) to 1.
@@ -44,7 +46,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true }
+        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true }
     }
 }
 
@@ -575,8 +577,11 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.label("Map icons from zoom");
         ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(" camera distance"));
         ui.end_row();
-        ui.label("Build menu icons");
-        ui.checkbox(&mut s.big_icons, "Bigger");
+        ui.label("Map icon size");
+        ui.add(egui::Slider::new(&mut s.icon_scale, 0.5..=3.0).step_by(0.05).suffix("x"));
+        ui.end_row();
+        ui.label("Build menu icon size");
+        ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(" pt"));
         ui.end_row();
         ui.label("Hotkeys");
         egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { "FAF alternative" } else { "Default" }).show_ui(ui, |ui| {

@@ -1548,7 +1548,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let d = s.def.map(|d| defs.get(d));
         match (s.contact, d) {
             (Contact::Visible, Some(d)) => {
-                let size = icons::icon_size(d);
+                let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
                 // Strategic icon once the camera is far enough out, or the model is a speck.
                 if icons_zoom || s.rpx * 2.0 < 5.0 {
                     let tex = p.assets.icon(&ctx, d);
@@ -1560,7 +1560,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             (_, Some(d)) => {
                 // Known type, not in sight: dimmed icon (radar contact or remembered building).
-                let size = icons::icon_size(d);
+                let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
                 let a = if s.contact == Contact::Stale { 0.5 * s.fade } else { 0.85 };
                 let tex = p.assets.icon(&ctx, d);
                 bg.image(tex.id(), egui::Rect::from_center_size(s.sp, egui::vec2(size, size)), UV, col.gamma_multiply(a));
@@ -2138,7 +2138,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 match p.assets.portrait(&ctx, bd) {
                     Some(t) => {
                         hud.image(t.id(), ir, UV, Color32::WHITE);
-                        let s = if p.settings.big_icons { 27.0 } else { 17.0 };
+                        let s = p.settings.menu_icon.clamp(10.0, 40.0);
                         hud.image(p.assets.icon(&ctx, bd).id(), rect(r.min.x + 1.0, r.min.y + 1.0, s, s), UV, my_col);
                     }
                     None => {
