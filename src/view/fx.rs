@@ -151,6 +151,7 @@ pub fn spawn_fx(
     view: Res<super::ViewState>,
     settings: Res<crate::settings::Settings>,
     sounds: Option<Res<super::sound::Sounds>>,
+    mut surface: Option<ResMut<super::surface::SurfaceView>>,
 ) {
     let mut lights = 0;
     let mut heard: Vec<(usize, f32, f32)> = vec![];
@@ -160,6 +161,16 @@ pub fn spawn_fx(
         // Dust where debris lands: high effects only, and silent.
         if f.kind == FX_DEBRIS && level < 2 {
             continue;
+        }
+        // Blasts near the ground scorch it, seen or not (the marks are found later).
+        if matches!(f.kind, FX_BLAST | FX_DEATH) {
+            if let Some(s) = surface.as_mut() {
+                let above = pos.y - map.height(pos.x, pos.z);
+                if above < 1.0 + f.size * 0.6 {
+                    let size = if f.kind == FX_DEATH { f.size * 0.8 } else { f.size };
+                    s.burn(Vec2::new(pos.x, pos.z), size * (1.0 - (above / (1.0 + f.size * 0.6)).max(0.0) * 0.5));
+                }
+            }
         }
         if !fog.visible(flat(pos)) {
             continue;

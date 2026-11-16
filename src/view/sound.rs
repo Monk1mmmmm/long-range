@@ -27,7 +27,7 @@ pub fn select_sound(d: &UnitDef, commander: bool) -> &'static str {
     }
     if commander {
         "select_commander"
-    } else if d.radar > 0.0 && !d.armed() {
+    } else if d.has_radar() && !d.armed() {
         "select_radar"
     } else if d.is_air() {
         "select_air"

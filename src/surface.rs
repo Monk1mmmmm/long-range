@@ -1,0 +1,437 @@
+//! What the ground looks like: texture layers painted over each other (SupCom strata) and roads.
+//! Purely visual: nothing here reaches the simulation. The view (`view::surface`) turns it into
+//! textures; this module holds the data, the automatic painting for each biome and the road raster.
+use crate::map::*;
+use serde::{Deserialize, Serialize};
+
+/// Most layers a map can have: the base layer plus eight painted ones (two RGBA mask textures).
+pub const MAX_LAYERS: usize = 9;
+/// Most road kinds one map can show (one channel of the road texture each).
+pub const MAX_ROAD_KINDS: usize = 4;
+/// Road raster: the field falls from 1 to 0 over this many world units across the road's edge
+/// (0.5 on the edge itself), so bilinear filtering of a coarse texture still gives a crisp line.
+pub const ROAD_RAMP: f32 = 2.0;
+
+/// One texture layer. Layer 0 covers the whole map; every further layer is drawn over the ones
+/// below where its mask says so.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Layer {
+    /// Ground kind id (`KINDS`).
+    pub kind: String,
+    /// Size of one texture tile in world units; 0 = the kind's default.
+    #[serde(default)]
+    pub scale: f32,
+}
+
+/// A road: a line of points with a width, drawn as a texture of its own kind (asphalt, dirt...).
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Road {
+    pub kind: String,
+    pub width: f32,
+    pub points: Vec<V2>,
+}
+
+/// A ground texture: id, name for the editor, default tile size and its average colour (linear
+/// RGB, used for the minimap and the lobby picture, and as the base of the procedural texture).
+pub struct Kind {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub scale: f32,
+    pub color: [f32; 3],
+    /// Roads of this kind have a hard edge (paved) rather than a frayed one (tracks).
+    pub hard: bool,
+}
+
+pub const KINDS: &[Kind] = &[
+    Kind { id: "grass", name: "Grass", scale: 10.0, color: [0.12, 0.22, 0.06], hard: false },
+    Kind { id: "meadow", name: "Dry meadow", scale: 12.0, color: [0.25, 0.25, 0.10], hard: false },
+    Kind { id: "forest_floor", name: "Forest floor", scale: 9.0, color: [0.13, 0.15, 0.07], hard: false },
+    Kind { id: "dirt", name: "Dirt", scale: 8.0, color: [0.27, 0.19, 0.12], hard: false },
+    Kind { id: "mud", name: "Mud", scale: 7.0, color: [0.14, 0.12, 0.08], hard: false },
+    Kind { id: "sand", name: "Sand", scale: 9.0, color: [0.52, 0.43, 0.27], hard: false },
+    Kind { id: "dunes", name: "Desert sand", scale: 16.0, color: [0.62, 0.45, 0.25], hard: false },
+    Kind { id: "cracked", name: "Cracked earth", scale: 15.0, color: [0.45, 0.32, 0.20], hard: false },
+    Kind { id: "snow", name: "Snow", scale: 14.0, color: [0.80, 0.83, 0.88], hard: false },
+    Kind { id: "ice", name: "Ice", scale: 16.0, color: [0.55, 0.66, 0.76], hard: false },
+    Kind { id: "stone", name: "Stone", scale: 12.0, color: [0.30, 0.28, 0.26], hard: false },
+    Kind { id: "gravel", name: "Gravel", scale: 6.0, color: [0.36, 0.34, 0.31], hard: false },
+    Kind { id: "paving", name: "Paving", scale: 6.0, color: [0.40, 0.39, 0.37], hard: true },
+    Kind { id: "asphalt", name: "Asphalt", scale: 6.0, color: [0.055, 0.055, 0.06], hard: true },
+    Kind { id: "dirt_road", name: "Dirt track", scale: 7.0, color: [0.32, 0.24, 0.15], hard: false },
+];
+
+pub fn kind(id: &str) -> Option<&'static Kind> {
+    KINDS.iter().find(|k| k.id == id)
+}
+
+/// Kind of ground random maps (and the editor's automatic painting) use.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Biome {
+    Temperate,
+    Desert,
+    Arctic,
+    Rocky,
+}
+
+pub const BIOMES: [Biome; 4] = [Biome::Temperate, Biome::Desert, Biome::Arctic, Biome::Rocky];
+
+impl Biome {
+    pub fn name(self) -> &'static str {
+        match self {
+            Biome::Temperate => "Temperate",
+            Biome::Desert => "Desert",
+            Biome::Arctic => "Arctic",
+            Biome::Rocky => "Rocky highland",
+        }
+    }
+    /// The biome a random map of this seed gets when the lobby leaves it to chance.
+    pub fn from_seed(seed: u64) -> Biome {
+        let mut h = seed.wrapping_mul(0x9E3779B97F4A7C15) ^ 0xB10E;
+        h ^= h >> 31;
+        h = h.wrapping_mul(0xBF58476D1CE4E5B9);
+        h ^= h >> 29;
+        // Temperate comes up twice as often as each of the others.
+        match h % 5 {
+            0 | 1 => Biome::Temperate,
+            2 => Biome::Desert,
+            3 => Biome::Arctic,
+            _ => Biome::Rocky,
+        }
+    }
+}
+
+fn smooth(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+impl MapData {
+    /// Number of bytes of one layer mask (one per cell).
+    pub fn mask_len(&self) -> usize {
+        self.n * self.n
+    }
+    /// Mask value (0-255) of layer `layer` (1..) at cell (x, y).
+    pub fn mask(&self, layer: usize, x: usize, y: usize) -> u8 {
+        if layer == 0 {
+            return 255;
+        }
+        self.masks.get((layer - 1) * self.mask_len() + y.min(self.n - 1) * self.n + x.min(self.n - 1)).copied().unwrap_or(0)
+    }
+    /// Bilinear mask value (0..1) at a world position (texel centres are the cell centres).
+    pub fn mask_at(&self, layer: usize, p: V2) -> f32 {
+        if layer == 0 {
+            return 1.0;
+        }
+        let fx = (p.x / CELL - 0.5).clamp(0.0, self.n as f32 - 1.0);
+        let fy = (p.y / CELL - 0.5).clamp(0.0, self.n as f32 - 1.0);
+        let (x, y) = (fx.floor() as usize, fy.floor() as usize);
+        let (tx, ty) = (fx - x as f32, fy - y as f32);
+        let g = |x: usize, y: usize| self.mask(layer, x, y) as f32 / 255.0;
+        let a = g(x, y) + (g(x + 1, y) - g(x, y)) * tx;
+        let b = g(x, y + 1) + (g(x + 1, y + 1) - g(x, y + 1)) * tx;
+        a + (b - a) * ty
+    }
+    /// Makes `masks` fit the layer list (after layers were added or removed at the end).
+    pub fn fit_masks(&mut self) {
+        let want = self.layers.len().saturating_sub(1) * self.mask_len();
+        self.masks.resize(want, 0);
+    }
+    /// Adds a layer of `kind` on top with an empty mask; returns its index (or None when full).
+    pub fn add_layer(&mut self, kind: &str) -> Option<usize> {
+        if self.layers.len() >= MAX_LAYERS {
+            return None;
+        }
+        if self.layers.is_empty() {
+            self.layers.push(Layer { kind: kind.into(), scale: 0.0 });
+            return Some(0);
+        }
+        self.layers.push(Layer { kind: kind.into(), scale: 0.0 });
+        self.fit_masks();
+        Some(self.layers.len() - 1)
+    }
+    /// Index of the topmost layer of this kind, added if there is none (and room).
+    pub fn layer_of(&mut self, kind: &str) -> Option<usize> {
+        match self.layers.iter().rposition(|l| l.kind == kind) {
+            Some(i) => Some(i),
+            None => self.add_layer(kind),
+        }
+    }
+    /// Removes layer `i` (> 0) and its mask.
+    pub fn remove_layer(&mut self, i: usize) {
+        if i == 0 || i >= self.layers.len() {
+            return;
+        }
+        let len = self.mask_len();
+        self.masks.drain((i - 1) * len..i * len);
+        self.layers.remove(i);
+    }
+    /// Swaps layers `i` and `i + 1` (both > 0) with their masks.
+    pub fn swap_layers(&mut self, i: usize) {
+        if i == 0 || i + 1 >= self.layers.len() {
+            return;
+        }
+        let len = self.mask_len();
+        let (a, b) = self.masks.split_at_mut(i * len);
+        a[(i - 1) * len..].swap_with_slice(&mut b[..len]);
+        self.layers.swap(i, i + 1);
+    }
+
+    /// Brush on a layer mask: moves the cells within `radius` of `c` towards `target` (0..1) by
+    /// up to `amount`, less towards the rim. On layer 0 (which covers everything anyway) it takes
+    /// every layer above away instead. Returns whether a cell changed.
+    pub fn paint_mask(&mut self, layer: usize, c: V2, radius: f32, amount: f32, target: f32) -> bool {
+        let n = self.n;
+        if n == 0 || layer >= self.layers.len() {
+            return false;
+        }
+        self.fit_masks();
+        let r = radius.max(CELL * 0.5);
+        let (x0, x1) = (((c.x - r) / CELL).floor().max(0.0) as usize, (((c.x + r) / CELL).ceil() as usize).min(n - 1));
+        let (y0, y1) = (((c.y - r) / CELL).floor().max(0.0) as usize, (((c.y + r) / CELL).ceil() as usize).min(n - 1));
+        let planes: Vec<usize> = if layer == 0 { (1..self.layers.len()).collect() } else { vec![layer] };
+        let target = if layer == 0 { 0.0 } else { target.clamp(0.0, 1.0) } * 255.0;
+        let mut changed = false;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let d = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL).dist(c) / r;
+                if d >= 1.0 {
+                    continue;
+                }
+                let fall = smooth(1.0, 0.35, d) * amount.clamp(0.0, 1.0);
+                for l in &planes {
+                    let m = &mut self.masks[(l - 1) * n * n + y * n + x];
+                    let v = *m as f32;
+                    // At least one step per stroke, so slow brushes still get there.
+                    let step = (target - v) * fall;
+                    let new = if step.abs() < 1.0 && fall > 0.0 && v != target { v + (target - v).signum() } else { v + step };
+                    let new = new.round().clamp(0.0, 255.0) as u8;
+                    if new != *m {
+                        *m = new;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        changed
+    }
+
+    /// Paints the ground from the heights for a biome: replaces all layers and masks (roads stay).
+    pub fn paint_ground(&mut self, biome: Biome) {
+        let n = self.n;
+        if n == 0 {
+            return;
+        }
+        let seed = self.seed;
+        let (lo, hi) = self.heights.iter().fold((f32::MAX, f32::MIN), |(a, b), h| (a.min(*h), b.max(*h)));
+        let water = self.water;
+        // Height above the water as a share of the highest ground (peaks get snow, etc.).
+        let top = (hi - water.max(lo)).max(1.0);
+        // (kind, weight function of (height, slope, height share, position))
+        type Rule = (&'static str, fn(&MapData, f32, f32, f32, V2, u64) -> f32);
+        fn patches(p: V2, freq: f32, seed: u64, salt: u64, a: f32, b: f32) -> f32 {
+            smooth(a, b, fbm(p.x * freq + 17.0, p.y * freq + 17.0, seed ^ salt))
+        }
+        fn shore(m: &MapData, h: f32) -> f32 {
+            ((m.water + 0.9 - h) / 0.9).clamp(0.0, 1.0)
+        }
+        fn under(m: &MapData, h: f32) -> f32 {
+            ((m.water - 0.2 - h) / 1.5).clamp(0.0, 1.0)
+        }
+        fn cliff(s: f32, a: f32, b: f32) -> f32 {
+            smooth(a, b, s)
+        }
+        let rules: Vec<Rule> = match biome {
+            Biome::Temperate => vec![
+                ("grass", |_, _, _, _, _, _| 1.0),
+                ("meadow", |_, _, _, _, p, s| patches(p, 1.0 / 60.0, s, 0x21, 0.52, 0.66)),
+                ("dirt", |_, _, sl, _, p, s| patches(p, 1.0 / 22.0, s, 0x33, 0.62, 0.72).max(smooth(0.06, 0.11, sl) * 0.8)),
+                ("sand", |m, h, _, _, _, _| shore(m, h)),
+                ("mud", |m, h, _, _, _, _| under(m, h)),
+                ("stone", |_, _, sl, f, _, _| cliff(sl, 0.12, 0.22).max(smooth(0.82, 0.95, f))),
+            ],
+            Biome::Desert => vec![
+                ("dunes", |_, _, _, _, _, _| 1.0),
+                ("cracked", |_, _, _, f, p, s| patches(p, 1.0 / 45.0, s, 0x45, 0.50, 0.62) * (1.0 - smooth(0.5, 0.8, f))),
+                ("gravel", |_, _, sl, _, p, s| patches(p, 1.0 / 25.0, s, 0x57, 0.64, 0.74).max(smooth(0.05, 0.10, sl))),
+                ("sand", |m, h, _, _, _, _| shore(m, h)),
+                ("mud", |m, h, _, _, _, _| under(m, h)),
+                ("stone", |_, _, sl, _, _, _| cliff(sl, 0.10, 0.20)),
+            ],
+            Biome::Arctic => vec![
+                ("snow", |_, _, _, _, _, _| 1.0),
+                // Frozen shores and wind-blown ice on flat low ground.
+                ("ice", |m, h, sl, f, p, s| ((m.water + 0.6 - h) / 0.8).clamp(0.0, 1.0).max(patches(p, 1.0 / 50.0, s, 0x69, 0.66, 0.74) * (1.0 - smooth(0.02, 0.05, sl)) * (1.0 - smooth(0.2, 0.4, f)))),
+                ("gravel", |_, _, sl, _, p, s| patches(p, 1.0 / 30.0, s, 0x71, 0.64, 0.74) * 0.9 + smooth(0.07, 0.13, sl) * 0.3),
+                ("mud", |m, h, _, _, _, _| under(m, h)),
+                ("stone", |_, _, sl, _, _, _| cliff(sl, 0.14, 0.26)),
+                ("snow", |_, _, sl, f, _, _| smooth(0.75, 0.9, f) * (1.0 - cliff(sl, 0.3, 0.45))),
+            ],
+            Biome::Rocky => vec![
+                ("dirt", |_, _, _, _, _, _| 1.0),
+                ("grass", |_, _, sl, f, p, s| (1.0 - smooth(0.04, 0.09, sl)) * (1.0 - smooth(0.45, 0.65, f)) * patches(p, 1.0 / 40.0, s, 0x83, 0.40, 0.52)),
+                ("gravel", |_, _, sl, _, p, s| patches(p, 1.0 / 26.0, s, 0x95, 0.60, 0.70).max(smooth(0.06, 0.12, sl) * 0.7)),
+                ("mud", |m, h, _, _, _, _| under(m, h).max(shore(m, h) * 0.6)),
+                ("stone", |_, _, sl, f, _, _| cliff(sl, 0.10, 0.18).max(smooth(0.55, 0.75, f))),
+                ("snow", |_, _, sl, f, _, _| smooth(0.86, 0.97, f) * (1.0 - cliff(sl, 0.25, 0.4))),
+            ],
+        };
+        self.layers = rules.iter().map(|(k, _)| Layer { kind: (*k).into(), scale: 0.0 }).collect();
+        self.masks = vec![0; (rules.len() - 1) * n * n];
+        for y in 0..n {
+            for x in 0..n {
+                let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                let h = self.h(p);
+                let slope = 1.0 - self.normal(p.x, p.y).y;
+                let f = ((h - water) / top).clamp(0.0, 1.0);
+                for (i, (_, rule)) in rules.iter().enumerate().skip(1) {
+                    let v = rule(self, h, slope, f, p, seed).clamp(0.0, 1.0);
+                    self.masks[(i - 1) * n * n + y * n + x] = (v * 255.0).round() as u8;
+                }
+            }
+        }
+    }
+
+    /// Distinct road kinds in the order of first use, at most `MAX_ROAD_KINDS`.
+    pub fn road_kinds(&self) -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        for r in &self.roads {
+            if !out.contains(&r.kind) && out.len() < MAX_ROAD_KINDS {
+                out.push(r.kind.clone());
+            }
+        }
+        out
+    }
+
+    /// The roads as a raster of `per_unit` texels per world unit, one channel per road kind
+    /// (`road_kinds`): 1 inside, 0.5 on the edge, 0 beyond `ROAD_RAMP / 2` outside.
+    pub fn road_raster(&self, per_unit: f32) -> (usize, Vec<[u8; 4]>) {
+        let side = ((self.world() * per_unit).round() as usize).max(1);
+        let mut out = vec![[0u8; 4]; side * side];
+        let kinds = self.road_kinds();
+        let texel = 1.0 / per_unit;
+        for r in &self.roads {
+            let Some(ch) = kinds.iter().position(|k| *k == r.kind) else { continue };
+            let hw = r.width * 0.5;
+            let reach = hw + ROAD_RAMP * 0.5 + texel;
+            for seg in r.points.windows(2) {
+                let (a, b) = (seg[0], seg[1]);
+                let ab = b - a;
+                let l2 = ab.len2().max(1e-6);
+                let x0 = ((a.x.min(b.x) - reach) * per_unit).floor().max(0.0) as usize;
+                let x1 = (((a.x.max(b.x) + reach) * per_unit).ceil() as usize).min(side - 1);
+                let y0 = ((a.y.min(b.y) - reach) * per_unit).floor().max(0.0) as usize;
+                let y1 = (((a.y.max(b.y) + reach) * per_unit).ceil() as usize).min(side - 1);
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        let p = v2((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
+                        let t = ((p - a).dot(ab) / l2).clamp(0.0, 1.0);
+                        let d = p.dist(a + ab * t);
+                        let v = (0.5 + (hw - d) / ROAD_RAMP).clamp(0.0, 1.0);
+                        let c = &mut out[y * side + x][ch];
+                        *c = (*c).max((v * 255.0).round() as u8);
+                    }
+                }
+            }
+        }
+        (side, out)
+    }
+
+    /// Distance from `p` to the nearest road's edge (negative on the road); `f32::MAX` without roads.
+    pub fn road_gap(&self, p: V2) -> f32 {
+        let mut best = f32::MAX;
+        for r in &self.roads {
+            for s in r.points.windows(2) {
+                let ab = s[1] - s[0];
+                let t = ((p - s[0]).dot(ab) / ab.len2().max(1e-6)).clamp(0.0, 1.0);
+                best = best.min(p.dist(s[0] + ab * t) - r.width * 0.5);
+            }
+        }
+        best
+    }
+
+    /// Cells (n x n, row by row) whose centre lies within `margin` of a road's edge or on it.
+    pub fn road_cells(&self, margin: f32) -> Vec<bool> {
+        let n = self.n;
+        let mut out = vec![false; n * n];
+        for r in &self.roads {
+            let reach = r.width * 0.5 + margin;
+            for s in r.points.windows(2) {
+                let (a, b) = (s[0], s[1]);
+                let ab = b - a;
+                let l2 = ab.len2().max(1e-6);
+                let x0 = ((a.x.min(b.x) - reach) / CELL).floor().max(0.0) as usize;
+                let x1 = (((a.x.max(b.x) + reach) / CELL).ceil() as usize).min(n.saturating_sub(1));
+                let y0 = ((a.y.min(b.y) - reach) / CELL).floor().max(0.0) as usize;
+                let y1 = (((a.y.max(b.y) + reach) / CELL).ceil() as usize).min(n.saturating_sub(1));
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                        let t = ((p - a).dot(ab) / l2).clamp(0.0, 1.0);
+                        if p.dist(a + ab * t) <= reach {
+                            out[y * n + x] = true;
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Removes the trees and rocks that stand on the roads `from..` (crown or body touching one).
+    pub fn clear_features_on_roads(&mut self, kinds: &[crate::data::FeatureDef], from: usize) {
+        if from >= self.roads.len() {
+            return;
+        }
+        let radius: Vec<f32> = self.feature_kinds.iter().map(|id| kinds.iter().find(|k| k.id == *id).map_or(1.0, |k| k.radius())).collect();
+        let roads = MapData { roads: self.roads[from..].to_vec(), ..Default::default() };
+        self.features.retain(|f| roads.road_gap(f.pos) > radius.get(f.kind as usize).copied().unwrap_or(1.0) * f.scale * 0.8);
+    }
+
+    /// Removes the roads with a point or segment within `r` of `p`. Returns whether any went.
+    pub fn erase_roads(&mut self, p: V2, r: f32) -> bool {
+        let before = self.roads.len();
+        self.roads.retain(|road| {
+            !road.points.windows(2).any(|s| {
+                let ab = s[1] - s[0];
+                let t = ((p - s[0]).dot(ab) / ab.len2().max(1e-6)).clamp(0.0, 1.0);
+                p.dist(s[0] + ab * t) < r + road.width * 0.5
+            }) && !road.points.iter().any(|q| q.dist(p) < r)
+        });
+        self.roads.len() != before
+    }
+}
+
+/// A gently winding line from `a` to `b`: a point every ~10 units, pushed sideways by noise,
+/// with the ends where they were. Uses only `+ - * /` and libm-free noise, so it is the same on
+/// every machine (not that it matters: roads are visual).
+pub fn winding(a: V2, b: V2, wobble: f32, seed: u64) -> Vec<V2> {
+    let d = a.dist(b);
+    let steps = ((d / 10.0).ceil() as usize).max(1);
+    let side = (b - a).perp().norm();
+    (0..=steps)
+        .map(|i| {
+            let t = i as f32 / steps as f32;
+            let w = (noise(t * d / 40.0, 3.7, seed) - 0.5) * 2.0 * wobble * (t * (1.0 - t) * 4.0).min(1.0);
+            a + (b - a) * t + side * w
+        })
+        .collect()
+}
+
+/// Road line format in map.json: "kind width x z x z ...".
+pub fn road_line(r: &Road) -> String {
+    let mut s = format!("{} {:.2}", r.kind, r.width);
+    for p in &r.points {
+        s += &format!(" {:.2} {:.2}", p.x, p.y);
+    }
+    s
+}
+
+pub fn parse_road(line: &str) -> Result<Road, String> {
+    let mut it = line.split_whitespace();
+    let kind = it.next().unwrap_or("").to_string();
+    let v: Vec<f32> = it.filter_map(|x| x.parse().ok()).collect();
+    if kind.is_empty() || v.len() < 5 || v.len() % 2 == 0 || !v.iter().all(|x| x.is_finite()) {
+        return Err(format!("map.json: bad road line '{line}'"));
+    }
+    Ok(Road { kind, width: v[0], points: v[1..].chunks(2).map(|c| v2(c[0], c[1])).collect() })
+}

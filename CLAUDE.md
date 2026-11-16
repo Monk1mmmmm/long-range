@@ -36,11 +36,12 @@ cargo run -- --selftest           # headless 4-AI match, prints economy/tier sta
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
 cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
+cargo run -- --ground out.png     # every ground texture in one picture, plus table vs measured average colours
 cargo run --bin lr-editor         # map editor
-cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS]   # generated map with towns, trees, rocks -> assets/maps
+cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky)
 cargo run --bin lr-editor -- --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
-.venv/bin/python tools/convert_assets.py "<mod folder>"   # re-import models/textures/portraits from the mod
+.venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
@@ -51,7 +52,9 @@ python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stat
 Debug environment variables: `LR_SPEED=8` (fast-forward a hosted game), `LR_WATCH=1` (an AI also plays the local
 slot), `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmish`), `LR_DUEL=1` (stages a tank
 fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED=n` (another map and AI seed
-for `--selftest`: one game proves little, compare a few).
+for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
+unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
+(screenshot of a running game after `secs` of game time, then quit).
 
 ### Testing the window without a desktop
 
@@ -84,7 +87,12 @@ OpenGL needs `synchronous_pipeline_compilation` (background pipeline compiles pa
 context") and its failing SSAO shader arrives as an `Internal` error, which the handler tolerates like validation
 errors; `settings::log_plugin` mutes the per-frame `wgpu_hal::gles` heuristics spam.
 The Windows exe can be run straight from WSL (`dist/.../longrange.exe --skirmish`, console output is captured).
-Render errors go to `render-errors.log` and the settings window. Overrides: `LR_BACKEND`, `LR_RENDERER=full`.
+Render errors go to `render-errors.log` and the settings window. Everything logged also goes to `longrange.log` /
+`lr-editor.log` next to `settings.json` (the previous run's as `*-previous.log`), panics with a backtrace:
+read those first when the user reports a crash.
+Alt+Tab minimises the window; Bevy then resized the swap chain to 1x1 and DX12's `ResizeBuffers` failed ("window is in
+use", "Invalid surface"), losing the surface. `settings::keep_surface` (render world, before `create_surfaces`) keeps the
+old size while minimised and retries configuring about once a second after a failed configure. Overrides: `LR_BACKEND`, `LR_RENDERER=full`.
 Wine's DX12 (vkd3d) panics inside wgpu's format query (`wgpu-hal dx12/adapter.rs`, CheckFeatureSupport) no matter
 what we do; test Windows builds under Wine with `LR_BACKEND=vulkan`.
 Linux OpenGL (`settings::linux_gl`): Bevy 0.20 makes the wgpu instance without a display handle, so EGL is
@@ -94,6 +102,8 @@ Linux OpenGL (`settings::linux_gl`): Bevy 0.20 makes the wgpu instance without a
 this path with Mesa's d3d12 driver (`GALLIUM_DRIVER=d3d12` and `MESA_EXTENSION_OVERRIDE=+GL_EXT_texture_shadow_lod`
 are set in-process; without the extension every PBR shader fails: black 3D view). WSL's Vulkan is llvmpipe:
 seconds-long frames, and WSLg's Wayland compositor then drops the window ("Broken pipe").
+wgpu's OpenGL backend makes 2D textures of 6, 12... array layers cube maps: a texture array with such a layer
+count samples black (the ground layer array is padded, `view::surface::albedo_image`).
 Never replace the camera `Projection` wholesale each frame: it resets `aspect_ratio` and frustum culling then
 drops terrain at the screen sides (edit `fov/near/far` in place).
 
@@ -121,6 +131,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
     `map.blocked` around it and tells the view which chunks to rebuild. Writing `map.heights` directly
     desyncs rollback, joining and the state hash.
 - The AI runs on the host only; its commands reach clients inside the turns.
+- A player who leaves resigns (`Command::Resign`) and the game goes on. When the host leaves (connection closed, or
+  silent for `HOST_SILENT_SECS`), the remaining humans take over (host migration, `main.rs::take_over`): the host
+  sends `S2C::Peers` (human players + addresses) at the start and whenever someone leaves; the lowest-numbered
+  remaining human becomes host from its last confirmed state (AIs restart, the old host's player resigns), the others
+  reconnect with `C2S::Rejoin` and get the full state; the game waits up to `REJOIN_WAIT_SECS` for them.
 - Units refer to each other by network id (`u32`), never by `Entity`.
 - ECS layout: one entity per unit with `Unit`, `Body`, `Health`, `Orders`, `Intel` plus optional `Weapons`,
   `Builder`, `Factory`, `Mover`, marker/state components `UnderConstruction`, `Upgrading`,
@@ -141,7 +156,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   with hotbuild keys chosen by unit role in `hud::hot_key`.
 - Releases: `scripts/release.sh` / `release.ps1` make two archives per platform in `dist/` (game + assets,
   editor + assets) and publish them with `gh`. They first delete everything else in `dist/` (older versions).
-  The user commits and pushes themselves; do not commit, push or publish without being asked.
+  Commit every finished incremental change right away (one commit per change, short message saying what it does),
+  so several sessions working in this tree at once do not pile up one big uncommitted diff. Stage only the files
+  you changed (`git add <paths>`, never `git add -A` / `.`): other sessions' work may be uncommitted in the same tree.
+  Do not push, tag or publish a release without being asked.
 
 ## Source map
 
@@ -149,6 +167,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 |---|---|
 | `src/data.rs` | JSON schema (`UnitDef`, `WeaponDef`, `Rules`...), `DataPack` (file texts, presets on disk, assets sent along), loading, validation, data hash |
 | `src/map.rs` | `V2`/`V3`, heightmap `MapData`, generator, save/load, line of sight, raycast, A* |
+| `src/surface.rs` | ground texture data (view only): layer kinds (`KINDS`), layers + masks, biomes and `paint_ground`, roads (raster, keeping trees off them) |
+| `src/view/surface.rs`, `surface.wesl` | the terrain material (`ExtendedMaterial` with our WESL fragment shader): procedural layer textures with mips, mask/road/scorch textures, `SurfaceView::burn`, `Tint` (average colours for minimap/preview/apron) |
 | `src/sim/mod.rs` | components, resources, `Order`/`Command`, spawning, `Ground` (changed terrain), control point placement, state save/restore |
 | `src/sim/systems.rs` | tick systems: commands, visibility, economy, orders (`think`), factories, build, movement, transports (`carry`), weapons, projectiles, reclaim, capture, deaths, craters/terraform (`apply_ground`), control points, victory |
 | `src/ai.rs` | skirmish AI and formation assignment |
@@ -190,7 +210,22 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `near_sight` (6: always seen within it). The lobby lists those switched off (`Rules::switched_off`).
   A new rule needs a `Field` in `preset_form.rs` too, or it only shows in the JSON view.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
-  over terrain (`map.los`). Vision needs it too and is also blocked by standing trees, rocks and wrecks
+  over terrain (`map.los`).
+- **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; the three troopers: 140, 20 deg):
+  a narrow view cone on top of the round `vision`, same line-of-sight rules. `systems::aim_binoculars` (inside
+  `visibility`) keeps its direction and target in `Intel.look` / `Intel.lock` (snapshotted): it follows the
+  locked enemy while it is in range and known to the team, else takes the best known mobile enemy in range
+  (radar-only contacts first, ground before air, nearest), else scans to and fro +-`scan` around the body's
+  facing at half the turn rate (all round from a garrison roof). Fog view: `FogGrid.cone` (`covered_cone`);
+  the HUD draws the cone of selected units (brighter while locked). `--combattest` checks scan, lock and tracking
+  (alone: `LR_TEST=binoculars`).
+- **Radar levels and stealth**: a unit has up to three radar ranges, `radar` (level 1), `radar2`, `radar3`, and a
+  `stealth` level 0-3 (`radar_stealth: true` is the old form of 3). Radar of level L finds stealth below L, so a
+  unit of stealth s shows within `UnitDef::radar_vs(s)` = the largest range of the levels above s; stealth 3
+  (infantry) never shows. T2 aircraft (Harrier, Hornet, Stork, Swift) are stealth 1, the Delivery Boy 2. Radar
+  towers T1 160 / T2 250+160 / T3 360+250+150 (upgrade in place, U), mobile radars UC-01R/02R/03R; build cost
+  rises ~4x and upkeep ~3x per tier. The Skyspear SAM's own radar is level 2. Rings are drawn per level
+  (blue, violet, orange); the fog shows the furthest reach. `--combattest` prints the radar-vs-stealth matrix. Vision needs it too and is also blocked by standing trees, rocks and wrecks
   (`sim::sight_block`: per-cell blocker height, `map.los_blocked`; the end cells never block). Within 6
   units everything is seen. The fog view (`intel.rs`) uses the same blockers.
 - **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
@@ -216,7 +251,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   its share of the damage: `features[].cover` (default by shape: pine 0.3, broadleaf 0.35, bush 0.15, rock
   0.65) or `rules.wreck_cover`; the shot flies on with the rest. Cover within `rules.cover_grace` of the shooter
   (`Projectile.from`) does not count, so units fire out from behind their own. Cover wears away under fire.
-- **Infantry** (`"categories": ["infantry"]`, `UnitDef::is_infantry`: Trooper, Flak/AT/SAM Trooper): idle or
+- **Infantry** (`"categories": ["infantry"]`, `UnitDef::is_infantry`: Trooper, AT/SAM Trooper): idle or
   engaged on attack-move/patrol, `think` sends them to `cover_spot`, behind the nearest tree/rock/wreck (at
   least 0.7 tall) on the far side from the closest known armed enemy within `cover_threat_range`, within
   `cover_search` of `Mover.anchor` (0.6x of it around themselves when fighting). Re-chosen every 5 ticks and
@@ -224,23 +259,38 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Garrisons**: a structure with a `transport` block (`UnitDef::is_garrison`; most civilian houses, civic and
   industrial buildings, the bunker) takes infantry only (`Order::Load(building)`, right-click a neutral or own
   building). Riders keep `Hosted`, can't be targeted, fire from the roof (`weapons` takes hosted riders of a
-  garrison, origin at the building's top) and see from it (`visibility`, `intel.rs`). `systems::garrisons`
+  garrison, origin at the building's top) and see from it (`visibility`, `intel.rs`), with vision and binocular
+  range x `rules.garrison_vision` (1.3). Every hit on the building also costs each rider
+  `rules.garrison_damage` (0.04) x the raw damage, their armor applied (`deaths`). `systems::garrisons`
   gives a map building to the owner of its lowest-id rider and back to `NEUTRAL` when empty (playable
   factions' buildings and `HOSTILE` ones keep their owner); garrisonable buildings can't be captured.
   `Unload` from a building sets them down at its side and walks them to the spot. When the building dies,
   `deaths` throws them out with `rules.garrison_eject_damage` x max hp damage (none if reclaimed);
   riders of a mobile transport still die with it.
+  **Storming**: `Order::Load` on a building enemy infantry hold (right-click it with infantry selected; `hud::Frame::stormers`)
+  sends infantry with `assault` > 0 (unit JSON: close-quarters dps; Trooper 10, AT 3, SAM 2.5) to its door, where `think`
+  queues them in `Effects.assault` and `systems::assaults` trades damage: attackers' summed assault -> the lowest-id
+  defender, defenders' summed assault x `rules.garrison_defense` (1.25) -> the lowest-id attacker. Defenders of a stormed
+  building (`Effects.stormed`) do not fire out. When nobody is left inside, `may_board` lets them in (a map building
+  whose riders all died counts as empty before `garrisons` makes it neutral); an emptied enemy bunker (playable
+  faction) or `HOSTILE` building keeps its owner and cannot be entered. Riders now die inside at hp <= 0 (no wreck);
+  death blasts skip hosted units. Results: `--combattest` "Storm" lines (1 trooper beats 1 AT inside, an even trooper fight goes to the defender).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Overtaker/Pike/MBFAG/
   radar car, T2 Crony/Dragoon/Robin/Sparky, T3 Bohdana. Change `tier` in JSON to move a unit.
-  Our own additions (not in the mod; they reuse the trooper model): T1 Flak Trooper (AA gun), T2 AT Trooper
-  (guided missile) and SAM Trooper (homing AA missile).
+  Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
+  SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (box models), UC-02R/03R mobile radars
+  (radar car mesh scaled up with box dishes), T2 Swift fast assault transport (box model, 2x Stork speed, 4 slots). T3 Cyclone-H interceptor (interceptor mesh, stealth 2, own
+  T3 radar 80 so it finds stealthed aircraft) and T3 DA3 Railgun Battery (AA turret mesh scaled up, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
 - **Energy stall**: upkeep and construction share energy proportionally (`build_progress`, `Player.power`);
   pumps produce at that fraction, radars cut out below 0.5. `Paused` (Tab / `Command::Pause`) switches a
   unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
   dead-locked a base whose upkeep exceeded income.
 - **Engineering station** (`build.station`): immobile builder that assists anything in range by itself.
+- **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5): the weapon fires only while its unit has no movement goal
+  and is stopped, and each shot sets `Mover.hold`, during which `locomotion` keeps the land/hover unit in place
+  (a move order given meanwhile starts when the hold runs out).
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
 - **Lobby**: players on the left; on the right the map preview (`terrain::map_preview`, start numbers drawn
@@ -252,7 +302,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Model scale**: JSON `scale` = the blueprint's `UniformScale` for stock SupCom models (factories,
   storages, pumps, air, engineers...). The mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) and the box-model
-  APC/air transport are 2.5x that, with sizes and footprints to match. Civilian map buildings were doubled
+  APC are 2.5x that, with sizes and footprints to match. Civilian map buildings were doubled
   on request (Mining Town 5x, stock UEF civilian 2x; box models, sizes and footprints too: a house takes 2x2
   cells). Towns are dense: one free cell (a street ~1.5 tanks wide) between footprints, never touching
   (footprints block movement) - the editor's `add_settlements` packs lots nearest the town centre, `osm_map.py`
@@ -278,6 +328,23 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Drawing: per-chunk meshes rebuilt on change; Bevy's CPU frustum culling skips off-screen chunks
   (bounds are recomputed when a mesh changes); the fog texture's RGB carries the fog brightness for them.
   Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.
+- **Ground textures** (`surface.rs`, purely visual, never in the sim or its hash): SupCom-style strata. `MapData.layers`
+  (kind + tile size; at most 9), layer 0 covers the map, each further layer is drawn over the ones below by its mask
+  (`MapData.masks`, one byte per cell per layer, saved as `layerN.png`). The shader blends with the textures' height
+  (alpha), a broad noise wobble and a smooth (quintic) mask step, so borders are ragged, not cell-shaped; it also
+  takes a little relief from the height. Textures: `KINDS` (grass, meadow, forest floor, dirt, mud, sand, desert sand,
+  cracked earth, snow, ice, stone, gravel, paving, asphalt, dirt track), made in code (`view::surface::texel`) unless
+  `assets/textures/terrain/<kind>.png` exists (alpha or brightness = height). Keep big blotches out of a texture:
+  they show its tiling. `KINDS.color` must match the texture's average (`--ground` prints both): the minimap, lobby
+  picture and the land beyond the border use it. Maps saved without layers are painted at load
+  (`paint_ground(Temperate)`); random maps get a biome (lobby "Terrain": random from the seed, or chosen) and dirt
+  tracks along the lanes. **Roads** (`MapData.roads`: kind, width, points; map.json lines "kind width x z x z ...",
+  at most 4 kinds per map) are a distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; trees and
+  rocks are kept off them (`scatter_features`, `clear_features_on_roads`). **Scorch**: blasts and deaths near the
+  ground darken a view-side map (`SurfaceView::burn` from `fx::spawn_fx`, also unseen ones), permanent, lost when the
+  view restarts. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
+  selected layer, right removes it, on layer 0 it clears all layers above; Road tool: left adds points, right finishes
+  or deletes the road under the pointer). `--generate` towns get paving/gravel around the buildings and asphalt roads.
 - **Terrain**: ground hits of `crater_min_damage` or more dig craters; `Order::Terraform {pos, radius, height}`
   moves the circle towards `height` for energy. Vertices under buildings and on the map border are locked.
   Craters are limited so they never block a cell or dig below the water (`sim::dig_crater`), which keeps
@@ -291,7 +358,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
 - **Selection**: a box takes fighting units first, then builders (`build` present), then buildings.
 - **Selection sounds**: `view::sound::select_sound` picks by role, `"select_sound"` in the unit JSON overrides.
-- Bohdana was nerfed on request: 4500 mass / 40000 energy, 40 s reload, 3 s aim, 10 deg/s traverse.
+- Bohdana was nerfed on request: 40 s reload, 3 s aim, 10 deg/s traverse, 5 s hold; its cost was later cut
+  from 4500 mass / 40000 energy to 1400 / 12000 (build time 4000).
 - Mobile speeds are roughly 1.25x the mod's values (user asked for slightly quicker units).
 
 ## Data files
@@ -303,7 +371,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - `assets/data/factions/coalition.json` - the playable faction (the mod roster).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
-- `assets/maps/<name>/map.json` + `height.png` (16-bit) - premade maps; `props` are pre-placed neutral
+- `assets/maps/<name>/map.json` + `height.png` (16-bit) + `layerN.png` (8-bit ground layer masks) - premade maps; `props` are pre-placed neutral
   (owner 0) or hostile (owner 1) units of any faction.
 - Host and clients play with identical data: a client whose data hash differs gets the host's `DataPack`
   (and asset files the built-in data does not refer to) with `S2C::Start`.
@@ -313,9 +381,20 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 `tools/convert_assets.py` reads the mod's `.scm` models (`tools/scm.py`) and `.bp` blueprints (`tools/bp.py`)
 and writes `assets/models/<name>.glb` (one node per bone, so turret/barrel bones named in the weapon's
 `turret` block can be rotated), `<name>_albedo.png`, `<name>_team.png` (team mask from SpecTeam alpha),
-`<name>_normal.png`, and `assets/icons/units/<name>.png` portraits. The mod ships no commander, radar tower or
-transport model: the commander reuses the trooper mesh at 3x scale; the radar tower, the APC and the
-transport aircraft are JSON box models.
+`<name>_normal.png`, and `assets/icons/units/<name>.png` portraits. The blueprint's `.sca` animations (`tools/sca.py`,
+table `ANIMS`) become named glTF animations, times divided by the blueprint's rate; only bones that move get tracks.
+`models::AnimKind` (one per name, in precedence order) says what plays each, `view::drive_anims` drives the unit's
+`Animator` from sim state, `AnimPart::pose` picks the first playing animation per part, `animate_parts` layers
+turret aim on top: `walk` (trooper; cycles with ground speed at the mod's rate at full speed, slower where feet would
+slide - the commander - backwards when reversing), `upgrade` (factories, pumps: follows `Upgrading` progress),
+`work` (pumps: loops at the owner's `power`, frozen when paused), `open` (engineers: folded = first frame when idle,
+unfold while `Builder.work`), `doors` (eng station: open to the middle while working, then on to the end), `unpack`
+(Bohdana: target and standing), `land` (Stork: legs out when hovering still, folded when flying - it never lands),
+`water` (engineers, Sparky: ground under them below the water level), `rolloff` (air factory platform: out, hold,
+back when `Factory.building` changes; SupCom only does it for land units). `models::tests` loads every GLB.
+Wrecks (`spawn_model` with a wreck material) get no animated, aimed or spinning parts: rest pose, still.
+The mod ships no commander or radar tower model: the commander reuses the trooper mesh at 3x scale; the radar tower
+and the APC are JSON box models. The Stork uses the mod's hooked stock UEF transport (UEA0104, blueprint scale).
 
 ## Not done yet / ideas
 
@@ -324,8 +403,8 @@ transport aircraft are JSON box models.
 - The hostile side only holds positions; it has no AI.
 - The AI does not use scavengers, transports, terraforming or garrisons (its infantry do take cover). Maps cannot place their own control points.
 - The minimap picture and the cached fog/radar shadows do not follow craters and terraforming; the
-  minimap does not show trees and rocks.
+  minimap does not show trees and rocks or scorch marks. Ground layers do not change with craters (only scorch).
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
-  is not cheat-proof. No reconnect or joining a running game yet (the full-state message would allow it).
+  is not cheat-proof. A player who left cannot come back (only rejoining a new host after host migration exists).
 - Mispredicted effects are not undone: a muzzle flash or explosion the rollback corrected away has still been shown.
 - Balance numbers are first-pass.

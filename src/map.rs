@@ -256,6 +256,16 @@ pub struct MapData {
     /// Trees and rocks. Their index (plus `sim::FEATURE_ID0`) is their id in the game.
     pub features: Vec<Feature>,
     pub seed: u64,
+    /// Ground texture layers (`surface::Layer`): layer 0 covers the map, each further one is drawn
+    /// over the ones below by its mask. Maps saved without layers are painted at load.
+    #[serde(default)]
+    pub layers: Vec<crate::surface::Layer>,
+    /// Masks of layers 1.., one byte per cell, layer after layer (`(layers.len() - 1) * n * n`).
+    #[serde(default)]
+    pub masks: Vec<u8>,
+    /// Roads: purely visual lines on the ground.
+    #[serde(default)]
+    pub roads: Vec<crate::surface::Road>,
     /// Terrain passability per cell (1 = blocked). Derived, see `rebuild_blocked`.
     #[serde(skip)]
     pub blocked: Vec<u8>,
@@ -277,6 +287,12 @@ struct MapFile {
     /// One line per tree or rock: "kind x z yaw scale".
     #[serde(default)]
     features: Vec<String>,
+    /// Ground texture layers; their masks are `layer1.png`, `layer2.png`... (8-bit, one pixel per cell).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    layers: Vec<crate::surface::Layer>,
+    /// One line per road: "kind width x z x z ...".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    roads: Vec<String>,
 }
 
 impl MapData {
@@ -508,8 +524,21 @@ impl MapData {
                 heights[y * (n + 1) + x] = h * (0.6 + 0.4 * edge);
             }
         }
-        let mut m = MapData { name: format!("Random {seed}"), n, heights, water: 0.0, deposits: vec![], starts, props: vec![], feature_kinds: vec![], features: vec![], seed, blocked: vec![] };
+        let mut m = MapData { name: format!("Random {seed}"), n, heights, water: 0.0, deposits: vec![], starts, seed, ..Default::default() };
         m.rebuild_blocked();
+        // Dirt tracks along the open lanes, rotated like everything else (visual only).
+        for k in 0..kk {
+            let road = |a: V2, b: V2, salt: u64| crate::surface::Road { kind: "dirt_road".into(), width: 3.5, points: crate::surface::winding(a, b, 6.0, seed ^ salt) };
+            let lanes = [road(start0, c, 0x51), road(start0, rot(start0, 1), 0x52)];
+            for (i, l) in lanes.into_iter().enumerate() {
+                // With two players the lane between the starts runs through the centre: the two
+                // centre lanes already are it.
+                if kk == 2 && i == 1 {
+                    continue;
+                }
+                m.roads.push(crate::surface::Road { points: l.points.iter().map(|p| rot(*p, k)).collect(), ..l });
+            }
+        }
         // Deposits: four by each start, the rest scattered in one quadrant and rotated.
         let mut q: Vec<V2> = vec![];
         for (dx, dy) in [(7.0, 3.0), (-3.0, 7.0), (-7.0, -5.0), (5.0, -7.0)] {
@@ -546,6 +575,7 @@ impl MapData {
                 }
             }
         }
+        m.paint_ground(crate::surface::Biome::from_seed(seed));
         m
     }
 
@@ -616,12 +646,14 @@ impl MapData {
             true
         };
         let foots: Vec<(V2, f32)> = self.props.iter().map(|p| (p.pos, 6.0)).collect();
+        // Roads stay clear (cells within a crown's reach of the edge).
+        let on_road = self.road_cells(1.2);
         let ok_spot = |m: &MapData, p: V2, r: f32| -> bool {
             if p.x < 3.0 || p.y < 3.0 || p.x > w - 3.0 || p.y > w - 3.0 {
                 return false;
             }
             let (cx, cy) = m.cell_of(p);
-            if !m.inside(cx, cy) || m.blocked[cy as usize * m.n + cx as usize] != 0 || m.h(p) < m.water + 0.4 {
+            if !m.inside(cx, cy) || m.blocked[cy as usize * m.n + cx as usize] != 0 || on_road[cy as usize * m.n + cx as usize] || m.h(p) < m.water + 0.4 {
                 return false;
             }
             !m.starts.iter().any(|s| s.dist(p) < 26.0) && !m.deposits.iter().any(|d| d.dist(p) < 3.5 + r) && !foots.iter().any(|(q, fr)| q.dist(p) < fr + r)
@@ -697,7 +729,23 @@ impl MapData {
             props: self.props.clone(),
             seed: self.seed,
             features: self.features.iter().map(|f| format!("{} {:.2} {:.2} {:.2} {:.2}", self.feature_kinds.get(f.kind as usize).map_or("?", |k| k.as_str()), f.pos.x, f.pos.y, f.yaw, f.scale)).collect(),
+            layers: self.layers.clone(),
+            roads: self.roads.iter().map(crate::surface::road_line).collect(),
         };
+        let len = self.mask_len();
+        for i in 1..crate::surface::MAX_LAYERS {
+            let file = dir.join(format!("layer{i}.png"));
+            match self.masks.get((i - 1) * len..i * len) {
+                Some(px) if i < self.layers.len() => {
+                    let img = image::GrayImage::from_raw(self.n as u32, self.n as u32, px.to_vec()).ok_or("bad mask size")?;
+                    img.save(&file).map_err(|e| e.to_string())?;
+                }
+                // A layer that is gone leaves no stale mask behind.
+                _ => {
+                    let _ = std::fs::remove_file(&file);
+                }
+            }
+        }
         let text = serde_json::to_string_pretty(&f).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("map.json"), text).map_err(|e| e.to_string())
     }
@@ -711,7 +759,24 @@ impl MapData {
             return Err(format!("height.png must be {side}x{side} pixels for a map of {} cells", f.n));
         }
         let heights = img.as_raw().iter().map(|v| f.min_height + (*v as f32 / 65535.0) * (f.max_height - f.min_height)).collect();
-        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, props: f.props, seed: f.seed, ..Default::default() };
+        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
+        for line in &f.roads {
+            m.roads.push(crate::surface::parse_road(line)?);
+        }
+        m.layers.truncate(crate::surface::MAX_LAYERS);
+        let len = m.mask_len();
+        for i in 1..m.layers.len() {
+            // A missing mask is an empty one.
+            let mut px = vec![0u8; len];
+            if let Ok(img) = image::open(dir.join(format!("layer{i}.png"))) {
+                let img = img.into_luma8();
+                if img.width() as usize != m.n || img.height() as usize != m.n {
+                    return Err(format!("layer{i}.png must be {0}x{0} pixels", m.n));
+                }
+                px.copy_from_slice(img.as_raw());
+            }
+            m.masks.extend_from_slice(&px);
+        }
         for line in &f.features {
             let mut it = line.split_whitespace();
             let kind = it.next().unwrap_or("");
@@ -723,6 +788,10 @@ impl MapData {
             m.features.push(Feature { kind: k, pos: v2(v[0], v[1]), yaw: v.get(2).copied().unwrap_or(0.0), scale: v.get(3).copied().unwrap_or(1.0) });
         }
         m.rebuild_blocked();
+        if m.layers.is_empty() {
+            // Saved before ground textures existed: grass, sand, mud and stone as the old colours had them.
+            m.paint_ground(crate::surface::Biome::Temperate);
+        }
         Ok(m)
     }
 

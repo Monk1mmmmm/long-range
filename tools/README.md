@@ -5,14 +5,15 @@ They need Python 3 with `numpy` and `Pillow` (`pip install numpy pillow`). Run t
 
 ## convert_assets.py - models, textures, portraits
 
-    python3 tools/convert_assets.py "<path to the LongRangeTank mod folder>"
+    python3 tools/convert_assets.py "<path to the LongRangeTank mod folder>" [--only trooper,buggy]
 
+`--only` converts just the named entries (and writes `tools/out/models_info.json` for those only).
 For every entry in the `UNITS` table at the top of the script (asset name -> unit folder inside the mod) it
 reads the unit's `*_LOD0.scm` model and its DDS textures and writes:
 
 | Output | From | Notes |
 |---|---|---|
-| `assets/models/<name>.glb` | `*_LOD0.scm` | geometry only; one glTF node per SCM bone, same names and hierarchy |
+| `assets/models/<name>.glb` | `*_LOD0.scm`, the blueprint's `.sca` files | one glTF node per SCM bone, same names and hierarchy; the blueprint's animations (read by `tools/sca.py`, table `ANIMS`: walk, upgrade, open, work, doors, unpack, land, water, rolloff) as named glTF animations, times / the blueprint's rate, tracks only for bones that move |
 | `assets/models/<name>_albedo.png` | `*_Albedo.dds` | resized to at most 512 px |
 | `assets/models/<name>_team.png` | alpha of `*_SpecTeam.dds` | greyscale mask of the team-coloured areas |
 | `assets/models/<name>_normal.png` | `*_NormalsTS.dds` | converted from SupCom's packed format to a normal RGB map |
@@ -80,6 +81,8 @@ The rectangle is in degrees: on openstreetmap.org, *Export* shows the box of the
 | OSM rocks, bare rock; steep or high forest ground | stones, rocks, boulders |
 | OSM water towers, towers/masts, power pylons | `water_tower`, `comm_tower`, `pylon` |
 | highest hilltop away from the bases | neutral comm tower + three hostile bunkers |
+| OSM highways (`highway=*` up to service roads and tracks; tunnels left out) | roads: asphalt, gravel or dirt track by `surface`, drawn wider than true scale (`ROAD_WIDTH`); trees and rocks keep off them, buildings off the main roads (tertiary and up) |
+| OSM fields/meadows, forests, farmyards and construction, industry/commerce, built-up blocks, sand, water, rock + steep slopes | ground texture layers (`layerN.png`): meadow, forest floor, dirt, gravel, paving, sand, mud, stone over grass |
 
 Start positions (`--players`, default 4: corners) are searched in open, flat ground at equal distance from the
 centre and levelled; `--starts "x,z;x,z"` sets them by hand (world units, from the preview). Every start gets
@@ -88,7 +91,7 @@ the same deposits at the same offsets turned towards the centre, plus a ring of 
 Water is not flooded (the game has one water level for the whole map); lakes stay free of trees and buildings.
 
 Downloads are cached in `tools/out/osm_cache` (delete the files to fetch fresh data); the Overpass servers are
-sometimes busy, the script retries. It writes a check picture `tools/out/NAME_preview.png`: terrain, trees
+sometimes busy, the script retries. It writes a check picture `tools/out/NAME_preview.png`: terrain, roads, trees
 (green), rocks (white), buildings (red), hostile (magenta), deposits (cyan), starts (yellow).
 Data: (c) OpenStreetMap contributors (ODbL); elevation: Mapzen / AWS Terrain Tiles.
 

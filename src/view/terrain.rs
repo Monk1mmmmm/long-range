@@ -1,7 +1,6 @@
 //! Static scene: heightmap terrain chunks, water, deposits, fog-of-war overlay, sun and camera.
 use crate::map::*;
 use bevy::asset::RenderAssetUsages;
-use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
@@ -104,27 +103,19 @@ pub fn terrain_sync(
     }
 }
 
-/// Terrain colour by height, slope and a little noise.
-pub fn terrain_color(map: &MapData, x: f32, z: f32) -> [f32; 3] {
-    let h = map.height(x, z);
-    let nrm = map.normal(x, z);
-    let slope = 1.0 - nrm.y;
+/// Brightness variation of the ground over tens of units (vertex colour; the textures come from
+/// the surface material, see `surface.rs`).
+fn ground_tint(map: &MapData, x: f32, z: f32) -> f32 {
     let n1 = noise(x * 0.09, z * 0.09, map.seed ^ 5);
     let n2 = noise(x * 0.5, z * 0.5, map.seed ^ 9);
-    let dry = noise(x * 0.02, z * 0.02, map.seed ^ 21);
-    let k = 0.82 + 0.2 * n1 + 0.1 * n2;
-    let grass = [(0.24 + 0.22 * dry) * k, (0.42 + 0.04 * dry) * k, (0.14 + 0.04 * dry) * k];
-    let rock = [0.36 * k, 0.33 * k, 0.30 * k];
-    let sand = [0.52 * k, 0.46 * k, 0.33 * k];
-    let mud = [0.20 * k, 0.19 * k, 0.15 * k];
-    let mix = |a: [f32; 3], b: [f32; 3], t: f32| [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-    let mut c = grass;
-    let shore = ((map.water + 0.9 - h) / 0.9).clamp(0.0, 1.0);
-    c = mix(c, sand, shore);
-    c = mix(c, mud, ((map.water - 0.2 - h) / 1.5).clamp(0.0, 1.0));
-    c = mix(c, rock, ((slope - 0.10) / 0.16).clamp(0.0, 1.0));
-    // High ground gets paler.
-    mix(c, [0.45, 0.44, 0.40], ((h - 9.0) / 10.0).clamp(0.0, 0.6))
+    0.88 + 0.16 * n1 + 0.06 * n2
+}
+
+/// Colour of the ground without texture detail (minimap, lobby picture, land beyond the border).
+pub fn terrain_color(map: &MapData, tint: &super::surface::Tint, x: f32, z: f32) -> [f32; 3] {
+    let k = ground_tint(map, x, z);
+    let c = tint.color(map, x, z);
+    [c[0] * k, c[1] * k, c[2] * k]
 }
 
 fn chunk_mesh(map: &MapData, cx: usize, cy: usize) -> Mesh {
@@ -140,8 +131,8 @@ fn chunk_mesh(map: &MapData, cx: usize, cy: usize) -> Mesh {
             pos.push([wx, map.vertex(x, y), wz]);
             nrm.push(map.normal(wx, wz).to_array());
             uv.push([wx / 12.0, wz / 12.0]);
-            let c = terrain_color(map, wx, wz);
-            col.push([c[0], c[1], c[2], 1.0]);
+            let k = ground_tint(map, wx, wz);
+            col.push([k, k, k, 1.0]);
         }
     }
     let mut idx = Vec::with_capacity((w - 1) * (h - 1) * 6);
@@ -173,9 +164,10 @@ impl BlurLevels {
     fn new(map: &MapData, count: usize) -> Self {
         let n = map.n;
         let w = n + 1;
+        let tint = super::surface::Tint::new(map);
         let base: Vec<[f32; 4]> = (0..w * w)
             .map(|i| {
-                let c = terrain_color(map, (i % w) as f32 * CELL, (i / w) as f32 * CELL);
+                let c = terrain_color(map, &tint, (i % w) as f32 * CELL, (i / w) as f32 * CELL);
                 [map.heights[i], c[0], c[1], c[2]]
             })
             .collect();
@@ -293,13 +285,13 @@ fn apron_mesh(map: &MapData) -> Mesh {
             let h = |x: f32, z: f32| sample(x, z, d)[0];
             Vec3::new(h(x - e, z) - h(x + e, z), 2.0 * e, h(x, z - e) - h(x, z + e)).normalize()
         };
-        // No detail texture out here: match its average brightness (sRGB 175/255, 0.43 linear),
-        // then darken and grey it a little, and a light haze far out.
+        // No textures out here: the ground's average colours, darkened and greyed a little, and
+        // a light haze far out.
         let c = [s[1], s[2], s[3]];
         let grey = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
         let far = smooth(d / reach);
         let desat = 0.08 + 0.22 * far;
-        let dim = 0.43 * (0.97 - 0.22 * far);
+        let dim = 0.97 - 0.22 * far;
         let haze = 0.18 * far;
         let hz = [0.07, 0.085, 0.11];
         let out: [f32; 3] = std::array::from_fn(|i| {
@@ -367,37 +359,10 @@ fn apron_mesh(map: &MapData) -> Mesh {
     mesh
 }
 
-fn detail_texture() -> Image {
-    const S: usize = 256;
-    let mut data = Vec::with_capacity(S * S * 4);
-    for y in 0..S {
-        for x in 0..S {
-            // Tileable noise: blend four shifted samples.
-            let (fx, fy) = (x as f32 / S as f32, y as f32 / S as f32);
-            let f = |ox: f32, oy: f32| {
-                let (px, py) = ((fx + ox) * 24.0, (fy + oy) * 24.0);
-                noise(px, py, 11) * 0.5 + noise(px * 3.1, py * 3.1, 12) * 0.3 + noise(px * 8.0, py * 8.0, 13) * 0.2
-            };
-            let v = f(0.0, 0.0) * (1.0 - fx) * (1.0 - fy) + f(-1.0, 0.0) * fx * (1.0 - fy) + f(0.0, -1.0) * (1.0 - fx) * fy + f(-1.0, -1.0) * fx * fy;
-            let g = (95.0 + v * 160.0) as u8;
-            data.extend_from_slice(&[g, g, g, 255]);
-        }
-    }
-    let mut img = Image::new(Extent3d { width: S as u32, height: S as u32, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
-    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: ImageAddressMode::Repeat, address_mode_v: ImageAddressMode::Repeat, ..ImageSamplerDescriptor::linear() });
-    img
-}
-
 /// Spawns terrain, water, deposits and lighting for `map`. `with_fog` adds the fog-of-war layer.
 /// Returns the fog-of-war texture.
 pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, with_fog: bool) -> Handle<Image> {
     let world = map.world();
-    let ground = materials.add(StandardMaterial {
-        base_color_texture: Some(images.add(detail_texture())),
-        perceptual_roughness: 0.95,
-        reflectance: 0.15,
-        ..default()
-    });
     let n = map.n as u32;
     let fog_img = images.add(Image::new_fill(
         Extent3d { width: n, height: n, depth_or_array_layers: 1 },
@@ -422,14 +387,15 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     for cy in (0..map.n).step_by(CHUNK) {
         for cx in (0..map.n).step_by(CHUNK) {
             let mesh = meshes.add(chunk_mesh(map, cx, cy));
-            commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(ground.clone()), Transform::IDENTITY, TerrainChunk { cx, cy }, GameScene));
+            // The ground material (textures for this map) is added by `surface::surface_sync`.
+            commands.spawn((Mesh3d(mesh.clone()), Transform::IDENTITY, TerrainChunk { cx, cy }, GameScene));
             if with_fog {
                 commands.spawn((Mesh3d(mesh), MeshMaterial3d(fog_mat.clone()), Transform::from_xyz(0.0, 0.06, 0.0), NotShadowCaster, FogOverlay, GameScene));
             }
         }
     }
-    // Beyond the border: the map mirrored and blurred, sinking into the sea further out. No detail
-    // texture there, so it looks soft next to the playable ground.
+    // Beyond the border: the map mirrored and blurred, sinking into the sea further out. No
+    // textures there, so it looks soft next to the playable ground.
     let soft = materials.add(StandardMaterial { perceptual_roughness: 1.0, reflectance: 0.1, ..default() });
     commands.spawn((Mesh3d(meshes.add(apron_mesh(map))), MeshMaterial3d(soft), Transform::IDENTITY, NotShadowCaster, GameScene));
     // The map border as a dashed line (its width follows the camera, see `map_edge_sync`).
@@ -599,6 +565,12 @@ pub fn spawn_deposits(commands: &mut Commands, map: &MapData, meshes: &mut Asset
     }
 }
 
+/// The ground colour, brightened for the small pictures (they are drawn without lighting).
+fn picture_color(map: &MapData, tint: &super::surface::Tint, x: f32, z: f32) -> [f32; 3] {
+    let c = terrain_color(map, tint, x, z);
+    [c[0] * 1.9, c[1] * 1.9, c[2] * 1.9]
+}
+
 /// A square picture of a map for the lobby: terrain, water, forests (dark green), rocks (grey) and
 /// deposits (white), `side` x `side` RGBA pixels. Start positions are drawn on top by the lobby.
 pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<u8> {
@@ -606,10 +578,11 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
     let w = map.world().max(1.0);
     let k = w / side as f32;
     let mut px = vec![0f32; side * side * 3];
+    let tint = super::surface::Tint::new(map);
     for y in 0..side {
         for x in 0..side {
             let (wx, wz) = ((x as f32 + 0.5) * k, (y as f32 + 0.5) * k);
-            let mut c = terrain_color(map, wx, wz);
+            let mut c = picture_color(map, &tint, wx, wz);
             let h = map.height(wx, wz);
             if h < map.water {
                 let t = ((map.water - h) / 2.0).clamp(0.3, 1.0);
@@ -666,10 +639,11 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
 pub fn minimap_pixels(map: &MapData) -> Vec<u8> {
     let n = map.n;
     let mut out = Vec::with_capacity(n * n * 4);
+    let tint = super::surface::Tint::new(map);
     for y in 0..n {
         for x in 0..n {
             let (wx, wz) = ((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
-            let mut c = terrain_color(map, wx, wz);
+            let mut c = picture_color(map, &tint, wx, wz);
             let h = map.height(wx, wz);
             if h < map.water {
                 let k = ((map.water - h) / 2.0).clamp(0.3, 1.0);

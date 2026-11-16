@@ -174,11 +174,15 @@ pub struct Factory {
 pub struct Hosted(pub u32);
 
 /// Team bitmasks (bit = team number, up to 14 player teams plus neutral and hostile):
-/// who sees this unit, who has it on radar.
+/// who sees this unit, who has it on radar. Units with binoculars also keep where those look.
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug, Default)]
 pub struct Intel {
     pub seen: u16,
     pub radar: u16,
+    /// Direction of the binoculars (yaw, like `Body::yaw`).
+    pub look: f32,
+    /// The enemy the binoculars follow (0 = none: scanning).
+    pub lock: u32,
 }
 
 /// Switched off by the player: no construction work, no production, no upkeep, no radar.
@@ -205,6 +209,9 @@ pub struct Mover {
     /// few ticks, cleared by a new order).
     #[serde(default)]
     pub cover: Option<V2>,
+    /// Seconds left that the unit must stay put after firing a weapon with a `hold` (mortars).
+    #[serde(default)]
+    pub hold: f32,
 }
 
 /// A unit's wreck, or a piece of debris a building dropped (`piece` > 0).
@@ -622,6 +629,10 @@ pub struct Effects {
     pub terraform: Vec<(V2, f32, f32, f32, u8)>,
     /// Units taken aboard a transport this tick: (unit, transport).
     pub loaded: Vec<(u32, u32)>,
+    /// Infantry at the door of an enemy-held building this tick, fighting for it: (unit, building).
+    pub assault: Vec<(u32, u32)>,
+    /// Buildings being stormed this tick (their defenders do not fire out).
+    pub stormed: Vec<u32>,
     /// Reclaim work on trees and rocks this tick: (feature id, mass-equivalent amount, player).
     pub reclaim_feature: Vec<(u32, f32, u8)>,
 }
@@ -1069,7 +1080,7 @@ pub fn spawn_unit_built(commands: &mut Commands, defs: &Defs, game: &mut Game, m
     commands.queue(move |world: &mut World| {
         let e = claim(world, KIND_UNIT, id);
         let mut em = world.entity_mut(e);
-        em.insert((Unit { id, def, owner }, Body { pos, y, yaw, vel: v2(0.0, 0.0) }, Health(hp), Orders::default(), Intel { seen: 1 << team, radar: 1 << team }));
+        em.insert((Unit { id, def, owner }, Body { pos, y, yaw, vel: v2(0.0, 0.0) }, Health(hp), Orders::default(), Intel { seen: 1 << team, radar: 1 << team, look: yaw, lock: 0 }));
         put(&mut em, built.map(UnderConstruction));
         put(&mut em, None::<Upgrading>);
         put(&mut em, None::<Capture>);

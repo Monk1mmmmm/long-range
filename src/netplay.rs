@@ -113,13 +113,18 @@ pub struct ClientSim {
     pub rtt: f32,
     /// The host paused the game (by that player): the client shows the confirmed state and waits.
     pub paused: Option<u8>,
+    /// From `S2C::Peers`: the host's player, the other human players and their addresses, the
+    /// lobby's AI option. Decides who takes over when the host leaves.
+    pub host_player: Option<u8>,
+    pub peers: Vec<(u8, Option<std::net::IpAddr>)>,
+    pub ai_reclaim: bool,
 }
 
 impl ClientSim {
     /// `state` is the starting state, already loaded into the world (`join_game`).
     pub fn new(me: u8, state: Snapshot) -> ClientSim {
         let fx_high = state.game.tick;
-        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None }
+        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None, host_player: None, peers: vec![], ai_reclaim: true }
     }
 
     pub fn confirmed_tick(&self) -> u32 {
@@ -141,6 +146,12 @@ impl ClientSim {
                     self.lead = (((self.rtt + 30.0) / (DT * 1000.0)).ceil() as u32).clamp(1, MAX_LEAD);
                 }
                 Ok(S2C::Paused(p)) => self.paused = p,
+                Ok(S2C::Peers { host, mut peers, ai_reclaim }) => {
+                    peers.sort_by_key(|p| p.0);
+                    self.host_player = Some(host);
+                    self.peers = peers;
+                    self.ai_reclaim = ai_reclaim;
+                }
                 Ok(S2C::Kicked(why)) => return Err(why),
                 Ok(_) => {}
                 Err(_) => return Err("Protocol mismatch - are both players on the same version?".into()),
@@ -152,6 +163,20 @@ impl ClientSim {
             _ => {}
         }
         Ok(())
+    }
+
+    /// The host left. Turns of the old host still unread are dropped and so are own commands it
+    /// had not confirmed (the new host's state is what counts from now on; a new host sends it
+    /// as a full state). Returns the confirmed state, which is where a client taking over as
+    /// host carries on from.
+    pub fn host_lost(&mut self) -> &Snapshot {
+        self.turns.clear();
+        self.pending.clear();
+        self.resync = None;
+        self.paused = None;
+        self.rtt = 0.0;
+        self.lead = 1;
+        &self.confirmed
     }
 
     /// The local player's new commands: they take effect at the next shown tick. Returns what to send.

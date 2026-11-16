@@ -150,11 +150,13 @@ pub fn ai_system(
                 let extras: Vec<&&UnitDef> = opts
                     .iter()
                     .filter(|d| !d.is_factory() && !is_pump(d) && !is_power(d) && d.cost.mass < p.mass + p.income_m * 60.0)
+                    // Higher radars cost a lot to run: only when the income carries them.
+                    .filter(|d| d.eco.upkeep <= p.income_e * 0.2)
                     .filter(|d| count[d.idx as usize] < if d.armed() { 4 } else { 2 })
                     .collect();
                 if !extras.is_empty() {
                     let d = extras[ai.rng.below(extras.len())];
-                    let at = if d.armed() || d.radar > 0.0 { start + to_center * 20.0 } else { start - to_center * 4.0 };
+                    let at = if d.armed() || d.has_radar() { start + to_center * 20.0 } else { start - to_center * 4.0 };
                     choice = spot(ai, d.idx, at);
                 }
             }
@@ -214,7 +216,7 @@ pub fn ai_system(
             } else {
                 // Combat units, biased toward the higher tiers we can pay for.
                 let budget = p.mass + p.income_m * 120.0;
-                let pool: Vec<&&UnitDef> = opts.iter().filter(|d| !d.is_engineer() && !d.is_scavenger() && d.transport.is_none() && d.cost.mass <= budget.max(80.0)).collect();
+                let pool: Vec<&&UnitDef> = opts.iter().filter(|d| !d.is_engineer() && !d.is_scavenger() && d.transport.is_none() && d.cost.mass <= budget.max(80.0) && d.eco.upkeep <= p.income_e * 0.2).collect();
                 let weight = |d: &UnitDef| (d.tier as f32).powi(2) * if d.armed() { 3.0 } else { 0.6 };
                 let sum: f32 = pool.iter().map(|d| weight(d)).sum();
                 let mut roll = ai.rng.f() * sum;

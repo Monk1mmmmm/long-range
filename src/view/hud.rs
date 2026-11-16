@@ -90,6 +90,9 @@ struct Info {
     capture: Option<f32>,
     /// The factory or transport the unit is inside (0 = none).
     host: u32,
+    /// Binoculars: where they look, and the enemy they follow (0 = none).
+    look: f32,
+    lock: u32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -229,6 +232,14 @@ impl Frame<'_> {
     fn d(&self, id: DefId) -> &UnitDef {
         self.defs.get(id)
     }
+    /// Those of `units` that can storm `s`, a visible building with enemy infantry inside.
+    fn stormers(&self, units: &[&Info], s: &Seen) -> Vec<u32> {
+        let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.enemy && s.contact == Contact::Visible) else { return vec![] };
+        if !self.infos.values().any(|r| r.host == s.id && r.built.is_none()) {
+            return vec![];
+        }
+        units.iter().filter(|u| self.d(u.def).assault > 0.0 && rides_in(self.d(u.def), hd)).map(|u| u.id).collect()
+    }
 
     fn formation(&self, units: &[&Info], path: &[V2]) -> Vec<V2> {
         let n = units.len();
@@ -317,6 +328,11 @@ impl Frame<'_> {
         if let Some(h) = hover {
             let s = &self.seen[h];
             if s.enemy {
+                // A building enemy infantry hold: our infantry storm it.
+                let inf = self.stormers(&units, s);
+                if !inf.is_empty() {
+                    return Context::Load(inf, s.id);
+                }
                 return if s.contact == Contact::Stale { Context::AttackGround(s.pos) } else { Context::Attack(s.id) };
             } else if self.game.team_of(s.owner) != self.team {
                 // An empty building: infantry go in.
@@ -466,7 +482,7 @@ fn hot_key(d: &UnitDef) -> Option<KeyCode> {
                 K::Direct => KeyCode::KeyG,
             }
         })
-    } else if d.radar > 0.0 || d.vision >= 45.0 {
+    } else if d.has_radar() || d.vision >= 45.0 {
         Some(KeyCode::KeyV)
     } else {
         None
@@ -555,6 +571,55 @@ fn ring(g: &mut Gizmos, map: &MapData, c: V2, r: f32, col: Color) {
     g.linestrip((0..=n).map(pt), col);
 }
 
+/// A binocular view cone hugging the terrain; brighter while it follows an enemy.
+fn binocular_cone(g: &mut Gizmos, map: &MapData, c: V2, yaw: f32, angle: f32, r: f32, locked: bool) {
+    let col = if locked { Color::srgba(1.0, 0.85, 0.3, 0.8) } else { Color::srgba(0.95, 0.9, 0.6, 0.45) };
+    let at = |p: V2| {
+        let p = map.clamp(p);
+        p.at(map.h(p).max(map.water) + 0.25)
+    };
+    let steps = (r / 4.0).clamp(4.0, 80.0) as usize;
+    let arc = 12;
+    let a0 = yaw - angle * 0.5;
+    let mut pts: Vec<Vec3> = (0..=steps).map(|k| at(c + V2::from_angle(a0) * (r * k as f32 / steps as f32))).collect();
+    pts.extend((1..=arc).map(|k| at(c + V2::from_angle(a0 + angle * k as f32 / arc as f32) * r)));
+    pts.extend((0..steps).rev().map(|k| at(c + V2::from_angle(a0 + angle) * (r * k as f32 / steps as f32))));
+    g.linestrip(pts, col);
+}
+
+/// Radar range rings, one per radar level (blue, violet, orange for levels 1-3).
+fn radar_rings(g: &mut Gizmos, map: &MapData, c: V2, d: &UnitDef, alpha: f32) {
+    let cols = [(0.4, 0.7, 1.0), (0.75, 0.5, 1.0), (1.0, 0.6, 0.3)];
+    for (r, (cr, cg, cb)) in [d.radar, d.radar2, d.radar3].into_iter().zip(cols) {
+        if r > 0.0 {
+            ring(g, map, c, r, Color::srgba(cr, cg, cb, alpha));
+        }
+    }
+}
+
+/// "Radar 250 (T2 radar 160)": the range of each radar level it has.
+fn radar_text(d: &UnitDef) -> String {
+    let mut parts = vec![];
+    if d.radar > 0.0 {
+        parts.push(format!("Radar {:.0}", d.radar));
+    }
+    for (lvl, r) in [(2, d.radar2), (3, d.radar3)] {
+        if r > 0.0 {
+            parts.push(format!("T{lvl} radar {r:.0} (finds stealth {})", lvl - 1));
+        }
+    }
+    parts.join("   ")
+}
+
+fn stealth_text(stealth: u8) -> &'static str {
+    match stealth {
+        0 => "",
+        1 => "   Stealth 1: only T2+ radar finds it",
+        2 => "   Stealth 2: only T3 radar finds it",
+        _ => "   Invisible to radar",
+    }
+}
+
 fn ground_line(g: &mut Gizmos, map: &MapData, a: V2, b: V2, col: Color) {
     let n = ((a.dist(b) / 6.0).ceil() as usize).clamp(1, 60);
     g.linestrip(
@@ -615,6 +680,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 paused,
                 capture: cap.map(|c| c.progress),
                 host: host.map_or(0, |h| h.0),
+                look: intel.look,
+                lock: if own { intel.lock } else { 0 },
             },
         );
     }
@@ -908,9 +975,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         let sel = fr.selected(view);
                         let carriers: Vec<u32> = sel.iter().filter(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure()).map(|u| u.id).collect();
                         // Our own transports and buildings, and empty buildings (infantry only).
-                        let ours = |s: &Seen| game.team_of(s.owner) == team || (s.owner == NEUTRAL && s.def.map_or(false, |d| fr.d(d).is_garrison()));
+                        // ... and buildings enemy infantry hold (storming them).
+                        let ours = |s: &Seen| game.team_of(s.owner) == team || (s.owner == NEUTRAL && s.def.map_or(false, |d| fr.d(d).is_garrison())) || !fr.stormers(&sel, s).is_empty();
                         let target = hover.filter(|h| radius < 1.5 && seen[*h].contact == Contact::Visible && ours(&seen[*h])).map(|h| &seen[h]);
                         match target.and_then(|s| s.def.map(|d| (s, fr.d(d)))) {
+                            Some((s, _)) if s.enemy => out.push(Command::Orders { ids: fr.stormers(&sel, s), orders: vec![Order::Load(s.id)], queue: shift }),
                             // Click on a transport: the selected units get in.
                             Some((s, d)) if d.transport.is_some() && sel.iter().any(|u| rides_in(fr.d(u.def), d)) => {
                                 let riders: Vec<u32> = sel.iter().filter(|u| rides_in(fr.d(u.def), d)).map(|u| u.id).collect();
@@ -1282,8 +1351,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, u.pos, minr, Color::srgba(1.0, 0.6, 0.2, 0.4));
                 }
             }
-            if d.radar > 0.0 {
-                ring(g, map, u.pos, d.radar, Color::srgba(0.4, 0.7, 1.0, 0.6));
+            radar_rings(g, map, u.pos, d, 0.6);
+            if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
+                binocular_cone(g, map, u.pos, u.look, bd.angle.clamp(1.0, 170.0).to_radians(), bd.range, u.lock != 0);
             }
             if d.is_station() {
                 ring(g, map, u.pos, d.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.6));
@@ -1401,9 +1471,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 for (r, c) in range_rings(df, 0.8) {
                     ring(g, map, *pt, r, c);
                 }
-                if df.radar > 0.0 {
-                    ring(g, map, *pt, df.radar, Color::srgba(0.4, 0.7, 1.0, 0.8));
-                }
+                radar_rings(g, map, *pt, df, 0.8);
                 if df.is_station() {
                     ring(g, map, *pt, df.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.8));
                 }
@@ -2159,7 +2227,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         // Pause: builders and factories stop working, pumps and radars switch off and cost no energy.
         let pausable = units.iter().any(|u| {
             let d = fr.d(u.def);
-            d.build.is_some() || d.eco.upkeep > 0.0 || d.radar > 0.0
+            d.build.is_some() || d.eco.upkeep > 0.0 || d.has_radar()
         });
         let all_paused = units.iter().all(|u| u.paused);
         if pausable && action(if all_paused { "resume" } else { "pause" }, if all_paused { "Resume" } else { "Pause" }, "Tab", all_paused) {
@@ -2202,7 +2270,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if rate > 0.0 {
             // Drawn as a row of icons below (the marker keeps its place in the list).
             lines.push(COST_ROW.into());
-            lines.push(format!("HP {:.0}   Armor {}{}", bd.hp, bd.armor, if bd.radar_stealth { "   Invisible to radar" } else { "" }));
+            lines.push(format!("HP {:.0}   Armor {}{}", bd.hp, bd.armor, stealth_text(bd.stealth)));
         } else {
             lines.push(format!("HP {:.0}   Armor {}", bd.hp, bd.armor));
         }
@@ -2225,13 +2293,20 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if w.aim_time > 0.0 {
                 t += &format!(", aim {:.1}s", w.aim_time);
             }
+            if w.hold > 0.0 {
+                t += &format!(", fires standing, holds {:.0}s", w.hold);
+            }
             if w.hits_air && !w.hits_land {
                 t += ", anti-air";
             }
             lines.push(t);
         }
         if bd.mv.speed > 0.0 {
-            lines.push(format!("Speed {:.1} (reverse {:.1})   Sight {:.0}{}", bd.mv.speed, bd.mv.reverse, bd.vision, if bd.radar > 0.0 { format!("   Radar {:.0}", bd.radar) } else { String::new() }));
+            let bino = bd.binoculars.as_ref().filter(|b| b.range > 0.0).map_or(String::new(), |b| format!("   Binoculars {:.0} ({:.0}°)", b.range, b.angle));
+            lines.push(format!("Speed {:.1} (reverse {:.1})   Sight {:.0}{bino}", bd.mv.speed, bd.mv.reverse, bd.vision));
+        }
+        if bd.has_radar() {
+            lines.push(radar_text(bd));
         }
         if rate > 0.0 && ld_is_factory(&units, &fr) {
             lines.push("Left-click: queue (+Shift x5).  Right-click: remove.  Drag the queue strip to reorder.".into());
@@ -2340,6 +2415,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let who = game.players.get(by as usize).map_or(String::new(), |pl| if by == view.me { " by you".to_string() } else { format!(" by {}", pl.name) });
         text_c(sw * 0.5, sh * 0.22, "PAUSED", 56.0, rgba(255, 215, 90, 255));
         text_c(sw * 0.5, sh * 0.22 + 40.0, &format!("Paused{who}.  Pause, Ctrl+P or the button at the top resumes."), 16.0, Color32::WHITE);
+    }
+    if let Some(note) = &view.net_note {
+        text_c(sw * 0.5, sh * 0.22 + 80.0, note, 20.0, rgba(255, 200, 120, 255));
     }
     if let Some(w) = game.winner {
         let (t, c) = if w == team { ("VICTORY", rgba(110, 255, 130, 255)) } else { ("DEFEAT", rgba(255, 95, 80, 255)) };

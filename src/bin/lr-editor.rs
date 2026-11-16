@@ -1,10 +1,12 @@
 //! Long Range map editor.
 //!
 //!   lr-editor                       interactive editor
-//!   lr-editor --generate NAME CELLS SEED [PLAYERS]   write a generated map with settlements, trees and rocks to assets/maps/NAME
+//!   lr-editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   write a generated map with settlements, trees and rocks to assets/maps/NAME
+//!                                   (BIOME: temperate, desert, arctic, rocky; default from the seed)
 //!   lr-editor --scatter NAME [SEED] [AMOUNT]          add trees and rocks to the saved map NAME (AMOUNT 1 = normal)
 //!
-//! Maps are stored as `assets/maps/<name>/map.json` plus a 16-bit `height.png`.
+//! Maps are stored as `assets/maps/<name>/map.json` plus a 16-bit `height.png` and one 8-bit
+//! `layerN.png` mask per ground texture layer above the first.
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
@@ -15,6 +17,8 @@ use longrange::data::FeatureClass;
 use longrange::view::flora::{flora_material, rebuild_flora, spawn_flora, FloraChunks, FloraView};
 use longrange::view::terrain::{spawn_scene, update_chunks, GameScene, GroundSnap, MainCamera, TerrainChunk, WaterPlane};
 use longrange::view::yaw_quat;
+use longrange::surface::{Biome, BIOMES, KINDS};
+use longrange::view::surface::{SurfacePlugin, SurfaceView};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tool {
@@ -28,6 +32,10 @@ enum Tool {
     Erase,
     /// Paint trees or rocks (right mouse removes them).
     Flora,
+    /// Paint the selected ground texture layer (right mouse takes it away).
+    Ground,
+    /// Draw roads point by point (right mouse finishes, or deletes the road under the pointer).
+    Road,
 }
 
 /// What the tree and rock brush paints.
@@ -62,6 +70,17 @@ struct Editor {
     /// Brush spacing: 1 = crowns touching, higher = sparser.
     spacing: f32,
     rng: Rng,
+    /// Ground layer the Ground tool paints.
+    layer: usize,
+    biome: Biome,
+    road_kind: &'static str,
+    road_width: f32,
+    /// The road being drawn.
+    drawing: Vec<V2>,
+}
+
+fn biome_arg(s: &str) -> Option<Biome> {
+    BIOMES.iter().copied().find(|b| b.name().to_lowercase().starts_with(&s.to_lowercase()))
 }
 
 const SIZES: [usize; 4] = [128, 192, 256, 384];
@@ -132,6 +151,8 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     let industry = ["warehouse", "refinery", "fuel_tank", "containers", "containers2", "farm", "plant", "admin_building", "science_lab", "pylon", "comm_tower"];
     let towns = 2 + n / 160;
     let mut made = 0;
+    let mut towns_at: Vec<V2> = vec![];
+    let first_road = map.roads.len();
     let mut tries = 0;
     while made < towns && tries < 400 {
         tries += 1;
@@ -157,6 +178,7 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
         lots.sort_by(|a, b| a.0.total_cmp(&b.0));
         let size = 10 + rng.below(9);
         let mut placed = 0;
+        let first = map.props.len();
         for _ in 0..size + 6 {
             if placed >= size {
                 break;
@@ -169,7 +191,35 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
         }
         if placed >= 3 {
             made += 1;
+            // Paved (homes) or gravel (industry) ground around the buildings and in the streets.
+            let ground = if made % 2 == 1 { "paving" } else { "gravel" };
+            if let Some(l) = map.layer_of(ground) {
+                let spots: Vec<(V2, f32)> = map.props[first..].iter().map(|p| (p.pos, defs.id(&p.def).map_or(2, |d| defs.get(d).footprint) as f32 * CELL * 0.5 + 3.0)).collect();
+                for (pos, r) in spots {
+                    map.paint_mask(l, pos, r, 1.0, 1.0);
+                }
+            }
+            for k in 0..kk {
+                towns_at.push(rot(center, k));
+            }
         }
+    }
+    // Asphalt roads: every town to its nearest neighbour (towns, starts), each pair once.
+    let mut ends: Vec<V2> = towns_at.clone();
+    ends.extend(map.starts.iter().copied());
+    let mut pairs: Vec<(usize, usize)> = vec![];
+    for (i, a) in towns_at.iter().enumerate() {
+        let near = ends.iter().enumerate().filter(|(j, _)| *j != i).min_by(|x, y| x.1.dist(*a).total_cmp(&y.1.dist(*a)));
+        if let Some((j, _)) = near {
+            let p = (i.min(j), i.max(j));
+            if !pairs.contains(&p) {
+                pairs.push(p);
+            }
+        }
+    }
+    for (i, j) in pairs {
+        let (a, b) = (ends[i], ends[j]);
+        map.roads.push(longrange::surface::Road { kind: "asphalt".into(), width: 4.0, points: longrange::surface::winding(a, b, 4.0, seed ^ (i * 31 + j) as u64) });
     }
     // Hostile outpost guarding the centre.
     place(map, &mut occ, "comm_tower", c, PROP_NEUTRAL, 0.0);
@@ -177,6 +227,7 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     place(map, &mut occ, "bunker", c + v2(-20.0, -3.0), PROP_HOSTILE, 0.0);
     place(map, &mut occ, "bunker", c + v2(-10.0, -22.0), PROP_HOSTILE, 0.0);
     clear_under_props(map, defs);
+    map.clear_features_on_roads(&defs.rules.features, first_road);
 }
 
 /// Removes trees and rocks under the buildings among the props (the game flattens them anyway).
@@ -284,12 +335,13 @@ fn editor_ui(
     time: Res<Time>,
     mut gizmos: Gizmos,
     mut camera: Query<&mut Transform, (With<MainCamera>, Without<WaterPlane>, Without<GroundSnap>)>,
-    (chunks, mut water, mut snapped, mut fchunks, mut flora): (
+    (chunks, mut water, mut snapped, mut fchunks, mut flora, mut surface): (
         Query<(&TerrainChunk, &Mesh3d)>,
         Query<&mut Transform, (With<WaterPlane>, Without<MainCamera>, Without<GroundSnap>)>,
         Query<(&mut Transform, &GroundSnap), (Without<MainCamera>, Without<WaterPlane>)>,
         FloraChunks,
         ResMut<FloraView>,
+        Option<ResMut<SurfaceView>>,
     ),
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
@@ -350,6 +402,7 @@ fn editor_ui(
         ui.horizontal(|ui| {
             if ui.button("Generate").clicked() {
                 *map = MapData::generate(ed.new_cells, ed.seed, ed.players);
+                map.paint_ground(ed.biome);
                 map.scatter_features(&defs.rules.features, ed.seed, 1.0);
                 ed.cam_target = map.center();
                 full_rebuild = true;
@@ -358,6 +411,7 @@ fn editor_ui(
                 let n = ed.new_cells;
                 let w = n as f32 * CELL;
                 *map = MapData { name: ed.name.clone(), n, heights: vec![3.0; (n + 1) * (n + 1)], water: 0.0, starts: (0..ed.players).map(|k| v2(w * 0.5, w * 0.5) + V2::from_angle(k as f32 / ed.players as f32 * 6.2832 - 2.356) * (w * 0.38)).collect(), ..Default::default() };
+                map.paint_ground(ed.biome);
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
@@ -382,6 +436,8 @@ fn editor_ui(
                 t.translation.y = map.water;
             }
         }
+        ui.separator();
+        ground_ui(ui, ed, map, &mut surface, &mut full_rebuild);
         ui.separator();
         ui.label("Trees and rocks");
         ui.horizontal_wrapped(|ui| {
@@ -523,8 +579,50 @@ fn editor_ui(
     // --- tools
     if let (Some(p), false) = (hit, over_ui) {
         let terrain_tool = matches!(ed.tool, Tool::Raise | Tool::Lower | Tool::Smooth | Tool::Flatten);
-        let brush = terrain_tool || ed.tool == Tool::Flora;
-        ring(&mut gizmos, map, p, if brush { ed.radius } else { 1.5 }, if ed.tool == Tool::Flora { Color::srgb(0.5, 1.0, 0.5) } else { Color::WHITE });
+        let brush = terrain_tool || ed.tool == Tool::Flora || ed.tool == Tool::Ground;
+        let ring_col = match ed.tool {
+            Tool::Flora => Color::srgb(0.5, 1.0, 0.5),
+            Tool::Ground => Color::srgb(1.0, 0.8, 0.4),
+            _ => Color::WHITE,
+        };
+        ring(&mut gizmos, map, p, if brush { ed.radius } else if ed.tool == Tool::Road { ed.road_width * 0.5 } else { 1.5 }, ring_col);
+        if ed.tool == Tool::Ground && (buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right)) {
+            let target = if buttons.pressed(MouseButton::Left) { 1.0 } else { 0.0 };
+            if map.paint_mask(ed.layer, p, ed.radius, (ed.strength * dt * 0.4).min(1.0), target) {
+                if let Some(s) = surface.as_mut() {
+                    s.masks_dirty = true;
+                }
+            }
+        }
+        if ed.tool == Tool::Road {
+            // The road being drawn, and where the next point would go.
+            let line: Vec<Vec3> = ed.drawing.iter().chain(std::iter::once(&p)).map(|q| q.at(map.h(*q).max(map.water) + 0.3)).collect();
+            if line.len() > 1 {
+                gizmos.linestrip(line, Color::srgb(1.0, 0.85, 0.3));
+            }
+            if buttons.just_pressed(MouseButton::Left) {
+                ed.drawing.push(p);
+            }
+            if buttons.just_pressed(MouseButton::Right) {
+                let changed = if ed.drawing.len() >= 2 {
+                    map.roads.push(longrange::surface::Road { kind: ed.road_kind.into(), width: ed.road_width, points: std::mem::take(&mut ed.drawing) });
+                    // Trees and rocks on the new road go.
+                    let count = map.features.len();
+                    map.clear_features_on_roads(&defs.rules.features, map.roads.len() - 1);
+                    if map.features.len() != count {
+                        flora.shown = vec![true; map.features.len()];
+                        full_rebuild = true;
+                    }
+                    true
+                } else {
+                    ed.drawing.clear();
+                    map.erase_roads(p, 1.0)
+                };
+                if let (true, Some(s)) = (changed, surface.as_mut()) {
+                    s.roads_dirty = true;
+                }
+            }
+        }
         if ed.tool == Tool::Flora {
             let mut changed = false;
             if buttons.pressed(MouseButton::Left) {
@@ -649,6 +747,112 @@ fn editor_ui(
     Ok(())
 }
 
+/// The Ground section of the editor window: layers, automatic painting, the paint and road tools.
+fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mut Option<ResMut<SurfaceView>>, full_rebuild: &mut bool) {
+    let kind_name = |id: &str| KINDS.iter().find(|k| k.id == id).map_or(id.to_string(), |k| k.name.to_string());
+    let (mut layers_changed, mut masks_changed, mut roads_changed) = (false, false, false);
+    ui.label("Ground");
+    ui.horizontal_wrapped(|ui| {
+        ui.selectable_value(&mut ed.tool, Tool::Ground, "Paint");
+        ui.selectable_value(&mut ed.tool, Tool::Road, "Road");
+    });
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt("biome").selected_text(ed.biome.name()).show_ui(ui, |ui| {
+            for b in BIOMES {
+                ui.selectable_value(&mut ed.biome, b, b.name());
+            }
+        });
+        if ui.button("Auto paint").on_hover_text("Replaces all layers with the biome's, painted from heights and slopes (also used by Generate and Flat)").clicked() {
+            map.paint_ground(ed.biome);
+            ed.layer = ed.layer.min(map.layers.len().saturating_sub(1));
+            layers_changed = true;
+            masks_changed = true;
+        }
+    });
+    // Layers, top first, as in an image editor.
+    let count = map.layers.len();
+    let mut action: Option<(usize, u8)> = None;
+    for i in (0..count).rev() {
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut ed.layer, i, format!("{i}"));
+            let cur = map.layers[i].kind.clone();
+            egui::ComboBox::from_id_salt(("layer_kind", i)).width(110.0).selected_text(kind_name(&cur)).show_ui(ui, |ui| {
+                for k in KINDS {
+                    if ui.selectable_label(cur == k.id, k.name).clicked() && cur != k.id {
+                        map.layers[i].kind = k.id.into();
+                        layers_changed = true;
+                    }
+                }
+            });
+            let mut sc = if map.layers[i].scale > 0.0 { map.layers[i].scale } else { KINDS.iter().find(|k| k.id == cur).map_or(8.0, |k| k.scale) };
+            if ui.add(egui::DragValue::new(&mut sc).range(1.0..=64.0).speed(0.2)).on_hover_text("Tile size in world units").changed() {
+                map.layers[i].scale = sc;
+                layers_changed = true;
+            }
+            if i > 0 {
+                if i + 1 < count && ui.small_button("^").on_hover_text("Move up").clicked() {
+                    action = Some((i, 0));
+                }
+                if i > 1 && ui.small_button("v").on_hover_text("Move down").clicked() {
+                    action = Some((i - 1, 0));
+                }
+                if ui.small_button("x").on_hover_text("Remove layer").clicked() {
+                    action = Some((i, 1));
+                }
+            }
+        });
+    }
+    match action {
+        Some((i, 0)) => {
+            map.swap_layers(i);
+            if ed.layer == i {
+                ed.layer = i + 1;
+            } else if ed.layer == i + 1 {
+                ed.layer = i;
+            }
+            layers_changed = true;
+            masks_changed = true;
+        }
+        Some((i, _)) => {
+            map.remove_layer(i);
+            ed.layer = ed.layer.min(map.layers.len().saturating_sub(1));
+            layers_changed = true;
+            masks_changed = true;
+        }
+        None => {}
+    }
+    if map.layers.len() < longrange::surface::MAX_LAYERS && ui.button("+ Layer").clicked() {
+        if let Some(i) = map.add_layer("dirt") {
+            ed.layer = i;
+        }
+        layers_changed = true;
+        masks_changed = true;
+    }
+    if ed.tool == Tool::Ground {
+        ui.label(egui::RichText::new("Radius and strength above set the brush. Left mouse paints the selected layer, right mouse takes it away. On layer 0 it takes away every layer above.").weak());
+    }
+    if ed.tool == Tool::Road {
+        egui::ComboBox::from_id_salt("road_kind").selected_text(kind_name(ed.road_kind)).show_ui(ui, |ui| {
+            for k in KINDS {
+                ui.selectable_value(&mut ed.road_kind, k.id, k.name);
+            }
+        });
+        ui.add(egui::Slider::new(&mut ed.road_width, 1.0..=12.0).text("width"));
+        ui.label(egui::RichText::new(format!("Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.", map.roads.len())).weak());
+        if !map.roads.is_empty() && ui.button("Remove all roads").clicked() {
+            map.roads.clear();
+            roads_changed = true;
+        }
+    }
+    if let Some(s) = surface.as_mut() {
+        s.layers_dirty |= layers_changed;
+        s.masks_dirty |= masks_changed;
+        s.roads_dirty |= roads_changed;
+    } else if layers_changed || masks_changed || roads_changed {
+        *full_rebuild = true;
+    }
+}
+
 fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>, defs: Res<Defs>) {
     cache.init(&mut materials);
     commands.insert_resource(FloraView::new(&defs, flora_material(&mut materials, None), vec![], longrange::settings::Settings::load().flora_detail));
@@ -672,6 +876,9 @@ fn main() {
         let players: usize = args.get(i + 4).and_then(|s| s.parse().ok()).unwrap_or(4);
         let mut map = MapData::generate(cells, seed, players);
         map.name = name.clone();
+        if let Some(b) = args.get(i + 5).and_then(|s| biome_arg(s)) {
+            map.paint_ground(b);
+        }
         map.scatter_features(&defs.rules.features, seed, 1.0);
         add_settlements(&mut map, &defs, seed);
         let dir = asset_root().join("maps").join(&name);
@@ -712,6 +919,7 @@ fn main() {
             ..default()
         }).set(longrange::settings::render_plugin(&longrange::settings::Settings::load())).set(longrange::settings::log_plugin()))
         .add_plugins(bevy_egui::EguiPlugin::default())
+        .add_plugins(SurfacePlugin)
         .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
         .insert_resource(Editor {
             tool: Tool::Raise,
@@ -734,6 +942,11 @@ fn main() {
             paint: Paint::Mixed(FeatureClass::Tree),
             spacing: 1.0,
             rng: Rng(0x5EED_F00D),
+            layer: 1,
+            biome: Biome::Temperate,
+            road_kind: "dirt_road",
+            road_width: 3.5,
+            drawing: vec![],
         })
         .insert_resource(map)
         .insert_resource(defs)

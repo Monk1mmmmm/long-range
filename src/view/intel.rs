@@ -20,11 +20,13 @@ pub struct FogGrid {
     radar: HashMap<u32, (V2, f32, Vec<u32>)>,
     /// The same for what each unit sees directly.
     sight: HashMap<u32, (V2, f32, Vec<u32>)>,
+    /// What binoculars see: (position, direction, range, covered cells).
+    cone: HashMap<u32, (V2, f32, f32, Vec<u32>)>,
 }
 
 impl FogGrid {
     pub fn new(n: usize) -> FogGrid {
-        FogGrid { n, alpha: vec![0; n * n], radar: HashMap::new(), sight: HashMap::new() }
+        FogGrid { n, alpha: vec![0; n * n], radar: HashMap::new(), sight: HashMap::new(), cone: HashMap::new() }
     }
     /// Is this spot currently in direct sight?
     pub fn visible(&self, p: V2) -> bool {
@@ -93,6 +95,38 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, bloc
     out
 }
 
+/// The cells inside a binocular cone (direction `yaw`, full width `angle` radians) that `eye` can see.
+#[allow(clippy::too_many_arguments)]
+fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius: f32, block: &[f32], terrain: bool) -> Vec<u32> {
+    let n = map.n as i32;
+    let dir = V2::from_angle(yaw);
+    let cos_half = (angle * 0.5).cos();
+    let mut out = vec![];
+    // Every second cell of the bounding square, 2x2 blocks filled (as `covered_cells`); each sample
+    // gets its own sight line, since a hill can hide a dip and still show the slope behind it.
+    let rc = (radius / CELL) as i32;
+    let (cx, cy) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32);
+    let mut y = (cy - rc).max(0) & !1;
+    while y <= (cy + rc).min(n - 1) {
+        let mut x = (cx - rc).max(0) & !1;
+        while x <= (cx + rc).min(n - 1) {
+            let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
+            let off = c - pos;
+            let dist = off.len();
+            if dist <= radius && dist > 0.0 && off.dot(dir) >= cos_half * dist && map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain) {
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    if x + dx < n && y + dy < n {
+                        out.push(((y + dy) * n + x + dx) as u32);
+                    }
+                }
+            }
+            x += 2;
+        }
+        y += 2;
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn update_intel(
     view: Res<ViewState>,
@@ -124,9 +158,11 @@ pub fn update_intel(
         let mut sight_budget = 60;
         let mut alive = std::collections::HashSet::new();
         let mut looking = std::collections::HashSet::new();
+        let mut spotting = std::collections::HashSet::new();
+        let mut cone_budget = 24;
         // Infantry inside a building look out from its roof (as in `sim::systems::visibility`).
         let garrisons: HashMap<u32, f32> = q.iter().filter(|(u, ..)| defs.get(u.def).is_garrison()).map(|(u, ..)| (u.id, defs.get(u.def).height())).collect();
-        for (u, b, _, uc, hosted, paused) in &q {
+        for (u, b, intel, uc, hosted, paused) in &q {
             let roof = match hosted {
                 Some(h) => match garrisons.get(&h.0) {
                     Some(r) => Some(*r),
@@ -139,14 +175,19 @@ pub fn update_intel(
             }
             let d = defs.get(u.def);
             let top = roof.unwrap_or(d.height().max(1.0));
+            // From a building's roof they see further (as in `sim::systems::visibility`).
+            let gain = if roof.is_some() { defs.rules.garrison_vision } else { 1.0 };
+            let vision = d.vision * gain;
             let power_out = game.players.get(u.owner as usize).map_or(false, |p| p.power_out);
-            if d.radar > 0.0 && !power_out && !paused {
+            // The fog shows the furthest radar reach (what unstealthed units are found within).
+            let reach = d.radar_reach();
+            if reach > 0.0 && !power_out && !paused {
                 alive.insert(u.id);
-                let stale = fog.radar.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL * 1.5 || c.1 != d.radar);
+                let stale = fog.radar.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL * 1.5 || c.1 != reach);
                 if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
                     budget -= 1;
                     let eye = b.pos.at(b.y + top + defs.rules.radar_los_height);
-                    fog.radar.insert(u.id, (b.pos, d.radar, covered_cells(&map, eye, b.pos, d.radar, 0.0, &[], defs.rules.radar_blocked_by_terrain)));
+                    fog.radar.insert(u.id, (b.pos, reach, covered_cells(&map, eye, b.pos, reach, 0.0, &[], defs.rules.radar_blocked_by_terrain)));
                 }
                 if let Some(c) = fog.radar.get(&u.id) {
                     for i in &c.2 {
@@ -154,23 +195,41 @@ pub fn update_intel(
                     }
                 }
             }
-            if d.vision > 0.0 {
+            if vision > 0.0 {
                 looking.insert(u.id);
                 // Sight is shadowed by hills like radar. A unit's coverage is recomputed when it
                 // has moved a cell or so; a few dozen per tick keep large armies cheap.
-                let stale = fog.sight.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL || c.1 != d.vision);
+                let stale = fog.sight.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL || c.1 != vision);
                 if stale && (sight_budget > 0 || !fog.sight.contains_key(&u.id)) {
                     sight_budget -= 1;
                     let eye = b.pos.at(b.y + top + defs.rules.vision_los_height);
-                    fog.sight.insert(u.id, (b.pos, d.vision, covered_cells(&map, eye, b.pos, d.vision, defs.rules.near_sight, &block, defs.rules.sight_blocked_by_terrain)));
+                    fog.sight.insert(u.id, (b.pos, vision, covered_cells(&map, eye, b.pos, vision, defs.rules.near_sight, &block, defs.rules.sight_blocked_by_terrain)));
+                }
+            }
+            // Binoculars turn all the time: their cone is redone when it has turned a degree or so.
+            if let Some(bd) = d.binoculars.as_ref().filter(|bd| bd.range > 0.0) {
+                spotting.insert(u.id);
+                let range = bd.range * gain;
+                let stale = fog.cone.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL || crate::map::wrap(c.1 - intel.look).abs() > 0.02 || c.2 != range);
+                if stale && (cone_budget > 0 || !fog.cone.contains_key(&u.id)) {
+                    cone_budget -= 1;
+                    let eye = b.pos.at(b.y + top + defs.rules.vision_los_height);
+                    let cells = covered_cone(&map, eye, b.pos, intel.look, bd.angle.clamp(1.0, 170.0).to_radians(), range, &block, defs.rules.sight_blocked_by_terrain);
+                    fog.cone.insert(u.id, (b.pos, intel.look, range, cells));
                 }
             }
         }
         fog.radar.retain(|id, _| alive.contains(id));
         fog.sight.retain(|id, _| looking.contains(id));
+        fog.cone.retain(|id, _| spotting.contains(id));
         // Sight goes on last: it clears the fog completely, radar only thins it.
         for c in fog.sight.values() {
             for i in &c.2 {
+                fog.alpha[*i as usize] = 0;
+            }
+        }
+        for c in fog.cone.values() {
+            for i in &c.3 {
                 fog.alpha[*i as usize] = 0;
             }
         }

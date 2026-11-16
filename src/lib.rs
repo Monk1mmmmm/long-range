@@ -7,4 +7,5 @@ pub mod netplay;
 pub mod preset_form;
 pub mod settings;
 pub mod sim;
+pub mod surface;
 pub mod view;

@@ -14,7 +14,7 @@ pub fn register(app: &mut App) {
         (
             // Inner tuples need their own chain(): the outer one only orders the groups.
             (begin_tick, census_build, crate::ai::ai_system, apply_commands, visibility, income).chain(),
-            (think, factories, build_progress, locomotion, separation, carry, garrisons).chain(),
+            (think, assaults, factories, build_progress, locomotion, separation, carry, garrisons).chain(),
             (weapons, projectiles, debris_fall, apply_reclaim, apply_capture, deaths, apply_ground, control_points, victory).chain(),
         )
             .chain(),
@@ -339,15 +339,21 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         eye: Vec3,
         look: Vec3,
         vis2: f32,
-        radar2: f32,
+        /// Squared radar range against stealth levels 0, 1 and 2.
+        radar2: [f32; 3],
         team: u8,
+        /// Binoculars: squared range (0 = none), direction, squared cosine of half the cone.
+        bin2: f32,
+        dir: V2,
+        cos2: f32,
     }
     let mut viewers = vec![];
     for c in &census.list {
         if !c.done || c.team == TEAM_NEUTRAL {
             continue;
         }
-        // Infantry inside a building look out from its roof; nobody sees out of a transport.
+        // Infantry inside a building look out from its roof, and further; nobody sees out of a transport.
+        let roof = c.hosted;
         let top = if c.hosted {
             match census.get(c.host).filter(|h| defs.get(h.def).is_garrison()) {
                 Some(h) => h.height,
@@ -357,25 +363,43 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             c.height.max(1.0)
         };
         let d = defs.get(c.def);
+        let gain = if roof { defs.rules.garrison_vision } else { 1.0 };
+        let vision = d.vision * gain;
+        let (mut bin2, mut dir, mut cos2) = (0.0, v2(1.0, 0.0), 1.0);
+        if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
+            let range = bd.range * gain;
+            let (look, lock) = q.get(c.e).map_or((c.yaw, 0), |i| (i.look, i.lock));
+            let (look, lock) = aim_binoculars(&census, c, bd, range, look, lock, roof, game.tick);
+            if let Ok(mut i) = q.get_mut(c.e) {
+                i.look = look;
+                i.lock = lock;
+            }
+            let half = fm::cos(bd.angle.clamp(1.0, 170.0).to_radians() * 0.5);
+            (bin2, dir, cos2) = (range * range, V2::from_angle(look), half * half);
+        }
         let power_out = game.players.get(c.owner as usize).map_or(false, |p| p.power_out);
-        let radar = if power_out || c.paused { 0.0 } else { d.radar };
-        if d.vision <= 0.0 && radar <= 0.0 {
+        let radar_on = !(power_out || c.paused) && d.has_radar();
+        if vision <= 0.0 && bin2 <= 0.0 && !radar_on {
             continue;
         }
         viewers.push(Viewer {
             pos: c.pos,
             eye: c.pos.at(c.y + top + defs.rules.radar_los_height),
             look: c.pos.at(c.y + top + defs.rules.vision_los_height),
-            vis2: d.vision * d.vision,
-            radar2: radar * radar,
+            vis2: vision * vision,
+            radar2: if radar_on { [0u8, 1, 2].map(|s| d.radar_vs(s) * d.radar_vs(s)) } else { [0.0; 3] },
             team: c.team,
+            bin2,
+            dir,
+            cos2,
         });
     }
     for c in census.list.iter_mut() {
         let own = 1u16 << c.team;
         let (mut seen, mut radar) = (own, own);
         let head = c.pos.at(c.y + c.height + 0.5);
-        let stealth = defs.get(c.def).radar_stealth;
+        // Stealth level 3 never shows on radar.
+        let stealth = defs.get(c.def).stealth.min(3) as usize;
         for v in &viewers {
             let bit = 1u16 << v.team;
             if seen & bit != 0 && radar & bit != 0 {
@@ -383,10 +407,16 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             }
             let d2 = (v.pos - c.pos).len2();
             // Anything this close is seen regardless (no hiding behind the viewer's own bump).
-            if seen & bit == 0 && d2 < v.vis2 && (d2 < near2 || map.sight_line(v.look, head, &block, hills_sight)) {
+            // Within vision all round, or further inside the binoculars' cone.
+            let in_view = d2 < v.vis2
+                || (d2 < v.bin2 && {
+                    let along = (c.pos - v.pos).dot(v.dir);
+                    along > 0.0 && along * along >= v.cos2 * d2
+                });
+            if seen & bit == 0 && in_view && (d2 < near2 || map.sight_line(v.look, head, &block, hills_sight)) {
                 seen |= bit;
             }
-            if radar & bit == 0 && !stealth && d2 < v.radar2 && (!hills_radar || map.los(v.eye, head)) {
+            if radar & bit == 0 && stealth < 3 && d2 < v.radar2[stealth] && (!hills_radar || map.los(v.eye, head)) {
                 radar |= bit;
             }
         }
@@ -397,6 +427,45 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             i.radar = radar;
         }
     }
+}
+
+/// Where a unit's binoculars look this tick, and what they follow. They keep following their
+/// enemy while it stays in range and known to the team; else they take the best known enemy in
+/// range (radar contacts nobody has identified first, ground before air, then the nearest);
+/// with nothing to look at they scan to and fro around the way the unit faces, all round from a
+/// building's roof. Buildings are not followed (they stay remembered once seen).
+#[allow(clippy::too_many_arguments)]
+fn aim_binoculars(census: &Census, c: &Cen, b: &crate::data::BinocularsDef, range: f32, look: f32, lock: u32, roof: bool, tick: u32) -> (f32, u32) {
+    let r2 = range * range;
+    let ok = |t: &Cen| t.hp > 0.0 && !t.hosted && !t.structure && t.done && hostile(c.team, t.team) && t.known_to(c.team) && (t.pos - c.pos).len2() <= r2;
+    let mut target = census.get(lock).filter(|t| ok(t));
+    if target.is_none() {
+        let bit = 1u16 << c.team;
+        let mut best: Option<(bool, bool, f32, u32)> = None;
+        census.near(c.pos, range, |t| {
+            if ok(t) {
+                let key = (t.seen & bit != 0, t.air, (t.pos - c.pos).len2(), t.id);
+                if best.map_or(true, |k| key < k) {
+                    best = Some(key);
+                }
+            }
+        });
+        target = best.and_then(|k| census.get(k.3));
+    }
+    let step = b.turn.to_radians() * DT;
+    if let Some(t) = target {
+        return (turn_toward(look, (t.pos - c.pos).angle(), step), t.id);
+    }
+    let sweep = step * 0.5;
+    if roof || b.scan >= 180.0 {
+        return (wrap(look + if c.id % 2 == 0 { sweep } else { -sweep }), 0);
+    }
+    // A triangle wave between -scan and +scan at the sweep speed, a different phase per unit.
+    let scan = b.scan.max(0.0).to_radians();
+    let period = ((4.0 * scan / sweep.max(1e-4)).ceil() as u32).max(1);
+    let p = ((tick + c.id.wrapping_mul(7)) % period) as f32 / period as f32;
+    let tri = if p < 0.5 { 4.0 * p - 1.0 } else { 3.0 - 4.0 * p };
+    (turn_toward(look, wrap(c.yaw + scan * tri), step), 0)
 }
 
 fn income(census: Res<Census>, mut game: ResMut<Game>, defs: Res<Defs>) {
@@ -800,7 +869,15 @@ fn think(
                             effects.loaded.push((tid, id));
                         }
                     }
-                } else if let Some(t) = census.get(tid).filter(|t| t.done && !t.hosted && t.hp > 0.0 && carriable(df) && may_board(&defs, df, t, team)) {
+                } else if let Some(t) = census.get(tid).filter(|t| t.done && !t.hosted && t.hp > 0.0 && carriable(df) && df.assault > 0.0 && defs.get(t.def).is_garrison() && census.list.iter().any(|r| r.host == t.id && r.done && r.hp > 0.0 && hostile(team, r.team))) {
+                    // An enemy-held building: storm it (`assaults` fights it out at the door), then walk in.
+                    pop = false;
+                    if near(t) {
+                        effects.assault.push((id, tid));
+                    } else {
+                        goal = Some(t.pos);
+                    }
+                } else if let Some(t) = census.get(tid).filter(|t| t.done && !t.hosted && t.hp > 0.0 && carriable(df) && may_board(&defs, &census, df, t, team)) {
                     // A unit walking up to a transport (or infantry to a building) and getting in.
                     if let Some(tr) = &defs.get(t.def).transport {
                         if room(&effects, tid, tr.capacity) >= df.cargo as i32 {
@@ -954,10 +1031,14 @@ fn think(
 }
 
 /// Can unit type `df` of `team` get into `t`? Transports take their own side; infantry also
-/// walk into an empty (neutral) building or one their side already holds.
-fn may_board(defs: &Defs, df: &crate::data::UnitDef, t: &Cen, team: u8) -> bool {
-    if defs.get(t.def).is_garrison() {
-        df.is_infantry() && (t.team == team || t.owner == NEUTRAL)
+/// walk into an empty (neutral) building or one their side already holds. A map building whose
+/// last rider died this tick still has the old owner until `garrisons` runs: it counts as empty.
+fn may_board(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, team: u8) -> bool {
+    let td = defs.get(t.def);
+    if td.is_garrison() {
+        let map_building = t.owner != HOSTILE && defs.factions.get(td.faction as usize).map_or(false, |f| !f.playable);
+        let empty = || !census.list.iter().any(|r| r.host == t.id && r.hp > 0.0);
+        df.is_infantry() && (t.team == team || t.owner == NEUTRAL || (map_building && empty()))
     } else {
         t.team == team
     }
@@ -1038,6 +1119,38 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
         }
     }
     best.map(|b| b.1)
+}
+
+/// The fight for an occupied building: infantry at its door (queued by `think` in `Effects.assault`)
+/// and the enemy infantry inside trade close-quarters damage, `assault` per second each (the
+/// defenders `rules.garrison_defense` times theirs). Each side's damage goes to the other side's
+/// lowest-id unit, so it falls one at a time. When nobody is left inside the attackers walk in
+/// (`may_board`). Attackers of several teams at one building each fight the defenders on their own.
+fn assaults(census: Res<Census>, defs: Res<Defs>, mut effects: ResMut<Effects>) {
+    // (building, attacking team) -> attackers, in id order.
+    let mut fights: BTreeMap<(u32, u8), Vec<&Cen>> = BTreeMap::new();
+    effects.stormed.clear();
+    let mut list = std::mem::take(&mut effects.assault);
+    list.sort_unstable();
+    list.dedup();
+    for (a, b) in list {
+        if let Some(c) = census.get(a).filter(|c| c.hp > 0.0) {
+            fights.entry((b, c.team)).or_default().push(c);
+        }
+    }
+    for ((bid, team), attackers) in fights {
+        let inside: Vec<&Cen> = census.list.iter().filter(|r| r.host == bid && r.done && r.hp > 0.0 && hostile(team, r.team)).collect();
+        let (Some(a0), Some(d0)) = (attackers.first(), inside.first()) else { continue };
+        let hit: f32 = attackers.iter().map(|c| defs.get(c.def).assault).sum::<f32>() * DT;
+        let back: f32 = inside.iter().map(|c| defs.get(c.def).assault).sum::<f32>() * DT * defs.rules.garrison_defense;
+        effects.stormed.push(bid);
+        if hit > 0.0 {
+            effects.damage.push((d0.id, hit, 0));
+        }
+        if back > 0.0 {
+            effects.damage.push((a0.id, back, 0));
+        }
+    }
 }
 
 /// Occupied buildings of the map belong to the side inside (they can be shot at and the side sees
@@ -1294,6 +1407,13 @@ fn locomotion(
         let mv = &df.mv;
         let old = body.pos;
         let turn = mv.turn.to_radians();
+        if m.hold > 0.0 && mv.kind != MoveKind::Plane {
+            // Set up to fire: stays where it is, hull and all, until the hold runs out.
+            m.hold = (m.hold - DT).max(0.0);
+            m.speed = 0.0;
+            body.vel = v2(0.0, 0.0);
+            continue;
+        }
         match mv.kind {
             MoveKind::None => continue,
             MoveKind::Plane => {
@@ -1587,11 +1707,16 @@ fn weapons(
     mut game: ResMut<Game>,
     mut rng: ResMut<SimRng>,
     mut fx: ResMut<FxLog>,
+    effects: Res<Effects>,
     mut commands: Commands,
 ) {
     let g = defs.rules.gravity;
     let tick = game.tick;
     for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        // Infantry fighting off a storm of their building are too busy to shoot out of it.
+        if hosted.is_some_and(|h| effects.stormed.contains(&h.0)) {
+            continue;
+        }
         let df = defs.get(u.def);
         let team = game.team_of(u.owner);
         let mut origin = body.pos.at(body.y + df.height() * 0.8);
@@ -1733,6 +1858,10 @@ fn weapons(
             if st.cd > 0.0 || st.burst > 0 || !aligned || st.aim < w.aim_time {
                 continue;
             }
+            // Weapons with a hold fire only from a standstill, when the unit is not trying to go anywhere.
+            if w.hold > 0.0 && mover.as_ref().map_or(false, |m| m.goal.is_some() || m.speed > 0.05) {
+                continue;
+            }
             // Direct fire needs a clear line; otherwise hold fire rather than shoot the hill.
             if w.kind == WeaponKind::Direct && !map.los(origin, sol.point + Vec3::Y * 0.3) {
                 continue;
@@ -1741,6 +1870,9 @@ fn weapons(
             st.cd = w.reload;
             st.burst = w.salvo.saturating_sub(1);
             st.burst_cd = w.salvo_delay;
+            if let Some(m) = mover.as_mut() {
+                m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
+            }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st);
         }
     }
@@ -2232,6 +2364,8 @@ fn deaths(
     // Mass buildings dropped as debris this tick, on top of their `Shed`: (unit id, entity, mass).
     let mut shed_now: Vec<(u32, Entity, f32)> = vec![];
     let mut new_pieces = 0;
+    // Infantry inside a building take a small share of every hit on it: (rider, raw damage, type).
+    let mut riders_hit: Vec<(u32, f32, usize)> = vec![];
     for (id, dmg, dtype) in effects.damage.drain(..) {
         let Some(c) = census.get(id) else { continue };
         let Ok((e, u, b, mut h, uc, hosted, shed)) = q.get_mut(c.e) else { continue };
@@ -2239,6 +2373,11 @@ fn deaths(
         let real = dmg * defs.armor_mult(dtype, d.armor_id);
         let standing = h.0 > 0.0;
         h.0 -= real;
+        if standing && d.is_garrison() && defs.rules.garrison_damage > 0.0 {
+            for r in census.list.iter().filter(|r| r.host == id && r.done) {
+                riders_hit.push((r.id, dmg * defs.rules.garrison_damage, dtype));
+            }
+        }
         // A hard hit on a finished building breaks pieces off it: their mass leaves its wreck value.
         if drops && standing && uc.is_none() && hosted.is_none() && d.is_structure() && d.wreck && !d.is_air() && real >= dr.min_hit * d.hp {
             let value = d.cost.mass * defs.rules.wreck_mass_fraction;
@@ -2253,6 +2392,12 @@ fn deaths(
                     None => shed_now.push((id, e, mass)),
                 }
             }
+        }
+    }
+    for (id, dmg, dtype) in riders_hit {
+        let Some(c) = census.get(id) else { continue };
+        if let Ok((_, u, _, mut h, ..)) = q.get_mut(c.e) {
+            h.0 -= dmg * defs.armor_mult(dtype, defs.get(u.def).armor_id);
         }
     }
     // (Queued before the despawns below: a building destroyed this tick gets it first, harmlessly.)
@@ -2272,7 +2417,8 @@ fn deaths(
         }
         if let Some(host) = hosted {
             // Riders die with their transport (a commander inside takes its side with it).
-            if census.get(host.0).is_none() {
+            // Killed inside (the fight for a building, self-destruct): gone without a wreck.
+            if census.get(host.0).is_none() || h.0 <= 0.0 {
                 commands.entity(e).despawn();
                 if game.players.get(u.owner as usize).map_or(false, |p| defs.factions[p.faction as usize].commander == Some(u.def)) {
                     game.players[u.owner as usize].alive = false;
@@ -2350,7 +2496,7 @@ fn deaths(
         census.near(pos, radius + 4.0, |c| {
             let flat = (c.pos.dist(pos) - c.radius * 0.7).max(0.0);
             let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
-            if d < radius && c.hp > 0.0 && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
+            if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
                 effects.damage.push((c.id, damage * (1.0 - 0.6 * d / radius), blast_type));
             }
         });

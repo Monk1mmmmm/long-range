@@ -110,6 +110,9 @@ pub const RULE_COVER: &[Field] = &[
     num("cover_search", "Infantry cover search", 10.0, 500.0, "Infantry look for cover within this distance of where they were sent."),
     num("cover_threat_range", "Infantry threat range", 100.0, 2000.0, "Infantry take cover from known armed enemies up to this far away."),
     num("garrison_eject_damage", "Garrison eject damage", 0.4, 1.0, "Infantry thrown out of a destroyed building lose this share of their hit points."),
+    num("garrison_damage", "Garrison hit share", 0.04, 1.0, "Infantry inside a building take this share of every hit on it (their own armor applies)."),
+    num("garrison_vision", "Roof vision", 1.3, 10.0, "Infantry inside a building look out from its roof: their vision and binocular range times this."),
+    num("garrison_defense", "Garrison defence bonus", 1.25, 10.0, "Infantry holding a building deal this many times their close-quarters (assault) damage to infantry storming it."),
 ];
 
 pub const RULE_TERRAIN: &[Field] = &[
@@ -168,8 +171,8 @@ pub const UNIT_GENERAL: &[Field] = &[
     no("needs_deposit", "Needs a mass deposit", "Can only be placed on a mass deposit (extractors)."),
     f("upgrade", "Upgrades to", Kind::Pick(Src::Unit, true), "The unit this one turns into when upgraded in place (factories, pumps)."),
     yes("wreck", "Leaves a wreck", "Leaves a wreck when destroyed (aircraft never do, and the Wrecks switch in rules.json turns all of them off)."),
-    no("radar_stealth", "Hidden from radar", "Never shows on enemy radar; it has to be seen."),
     f("cargo", "Cargo slots", Kind::Int(1, 0, 100), "Slots it takes in a transport; 0 = cannot be carried."),
+    num("assault", "Close-quarters damage", 0.0, 1000.0, "Infantry: damage per second in the fight for an occupied building, storming it (ordered into an enemy-held building) or holding it. 0 = cannot storm buildings."),
     f("select_sound", "Selection sound", Kind::Pick(Src::UiSound, true), "Sound played when it is selected; none = chosen by role."),
 ];
 
@@ -192,7 +195,10 @@ pub const UNIT_BODY: &[Field] = &[
 
 pub const UNIT_INTEL: &[Field] = &[
     num("vision", "Vision range", 0.0, 5000.0, "How far it sees (hills, trees and rocks may block it, see the rules switches)."),
-    num("radar", "Radar range", 0.0, 5000.0, "How far its radar reaches; radar shows contacts but not what they are."),
+    num("radar", "Radar range", 0.0, 5000.0, "How far its radar reaches; radar shows contacts but not what they are. This level finds only units without stealth."),
+    num("radar2", "T2 radar range", 0.0, 5000.0, "How far its level 2 radar reaches: also finds stealth 1 units. A unit is found within the largest range of the levels above its stealth."),
+    num("radar3", "T3 radar range", 0.0, 5000.0, "How far its level 3 radar reaches: also finds stealth 2 units."),
+    f("stealth", "Radar stealth", Kind::Int(0, 0, 3), "0 = shows on any radar; 1 = only T2 or T3 radar finds it; 2 = only T3 radar; 3 = never on radar (it has to be seen)."),
 ];
 
 pub const UNIT_ECO: &[Field] = &[
@@ -210,6 +216,13 @@ pub const UNIT_BUILD: &[Field] = &[
     f("tier", "Highest tier", Kind::Int(1, 0, 9), "It builds units up to this tier."),
     no("station", "Engineering station", "Immobile builder that assists anything in range on its own."),
     no("scavenger", "Scavenger", "Cannot build or assist; reclaims wrecks and revives them as its owner's units."),
+];
+
+pub const UNIT_BINOCULARS: &[Field] = &[
+    num("range", "Range", 140.0, 5000.0, "How far it sees inside the cone (hills, trees and rocks still block it)."),
+    num("angle", "Cone width (deg)", 20.0, 170.0, "Full width of the view cone."),
+    num("turn", "Turn rate (deg/s)", 40.0, 3600.0, "How fast the binoculars follow a target; scanning goes at half that."),
+    num("scan", "Scan arc (deg)", 60.0, 180.0, "With nothing to look at it scans this far to either side of where the unit faces; 180 = all round (always so from a building's roof)."),
 ];
 
 pub const UNIT_TRANSPORT: &[Field] = &[f(
@@ -245,6 +258,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("salvo_delay", "Salvo delay (s)", 0.1, 100.0, "Seconds between the shells of a salvo."),
     num("spread", "Spread (deg)", 0.3, 90.0, "Random dispersion of each shot."),
     num("aim_time", "Aim time (s)", 0.0, 100.0, "Seconds the gun must stay on target before it fires."),
+    num("hold", "Hold after firing (s)", 0.0, 100.0, "Seconds the unit cannot move after each shot; it also fires only while standing still (mortars). 0 = fires on the move."),
     f("targets", "Targets", Kind::Tags(TARGETS, &["land"]), "What it can shoot at: land (ground units and buildings), air."),
     num("turn_rate", "Missile turn rate (deg/s)", 0.0, 3600.0, "Missiles: how fast they steer toward their target."),
     num("launch_pitch", "Missile launch angle (deg)", 0.0, 90.0, "Missiles: launch elevation (90 = straight up, like a SAM); 0 = a low 20 degrees."),
@@ -668,7 +682,10 @@ pub fn unit_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     section(ui, "General", true, |ui| ch |= grid(ui, v, UNIT_GENERAL, ctx, "gen"));
     section(ui, "Cost", true, |ui| ch |= grid(ui, v, UNIT_COST, ctx, "cost"));
     section(ui, "Body and movement", false, |ui| ch |= grid(ui, v, UNIT_BODY, ctx, "body"));
-    section(ui, "Sight and radar", false, |ui| ch |= grid(ui, v, UNIT_INTEL, ctx, "intel"));
+    section(ui, "Sight and radar", false, |ui| {
+        ch |= grid(ui, v, UNIT_INTEL, ctx, "intel");
+        ch |= optional(ui, v, "binoculars", "Binoculars", "A narrow view cone reaching much further than its vision: it scans around, locks onto an enemy it finds (or turns to a known contact in range) and follows it.", json!({ "range": 140, "angle": 20, "turn": 40, "scan": 60 }), UNIT_BINOCULARS, ctx, "binoculars");
+    });
     section(ui, "Economy", false, |ui| ch |= grid(ui, v, UNIT_ECO, ctx, "eco"));
     section(ui, "Weapons", true, |ui| ch |= weapons(ui, v, ctx));
     section(ui, "Construction, transport, death blast", false, |ui| {

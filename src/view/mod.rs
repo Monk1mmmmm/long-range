@@ -17,6 +17,7 @@ pub mod icons;
 pub mod intel;
 pub mod models;
 pub mod sound;
+pub mod surface;
 pub mod terrain;
 
 use models::*;
@@ -89,6 +90,8 @@ pub struct ViewState {
     pub paused: Option<u8>,
     /// The local player asked to pause or resume this frame (read by the session).
     pub pause_toggle: bool,
+    /// Network notice shown in the middle of the screen (the host left, a new host is taking over...).
+    pub net_note: Option<String>,
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -133,6 +136,7 @@ impl ViewState {
             last_sel: vec![],
             paused: None,
             pause_toggle: false,
+            net_note: None,
         }
     }
 }
@@ -257,6 +261,9 @@ fn unit_visuals(
             .entity(e)
             .insert((Interp { prev: s, cur: s, pos: b.pos, y: b.y, yaw: b.yaw }, Transform::from_translation(b.p3()).with_rotation(yaw_quat(b.yaw)), Visibility::Hidden))
             .add_child(root);
+        if let Some(a) = Animator::new(cache.model(&defs, u.def, &mut meshes)) {
+            commands.entity(e).insert(a);
+        }
     }
     for (e, u, uc, children) in &existing {
         for c in children.iter() {
@@ -266,6 +273,118 @@ fn unit_visuals(
                     let (ci, rgb) = owner_color(&defs, &game, u.owner);
                     let root = spawn_model(&mut commands, &mut cache, &defs, u.def, ci, rgb, uc, None, &mut meshes, &mut images, &mut materials);
                     commands.entity(e).add_child(root);
+                    match Animator::new(cache.model(&defs, u.def, &mut meshes)) {
+                        Some(a) => commands.entity(e).insert(a),
+                        None => commands.entity(e).remove::<Animator>(),
+                    };
+                }
+            }
+        }
+    }
+}
+
+/// Plays the units' model animations (the mod's .sca files) from what the simulation shows, the way
+/// SupCom's unit scripts play them (`AnimKind` says which does what). View only.
+#[allow(clippy::type_complexity)]
+fn drive_anims(
+    time: Res<Time>,
+    defs: Res<Defs>,
+    game: Res<Game>,
+    map: Res<MapData>,
+    mut q: Query<(
+        &Unit,
+        &Interp,
+        &mut Animator,
+        Option<&Upgrading>,
+        Option<&Builder>,
+        Option<&Factory>,
+        Option<&Weapons>,
+        Has<Paused>,
+        Has<UnderConstruction>,
+    )>,
+) {
+    let dt = time.delta_secs();
+    for (u, i, mut a, up, builder, factory, weapons, paused, uc) in &mut q {
+        let d = defs.get(u.def);
+        let top = d.mv.speed.max(0.1);
+        let step = i.cur.0 - i.prev.0;
+        let forward = step.dot(V2::from_angle(i.yaw)) / DT;
+        let moving = step.len() / DT > top * 0.15;
+        let working = builder.is_some_and(|b| b.work != 0) && !paused && !uc;
+        // Toward the end while `on`, back to the start otherwise; shown while not at the start.
+        let toward = |s: &mut AnimSlot, on: bool, back: f32| {
+            let dur = s.anim.duration();
+            s.time = if on { (s.time + dt).min(dur) } else { (s.time - dt * back).max(0.0) };
+            s.weight = if s.time > 0.0 { 1.0 } else { 0.0 };
+        };
+        for s in a.slots.iter_mut() {
+            let dur = s.anim.duration();
+            match s.anim.kind {
+                AnimKind::Walk => {
+                    // At full speed the cycle plays at the mod blueprint's rate (baked into the GLB), unless the
+                    // feet would then cover more ground than the unit (a big model such as the commander):
+                    // then slower, to keep them planted. Reversing plays it backwards.
+                    let frac = (forward / top).clamp(-1.5, 1.5);
+                    let full = if s.stride > 0.0 { (top * dur / s.stride).min(1.0) } else { 1.0 };
+                    if dur > 0.0 {
+                        s.time = (s.time + dt * frac * full).rem_euclid(dur);
+                    }
+                    let target = if frac.abs() > 0.05 { 1.0 } else { 0.0 };
+                    s.weight += (target - s.weight).clamp(-dt * 4.0, dt * 6.0);
+                }
+                AnimKind::Upgrade => {
+                    s.time = up.map_or(0.0, |p| p.0.clamp(0.0, 1.0) * dur);
+                    s.weight = if up.is_some() { 1.0 } else { 0.0 };
+                }
+                AnimKind::Work => {
+                    // Mass extractors pump at the share of energy their owner gets; paused they freeze.
+                    if !paused && !uc && up.is_none() && dur > 0.0 {
+                        let power = game.players.get(u.owner as usize).map_or(1.0, |p| p.power.clamp(0.0, 1.0));
+                        s.time = (s.time + dt * power).rem_euclid(dur);
+                    }
+                    s.weight = if uc { 0.0 } else { 1.0 };
+                }
+                AnimKind::Open => {
+                    // Engineers stand folded (first frame) and unfold to build.
+                    toward(s, working, 1.0);
+                    s.weight = if uc { 0.0 } else { 1.0 };
+                }
+                AnimKind::Doors => {
+                    // Opens to the middle and holds there while working; when done it plays on (at 1.5 / 2 of
+                    // the opening rate, as SupCom does) to the end, which is the closed start pose again.
+                    let half = dur * 0.5;
+                    if working && s.time <= half {
+                        s.time = (s.time + dt).min(half);
+                    } else if s.time > 0.0 {
+                        s.time += dt * 0.75;
+                        if s.time >= dur {
+                            s.time = 0.0;
+                        }
+                    }
+                    s.weight = if s.time > 0.0 { 1.0 } else { 0.0 };
+                }
+                AnimKind::Unpack => {
+                    let target = weapons.is_some_and(|w| w.list.iter().any(|st| st.target != 0));
+                    toward(s, target && !moving, 1.0);
+                }
+                AnimKind::Land => toward(s, moving, 1.0),
+                AnimKind::Water => toward(s, map.h(i.cur.0) < map.water, 1.0),
+                AnimKind::Rolloff => {
+                    // Out, held while the finished unit leaves, then back.
+                    let building = factory.map_or(0, |f| f.building);
+                    if s.mark != 0 && building != s.mark && s.seq < 0.0 {
+                        s.seq = 0.0;
+                    }
+                    s.mark = building;
+                    const HOLD: f32 = 1.0;
+                    if s.seq >= 0.0 {
+                        s.seq += dt;
+                        s.time = if s.seq < dur { s.seq } else if s.seq < dur + HOLD { dur } else { (2.0 * dur + HOLD - s.seq).max(0.0) };
+                        if s.seq >= 2.0 * dur + HOLD {
+                            s.seq = -1.0;
+                        }
+                    }
+                    s.weight = if s.time > 0.0 { 1.0 } else { 0.0 };
                 }
             }
         }
@@ -316,31 +435,44 @@ fn unit_transforms(
     }
 }
 
-/// Turrets, barrels and spinning parts.
+/// The unit entity a model part belongs to (the parent of its model root).
+fn unit_of(part: Entity, parents: &Query<&ChildOf>, roots: &Query<(), With<ModelRoot>>) -> Option<Entity> {
+    let mut cur = part;
+    for _ in 0..12 {
+        let p = parents.get(cur).ok()?;
+        if roots.get(cur).is_ok() {
+            return Some(p.parent());
+        }
+        cur = p.parent();
+    }
+    None
+}
+
+/// Model animations, turrets, barrels and spinning parts. Aim turns a part on top of its animated pose
+/// (the trooper's torso and gun arm are both), as SupCom layers aim manipulators over animations.
+#[allow(clippy::type_complexity)]
 fn animate_parts(
     time: Res<Time>,
-    units: Query<(&Interp, Option<&Weapons>)>,
+    units: Query<(&Interp, Option<&Weapons>, Option<&Animator>)>,
     parents: Query<&ChildOf>,
     roots: Query<(), With<ModelRoot>>,
-    mut aims: Query<(Entity, &AimPart, &mut Transform), Without<SpinPart>>,
+    mut aims: Query<(Entity, &AimPart, Option<&AnimPart>, &mut Transform), Without<SpinPart>>,
+    mut animated: Query<(Entity, &AnimPart, &mut Transform), (Without<AimPart>, Without<SpinPart>)>,
     mut spins: Query<(&SpinPart, &mut Transform), Without<AimPart>>,
 ) {
-    for (e, aim, mut t) in &mut aims {
-        // Walk up to the unit entity (the parent of the model root).
-        let mut cur = e;
-        let mut unit = None;
-        for _ in 0..12 {
-            let Ok(p) = parents.get(cur) else { break };
-            if roots.get(cur).is_ok() {
-                unit = Some(p.parent());
-                break;
-            }
-            cur = p.parent();
+    for (e, part, mut t) in &mut animated {
+        let animator = unit_of(e, &parents, &roots).and_then(|u| units.get(u).ok()).and_then(|(_, _, a)| a);
+        let want = part.pose(animator);
+        if *t != want {
+            *t = want;
         }
-        let Some((interp, Some(w))) = unit.and_then(|u| units.get(u).ok()) else { continue };
+    }
+    for (e, aim, anim_part, mut t) in &mut aims {
+        let Some((interp, Some(w), animator)) = unit_of(e, &parents, &roots).and_then(|u| units.get(u).ok()) else { continue };
         let Some(st) = w.list.get(aim.weapon) else { continue };
         let q = if aim.pitch { Quat::from_rotation_x(st.pitch.clamp(-0.3, 1.4)) } else { Quat::from_rotation_y(-wrap(st.yaw - interp.yaw)) };
-        *t = aim.rest * Transform::from_rotation(q);
+        let base = anim_part.map_or(aim.rest, |p| p.pose(animator));
+        *t = base * Transform::from_rotation(q);
     }
     let secs = time.elapsed_secs();
     for (s, mut t) in &mut spins {
@@ -408,10 +540,11 @@ pub struct ViewPlugin;
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LocalCommands>().init_resource::<sound::UiSounds>();
+        app.add_plugins(surface::SurfacePlugin);
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, debris::debris_visuals, unit_transforms, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, debris::debris_visuals, unit_transforms, drive_anims, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
                 .chain()
                 .run_if(in_game),
         );

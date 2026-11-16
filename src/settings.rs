@@ -274,9 +274,37 @@ mod linux_gl {
 ///
 /// wgpu's OpenGL backend reports the same harmless texture-view "heuristics" message several times
 /// per frame (thousands of lines a minute); that module is silenced, its shader errors are kept.
+///
+/// Everything logged also goes to `<program>.log` next to `settings.json` (the one of the run before
+/// is kept as `<program>-previous.log`), and a panic writes its message and backtrace there, so a
+/// crash leaves a record even when the game was not started from a console.
 pub fn log_plugin() -> bevy::log::LogPlugin {
     let filter = format!("{},wgpu_hal::gles=off,wgpu_hal::gles::device=error", bevy::log::DEFAULT_FILTER);
-    bevy::log::LogPlugin { filter, ..default() }
+    bevy::log::LogPlugin { filter, custom_layer: log_file_layer, ..default() }
+}
+
+/// `<program>.log` next to `settings.json`.
+pub fn log_path() -> std::path::PathBuf {
+    let stem = std::env::current_exe().ok().and_then(|e| e.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_else(|| "longrange".into());
+    base_dir().join(format!("{stem}.log"))
+}
+
+fn log_file_layer(_: &mut App) -> Option<bevy::log::BoxedLayer> {
+    use bevy::log::tracing_subscriber::Layer;
+    let path = log_path();
+    let previous = path.with_file_name(format!("{}-previous.log", path.file_stem().map_or("longrange".into(), |s| s.to_string_lossy())));
+    let _ = std::fs::rename(&path, previous);
+    let file = std::fs::File::create(&path).ok()?;
+    // Panics (also those on the render thread) end up in the file with a backtrace.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(log_path()) {
+            let _ = writeln!(f, "\nPANIC: {info}\n{}", std::backtrace::Backtrace::force_capture());
+        }
+        default_hook(info);
+    }));
+    Some(bevy::log::tracing_subscriber::fmt::layer().with_ansi(false).with_writer(std::sync::Mutex::new(file)).boxed())
 }
 
 /// Render errors seen so far (also appended to `render-errors.log`), for the settings window.
@@ -288,11 +316,21 @@ pub struct RenderErrors(pub Vec<String>);
 /// Bevy 0.20 quits on any render error, which on GPUs with partial feature support turns one
 /// failed pipeline into "black window, then the program closes". Validation and internal (driver, shader compiler) errors are
 /// logged, written to `render-errors.log` and shown in Settings; device loss and out-of-memory still quit.
+///
+/// It also keeps the window's swap chain alive across Alt+Tab (see `keep_surface`).
 pub fn tolerate_render_errors(app: &mut App) {
     use bevy::render::error_handler::{ErrorType, RenderErrorHandler, RenderErrorPolicy};
     app.init_resource::<RenderErrors>();
-    app.insert_resource(RenderErrorHandler(|error, main_world, _| {
+    if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+        render_app.add_systems(bevy::render::Render, keep_surface.before(bevy::render::view::window::create_surfaces));
+    }
+    app.insert_resource(RenderErrorHandler(|error, main_world, render_world| {
         let text = error.description.trim().to_string();
+        // A swap chain that could not be (re)configured is gone until it is configured again,
+        // which Bevy only does when the window size changes: `keep_surface` retries it.
+        if text.contains("Surface::configure") || text.contains("not configured for presentation") {
+            render_world.insert_resource(ReconfigureSurface(0));
+        }
         let mut log = main_world.get_resource_or_insert_with(RenderErrors::default);
         let key: String = text.chars().take(160).collect();
         if log.0.len() < 40 && !log.0.iter().any(|e| e.starts_with(&key)) {
@@ -312,6 +350,46 @@ pub fn tolerate_render_errors(app: &mut App) {
             RenderErrorPolicy::StopRendering
         }
     }));
+}
+
+/// A window surface must be configured again (after a failed attempt); the number counts frames since.
+#[derive(Resource)]
+struct ReconfigureSurface(u32);
+
+/// Render world, before Bevy (re)configures window surfaces.
+///
+/// Alt+Tab out of the game minimises the window, which Bevy turns into a resize of the swap chain
+/// to 1 x 1. On DirectX 12 that `ResizeBuffers` call can fail ("window is in use"); the swap chain
+/// is then lost and the game stopped drawing or went down. A minimised window shows nothing, so its
+/// swap chain simply keeps the size it had (restoring the window is then no resize either).
+/// If configuring fails anyway, it is tried again about once a second.
+fn keep_surface(mut commands: Commands, mut windows: Query<(Entity, &mut bevy::render::view::window::ExtractedWindow)>, mut last: Local<std::collections::HashMap<Entity, (u32, u32)>>, retry: Option<ResMut<ReconfigureSurface>>) {
+    let again = match retry {
+        Some(mut r) => {
+            r.0 += 1;
+            if r.0 >= 60 {
+                commands.remove_resource::<ReconfigureSurface>();
+                true
+            } else {
+                false
+            }
+        }
+        None => false,
+    };
+    for (e, mut w) in &mut windows {
+        if w.physical_width <= 1 || w.physical_height <= 1 {
+            if let Some(&(width, height)) = last.get(&e) {
+                w.physical_width = width;
+                w.physical_height = height;
+                w.size_changed = false;
+            }
+        } else {
+            last.insert(e, (w.physical_width, w.physical_height));
+        }
+        if again {
+            w.size_changed = true;
+        }
+    }
 }
 
 /// Shows the program icon in the window's title bar and the taskbar (Windows).

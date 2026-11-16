@@ -96,6 +96,24 @@ fn cover_threat_range() -> f32 {
 fn garrison_eject_damage() -> f32 {
     0.4
 }
+fn garrison_defense() -> f32 {
+    1.25
+}
+fn garrison_damage() -> f32 {
+    0.04
+}
+fn garrison_vision() -> f32 {
+    1.3
+}
+fn binocular_angle() -> f32 {
+    20.0
+}
+fn binocular_turn() -> f32 {
+    40.0
+}
+fn binocular_scan() -> f32 {
+    60.0
+}
 /// Debris: pieces that break off buildings. Their mass comes out of the building's wreck value
 /// (`wreck_mass_fraction` of its cost), so damaging and repairing a building makes no mass.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -353,6 +371,15 @@ pub struct Rules {
     /// Infantry thrown out of a destroyed building lose this share of their hit points.
     #[serde(default = "garrison_eject_damage")]
     pub garrison_eject_damage: f32,
+    /// Infantry holding a building deal this many times their `assault` damage to those storming it.
+    #[serde(default = "garrison_defense")]
+    pub garrison_defense: f32,
+    /// Infantry inside a building take this share of every hit on it (their own armor applies).
+    #[serde(default = "garrison_damage")]
+    pub garrison_damage: f32,
+    /// Infantry inside a building look from its roof: their vision and binocular range times this.
+    #[serde(default = "garrison_vision")]
+    pub garrison_vision: f32,
     /// Reclaimable trees and rocks maps can place.
     #[serde(default)]
     pub features: Vec<FeatureDef>,
@@ -459,6 +486,23 @@ pub struct BuildCap {
     pub scavenger: bool,
 }
 
+/// Binoculars: a narrow view cone that reaches much further than the unit's vision. It scans
+/// around the way the unit faces (all round from a building's roof) and locks onto the enemy
+/// it finds, or turns to a known contact in range, and follows it.
+#[derive(Deserialize, Clone, Debug)]
+pub struct BinocularsDef {
+    pub range: f32,
+    /// Full width of the cone (degrees).
+    #[serde(default = "binocular_angle")]
+    pub angle: f32,
+    /// How fast it turns (degrees per second); scanning goes at half that.
+    #[serde(default = "binocular_turn")]
+    pub turn: f32,
+    /// With nothing to look at it scans this far (degrees) to either side of where the unit faces.
+    #[serde(default = "binocular_scan")]
+    pub scan: f32,
+}
+
 /// A unit that carries other units.
 #[derive(Deserialize, Clone, Debug)]
 pub struct TransportDef {
@@ -534,6 +578,10 @@ pub struct WeaponDef {
     /// Seconds the gun must stay on target before it fires.
     #[serde(default)]
     pub aim_time: f32,
+    /// Seconds the unit stays put after each shot (mortars). A weapon with a hold also fires
+    /// only while its unit stands still, so a moving order is never frozen by a passing target.
+    #[serde(default)]
+    pub hold: f32,
     /// None = fixed forward weapon (the whole unit has to face the target).
     #[serde(default)]
     pub turret: Option<TurretDef>,
@@ -631,9 +679,23 @@ pub struct UnitDef {
     pub mv: Move,
     #[serde(default)]
     pub vision: f32,
+    /// A long, narrow view cone on top of `vision` (infantry spotters).
+    #[serde(default)]
+    pub binoculars: Option<BinocularsDef>,
+    /// Radar range against unstealthed units (radar level 1).
     #[serde(default)]
     pub radar: f32,
-    /// Never shows on enemy radar (infantry); it has to be seen.
+    /// Level 2 radar range: also finds stealth level 1 units.
+    #[serde(default)]
+    pub radar2: f32,
+    /// Level 3 radar range: also finds stealth level 2 units.
+    #[serde(default)]
+    pub radar3: f32,
+    /// Radar stealth level: shows only on radar of a higher level (within that level's range).
+    /// 3 = never on radar (infantry); it has to be seen.
+    #[serde(default)]
+    pub stealth: u8,
+    /// Old form of `stealth: 3` (kept so older presets still load).
     #[serde(default)]
     pub radar_stealth: bool,
     #[serde(default)]
@@ -667,6 +729,10 @@ pub struct UnitDef {
     /// Slots this unit takes in a transport; 0 = cannot be carried.
     #[serde(default = "one_u8")]
     pub cargo: u8,
+    /// Infantry: close-quarters damage per second when storming an occupied building or holding
+    /// one against those storming it. 0 = cannot storm buildings.
+    #[serde(default)]
+    pub assault: f32,
     /// Sound played when the unit is selected (one of `view::sound::UI_SOUNDS`); empty = by role.
     #[serde(default)]
     pub select_sound: String,
@@ -725,6 +791,23 @@ impl UnitDef {
     }
     pub fn height(&self) -> f32 {
         self.size[1]
+    }
+    /// How far its radar finds a unit of this stealth level (0 = none): the largest range among
+    /// the radar levels above it.
+    pub fn radar_vs(&self, stealth: u8) -> f32 {
+        let r = [self.radar, self.radar2, self.radar3];
+        r.iter().skip(stealth as usize).fold(0.0, |a, b| a.max(*b))
+    }
+    /// Its furthest radar range (against unstealthed units).
+    pub fn radar_reach(&self) -> f32 {
+        self.radar_vs(0)
+    }
+    pub fn has_radar(&self) -> bool {
+        self.radar_reach() > 0.0
+    }
+    /// The highest radar level it has (0 = no radar).
+    pub fn radar_level(&self) -> u8 {
+        [self.radar, self.radar2, self.radar3].iter().rposition(|r| *r > 0.0).map_or(0, |i| i as u8 + 1)
     }
     pub fn armed(&self) -> bool {
         !self.weapons.is_empty()
@@ -1059,6 +1142,12 @@ impl Defs {
                     .filter(|o| o.built_by.as_ref().map_or(false, |c| b.categories.contains(c)))
                     .map(|o| o.idx)
                     .collect();
+            }
+            if u.radar_stealth && u.stealth == 0 {
+                u.stealth = 3;
+            }
+            if u.stealth > 3 {
+                return Err(format!("{}: stealth goes from 0 to 3", u.id));
             }
             if !u.is_structure() && u.footprint != 0 {
                 return Err(format!("{}: mobile units must not have a footprint", u.id));

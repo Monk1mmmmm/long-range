@@ -59,10 +59,12 @@ struct HostLobby {
     reveal_props: bool,
     /// Start positions of each premade map.
     counts: Vec<usize>,
+    /// Ground of random maps: 0 = picked by the seed, k = `surface::BIOMES[k - 1]`.
+    biome: usize,
 }
 
-/// What a lobby's map depends on: (choice, players, seed, data hash).
-type MapKey = (usize, usize, u64, u64);
+/// What a lobby's map depends on: (choice, players, seed, data hash, biome).
+type MapKey = (usize, usize, u64, u64, usize);
 const PREVIEW: usize = 256;
 
 impl HostLobby {
@@ -115,7 +117,8 @@ impl HostLobby {
         self.dirty = true;
     }
     fn map_key(&self, defs: &Defs) -> MapKey {
-        (self.map_choice, if self.map_choice < SIZES.len() { self.players } else { 0 }, if self.map_choice < SIZES.len() { self.seed } else { 0 }, defs.hash)
+        let random = self.map_choice < SIZES.len();
+        (self.map_choice, if random { self.players } else { 0 }, if random { self.seed } else { 0 }, defs.hash, if random { self.biome } else { 0 })
     }
     /// Makes (or loads) the chosen map if the choice changed, with its preview picture.
     fn ensure_map(&mut self, defs: &Defs) -> Result<(), String> {
@@ -126,6 +129,9 @@ impl HostLobby {
         let map = match SIZES.get(self.map_choice) {
             Some((n, _)) => {
                 let mut m = MapData::generate(*n, self.seed, self.slots.len());
+                if let Some(b) = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k)) {
+                    m.paint_ground(*b);
+                }
                 m.scatter_features(&defs.rules.features, self.seed, 1.0);
                 m
             }
@@ -150,6 +156,10 @@ impl HostLobby {
             t += &format!("\nSwitched off: {}", off.join(", "));
         }
         t += &format!("\nMap buildings known from the start: {}", if self.reveal_props { "yes" } else { "no" });
+        if self.map_choice < SIZES.len() {
+            let b = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k).copied()).unwrap_or(longrange::surface::Biome::from_seed(self.seed));
+            t += &format!("\nTerrain: {}", b.name());
+        }
         t
     }
     fn info(&self, you: i8, defs: &Defs) -> LobbyInfo {
@@ -174,8 +184,55 @@ struct ClientLobby {
 }
 
 enum Role {
-    Host { host: Host, remote: Vec<(u32, u8)>, sim: HostSim },
-    Client { client: Client, sim: ClientSim },
+    /// `waiting`: after taking over from a host that left, the players still expected to
+    /// reconnect; the game waits for them up to `wait_left` seconds. `ai_reclaim`: the lobby's
+    /// AI option, passed on to whoever takes over next.
+    Host { host: Host, remote: Vec<(u32, u8)>, sim: HostSim, waiting: Vec<u8>, wait_left: f32, ai_reclaim: bool },
+    /// `heard`: seconds since the last frame from the host. `rejoin`: after the host left,
+    /// the connection being made to the player taking over (that player, the result to come).
+    /// `skip`: players who could not take over.
+    Client { client: Client, sim: ClientSim, heard: f32, rejoin: Option<(u8, std::sync::mpsc::Receiver<Result<Client, String>>)>, skip: Vec<u8> },
+}
+
+/// A host that sends nothing for this long (turns arrive ten times a second, pongs every
+/// second even while paused) is taken for gone.
+const HOST_SILENT_SECS: f32 = 10.0;
+/// How long the player taking over as host waits for the others to reconnect.
+const REJOIN_WAIT_SECS: f32 = 20.0;
+
+/// The host left and this client is next in line: it becomes the host, from the last state the
+/// old host confirmed. The AIs start again there (their few own variables are not part of the
+/// game state), the old host's player resigns, and the other players get `REJOIN_WAIT_SECS`
+/// to reconnect.
+fn take_over(world: &mut World, sim: &mut ClientSim, me: u8, name: &str) -> Result<Role, String> {
+    let host = Host::start(name)?;
+    info!("the host left; this machine takes over as host");
+    let snap = sim.host_lost().clone();
+    restore(world, &snap);
+    flush_limbo(world);
+    let seed = (snap.game.tick as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let ais = world.resource::<Game>().players.iter().enumerate().filter(|(_, pl)| pl.is_ai && pl.alive).map(|(k, _)| {
+        let mut ai = Ai::new(k as u8, seed);
+        ai.reclaim = sim.ai_reclaim;
+        ai
+    });
+    let ais = Ais(ais.collect());
+    world.insert_resource(ais);
+    let mut hsim = HostSim::new(world);
+    if let Some(old) = sim.host_player {
+        hsim.command(world, old, 0, 0, Command::Resign);
+    }
+    *host.info.lock().unwrap() = "(game in progress)".into();
+    let waiting: Vec<u8> = sim.peers.iter().map(|p| p.0).filter(|&p| p != me).collect();
+    Ok(Role::Host { host, remote: vec![], sim: hsim, waiting, wait_left: REJOIN_WAIT_SECS, ai_reclaim: sim.ai_reclaim })
+}
+
+/// Tells every client who would take over if this host left.
+fn send_peers(host: &Host, remote: &[(u32, u8)], me: u8, ai_reclaim: bool) {
+    let peers: Vec<(u8, Option<std::net::IpAddr>)> = remote.iter().map(|&(conn, p)| (p, host.peer_ip(conn))).collect();
+    for (conn, _) in remote {
+        host.send_msg(*conn, &S2C::Peers { host: me, peers: peers.clone(), ai_reclaim });
+    }
 }
 
 struct Session {
@@ -388,6 +445,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         ai_reclaim: true,
         reveal_props: true,
         counts,
+        biome: 0,
     };
     let _ = l.ensure_map(defs);
     Ok(l)
@@ -475,10 +533,11 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
             l.host.send(*conn, &state);
         }
     }
+    send_peers(&l.host, &remote, 0, l.ai_reclaim);
     let sim = HostSim::new(world);
     *l.host.info.lock().unwrap() = "(game in progress)".into();
     view::start_view(world, 0, true);
-    Ok(Session { role: Role::Host { host: l.host, remote, sim }, acc: 0.0, paused: None })
+    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None })
 }
 
 fn leave_game(world: &mut World) {
@@ -493,12 +552,13 @@ fn leave_game(world: &mut World) {
 fn session_update(world: &mut World) {
     let Some(mut app) = world.remove_non_send::<AppState>() else { return };
     let mut over: Option<String> = None;
+    let mut promoted: Option<Role> = None;
     if let Screen::Game(s) = &mut app.screen {
         let me = world.get_resource::<ViewState>().map_or(0, |v| v.me);
         let local: Vec<Command> = world.get_resource_mut::<LocalCommands>().map(|mut c| c.0.drain(..).collect()).unwrap_or_default();
         let toggle = world.get_resource_mut::<ViewState>().map_or(false, |mut v| std::mem::take(&mut v.pause_toggle));
         match &mut s.role {
-            Role::Host { host, remote, sim } => {
+            Role::Host { host, remote, sim, waiting, wait_left, ai_reclaim } => {
                 let mut cmds: Vec<(u8, Command)> = local.into_iter().map(|c| (me, c)).collect();
                 // Pause requests: (player, pause or resume).
                 let mut pause: Vec<(u8, bool)> = vec![];
@@ -529,13 +589,32 @@ fn session_update(world: &mut World) {
                                 }
                             }
                         }
-                        HostEvent::Left(id) => {
-                            if let Some(k) = remote.iter().position(|r| r.0 == id) {
-                                cmds.push((remote[k].1, Command::Resign));
-                                remote.remove(k);
+                        HostEvent::Msg(id, C2S::Rejoin { player }) => {
+                            // A player of this game, after its host left and this machine took over.
+                            if let Some(k) = waiting.iter().position(|&w| w == player) {
+                                waiting.remove(k);
+                                info!("player {player} reconnected");
+                                remote.push((id, player));
+                                if let Ok(data) = bincode::serialize(&make_snapshot(world)) {
+                                    host.send(id, &frame(TAG_SNAP, data));
+                                }
+                                if s.paused.is_some() {
+                                    host.send_msg(id, &S2C::Paused(s.paused));
+                                }
+                                send_peers(host, remote, me, *ai_reclaim);
+                            } else {
+                                host.send_msg(id, &S2C::Kicked("You are not part of this game any more.".into()));
                             }
                         }
-                        HostEvent::Joined(id) => host.send_msg(id, &S2C::Kicked("The game has already started.".into())),
+                        HostEvent::Msg(id, C2S::Hello { .. }) => host.send_msg(id, &S2C::Kicked("The game has already started.".into())),
+                        HostEvent::Left(id) => {
+                            if let Some(k) = remote.iter().position(|r| r.0 == id) {
+                                info!("player {} left; the game goes on without them", remote[k].1);
+                                cmds.push((remote[k].1, Command::Resign));
+                                remote.remove(k);
+                                send_peers(host, remote, me, *ai_reclaim);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -559,6 +638,27 @@ fn session_update(world: &mut World) {
                 s.acc += dt * speed;
                 if s.paused.is_some() {
                     s.acc = 0.0;
+                }
+                // Taken over from a host that left: hold the game until the others are back
+                // (they reconnect with the full state), or resign those who do not come.
+                let mut note = None;
+                if !waiting.is_empty() {
+                    *wait_left -= dt;
+                    s.acc = 0.0;
+                    if *wait_left <= 0.0 {
+                        for p in waiting.drain(..) {
+                            warn!("player {p} did not reconnect");
+                            cmds.push((p, Command::Resign));
+                        }
+                        s.acc = DT;
+                    } else {
+                        let game = world.resource::<Game>();
+                        let names: Vec<String> = waiting.iter().map(|&p| game.players.get(p as usize).map_or(format!("player {p}"), |pl| pl.name.clone())).collect();
+                        note = Some(format!("The host left - this machine is the host now. Waiting for {} ({:.0} s)", names.join(", "), wait_left.ceil()));
+                    }
+                }
+                if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+                    v.net_note = note;
                 }
                 let cap = (3.0 * speed).ceil() as i32;
                 let mut n = 0;
@@ -585,43 +685,98 @@ fn session_update(world: &mut World) {
                     }
                 }
             }
-            Role::Client { client, sim } => {
-                if toggle {
-                    client.send(&C2S::Pause(sim.paused.is_none()));
-                }
-                for m in sim.issue(world, local) {
-                    client.send(&m);
-                }
-                loop {
-                    match client.frames.try_recv() {
-                        Ok(Some((tag, data))) => {
-                            if let Err(why) = sim.receive(tag, &data) {
-                                over = Some(why);
+            Role::Client { client, sim, heard, rejoin, skip } => {
+                let dt = world.resource::<Time>().delta_secs().min(0.25);
+                let mut lost = false;
+                let mut note = None;
+                if let Some((to, rx)) = rejoin {
+                    // The host left: connecting to the player who takes over.
+                    let name = world.resource::<Game>().players.get(*to as usize).map_or(String::new(), |p| p.name.clone());
+                    note = Some(format!("The host left - reconnecting to {name}..."));
+                    match rx.try_recv() {
+                        Ok(Ok(c)) => {
+                            info!("connected to the new host (player {to})");
+                            *client = c;
+                            *rejoin = None;
+                            *heard = 0.0;
+                        }
+                        Ok(Err(_)) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            warn!("player {to} did not take over as host");
+                            skip.push(*to);
+                            *rejoin = None;
+                            lost = true;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    }
+                } else {
+                    if toggle {
+                        client.send(&C2S::Pause(sim.paused.is_none()));
+                    }
+                    for m in sim.issue(world, local) {
+                        client.send(&m);
+                    }
+                    *heard += dt;
+                    loop {
+                        match client.frames.try_recv() {
+                            Ok(Some((tag, data))) => {
+                                *heard = 0.0;
+                                if let Err(why) = sim.receive(tag, &data) {
+                                    over = Some(why);
+                                    break;
+                                }
+                            }
+                            Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                lost = true;
                                 break;
                             }
+                            Err(_) => break,
                         }
-                        Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            over = Some("Connection to the host was lost.".into());
-                            break;
+                    }
+                    if *heard > HOST_SILENT_SECS || client.broken {
+                        lost = true;
+                    }
+                    if lost {
+                        warn!("lost the connection to the host");
+                        sim.host_lost();
+                    }
+                    if over.is_none() && !lost {
+                        match sim.update(world, dt) {
+                            Ok(out) => {
+                                for m in out {
+                                    client.send(&m);
+                                }
+                            }
+                            Err(why) => over = Some(why),
                         }
-                        Err(_) => break,
                     }
                 }
-                if over.is_none() {
-                    let dt = world.resource::<Time>().delta_secs().min(0.25);
-                    match sim.update(world, dt) {
-                        Ok(out) => {
-                            for m in out {
-                                client.send(&m);
-                            }
+                // Who takes over: the human player with the lowest number who has not failed
+                // to already. Every client works it out from the same list, so they agree.
+                if lost && over.is_none() {
+                    match sim.peers.iter().find(|p| !skip.contains(&p.0)).copied() {
+                        None => over = Some("Connection to the host was lost.".into()),
+                        Some((p, _)) if p == me => match take_over(world, sim, me, &app.name) {
+                            Ok(role) => promoted = Some(role),
+                            Err(e) => over = Some(format!("The host left, and this machine could not take over: {e}")),
+                        },
+                        Some((p, ip)) => {
+                            let ip = ip.unwrap_or(client.addr.ip());
+                            info!("the host left; reconnecting to player {p} at {ip}");
+                            *rejoin = Some((p, Client::rejoin(ip, me, std::time::Duration::from_secs(15))));
+                            note = Some("The host left - reconnecting...".into());
                         }
-                        Err(why) => over = Some(why),
                     }
                 }
                 if let Some(mut v) = world.get_resource_mut::<ViewState>() {
                     v.paused = sim.paused;
+                    v.net_note = note;
                 }
             }
+        }
+        if let Some(role) = promoted {
+            s.role = role;
+            s.paused = None;
+            s.acc = 0.0;
         }
         if world.get_resource::<ViewState>().map_or(false, |v| v.quit) {
             over = Some(String::new());
@@ -976,6 +1131,13 @@ fn menu_ui(world: &mut World) {
                                             l.seed = l.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) | 1;
                                         }
                                     });
+                                    let biome_label = |k: usize| match k.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k)) {
+                                        Some(b) => b.name().to_string(),
+                                        None => format!("Random ({})", longrange::surface::Biome::from_seed(l.seed).name()),
+                                    };
+                                    if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(format!("Terrain: {}", biome_label(l.biome)))).on_hover_text("Ground of the random map; Random picks one from the map's seed").clicked() {
+                                        l.biome = (l.biome + 1) % (longrange::surface::BIOMES.len() + 1);
+                                    }
                                 }
                                 if ui.checkbox(&mut l.ai_reclaim, "AI reclaims trees and rocks").changed() {
                                     l.dirty = true;
@@ -1125,7 +1287,7 @@ fn menu_ui(world: &mut World) {
                     }
                     if let Some(sim) = started {
                         if let Screen::ClientLobby(l) = std::mem::replace(&mut app.screen, Screen::Menu) {
-                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim }, acc: 0.0, paused: None }));
+                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim, heard: 0.0, rejoin: None, skip: vec![] }, acc: 0.0, paused: None }));
                         }
                     } else if let Some(why) = lost {
                         app.message = why;
@@ -1702,6 +1864,34 @@ fn combattest() {
         let intel = q.iter(world).find(|(u, _)| u.id == t).map(|(_, i)| *i).unwrap();
         println!("== Radar tower, target 59 away, ridge between: {ridge} -> on radar: {}, seen: {}", intel.radar & 1 != 0, intel.seen & 1 != 0);
     }
+    // 4b. Radar levels against stealth: each radar tower tier, targets of each stealth level at two
+    //     distances on flat ground ("+" = on radar).
+    println!("== Radar levels vs stealth (targets at 140 / 200)");
+    for tower in ["radar_tower", "radar_tower2", "radar_tower3", "radar_car3"] {
+        if defs.id(tower).is_none() {
+            continue;
+        }
+        let mut line = format!("   {tower:13}");
+        for target in ["crony", "gunship", "delivery_boy", "trooper"] {
+            let mut app = headless(defs.clone());
+            let mut map = MapData::generate(192, 4242, 2);
+            map.heights.iter_mut().for_each(|h| *h = 2.0);
+            map.rebuild_blocked();
+            let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+            let world = app.world_mut();
+            setup_game(world, map.clone(), &setup);
+            spawn(world, &map, tower, 0, v2(60.0, 190.0), 0.0);
+            let ids = [140.0, 200.0].map(|dist| spawn(world, &map, target, 1, v2(60.0 + dist, 190.0), 0.0));
+            world.flush();
+            for _ in 0..3 {
+                world.run_schedule(SimTick);
+            }
+            let mut q = world.query::<(&Unit, &Intel)>();
+            let marks: Vec<&str> = ids.iter().map(|id| if q.iter(world).any(|(u, i)| u.id == *id && i.radar & 1 != 0) { "+" } else { "-" }).collect();
+            line += &format!("  {target} {}", marks.join(""));
+        }
+        println!("{line}");
+    }
     // 5. Firing at radar contacts: every armed land unit that out-ranges its own sight gets a radar
     //    tower next to it and an enemy building just inside its range, on flat ground.
     println!("== Shooting at radar contacts beyond vision (flat ground, radar tower alongside)");
@@ -2159,6 +2349,7 @@ fn combattest() {
     }
     air_tests(&defs);
     infantry_tests(&defs);
+    binocular_tests(&defs);
     scavenger_tests(&defs);
 }
 
@@ -2267,7 +2458,7 @@ fn scavenger_tests(defs: &Defs) {
 }
 
 /// Cover behind trees, rocks and wrecks, infantry looking for it, and infantry in buildings
-/// (`--combattest`, or alone with `LR_TEST=infantry`).
+/// (`--combattest`, or alone with `LR_TEST=infantry`); also the mortar hold.
 fn infantry_tests(defs: &Defs) {
     let faction = defs.playable_factions()[0] as u8;
     // A flat test range with the given trees and rocks: (feature type, position).
@@ -2358,6 +2549,53 @@ fn infantry_tests(defs: &Defs) {
         assert!(p.dist(tree) < 3.0 && behind > 0.9, "infantry cover");
     }
 
+    // 3b. Storming an occupied house: infantry fight the enemy infantry inside at the door and walk
+    // in when it is cleared. Riflemen beat AT/SAM troopers inside; the defenders win an even fight.
+    // `from`: how far west of the house the stormers start (6 = at the door, so only the
+    // close-quarters fight counts; further out the defenders shoot at them on the way in).
+    for (inside, storm, n_in, n_out, from, want_taken) in [
+        ("at_trooper", "trooper", 1, 1, 6.0, Some(true)),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true)),
+        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true)),
+        ("trooper", "at_trooper", 1, 1, 6.0, Some(false)),
+        ("trooper", "trooper", 1, 1, 6.0, Some(false)),
+        ("trooper", "trooper", 1, 2, 6.0, Some(true)),
+        ("at_trooper", "trooper", 2, 3, 40.0, None),
+    ] {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let house = spawn(world, &map, "house", NEUTRAL, v2(129.0, 129.0), 0.0);
+        let held: Vec<u32> = (0..n_in).map(|k| spawn(world, &map, inside, 1, v2(140.0, 126.0 + k as f32 * 2.0), 3.14)).collect();
+        order(world, 1, held.clone(), Order::Load(house));
+        for _ in 0..80 {
+            world.run_schedule(SimTick);
+        }
+        let in_before = held.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
+        let men: Vec<u32> = (0..n_out).map(|k| spawn(world, &map, storm, 0, v2(129.0 - from, 127.0 + k as f32 * 1.5), 0.0)).collect();
+        order(world, 0, men.clone(), Order::Load(house));
+        let mut done_at = None;
+        for t in 0..400 {
+            world.run_schedule(SimTick);
+            if done_at.is_none() && owner_of(world, house) == Some(0) {
+                done_at = Some(t);
+            }
+        }
+        let left_in = held.iter().filter(|id| body(world, **id).is_some()).count();
+        let ours_in = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
+        let hps: Vec<f32> = men.iter().map(|id| hp(world, *id)).collect();
+        println!(
+            "== Storm from {from}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a house: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
+            owner_of(world, house),
+            done_at.map(|t| (t + 1) as f32 / 10.0)
+        );
+        assert!(in_before == n_in, "storm setup");
+        match want_taken {
+            Some(true) => assert!(left_in == 0 && ours_in > 0 && owner_of(world, house) == Some(0), "storm should take the house"),
+            Some(false) => assert!(left_in > 0 && ours_in == 0 && owner_of(world, house) == Some(1), "storm should fail"),
+            None => {}
+        }
+    }
+
     // 3. Troopers occupy a neutral house, fire from it, leave it, and are thrown out when it falls.
     {
         let (mut app, map) = world_with(&[]);
@@ -2406,8 +2644,145 @@ fn infantry_tests(defs: &Defs) {
         println!("== Garrison: {inside} of {cap} troopers in the house (owner now {held:?}); in 20 s they did {dealt:.0} damage to a tank, the house lost {house_lost:.0} hp, troopers' hp {men_hp:.0}");
         println!("   unloaded {out} at the spot (house owner then {freed:?}); in again {again}; house destroyed: {} thrown out with hp {:?}", thrown.len(), thrown);
         let full = defs.get(defs.id("trooper").unwrap()).hp;
-        assert!(inside == cap && held == Some(0) && dealt > 0.0 && house_lost > 0.0 && (men_hp - full * cap as f32).abs() < 0.01, "garrison");
+        // The men inside take a small share of the hits on the house (rules.garrison_damage).
+        let all = full * cap as f32;
+        assert!(inside == cap && held == Some(0) && dealt > 0.0 && house_lost > 0.0 && men_hp < all - 0.01 && men_hp > all * 0.5, "garrison");
         assert!(out == cap && freed == Some(NEUTRAL) && again == cap && thrown.len() == cap && thrown.iter().all(|h| *h > 0.0 && *h < full * 0.7), "garrison exit");
+    }
+
+    // 4. A mortar (weapon `hold`) stays put after firing and does not fire on the move.
+    {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let pike = spawn(world, &map, "pike", 0, v2(100.0, 100.0), 0.0);
+        spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
+        let target = spawn(world, &map, "overtaker", 1, v2(160.0, 100.0), 3.14);
+        set_hp(world, target, 1.0e6);
+        let hold = defs.get(defs.id("pike").unwrap()).weapons[0].hold;
+        let state = |world: &mut World| -> (V2, f32) { world.query::<(&Unit, &Body, &Mover)>().iter(world).find(|(u, ..)| u.id == pike).map(|(_, b, m)| (b.pos, m.hold)).unwrap() };
+        let mut fired = None;
+        for t in 0..300 {
+            world.run_schedule(SimTick);
+            if state(world).1 > 0.0 {
+                fired = Some(t);
+                break;
+            }
+        }
+        // Ordered away right after the first shot; the target stays in range the whole drive.
+        let dest = v2(100.0, 160.0);
+        order(world, 0, vec![pike], Order::Move(dest));
+        let (start, _) = state(world);
+        let (mut waited, mut on_move, mut arrived, mut prev) = (None, 0, None, state(world).1);
+        for t in 0..600 {
+            world.run_schedule(SimTick);
+            let (pos, h) = state(world);
+            if waited.is_none() && pos.dist(start) > 0.05 {
+                waited = Some(t);
+            }
+            if h > prev && arrived.is_none() {
+                on_move += 1;
+            }
+            prev = h;
+            if arrived.is_none() && pos.dist(dest) < 1.0 {
+                arrived = Some(t);
+            }
+            if arrived.map_or(false, |a| t > a + 100) {
+                break;
+            }
+        }
+        let after = prev > 0.0 || {
+            let mut any = false;
+            for _ in 0..50 {
+                world.run_schedule(SimTick);
+                any |= state(world).1 > 0.0;
+            }
+            any
+        };
+        println!("== Mortar hold ({hold}s): first shot after {fired:?} ticks, ordered away then, started moving after {waited:?} ticks; shots while driving {on_move}; arrived after {arrived:?}, firing again there: {after}");
+        let w = waited.unwrap_or(0) as f32 / 10.0;
+        assert!(fired.is_some() && w >= hold - 0.25 && w <= hold + 1.0 && on_move == 0 && arrived.is_some() && after, "mortar hold");
+    }
+}
+
+/// Binoculars (`--combattest`, or alone with `LR_TEST=binoculars`).
+fn binocular_tests(defs: &Defs) {
+    if !defs.id("trooper").map_or(false, |t| defs.get(t).binoculars.is_some()) {
+        println!("== Binoculars: the trooper has none in this data, skipped");
+        return;
+    }
+    let faction = defs.playable_factions()[0] as u8;
+    let flat = || -> (App, MapData) {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(128, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.feature_kinds = vec![];
+        map.features = vec![];
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        setup_game(app.world_mut(), map.clone(), &setup);
+        // The commanders wait in the far corners, out of binocular range of the test.
+        let world = app.world_mut();
+        let mut q = world.query::<(&Unit, &mut Body)>();
+        for (_, mut b) in q.iter_mut(world) {
+            b.pos = v2(if b.pos.x < 128.0 { 5.0 } else { 250.0 }, 250.0);
+        }
+        (app, map)
+    };
+    let spawn = |world: &mut World, map: &MapData, name: &str, owner: u8, pos: V2, yaw: f32| -> u32 {
+        let mut game = world.resource::<Game>().clone();
+        let id = {
+            let mut commands = world.commands();
+            spawn_unit(&mut commands, defs, &mut game, map, defs.id(name).expect("unit"), owner, pos, yaw, true, 0)
+        };
+        world.insert_resource(game);
+        world.flush();
+        world.resource_mut::<Nav>().dirty = true;
+        id
+    };
+    let order = |world: &mut World, owner: u8, ids: Vec<u32>, o: Order| world.resource_mut::<CommandQueue>().0.push((owner, Command::Orders { ids, orders: vec![o], queue: false }));
+    let set_hp = |world: &mut World, id: u32, v: f32| {
+        if let Some((_, mut h)) = world.query::<(&Unit, &mut Health)>().iter_mut(world).find(|(u, _)| u.id == id) {
+            h.0 = v;
+        }
+    };
+    let body = |world: &mut World, id: u32| -> Option<(V2, bool)> { world.query::<(&Unit, &Body, Has<Hosted>)>().iter(world).find(|(u, ..)| u.id == id).map(|(_, b, h)| (b.pos, h)) };
+    // A trooper does not see an enemy behind it beyond its vision, scans its front
+    // and finds one there, locks on and keeps it in sight while it drives round to its side.
+    {
+        let (mut app, map) = flat();
+        let world = app.world_mut();
+        let intel = |world: &mut World, id: u32| -> Intel { world.query::<(&Unit, &Intel)>().iter(world).find(|(u, _)| u.id == id).map_or(Intel::default(), |(_, i)| *i) };
+        let t = spawn(world, &map, "trooper", 0, v2(120.0, 150.0), 0.0);
+        let behind = spawn(world, &map, "overtaker", 1, v2(20.0, 150.0), 0.0);
+        set_hp(world, t, 1.0e6);
+        set_hp(world, behind, 1.0e6);
+        let mut behind_seen = 0;
+        for _ in 0..150 {
+            world.run_schedule(SimTick);
+            behind_seen += (intel(world, behind).seen & 1 != 0) as u32;
+        }
+        let ahead = spawn(world, &map, "overtaker", 1, v2(230.0, 150.0), 3.14);
+        set_hp(world, ahead, 1.0e6);
+        let mut found = None;
+        for k in 0..200 {
+            world.run_schedule(SimTick);
+            if found.is_none() && intel(world, ahead).seen & 1 != 0 {
+                found = Some(k);
+            }
+        }
+        let locked = intel(world, t).lock == ahead;
+        // It drives to the trooper's right, 90 degrees off where the trooper faces (outside the scan).
+        order(world, 1, vec![ahead], Order::Move(v2(120.0, 40.0)));
+        let (mut kept, mut ticks) = (0, 0);
+        for _ in 0..500 {
+            world.run_schedule(SimTick);
+            ticks += 1;
+            kept += (intel(world, ahead).seen & 1 != 0) as u32;
+        }
+        let (end, _) = body(world, ahead).unwrap();
+        let i = intel(world, t);
+        println!("== Binoculars: enemy behind seen {behind_seen} of 150 ticks; enemy 110 ahead found after {found:?} ticks, locked {locked}; driving round to ({:.0},{:.0}) it stayed in sight {kept} of {ticks} ticks, binoculars at {:.0} deg, still locked {}", end.x, end.y, i.look.to_degrees(), i.lock == ahead);
+        assert!(behind_seen == 0 && found.is_some() && locked && i.lock == ahead && intel(world, ahead).seen & 1 != 0 && kept > ticks * 9 / 10, "binoculars");
     }
 }
 
@@ -2536,6 +2911,18 @@ fn air_tests(defs: &Defs) {
         "SAM site, 4 Firebrands fly over it",
         &[Side { name: "sam", owner: 0, n: 1, at: v2(190.0, 190.0), yaw: e }, Side { name: "bomber", owner: 1, n: 4, at: v2(30.0, 200.0), yaw: e }],
         &|ids| vec![(1, every(ids, "bomber"), Order::Move(v2(360.0, 200.0)))],
+        600,
+    );
+    run(
+        "2 Cyclone-H vs 2 fighter-bombers",
+        &[Side { name: "interceptor3", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "fighter_bomber", owner: 1, n: 2, at: v2(200.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "interceptor3"), Order::AttackMove(v2(300.0, 190.0))), (1, every(ids, "fighter_bomber"), Order::AttackMove(v2(40.0, 190.0)))],
+        600,
+    );
+    run(
+        "DA3 battery, a Delivery Boy and 3 Harriers fly over it",
+        &[Side { name: "aa_turret3", owner: 0, n: 1, at: v2(190.0, 190.0), yaw: e }, Side { name: "delivery_boy", owner: 1, n: 1, at: v2(30.0, 200.0), yaw: e }, Side { name: "fighter_bomber", owner: 1, n: 3, at: v2(30.0, 180.0), yaw: e }],
+        &|ids| vec![(1, every(ids, "delivery_boy"), Order::Move(v2(360.0, 200.0))), (1, every(ids, "fighter_bomber"), Order::Move(v2(360.0, 180.0)))],
         600,
     );
     run(
@@ -2761,9 +3148,76 @@ fn nettest() {
     println!("paused at tick {at} with the client on the same tick, resumed to {end}, hashes equal: {}", state_hash(&make_snapshot(hw)) == csim.confirmed_hash());
     assert!(!paused && csim.paused.is_none() && end > at);
     assert_eq!(state_hash(&make_snapshot(hw)), csim.confirmed_hash(), "host and client diverged after the pause");
+
+    // Host migration: the host leaves; the client (player 1) takes over from the last state the
+    // host confirmed, and the old host's machine comes back as a client of it (the way another
+    // player would reconnect). They must go on in step, and the old host's player resigns.
+    host.send_msg(conn, &S2C::Peers { host: 0, peers: vec![(1, None)], ai_reclaim: true });
+    for _ in 0..5 {
+        net_step(&host, conn, &mut client, hw, cw, &mut csim, &mut hsim, &mut paused, true);
+    }
+    assert!(csim.host_player == Some(0) && csim.peers == vec![(1, None)], "the peer list did not reach the client");
+    let old_tick = hw.resource::<Game>().tick;
+    drop(host);
     drop(client);
+    std::thread::sleep(Duration::from_millis(300));
+    let Role::Host { host: host2, sim: mut hsim2, mut waiting, .. } = take_over(cw, &mut csim, 1, "tester").expect("take over") else { unreachable!() };
+    assert!(waiting.is_empty());
+    waiting.push(0);
+    let taken_at = cw.resource::<Game>().tick;
+    hw.remove_resource::<Ais>();
+    hw.remove_resource::<TurnLog>();
+    let mut rsim = ClientSim::new(0, make_snapshot(hw));
+    let mut rclient = Client::rejoin("127.0.0.1".parse().unwrap(), 0, Duration::from_secs(5)).recv().expect("rejoin thread").expect("rejoin");
+    let mut conn2 = 0;
+    while conn2 == 0 {
+        if let HostEvent::Msg(id, C2S::Rejoin { player: 0 }) = host2.events.recv_timeout(Duration::from_secs(2)).expect("rejoin event") {
+            conn2 = id;
+            host2.send(id, &frame(TAG_SNAP, bincode::serialize(&make_snapshot(cw)).unwrap()));
+        }
+    }
+    let mut mismatches2 = 0;
+    for t in 0..400u32 {
+        if t % 50 == 7 {
+            let ids: Vec<u32> = hw.query::<&Unit>().iter(hw).filter(|u| u.owner == 0).map(|u| u.id).collect();
+            for m in rsim.issue(hw, vec![Command::Orders { ids, orders: vec![Order::Move(com.1)], queue: false }]) {
+                rclient.send(&m);
+            }
+        }
+        std::thread::sleep(Duration::from_micros(300));
+        while let Ok(ev) = host2.events.try_recv() {
+            match ev {
+                HostEvent::Msg(_, C2S::Cmd { tick, seq, cmd }) => hsim2.command(cw, 0, tick, seq, cmd),
+                HostEvent::Msg(_, C2S::Hash { tick, hash }) if !hsim2.matches(tick, hash) => mismatches2 += 1,
+                _ => {}
+            }
+        }
+        host2.send(conn2, &frame(TAG_MSG, bincode::serialize(&hsim2.tick(cw, vec![], true)).unwrap()));
+        while let Ok(Some((tag, data))) = rclient.frames.recv_timeout(Duration::from_micros(300)) {
+            rsim.receive(tag, &data).expect("frame");
+        }
+        for m in rsim.update(hw, DT).expect("client update") {
+            if !matches!(m, C2S::Ping(_)) {
+                rclient.send(&m);
+            }
+        }
+    }
+    let end = cw.resource::<Game>().tick;
+    while rsim.confirmed_tick() < end {
+        let (tag, data) = rclient.frames.recv_timeout(Duration::from_secs(5)).expect("frame").expect("open");
+        rsim.receive(tag, &data).expect("frame");
+        rsim.update(hw, 0.0).expect("client update");
+    }
+    let old_host_out = !cw.resource::<Game>().players[0].alive;
+    println!("host left at tick {old_tick}; the client took over at tick {taken_at} and the old host rejoined; at tick {end} hashes equal: {}, mismatches {mismatches2}, old host's player resigned: {old_host_out}", state_hash(&make_snapshot(cw)) == rsim.confirmed_hash());
+    assert_eq!(state_hash(&make_snapshot(cw)), rsim.confirmed_hash(), "new host and rejoined client diverged");
+    assert_eq!(mismatches2, 0);
+    assert!(old_host_out, "the old host's player did not resign");
+    assert!(!cw.resource::<Ais>().0.is_empty(), "the new host runs no AI");
+
+    drop(rclient);
     loop {
-        match host.events.recv_timeout(Duration::from_secs(2)).expect("left") {
+        match host2.events.recv_timeout(Duration::from_secs(2)).expect("left") {
             HostEvent::Left(id) => {
                 println!("conn {id} left cleanly");
                 break;
@@ -2825,6 +3279,9 @@ fn main() {
         if std::env::var("LR_TEST").as_deref() == Ok("infantry") {
             return infantry_tests(&load_defs());
         }
+        if std::env::var("LR_TEST").as_deref() == Ok("binoculars") {
+            return binocular_tests(&load_defs());
+        }
         if std::env::var("LR_TEST").as_deref() == Ok("air") {
             return air_tests(&load_defs());
         }
@@ -2835,6 +3292,19 @@ fn main() {
     }
     if args.iter().any(|a| a == "--nettest") {
         return nettest();
+    }
+    if let Some(k) = args.iter().position(|a| a == "--ground") {
+        // Every ground texture side by side, with its measured average colour.
+        let out = args.get(k + 1).map_or("ground.png", |s| s.as_str());
+        for g in longrange::surface::KINDS {
+            let m = view::surface::measured_color(g.id);
+            println!("{:<13} table {:.2?}  measured [{:.2}, {:.2}, {:.2}]", g.id, g.color, m[0], m[1], m[2]);
+        }
+        match view::surface::ground_sheet(std::path::Path::new(out)) {
+            Ok(()) => println!("wrote {out}"),
+            Err(e) => eprintln!("failed: {e}"),
+        }
+        return;
     }
     if let Some(k) = args.iter().position(|a| a == "--icons") {
         return icon_sheet(args.get(k + 1).map_or("icons.png", |s| s.as_str()));

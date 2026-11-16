@@ -3,6 +3,51 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.5.1
+
+Not compatible with v0.5.0 in multiplayer: everybody needs this version.
+
+New
+- Radar levels and stealth. Radars come in three levels and units have a stealth level: T2 aircraft
+  (Harrier, Hornet, Stork, Swift) are found only by T2 radar or better, the Delivery Boy and the Cyclone-H
+  only by T3 radar, and infantry never show on radar. Radar Tower Mk2 and Mk3 (build them, or upgrade a
+  tower with U) and the UC-02R and UC-03R mobile radars reach further and find stealthier units, at a
+  much higher running cost. The Skyspear SAM's own radar is T2. Range rings are drawn per level (blue,
+  violet, orange).
+- New units: Cyclone-H (T3 heavy interceptor with its own T3 radar), DA3 Railgun Battery (T3 anti-air
+  battery with its own T3 radar) and Swift (T2 fast assault transport: twice the Stork's speed, four slots).
+- Binoculars: troopers, AT and SAM troopers see 140 far in a narrow 20-degree cone beyond their round
+  vision. The cone scans the front, turns to a radar contact in range, and locks onto an enemy and follows
+  it. Selected units show their cone (brighter while locked).
+- Storming buildings: infantry sent into a building held by enemy infantry fight them at the door and move
+  in once it is cleared. Riflemen beat AT and SAM troopers inside; in an even fight the defenders win.
+- Garrisoned infantry see 1.3x further and all round from the roof, and take 4% of every hit on their
+  building.
+- Ground textures: maps are painted in layers (grass, meadow, forest floor, dirt, mud, sand, snow, ice,
+  stone, gravel, paving, asphalt and more) with ragged borders, plus roads. Random maps get a terrain type
+  (lobby option "Terrain") and dirt tracks; generated towns get paving and asphalt roads. Explosions scorch
+  the ground. The map editor has a Ground section (layers, painting, auto paint) and a Road tool.
+- Host migration: when the host leaves, the game goes on. The next player takes over as host and the
+  others reconnect to them. A player who leaves resigns and the others play on.
+- Model animations from the mod: troopers and the commander walk, engineers unfold to build, factories and
+  pumps play their upgrade, pumps work, the engineering station opens its doors, the Bohdana unpacks, the
+  Stork folds its legs, the air factory platform rolls off.
+- The Stork uses the mod's transport model.
+- Everything the game and the editor log goes to `longrange.log` / `lr-editor.log` next to
+  `settings.json` (the run before as `*-previous.log`), crashes with a backtrace: send it along with a
+  crash report.
+
+Changed
+- The Pike Mortar and the Bohdana fire only when standing still, and stay put for 3 s / 5 s after each
+  shot.
+- The Bohdana costs 1400 mass / 12000 energy (was 4500 / 40000).
+- Mass Pump Mk2 and Mk3 can be built directly by T2 / T3 engineers (upgrading still works).
+- The Flak Trooper is gone.
+- The AI leaves out units and buildings whose upkeep its income cannot carry.
+
+Fixed
+- Windows: Alt+Tab out of the game could stop it drawing or crash it (DirectX 12).
+
 ## v0.5.0
 
 Not compatible with v0.4.1 in multiplayer: everybody needs this version.

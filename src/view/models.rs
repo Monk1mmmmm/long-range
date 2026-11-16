@@ -6,6 +6,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum PartMat {
@@ -29,6 +30,103 @@ pub struct ModelPart {
 pub struct Model {
     pub parts: Vec<ModelPart>,
     pub scale: f32,
+    /// The GLB's animations (the mod's .sca files, baked by tools/convert_assets.py), in `AnimKind` order.
+    pub anims: Vec<Arc<Anim>>,
+}
+
+/// What plays an animation (`view::drive_anims`), from its glTF name (tools/convert_assets.py `ANIMS`).
+/// In order of precedence: a part that several playing animations move follows the first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum AnimKind {
+    /// Follows an upgrade's progress.
+    Upgrade,
+    /// Factory platform: out and back when a finished unit leaves.
+    Rolloff,
+    /// Engineering station: opens to the middle while working, plays on to the end when done.
+    Doors,
+    /// Engineers: unfold while building, fold back after. The first frame (folded) is the idle pose.
+    Open,
+    /// Mass extractors: loops while producing, at the owner's power share.
+    Work,
+    /// Weapon unpack (Bohdana's stabilisers): out while it has a target and stands, back otherwise.
+    Unpack,
+    /// Landing legs: the first frame has them out; played forward while flying, back when hovering still.
+    Land,
+    /// On water (amphibious wheels fold away).
+    Water,
+    /// Cycle while moving, at ground speed.
+    Walk,
+}
+
+impl AnimKind {
+    fn from_name(n: &str) -> Option<AnimKind> {
+        Some(match n {
+            "upgrade" => AnimKind::Upgrade,
+            "rolloff" => AnimKind::Rolloff,
+            "doors" => AnimKind::Doors,
+            "open" => AnimKind::Open,
+            "work" => AnimKind::Work,
+            "unpack" => AnimKind::Unpack,
+            "land" => AnimKind::Land,
+            "water" => AnimKind::Water,
+            "walk" => AnimKind::Walk,
+            _ => return None,
+        })
+    }
+}
+
+/// A keyframe animation of model parts. Looping ones (walk) repeat the first key at the end.
+pub struct Anim {
+    pub kind: AnimKind,
+    /// Key times in seconds, from 0 to the cycle length.
+    pub times: Vec<f32>,
+    /// Part index, then translation and rotation per key.
+    pub tracks: Vec<(usize, Vec<Vec3>, Vec<Quat>)>,
+    /// Walk cycles: ground one cycle covers with the feet planted, in model units (0 if unknown).
+    pub stride: f32,
+}
+
+impl Anim {
+    pub fn duration(&self) -> f32 {
+        self.times.last().copied().unwrap_or(0.0)
+    }
+
+    /// Local transform of a track at `t` seconds into the cycle (linear keys).
+    pub fn pose(&self, track: usize, t: f32) -> (Vec3, Quat) {
+        let (_, tr, rot) = &self.tracks[track];
+        let k = self.times.partition_point(|&x| x <= t).clamp(1, self.times.len().max(2) - 1);
+        let (a, b) = (self.times[k - 1], self.times[k]);
+        let f = if b > a { ((t - a) / (b - a)).clamp(0.0, 1.0) } else { 0.0 };
+        (tr[k - 1].lerp(tr[k], f), rot[k - 1].slerp(rot[k], f))
+    }
+
+    /// Stride from the animation itself: the lowest moving part is a foot; it sweeps back and forth once
+    /// per cycle, and with two feet taking turns the body advances twice that sweep.
+    fn measure_stride(&mut self, parts: &[ModelPart]) {
+        let mut world: Vec<Vec<Vec3>> = vec![vec![]; parts.len()];
+        for k in 0..self.times.len() {
+            let mut xf: Vec<Transform> = Vec::with_capacity(parts.len());
+            for (i, p) in parts.iter().enumerate() {
+                let mut local = p.local;
+                if let Some((_, tr, rot)) = self.tracks.iter().find(|t| t.0 == i) {
+                    local.translation = tr[k];
+                    local.rotation = rot[k];
+                }
+                // Parts come parent first (`load_glb` walks the tree depth first).
+                let w = p.parent.map_or(local, |q| xf[q] * local);
+                world[i].push(w.translation);
+                xf.push(w);
+            }
+        }
+        let foot = world
+            .iter()
+            .filter(|ps| ps.iter().any(|p| p.distance(ps[0]) > 1e-3))
+            .min_by(|a, b| a.iter().map(|p| p.y).sum::<f32>().total_cmp(&b.iter().map(|p| p.y).sum::<f32>()));
+        self.stride = foot.map_or(0.0, |ps| {
+            let (lo, hi) = ps.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.z), hi.max(p.z)));
+            2.0 * (hi - lo)
+        });
+    }
 }
 
 /// Material variants of one unit type for one owner colour.
@@ -49,12 +147,15 @@ pub struct ModelCache {
     pub ghost_queued: Handle<StandardMaterial>,
 }
 
-fn load_glb(path: &std::path::Path, meshes: &mut Assets<Mesh>, want_tangents: bool) -> Result<Vec<ModelPart>, String> {
+fn load_glb(path: &std::path::Path, meshes: &mut Assets<Mesh>, want_tangents: bool) -> Result<(Vec<ModelPart>, Vec<Arc<Anim>>), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let g = gltf::Gltf::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     let blob = g.blob.clone().unwrap_or_default();
     let mut parts: Vec<ModelPart> = vec![];
-    fn walk(node: gltf::Node, parent: Option<usize>, blob: &[u8], meshes: &mut Assets<Mesh>, want_tangents: bool, parts: &mut Vec<ModelPart>) {
+    // glTF node index -> part index.
+    let mut part_of: HashMap<usize, usize> = HashMap::new();
+    #[allow(clippy::too_many_arguments)]
+    fn walk(node: gltf::Node, parent: Option<usize>, blob: &[u8], meshes: &mut Assets<Mesh>, want_tangents: bool, parts: &mut Vec<ModelPart>, part_of: &mut HashMap<usize, usize>) {
         let local = Transform::from_matrix(Mat4::from_cols_array_2d(&node.transform().matrix()));
         let mut mesh_handle = None;
         if let Some(m) = node.mesh() {
@@ -79,17 +180,66 @@ fn load_glb(path: &std::path::Path, meshes: &mut Assets<Mesh>, want_tangents: bo
             }
         }
         let me = parts.len();
+        part_of.insert(node.index(), me);
         parts.push(ModelPart { name: node.name().unwrap_or("").to_string(), parent, local, mesh: mesh_handle, mat: PartMat::Unit, spin: None });
         for c in node.children() {
-            walk(c, Some(me), blob, meshes, want_tangents, parts);
+            walk(c, Some(me), blob, meshes, want_tangents, parts, part_of);
         }
     }
     for scene in g.document.scenes() {
         for node in scene.nodes() {
-            walk(node, None, &blob, meshes, want_tangents, &mut parts);
+            walk(node, None, &blob, meshes, want_tangents, &mut parts, &mut part_of);
         }
     }
-    Ok(parts)
+    let mut anims: Vec<Arc<Anim>> = vec![];
+    for a in g.document.animations() {
+        match a.name().and_then(AnimKind::from_name) {
+            Some(kind) if !anims.iter().any(|x| x.kind == kind) => anims.extend(read_anim(a, kind, &blob, &parts, &part_of)),
+            _ => warn!("{}: animation {:?} ignored (unknown or twice)", path.display(), a.name()),
+        }
+    }
+    anims.sort_by_key(|a| a.kind);
+    Ok((parts, anims))
+}
+
+/// Reads a glTF animation of translation/rotation keys that all share one timeline (as the converter writes them).
+fn read_anim(a: gltf::Animation, kind: AnimKind, blob: &[u8], parts: &[ModelPart], part_of: &HashMap<usize, usize>) -> Option<Arc<Anim>> {
+    use gltf::animation::util::ReadOutputs;
+    let mut times: Vec<f32> = vec![];
+    let mut tracks: Vec<(usize, Vec<Vec3>, Vec<Quat>)> = vec![];
+    for ch in a.channels() {
+        let Some(&part) = part_of.get(&ch.target().node().index()) else { continue };
+        let r = ch.reader(|_| Some(blob));
+        let t: Vec<f32> = r.read_inputs()?.collect();
+        if times.is_empty() {
+            times = t.clone();
+        }
+        if t != times {
+            warn!("animation {:?}: channels with different key times are not supported", a.name());
+            return None;
+        }
+        let i = match tracks.iter().position(|x| x.0 == part) {
+            Some(i) => i,
+            None => {
+                let rest = parts[part].local;
+                tracks.push((part, vec![rest.translation; times.len()], vec![rest.rotation; times.len()]));
+                tracks.len() - 1
+            }
+        };
+        match r.read_outputs()? {
+            ReadOutputs::Translations(v) => tracks[i].1 = v.map(Vec3::from_array).collect(),
+            ReadOutputs::Rotations(v) => tracks[i].2 = v.into_f32().map(|q| Quat::from_array(q).normalize()).collect(),
+            _ => {}
+        }
+    }
+    if times.len() < 2 || tracks.iter().any(|t| t.1.len() != times.len() || t.2.len() != times.len()) {
+        return None;
+    }
+    let mut anim = Anim { kind, times, tracks, stride: 0.0 };
+    if kind == AnimKind::Walk {
+        anim.measure_stride(parts);
+    }
+    Some(Arc::new(anim))
 }
 
 fn read_rgba(rel: &str) -> Option<image::RgbaImage> {
@@ -118,10 +268,13 @@ impl ModelCache {
         if !self.models.contains_key(&def) {
             let d = defs.get(def);
             let md: &ModelDef = &d.model;
-            let mut model = Model { parts: vec![], scale: md.scale };
+            let mut model = Model { parts: vec![], scale: md.scale, anims: vec![] };
             if let Some(mesh) = &md.mesh {
                 match load_glb(&asset_root().join(mesh), meshes, md.normal.is_some()) {
-                    Ok(parts) => model.parts = parts,
+                    Ok((parts, anims)) => {
+                        model.parts = parts;
+                        model.anims = anims;
+                    }
                     Err(e) => warn!("model for {}: {e}", d.id),
                 }
                 for s in &md.spin {
@@ -241,6 +394,68 @@ pub struct AimPart {
     pub rest: Transform,
 }
 
+/// A model part moved by animations of its unit (`Animator` on the unit entity).
+#[derive(Component)]
+pub struct AnimPart {
+    pub rest: Transform,
+    /// (slot in `Animator::slots` = index in `Model::anims`, track in that animation), in precedence order.
+    pub tracks: Vec<(usize, usize)>,
+}
+
+impl AnimPart {
+    /// The local transform: the first playing animation that moves this part, blended over the rest pose
+    /// by its weight; the rest pose when none does.
+    pub fn pose(&self, animator: Option<&Animator>) -> Transform {
+        let Some(a) = animator else { return self.rest };
+        for &(slot, track) in &self.tracks {
+            let Some(s) = a.slots.get(slot) else { continue };
+            if s.weight <= 0.0 {
+                continue;
+            }
+            let (tr, rot) = s.anim.pose(track, s.time);
+            let mut t = self.rest;
+            t.translation = self.rest.translation.lerp(tr, s.weight);
+            t.rotation = self.rest.rotation.slerp(rot, s.weight);
+            return t;
+        }
+        self.rest
+    }
+}
+
+/// Animation state of a unit whose model has animations (view only): one slot per `Model::anims` entry.
+#[derive(Component)]
+pub struct Animator {
+    pub slots: Vec<AnimSlot>,
+}
+
+pub struct AnimSlot {
+    pub anim: Arc<Anim>,
+    /// Seconds into the animation.
+    pub time: f32,
+    /// 0 = not shown (rest pose), 1 = fully.
+    pub weight: f32,
+    /// Walk: stride in world units (0: unknown).
+    pub stride: f32,
+    /// Rolloff: the unit the factory was building last frame.
+    pub mark: u32,
+    /// Rolloff: seconds into the out-hold-back sequence, negative when idle.
+    pub seq: f32,
+}
+
+impl Animator {
+    pub fn new(model: &Model) -> Option<Animator> {
+        if model.anims.is_empty() {
+            return None;
+        }
+        let slots = model
+            .anims
+            .iter()
+            .map(|a| AnimSlot { anim: a.clone(), time: 0.0, weight: 0.0, stride: a.stride * model.scale, mark: 0, seq: -1.0 })
+            .collect();
+        Some(Animator { slots })
+    }
+}
+
 #[derive(Component)]
 pub struct SpinPart {
     pub axis: Vec3,
@@ -260,6 +475,8 @@ pub struct ModelRoot {
 pub struct UnitSkin;
 
 /// Spawns the part hierarchy of a model as children of `parent`. Returns the root entity.
+/// `override_mat` is the material of a wreck: a wreck's parts stay as they are (no animations, aiming or
+/// spinning parts), in the rest pose.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_model(
     commands: &mut Commands,
@@ -278,9 +495,19 @@ pub fn spawn_model(
     let mats = cache.unit_mats(defs, def, color, rgb, images, materials);
     let d = defs.get(def);
     let root = commands.spawn((ModelRoot { def, building }, Transform::from_scale(Vec3::splat(model.scale)), Visibility::Inherited)).id();
+    let live = override_mat.is_none();
     let mut ents: Vec<Entity> = Vec::with_capacity(model.parts.len());
-    for part in &model.parts {
+    for (pi, part) in model.parts.iter().enumerate() {
         let mut e = commands.spawn((part.local, Visibility::Inherited));
+        let tracks: Vec<(usize, usize)> = model
+            .anims
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, a)| a.tracks.iter().position(|t| t.0 == pi).map(|track| (slot, track)))
+            .collect();
+        if live && !tracks.is_empty() {
+            e.insert(AnimPart { rest: part.local, tracks });
+        }
         if let Some(mesh) = &part.mesh {
             let mat = match (&override_mat, &part.mat) {
                 (Some(m), _) => m.clone(),
@@ -296,7 +523,7 @@ pub fn spawn_model(
             };
             e.insert((Mesh3d(mesh.clone()), MeshMaterial3d(mat)));
         }
-        for (wi, w) in d.weapons.iter().enumerate() {
+        for (wi, w) in d.weapons.iter().enumerate().filter(|_| live) {
             if let Some(t) = &w.turret {
                 if t.yaw_bone.as_deref() == Some(part.name.as_str()) {
                     e.insert(AimPart { weapon: wi, pitch: false, rest: part.local });
@@ -305,7 +532,7 @@ pub fn spawn_model(
                 }
             }
         }
-        if let Some((axis, speed)) = part.spin {
+        if let Some((axis, speed)) = part.spin.filter(|_| live) {
             e.insert(SpinPart { axis, speed, rest: part.local });
         }
         let id = e.id();
@@ -313,4 +540,38 @@ pub fn spawn_model(
         ents.push(id);
     }
     root
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every converted model loads, and its animations have tracks for real parts with one key per time.
+    #[test]
+    fn model_animations_load() {
+        let mut meshes = Assets::<Mesh>::default();
+        let dir = asset_root().join("models");
+        let mut found = vec![];
+        for f in std::fs::read_dir(&dir).unwrap() {
+            let p = f.unwrap().path();
+            if p.extension().is_some_and(|e| e == "glb") {
+                let (parts, anims) = load_glb(&p, &mut meshes, false).unwrap();
+                for a in &anims {
+                    assert!(a.times.len() >= 2 && a.duration() > 0.0, "{}", p.display());
+                    for (part, tr, rot) in &a.tracks {
+                        assert!(*part < parts.len() && tr.len() == a.times.len() && rot.len() == a.times.len());
+                        assert!(rot.iter().all(|q| q.is_normalized()));
+                    }
+                    found.push(format!("{}:{:?}", p.file_stem().unwrap().to_string_lossy(), a.kind));
+                }
+                if p.file_stem().is_some_and(|s| s == "trooper") {
+                    let walk = anims.iter().find(|a| a.kind == AnimKind::Walk).expect("trooper walk");
+                    assert!((5.0..9.0).contains(&walk.stride), "trooper stride {}", walk.stride);
+                }
+            }
+        }
+        found.sort();
+        println!("{}", found.join(" "));
+        assert!(found.len() >= 19, "{found:?}");
+    }
 }

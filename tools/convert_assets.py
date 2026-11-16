@@ -3,13 +3,19 @@
 game assets: GLB meshes with one node per bone, PNG albedo / team mask /
 normal maps and PNG build icons.
 
-    .venv/bin/python tools/convert_assets.py "<path to LongRangeTank mod>"
+    .venv/bin/python tools/convert_assets.py "<path to LongRangeTank mod>" [--only trooper,buggy]
     .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"
     .venv/bin/python tools/convert_assets.py --stock "<SupCom FA>/gamedata/units.scd"
 
 --props converts the map props listed in MAP_PROPS (the Mining Town buildings, made by the mod's
 author), --stock the stock UEF civilian buildings in STOCK_UNITS; both are used by
 assets/data/factions/civilian.json. Needs numpy and Pillow (the project's .venv has them).
+
+The blueprint's .sca animations become glTF animations in the GLB (see ANIMS: which blueprint key gives
+which animation name; the game's view decides from the name when to play it). Key times are divided by the
+blueprint's rate, so the game plays every animation at 1x. Only bones that move in an animation (or that it
+holds at another angle than the rest pose, like the trooper's walking lean) get a track: a static offset of
+a bone would otherwise make the model jump when the animation starts.
 
 Output goes to assets/models and assets/icons/units. Coordinates are converted
 from SupCom's left-handed space to glTF's right-handed one (forward = -Z)."""
@@ -19,6 +25,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(__file__))
 from scm import Scm
+from sca import Sca
 import bp
 
 # asset name -> mod unit folder
@@ -35,6 +42,19 @@ UNITS = {
     "energy_storage": "hook/units/UEB1105", "mass_storage": "hook/units/UEB1106", "aa_turret": "hook/units/UEB2104",
     "engineer": "hook/units/UEL0105", "engineer2": "hook/units/UEL0208", "engineer3": "hook/units/UEL0309",
     "eng_station": "hook/units/XEB0104", "sparky": "hook/units/XEL0209", "bomb": "projectiles/LRTHeavyBomb01",
+    "air_transport": "hook/units/UEA0104",
+}
+# blueprint Display key -> (animation name, key of its rate, default rate, loops). How SupCom plays them and
+# what the game does with each name: view::drive_anims.
+ANIMS = {
+    "AnimationWalk": ("walk", "AnimationWalkRate", 1.0, True),      # cycle while moving
+    "AnimationUpgrade": ("upgrade", None, 1.0, False),              # follows the upgrade's progress
+    "AnimationBuild": ("open", "AnimationBuildRate", 1.0, False),   # engineers: unfold to build, fold back
+    "AnimationWater": ("water", None, 1.0, False),                  # on water
+    "AnimationLand": ("land", None, 1.0, False),                    # landing legs (first frame: legs out)
+    "AnimationFinishBuildLand": ("rolloff", None, 1.0, False),      # factory platform when a unit leaves
+    # AnimationOpen: "work" (loops while producing) on mass extractors, else "doors" (engineering
+    # station: opens at rate 2 to the middle while working, plays on to the end when done).
 }
 # asset name -> prop name in a map's env/Props folder (--props)
 MAP_PROPS = {f"civ_house{i}": f"UEF_modern_house_00{i}" for i in range(1, 10)}
@@ -59,8 +79,11 @@ def find(folder, *patterns):
     return None
 
 
-def write_glb(path, nodes, meshes_data):
-    """nodes: list of dict(name, parent, matrix(4x4 col-convention)); meshes_data: node index -> (pos, nrm, uv, idx)."""
+def write_glb(path, nodes, meshes_data, anims=()):
+    """nodes: list of dict(name, parent, matrix(4x4 col-convention), optional trs=(translation, rotation xyzw));
+    meshes_data: node index -> (pos, nrm, uv, idx);
+    anims: list of dict(name, times, channels: node index -> (translations Nx3, rotations Nx4 xyzw)).
+    Animated nodes must have `trs` (glTF forbids animating a node given by a matrix)."""
     blob = bytearray()
     views, accessors, meshes = [], [], []
 
@@ -68,7 +91,9 @@ def write_glb(path, nodes, meshes_data):
         while len(blob) % 4:
             blob.append(0)
         raw = arr.tobytes()
-        views.append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(raw), "target": target})
+        views.append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(raw)})
+        if target:
+            views[-1]["target"] = target
         blob.extend(raw)
         acc = {"bufferView": len(views) - 1, "componentType": comp, "count": len(arr), "type": typ}
         if minmax:
@@ -79,7 +104,11 @@ def write_glb(path, nodes, meshes_data):
 
     gl_nodes = []
     for i, n in enumerate(nodes):
-        g = {"name": n["name"], "matrix": n["matrix"].T.reshape(-1).round(6).tolist()}
+        if "trs" in n:
+            g = {"name": n["name"], "translation": [round(float(v), 6) for v in n["trs"][0]],
+                 "rotation": [round(float(v), 6) for v in n["trs"][1]]}
+        else:
+            g = {"name": n["name"], "matrix": n["matrix"].T.reshape(-1).round(6).tolist()}
         kids = [j for j, m in enumerate(nodes) if m["parent"] == i]
         if kids:
             g["children"] = kids
@@ -92,11 +121,23 @@ def write_glb(path, nodes, meshes_data):
             meshes.append({"name": n["name"], "primitives": [prim]})
             g["mesh"] = len(meshes) - 1
         gl_nodes.append(g)
+    gl_anims = []
+    for a in anims:
+        times = np.asarray(a["times"], dtype="<f4").reshape(-1, 1)
+        t_acc = add(times, None, 5126, "SCALAR", True)
+        samplers, channels = [], []
+        for node, (tr, rot) in sorted(a["channels"].items()):
+            for path_, arr, typ in (("translation", tr, "VEC3"), ("rotation", rot, "VEC4")):
+                samplers.append({"input": t_acc, "output": add(np.asarray(arr, dtype="<f4"), None, 5126, typ), "interpolation": "LINEAR"})
+                channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": path_}})
+        gl_anims.append({"name": a["name"], "samplers": samplers, "channels": channels})
     roots = [i for i, n in enumerate(nodes) if n["parent"] < 0]
     doc = {"asset": {"version": "2.0", "generator": "longrange convert_assets"}, "scene": 0,
            "scenes": [{"nodes": roots}], "nodes": gl_nodes, "meshes": meshes,
            "materials": [{"name": "unit", "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.3, "roughnessFactor": 0.6}}],
            "buffers": [{"byteLength": len(blob)}], "bufferViews": views, "accessors": accessors}
+    if gl_anims:
+        doc["animations"] = gl_anims
     js = json.dumps(doc, separators=(",", ":")).encode()
     js += b" " * (-len(js) % 4)
     while len(blob) % 4:
@@ -107,7 +148,50 @@ def write_glb(path, nodes, meshes_data):
         f.write(struct.pack("<I4s", len(blob), b"BIN\0") + bytes(blob))
 
 
-def convert_model(scm_path, out):
+def to_gltf_local(pos, rot):
+    """A SupCom bone-local transform (pos, quaternion w x y z; left handed) as glTF translation and
+    rotation (x y z w): mirroring z negates the quaternion's x and y."""
+    w, x, y, z = rot
+    return [pos[0], pos[1], -pos[2]], [-x, -y, z, w]
+
+
+def quat_angle(a, b):
+    """Degrees between two rotations (w x y z)."""
+    return 2 * np.degrees(np.arccos(min(1.0, abs(float(np.dot(a, b))))))
+
+
+def bake_anim(m, name, sca, rate, loop):
+    """Channels of an .sca animation for the bones of model `m` (by name). `loop`: frame 0 again at the end
+    (for cycles whose last frame leads back to the first)."""
+    index = {b["name"].lower(): i for i, b in enumerate(m.bones)}
+    times = [t / rate for t in sca.times()]
+    frames = sca.frames
+    if loop:
+        times.append(sca.duration / rate)
+        frames = frames + frames[:1]
+    channels = {}
+    for j, bone in enumerate(sca.names):
+        i = index.get(bone.lower())
+        if i is None:
+            continue
+        ps = np.array([f["bones"][j][0] for f in sca.frames])
+        qs = [f["bones"][j][1] for f in sca.frames]
+        moves = np.abs(ps - ps[0]).max() > 1e-3 or max(quat_angle(q, qs[0]) for q in qs) > 0.5
+        if not moves and quat_angle(qs[0], m.bones[i]["rot"]) < 1.0:
+            continue
+        tr, rot = [], []
+        for f in frames:
+            t, r = to_gltf_local(*f["bones"][j])
+            if rot and np.dot(rot[-1], r) < 0:   # keep neighbouring keys on the same hemisphere
+                r = [-v for v in r]
+            tr.append(t)
+            rot.append(r)
+        channels[i] = (tr, rot)
+    return {"name": name, "times": times, "channels": channels}
+
+
+def convert_model(scm_path, out, anims=()):
+    """`anims`: (name, Sca, rate, loop) to bake into the GLB."""
     m = Scm(scm_path)
     S = np.diag([1.0, 1.0, -1.0, 1.0])
     world = []
@@ -119,6 +203,10 @@ def convert_model(scm_path, out):
     for i, b in enumerate(m.bones):
         local = world[i] if b["parent"] < 0 else np.linalg.inv(world[b["parent"]]) @ world[i]
         nodes.append({"name": b["name"], "parent": b["parent"], "matrix": local})
+    baked = [bake_anim(m, name, sca, rate, loop) for name, sca, rate, loop in anims]
+    for a in baked:
+        for i in a["channels"]:
+            nodes[i]["trs"] = to_gltf_local(m.bones[i]["pos"], m.bones[i]["rot"])
     pos = m.verts["pos"].astype(np.float64) * [1, 1, -1]
     nrm = m.verts["nrm"].astype(np.float64) * [1, 1, -1]
     for i in range(len(m.bones)):
@@ -134,7 +222,7 @@ def convert_model(scm_path, out):
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
         idx = remap[tri][:, ::-1]              # flip winding for the handedness change
         data[i] = (p, n, m.verts["uv"][used], idx)
-    write_glb(out, nodes, data)
+    write_glb(out, nodes, data, baked)
     allp = pos
     return {"bones": [b["name"] for b in m.bones], "min": allp.min(0).round(3).tolist(), "max": allp.max(0).round(3).tolist(),
             "verts": len(m.verts), "tris": len(m.indices),
@@ -201,6 +289,36 @@ def convert_stock(scd, root, info):
         print_size(info, name)
 
 
+def blueprint_anims(b, folder, name):
+    """(name, Sca, rate, loop) for every animation the blueprint names that exists in the unit folder."""
+    disp = b.get("Display", {})
+    cats = [c.upper() for c in b.get("Categories", [])]
+    want = []
+    for key, (anim, rate_key, rate, loop) in ANIMS.items():
+        if disp.get(key):
+            want.append((disp[key], anim, float(disp.get(rate_key, rate)) if rate_key else rate, loop))
+    if disp.get("AnimationOpen"):
+        if "MASSEXTRACTION" in cats:
+            want.append((disp["AnimationOpen"], "work", 1.0, False))
+        else:
+            want.append((disp["AnimationOpen"], "doors", 2.0, False))
+    for w in (b.get("Weapon") or []):
+        if isinstance(w, dict) and w.get("WeaponUnpackAnimation"):
+            want.append((w["WeaponUnpackAnimation"], "unpack", float(w.get("WeaponUnpackAnimationRate", 1.0)), False))
+            break
+    # Blueprint paths are game- or mod-absolute (/units/..., /mods/LongRangeTank/units/...): look the file
+    # up by name in the unit folder.
+    files = {f.lower(): os.path.join(folder, f) for f in os.listdir(folder)}
+    out = []
+    for path, anim, rate, loop in want:
+        f = files.get(os.path.basename(path).lower())
+        if f:
+            out.append((anim, Sca(f), rate, loop))
+        else:
+            print(f"{name}: {anim} animation {path} not in the mod folder")
+    return out
+
+
 def main():
     root = os.path.join(os.path.dirname(__file__), "..", "assets")
     os.makedirs(root + "/models", exist_ok=True)
@@ -212,16 +330,22 @@ def main():
         json.dump(info, open(os.path.join(os.path.dirname(__file__), "out", sys.argv[1][2:] + "_info.json"), "w"), indent=1)
         return
     mod = sys.argv[1]
+    only = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
     for name, rel in UNITS.items():
+        if only and name not in only:
+            continue
         folder = os.path.join(mod, rel)
         scm = find(folder, "lod0.scm")
         if not scm:
             print("no model for", name)
             continue
-        info[name] = convert_model(scm, f"{root}/models/{name}.glb")
         bpf = find(folder, "_unit.bp")
-        if bpf:
-            b = bp.load(bpf)
+        b = bp.load(bpf) if bpf else None
+        anims = blueprint_anims(b or {}, folder, name)
+        info[name] = convert_model(scm, f"{root}/models/{name}.glb", anims)
+        if anims:
+            info[name]["anims"] = [a[0] for a in anims]
+        if b:
             info[name]["scale"] = b.get("Display", {}).get("UniformScale", 1.0)
             info[name]["size"] = [b.get("SizeX"), b.get("SizeY"), b.get("SizeZ")]
         save_textures(root, name, find(folder, "_albedo.dds"), find(folder, "_specteam.dds"), find(folder, "_normalsts.dds"))

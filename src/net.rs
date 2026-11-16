@@ -57,6 +57,9 @@ pub enum C2S {
     Ping(u32),
     /// The player wants the whole game paused (`true`) or running again.
     Pause(bool),
+    /// After the host left: this player connects to the player who took over as host
+    /// (instead of `Hello`). The new host answers with its full state.
+    Rejoin { player: u8 },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,6 +74,11 @@ pub enum S2C {
     Pong(u32),
     /// The game was paused by that player after the last turn sent, or (`None`) resumed.
     Paused(Option<u8>),
+    /// Who takes over when the host leaves: the host's player, and every human player connected
+    /// to it with their address (`None`: on the host's own machine, so reached at the host's address).
+    /// Sent when the game starts and whenever a player leaves. `ai_reclaim` is the lobby's AI option,
+    /// which the next host's AIs keep.
+    Peers { host: u8, peers: Vec<(u8, Option<IpAddr>)>, ai_reclaim: bool },
 }
 
 fn write_frame(s: &mut TcpStream, tag: u8, data: &[u8]) -> std::io::Result<()> {
@@ -107,6 +115,7 @@ pub enum HostEvent {
 
 struct Conn {
     id: u32,
+    ip: IpAddr,
     tx: SyncSender<Arc<(u8, Vec<u8>)>>,
 }
 
@@ -134,13 +143,13 @@ impl Host {
                 let mut next_id = 1u32;
                 while !stop.load(Ordering::Relaxed) {
                     match listener.accept() {
-                        Ok((stream, _)) => {
+                        Ok((stream, from)) => {
                             stream.set_nonblocking(false).ok();
                             stream.set_nodelay(true).ok();
                             let id = next_id;
                             next_id += 1;
                             let (tx, rx) = sync_channel::<Arc<(u8, Vec<u8>)>>(QUEUE);
-                            conns.lock().unwrap().push(Conn { id, tx });
+                            conns.lock().unwrap().push(Conn { id, ip: from.ip(), tx });
                             // Writer.
                             if let Ok(mut ws) = stream.try_clone() {
                                 ws.set_write_timeout(Some(Duration::from_secs(5))).ok();
@@ -219,6 +228,11 @@ impl Host {
         }
     }
 
+    /// Address of a connected player as this machine sees it; `None` for a player on this machine.
+    pub fn peer_ip(&self, id: u32) -> Option<IpAddr> {
+        self.conns.lock().unwrap().iter().find(|c| c.id == id).map(|c| c.ip).filter(|ip| !ip.is_loopback())
+    }
+
     pub fn kick(&self, id: u32) {
         self.conns.lock().unwrap().retain(|c| c.id != id);
     }
@@ -236,14 +250,51 @@ impl Drop for Host {
 pub struct Client {
     pub frames: Receiver<Option<(u8, Vec<u8>)>>,
     stream: TcpStream,
+    /// The host's address.
+    pub addr: SocketAddr,
+    /// A write failed or timed out (the host is gone or stuck): the connection is unusable.
+    pub broken: bool,
 }
 
 impl Client {
     pub fn connect(addr: &str, name: &str, data_hash: u64) -> Result<Client, String> {
         let addr = if addr.contains(':') { addr.to_string() } else { format!("{addr}:{TCP_PORT}") };
         let sa: SocketAddr = addr.parse().map_err(|_| format!("'{addr}' is not a valid address"))?;
-        let stream = TcpStream::connect_timeout(&sa, Duration::from_secs(3)).map_err(|e| format!("connect failed: {e}"))?;
+        let mut c = Client::open(sa, Duration::from_secs(3))?;
+        c.send(&C2S::Hello { name: name.to_string(), data_hash });
+        Ok(c)
+    }
+
+    /// Connects to the player who took over as host, in the background: tries for `wait`
+    /// (that machine may not be listening yet), then gives up.
+    pub fn rejoin(ip: IpAddr, player: u8, wait: Duration) -> Receiver<Result<Client, String>> {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let until = std::time::Instant::now() + wait;
+            let sa = SocketAddr::new(ip, TCP_PORT);
+            loop {
+                match Client::open(sa, Duration::from_secs(1)) {
+                    Ok(mut c) => {
+                        c.send(&C2S::Rejoin { player });
+                        tx.send(Ok(c)).ok();
+                        return;
+                    }
+                    Err(e) if std::time::Instant::now() >= until => {
+                        tx.send(Err(e)).ok();
+                        return;
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(300)),
+                }
+            }
+        });
+        rx
+    }
+
+    fn open(sa: SocketAddr, timeout: Duration) -> Result<Client, String> {
+        let stream = TcpStream::connect_timeout(&sa, timeout).map_err(|e| format!("connect failed: {e}"))?;
         stream.set_nodelay(true).ok();
+        // A host that stopped reading must not freeze this game's frame loop.
+        stream.set_write_timeout(Some(Duration::from_secs(3))).ok();
         let (tx, rx): (Sender<Option<(u8, Vec<u8>)>>, _) = channel();
         let mut rs = stream.try_clone().map_err(|e| e.to_string())?;
         std::thread::spawn(move || {
@@ -254,14 +305,17 @@ impl Client {
             }
             tx.send(None).ok();
         });
-        let mut c = Client { frames: rx, stream };
-        c.send(&C2S::Hello { name: name.to_string(), data_hash });
-        Ok(c)
+        Ok(Client { frames: rx, stream, addr: sa, broken: false })
     }
 
     pub fn send(&mut self, m: &C2S) {
+        if self.broken {
+            return;
+        }
         if let Ok(data) = bincode::serialize(m) {
-            write_frame(&mut self.stream, TAG_MSG, &data).ok();
+            if write_frame(&mut self.stream, TAG_MSG, &data).is_err() {
+                self.broken = true;
+            }
         }
     }
 }

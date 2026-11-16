@@ -12,9 +12,15 @@ short side to a square around the same centre.
 
 Elevation: AWS Terrain Tiles (Mapzen "terrarium" PNGs, zoom 13, ~12 m per pixel).
 Everything else: OpenStreetMap through the Overpass API (buildings, forests and their leaf type,
-scrub, parks, water, rocks, towers, power pylons, churches).
-Downloads are cached in tools/out/osm_cache. Output: assets/maps/NAME/{map.json,height.png} and a
-picture tools/out/NAME_preview.png (terrain shading, forests, buildings, deposits, starts).
+scrub, parks, water, rocks, towers, power pylons, churches, roads, fields and other land use).
+Downloads are cached in tools/out/osm_cache. Output: assets/maps/NAME/{map.json,height.png,layerN.png}
+and a picture tools/out/NAME_preview.png (terrain shading, roads, forests, buildings, deposits, starts).
+
+Ground textures: grass everywhere, with layers for fields and meadows, forest floor, farmyards,
+industrial gravel, paving in built-up blocks, sand, mud under water and stone on rock and steep
+slopes (masks `layerN.png`, one pixel per cell). Roads come from the highway ways (asphalt, or a
+dirt track for tracks and unpaved roads), drawn wider than true scale like the buildings; trees
+and rocks keep off them, and buildings off the main roads.
 
 North is up (-z). Heights are true scale times
 --relief. One prop is placed per real building where the game building (2-3x the size of a real
@@ -45,6 +51,10 @@ UA = "lr-mapgen/1.0"
 OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
 CELL = 2.0
 Z = 13
+# Drawn road width (world units) per highway class: wider than true scale, like the buildings.
+ROAD_WIDTH = {"motorway": 7.0, "trunk": 6.0, "primary": 5.0, "secondary": 4.5, "tertiary": 4.0, "unclassified": 3.5,
+              "residential": 3.5, "living_street": 3.0, "service": 2.5, "track": 2.5}
+MAIN_ROADS = {"motorway", "trunk", "primary", "secondary", "tertiary"}
 
 
 def fetch(url, name, data=None):
@@ -153,6 +163,11 @@ def overpass(geo, name):
   node["man_made"~"^(water_tower|tower|mast)$"]({bb});
   way["man_made"~"^(water_tower|tower)$"]({bb});
   node["power"="tower"]({bb});
+""",
+        "roads": f'  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"]({bb});\n',
+        "ground": f"""  way["landuse"~"^(farmland|meadow|grass|orchard|vineyard|allotments|construction|brownfield|railway|village_green)$"]({bb});
+  relation["landuse"~"^(farmland|meadow|grass)$"]({bb});
+  way["natural"~"^(sand|beach|grassland|glacier)$"]({bb});
 """,
     }
     els = []
@@ -342,11 +357,22 @@ def main():
     # OSM layers.
     els = overpass(geo, a.name)
     ras = Raster(world)
-    buildings, points = [], []
+    buildings, points, roads = [], [], []
     for el in els:
         t = el.get("tags", {})
         if el["type"] == "node":
             points.append((t, geo.to_world(el["lat"], el["lon"])))
+            continue
+        if "highway" in t and el["type"] == "way" and "geometry" in el and "building" not in t:
+            if t.get("tunnel") not in (None, "no") or t.get("area") == "yes":
+                continue
+            hw = t["highway"].replace("_link", "")
+            unpaved = t.get("surface") in ("unpaved", "dirt", "earth", "ground", "grass", "mud", "sand", "compacted", "fine_gravel", "gravel")
+            kind = "dirt_road" if hw == "track" or unpaved else "asphalt"
+            if t.get("surface") in ("gravel", "fine_gravel", "compacted") and hw != "track":
+                kind = "gravel"
+            width = ROAD_WIDTH.get(hw, 3.0)
+            roads.append((kind, width, hw in MAIN_ROADS, [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
             continue
         outer, inner = shapes(el, geo)
         if not outer:
@@ -369,7 +395,53 @@ def main():
             ras.poly("park", outer, inner)
         elif lu in ("industrial", "residential", "commercial", "retail", "farmyard", "quarry"):
             ras.poly(lu, outer, inner)
-    print(f"{len(buildings)} buildings, {len(points)} points of interest")
+        elif lu in ("farmland", "meadow", "grass", "orchard", "vineyard", "village_green") or nat == "grassland":
+            ras.poly("field", outer, inner)
+        elif lu in ("allotments", "construction", "brownfield"):
+            ras.poly("dirt", outer, inner)
+        elif lu == "railway":
+            ras.poly("industrial", outer, inner)
+        elif nat in ("sand", "beach"):
+            ras.poly("sand", outer, inner)
+        elif nat == "glacier":
+            ras.poly("snow", outer, inner)
+    print(f"{len(buildings)} buildings, {len(points)} points of interest, {len(roads)} roads")
+    # Roads cut to the map (with a little overhang, so they run off the edge), points thinned to
+    # about one per 1.5 units; a road leaving and re-entering the map becomes two.
+    road_lines = []
+    for kind, width, main_road, pts in roads:
+        cur = []
+        for x, z in pts:
+            inside = -8 < x < world + 8 and -8 < z < world + 8
+            if inside:
+                if not cur or math.hypot(x - cur[-1][0], z - cur[-1][1]) >= 1.5:
+                    cur.append((x, z))
+            elif len(cur) >= 2:
+                road_lines.append((kind, width, main_road, cur))
+                cur = []
+            else:
+                cur = []
+        if len(cur) >= 2:
+            road_lines.append((kind, width, main_road, cur))
+    # Kinds in use, at most four (the game shows four road kinds per map).
+    road_kinds = []
+    for kind, *_ in road_lines:
+        if kind not in road_kinds:
+            road_kinds.append(kind)
+    if len(road_kinds) > 4:
+        road_lines = [r for r in road_lines if r[0] in road_kinds[:4]]
+    # Road raster: where trees and rocks must not stand (crowns reach ~1.2 over the edge), and
+    # main roads, where buildings must not stand.
+    road_img = Image.new("L", (ras.size, ras.size), 0)
+    main_img = Image.new("L", (ras.size, ras.size), 0)
+    rd, md = ImageDraw.Draw(road_img), ImageDraw.Draw(main_img)
+    for kind, width, main_road, pts in road_lines:
+        xy = [(x * Raster.RES, z * Raster.RES) for x, z in pts]
+        rd.line(xy, fill=255, width=max(1, int((width + 2.4) * Raster.RES)), joint="curve")
+        if main_road:
+            md.line(xy, fill=255, width=max(1, int(width * Raster.RES)), joint="curve")
+    on_road = np.asarray(road_img) > 127
+    on_main = np.asarray(main_img) > 127
 
     needle, broad, mixed = ras.arr("needle"), ras.arr("broad"), ras.arr("mixed")
     industrial, farmyard = ras.arr("industrial"), ras.arr("farmyard")
@@ -444,6 +516,11 @@ def main():
         for i in range(n):
             if wcell[int((j + 0.5) * CELL * rs), int((i + 0.5) * CELL * rs)]:
                 occ[j, i] = 1
+    # Main roads: cells whose centre is on one take no building.
+    for j in range(n):
+        for i in range(n):
+            if on_main[int((j + 0.5) * CELL * rs), int((i + 0.5) * CELL * rs)]:
+                occ[j, i] = max(occ[j, i], 4)
     props = []
 
     def snap(kind, x, z):
@@ -597,7 +674,7 @@ def main():
 
     def ok_spot(x, z, r):
         i, j = int(x / CELL), int(z / CELL)
-        if blocked[j, i] or Raster.at(water, x, z) or Raster.at(built, x, z):
+        if blocked[j, i] or Raster.at(water, x, z) or Raster.at(built, x, z) or Raster.at(on_road, x, z):
             return False
         # Every base gets the same clearing (forest around one base and fields around another
         # made a big difference in AI test games): none within 55 units, thinning out to 75.
@@ -697,9 +774,42 @@ def main():
         kinds[k] = kinds.get(k, 0) + 1
     print(f"{len(feats)} trees and rocks:", kinds)
 
+    # ---------------------------------------------------------------- ground textures
+    # Each layer's mask: its area averaged over each cell, softened a little (the game blends
+    # the edges with the textures' height, so they come out ragged, not blurry).
+    def cells(a_, soft=1):
+        f = a_.astype(np.float64)
+        k = int(CELL * rs)
+        f = f[:n * k, :n * k].reshape(n, k, n, k).mean(axis=(1, 3))
+        return blur(f, soft) if soft else f
+
+    slope_c = slope[:n, :n] / CELL
+    ground = [
+        ("grass", None),
+        ("meadow", cells(ras.arr("field"))),
+        ("forest_floor", cells(forest) * 0.95),
+        ("dirt", np.maximum(cells(farmyard | ras.arr("dirt")), cells(ras.arr("quarry")) * 0.6)),
+        ("gravel", cells(industrial | ras.arr("commercial") | ras.arr("retail"))),
+        ("paving", np.clip((cells(dens, 0) - 0.12) * 4.0, 0, 1) * cells(ras.arr("residential") | ras.arr("commercial") | ras.arr("retail") | industrial)),
+        ("sand", cells(ras.arr("sand"))),
+        ("mud", cells(water)),
+        ("stone", np.maximum(cells(rockarea), np.clip((slope_c - 0.25) / 0.25, 0, 1))),
+    ]
+    if ras.arr("snow").any():
+        ground[6] = ("snow", cells(ras.arr("snow")))
+    # Layers nobody uses are left out.
+    ground = [g for g in ground if g[1] is None or g[1].max() > 0.05]
+    layer_list = [{"kind": k, "scale": 0.0} for k, _ in ground]
+
     # ---------------------------------------------------------------- write
     out = os.path.join(ROOT, "assets", "maps", a.name)
     os.makedirs(out, exist_ok=True)
+    for i in range(1, 9):
+        f_ = os.path.join(out, f"layer{i}.png")
+        if i < len(ground):
+            Image.fromarray(np.clip(np.round(ground[i][1] * 255), 0, 255).astype(np.uint8)).save(f_)
+        elif os.path.exists(f_):
+            os.remove(f_)
     mn, mx = float(heights.min()), float(heights.max())
     px = np.round((heights - mn) / (mx - mn) * 65535).astype(np.uint16)
     Image.fromarray(px).save(os.path.join(out, "height.png"))
@@ -714,6 +824,8 @@ def main():
         "props": props,
         "seed": a.seed,
         "features": feats,
+        "layers": layer_list,
+        "roads": [f"{kind} {width:.2f} " + " ".join(f"{x:.2f} {z:.2f}" for x, z in pts) for kind, width, _, pts in road_lines],
     }
     with open(os.path.join(out, "map.json"), "w", encoding="utf-8") as f:
         json.dump(m, f, indent=2)
@@ -728,6 +840,8 @@ def main():
     img = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).resize(((n + 1) * S // 1, (n + 1) * S // 1))
     d = ImageDraw.Draw(img)
     k = S / CELL
+    for kind, width, _, pts in road_lines:
+        d.line([(x * k, z * k) for x, z in pts], fill=(60, 60, 60) if kind == "asphalt" else (140, 110, 70), width=max(1, int(width * k)))
     for f in feats:
         kind, x, z = f.split()[:3]
         x, z = float(x) * k, float(z) * k
