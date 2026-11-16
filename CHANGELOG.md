@@ -3,12 +3,26 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.5.3
+
+Not compatible with v0.5.2 in multiplayer: everybody needs this version.
+
+New
+- Scavengers can assist: they help another scavenger revive or reclaim, and help build a revived wreck. On
+  area reclaim and revive orders they gang up on nearby targets a teammate is already working on.
+- A remembered enemy building that was destroyed while nobody on your team could see it looks dim, with a
+  faded icon. Preset switch "Dim destroyed remembered buildings" (on by default).
+
+Changed
+- Engineers can no longer help build a revived wreck (only scavengers can).
+
 ## v0.5.2
 
 Compatible with v0.5.1 in multiplayer (the host sends the map, so v0.5.1 players can join a game on the
 new map).
 
 New
+- Enemy buildings you have seen keep their 3D model when they go out of sight, shown as last seen.
 - New map: Liberec and Jablonec, the two towns and the land between them made from real map data, for 4
   players (512 cells). The towns' streets, the river with its bridges and culverts, and the villages
   around them.
