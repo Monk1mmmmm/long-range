@@ -3,6 +3,18 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.5.2
+
+Compatible with v0.5.1 in multiplayer (the host sends the map, so v0.5.1 players can join a game on the
+new map).
+
+New
+- New map: Liberec and Jablonec, the two towns and the land between them made from real map data, for 4
+  players (512 cells). The towns' streets, the river with its bridges and culverts, and the villages
+  around them.
+- `tools/osm_map.py` (maps of real places): `--river`, bridges and culverts where roads cross water,
+  `--village`, and better town streets.
+
 ## v0.5.1
 
 Not compatible with v0.5.0 in multiplayer: everybody needs this version.

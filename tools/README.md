@@ -81,14 +81,22 @@ The rectangle is in degrees: on openstreetmap.org, *Export* shows the box of the
 | OSM rocks, bare rock; steep or high forest ground | stones, rocks, boulders |
 | OSM water towers, towers/masts, power pylons | `water_tower`, `comm_tower`, `pylon` |
 | highest hilltop away from the bases | neutral comm tower + three hostile bunkers |
-| OSM highways (`highway=*` up to service roads and tracks; tunnels left out) | roads: asphalt, gravel or dirt track by `surface`, drawn wider than true scale (`ROAD_WIDTH`); trees and rocks keep off them, buildings off the main roads (tertiary and up) |
+| OSM highways (`highway=*` up to service roads and tracks; tunnels left out) | roads: asphalt, gravel or dirt track by `surface`, drawn wider than true scale (`ROAD_WIDTH`); trees and rocks keep off them, buildings keep a cell off the main roads (tertiary and up) and off every other street except service roads and tracks |
+| OSM river named by `--river` (`waterway=river`), road and railway bridges over it, culverts | water: the land is tilted along the river so it runs level (one water level per map), the bed is dug under it, and every real bridge or culvert stays a land crossing |
 | OSM fields/meadows, forests, farmyards and construction, industry/commerce, built-up blocks, sand, water, rock + steep slopes | ground texture layers (`layerN.png`): meadow, forest floor, dirt, gravel, paving, sand, mud, stone over grass |
 
 Start positions (`--players`, default 4: corners) are searched in open, flat ground at equal distance from the
 centre and levelled; `--starts "x,z;x,z"` sets them by hand (world units, from the preview). Every start gets
 the same deposits at the same offsets turned towards the centre, plus a ring of six in the middle.
 `--max-props` (600) caps the buildings: the real ones are thinned evenly (landmarks first, big ones more likely).
-Water is not flooded (the game has one water level for the whole map); lakes stay free of trees and buildings.
+A building that does not fit where the real one stands is moved up to two cells (towns) or one (villages).
+`--village 0.45` keeps only that share of the buildings outside towns (built-up share over ~350 m), so towns
+are packed solid and villages stay loose; the default 1.0 keeps everything that fits.
+`--river NAME` makes that river water, `--river-width 5,7` its width (world units, upstream,downstream).
+In towns (with `--village`) residential side streets are drawn narrower and give way to the buildings: their
+paint stops under a building, so they show as the lanes between them; main roads and through streets stay open.
+Ground lower than the river ends up just above the water. Other water is not flooded; lakes stay free of
+trees and buildings. The preview shows the water in blue and the bridges as yellow rings.
 
 Downloads are cached in `tools/out/osm_cache` (delete the files to fetch fresh data); the Overpass servers are
 sometimes busy, the script retries. It writes a check picture `tools/out/NAME_preview.png`: terrain, roads, trees
@@ -98,3 +106,7 @@ Data: (c) OpenStreetMap contributors (ODbL); elevation: Mapzen / AWS Terrain Til
 Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
 
     .venv/bin/python tools/osm_map.py jablonec --bbox 50.661,15.091,50.751,15.233 --title "Jablonec nad Nisou"
+
+Liberec and Jablonec with the Lužická Nisa (the `liberec` map):
+
+    .venv/bin/python tools/osm_map.py liberec --bbox 50.6689,14.9911,50.8078,15.2092 --cells 512 --title "Liberec and Jablonec" --river "Lužická Nisa" --river-width 4,6 --village 0.45 --max-props 9000

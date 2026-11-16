@@ -4,7 +4,8 @@
     .venv/bin/python tools/osm_map.py NAME --bbox SOUTH,WEST,NORTH,EAST [options]
     .venv/bin/python tools/osm_map.py NAME --center LAT,LON [--km 10] [options]
     options: [--cells 384] [--players 4] [--relief 0.85] [--starts "x,z;x,z;..."] [--seed 1]
-             [--title "Shown name"] [--max-props 700]
+             [--title "Shown name"] [--max-props 700] [--village 0.45]
+             [--river "River name" --river-width 5,7]
 
 The rectangle is given in degrees (copy it from openstreetmap.org: Export shows the box of the view,
 or right-click > "Show address" for a point). Game maps are square, so a rectangle is widened on its
@@ -55,6 +56,11 @@ Z = 13
 ROAD_WIDTH = {"motorway": 7.0, "trunk": 6.0, "primary": 5.0, "secondary": 4.5, "tertiary": 4.0, "unclassified": 3.5,
               "residential": 3.5, "living_street": 3.0, "service": 2.5, "track": 2.5}
 MAIN_ROADS = {"motorway", "trunk", "primary", "secondary", "tertiary"}
+# Side streets in towns (with --village): narrower, or the oversized buildings find no room between them.
+TOWN_STREET = 2.2
+# Bridges over the river (--river) by what they carry: width of the land bridge in world units.
+# Footbridges are not in the road query, so they make no crossing.
+BRIDGE_WIDTH = {"motorway": 7.0, "trunk": 7.0, "primary": 6.0, "secondary": 6.0, "rail": 5.0}
 
 
 def fetch(url, name, data=None):
@@ -147,7 +153,7 @@ def elevation_grid(geo, n):
     return out
 
 
-def overpass(geo, name):
+def overpass(geo, name, river=False):
     bb = f"{geo.s:.5f},{geo.w:.5f},{geo.n:.5f},{geo.e:.5f}"
     head = "[out:json][timeout:240];\n(\n"
     # Two queries: one big answer is more likely to time out at a busy server's gateway.
@@ -170,10 +176,15 @@ def overpass(geo, name):
   way["natural"~"^(sand|beach|grassland|glacier)$"]({bb});
 """,
     }
+    if river:
+        parts["rivers"] = f'  way["waterway"="river"]({bb});\n'
+        parts["railbridges"] = f'  way["bridge"]["railway"~"^(rail|tram|light_rail)$"]({bb});\n'
     els = []
     for part, body in parts.items():
         raw = fetch("overpass", f"overpass_{name}_{part}.json", data=head + body + ");\nout geom;")
-        els += json.loads(raw)["elements"]
+        for el in json.loads(raw)["elements"]:
+            el["_part"] = part
+            els.append(el)
     return els
 
 
@@ -263,6 +274,87 @@ def blur(a, r):
     return a
 
 
+# ---------------------------------------------------------------- rivers
+
+def chain(lines):
+    """Joins polylines (lists of hashable points) that share end points; longest first."""
+    out = [list(l) for l in lines if len(l) >= 2]
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(out)):
+            for k in range(len(out)):
+                if i == k or not out[i] or not out[k]:
+                    continue
+                a, b = out[i], out[k]
+                if a[-1] == b[0]:
+                    out[i] = a + b[1:]
+                elif a[-1] == b[-1]:
+                    out[i] = a + b[::-1][1:]
+                elif a[0] == b[-1]:
+                    out[i] = b + a[1:]
+                elif a[0] == b[0]:
+                    out[i] = b[::-1] + a[1:]
+                else:
+                    continue
+                out[k] = []
+                merged = True
+        out = [l for l in out if l]
+    return sorted(out, key=len, reverse=True)
+
+
+def simplify(pts, tol):
+    """Douglas-Peucker."""
+    if len(pts) < 3:
+        return list(pts)
+    (ax, az), (bx, bz) = pts[0], pts[-1]
+    l2 = max((bx - ax) ** 2 + (bz - az) ** 2, 1e-9)
+    best, idx = -1.0, 0
+    for i in range(1, len(pts) - 1):
+        px, pz = pts[i]
+        t = min(max(((px - ax) * (bx - ax) + (pz - az) * (bz - az)) / l2, 0.0), 1.0)
+        dd = math.hypot(px - ax - (bx - ax) * t, pz - az - (bz - az) * t)
+        if dd > best:
+            best, idx = dd, i
+    if best <= tol:
+        return [pts[0], pts[-1]]
+    return simplify(pts[:idx + 1], tol)[:-1] + simplify(pts[idx:], tol)
+
+
+def resample(pts, step):
+    """Points about every `step` along a polyline."""
+    out = []
+    for (x0, z0), (x1, z1) in zip(pts, pts[1:]):
+        k = max(1, int(math.ceil(math.hypot(x1 - x0, z1 - z0) / step)))
+        out += [(x0 + (x1 - x0) * j / k, z0 + (z1 - z0) * j / k) for j in range(k)]
+    out.append(tuple(pts[-1]))
+    return np.array(out)
+
+
+def seg_cross(p, q, a, b):
+    """Intersection point of segments p-q and a-b, or None."""
+    r = (q[0] - p[0], q[1] - p[1])
+    s = (b[0] - a[0], b[1] - a[1])
+    den = r[0] * s[1] - r[1] * s[0]
+    if abs(den) < 1e-12:
+        return None
+    t = ((a[0] - p[0]) * s[1] - (a[1] - p[1]) * s[0]) / den
+    u = ((a[0] - p[0]) * r[1] - (a[1] - p[1]) * r[0]) / den
+    return (p[0] + r[0] * t, p[1] + r[1] * t) if 0 <= t <= 1 and 0 <= u <= 1 else None
+
+
+def nearest(px, pz, pts, chunk=6000):
+    """Distance from each point (flat arrays px, pz) to the nearest of `pts`, and that one's index."""
+    d = np.empty(len(px))
+    idx = np.empty(len(px), np.int64)
+    for i in range(0, len(px), chunk):
+        d2 = (px[i:i + chunk, None] - pts[None, :, 0]) ** 2 + (pz[i:i + chunk, None] - pts[None, :, 1]) ** 2
+        k = d2.argmin(1)
+        idx[i:i + chunk] = k
+        d[i:i + chunk] = np.sqrt(d2[np.arange(len(k)), k])
+    return d, idx
+
+
 # ---------------------------------------------------------------- buildings
 
 HOUSES = ["house", "house2", "house3", "house4", "house5", "house6", "house7", "house8", "house9"]
@@ -332,6 +424,9 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--title", default="")
     ap.add_argument("--max-props", type=int, default=600, help="buildings (pylons and the outpost come on top)")
+    ap.add_argument("--river", default="", help="OSM name of a river to make water: the land is tilted along it so it runs level")
+    ap.add_argument("--river-width", default="5,7", help="width of the river in world units, upstream,downstream")
+    ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
     a = ap.parse_args()
 
     n = a.cells
@@ -355,11 +450,19 @@ def main():
     heights = (elev - elev.min()) * geo.upm * a.relief + 1.0
 
     # OSM layers.
-    els = overpass(geo, a.name)
+    els = overpass(geo, a.name, river=bool(a.river))
     ras = Raster(world)
     buildings, points, roads = [], [], []
+    river_ways, bridge_ways = [], []
     for el in els:
         t = el.get("tags", {})
+        if el["_part"] in ("rivers", "railbridges"):
+            if el["type"] == "way" and "geometry" in el:
+                if el["_part"] == "rivers":
+                    river_ways.append((t, el["geometry"]))
+                else:
+                    bridge_ways.append((BRIDGE_WIDTH["rail"], [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
+            continue
         if el["type"] == "node":
             points.append((t, geo.to_world(el["lat"], el["lon"])))
             continue
@@ -367,12 +470,17 @@ def main():
             if t.get("tunnel") not in (None, "no") or t.get("area") == "yes":
                 continue
             hw = t["highway"].replace("_link", "")
+            if t.get("bridge", "no") != "no":
+                bridge_ways.append((BRIDGE_WIDTH.get(hw, 5.0), [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
             unpaved = t.get("surface") in ("unpaved", "dirt", "earth", "ground", "grass", "mud", "sand", "compacted", "fine_gravel", "gravel")
             kind = "dirt_road" if hw == "track" or unpaved else "asphalt"
             if t.get("surface") in ("gravel", "fine_gravel", "compacted") and hw != "track":
                 kind = "gravel"
             width = ROAD_WIDTH.get(hw, 3.0)
-            roads.append((kind, width, hw in MAIN_ROADS, [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
+            # 2 main road (buildings keep a cell off), 1 street (buildings keep off it), 3 side street
+            # (a street, except in towns: there buildings may cover it), 0 service road or track
+            level = 2 if hw in MAIN_ROADS else 3 if hw in ("residential", "living_street") else 1 if hw not in ("service", "track") else 0
+            roads.append((kind, width, level, [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
             continue
         outer, inner = shapes(el, geo)
         if not outer:
@@ -408,8 +516,28 @@ def main():
     print(f"{len(buildings)} buildings, {len(points)} points of interest, {len(roads)} roads")
     # Roads cut to the map (with a little overhang, so they run off the edge), points thinned to
     # about one per 1.5 units; a road leaving and re-entering the map becomes two.
+    # Town or village: built-up share over ~350 m. Towns keep every building that fits (dense
+    # blocks, lanes a cell wide) and narrower side streets, villages --village of the buildings.
+    dens_big = blur(ras.arr("building"), int(350 * geo.upm * Raster.RES / 2) + 1)
+
+    def town_at(x, z):
+        v = dens_big[min(max(int(z * Raster.RES), 0), ras.size - 1), min(max(int(x * Raster.RES), 0), ras.size - 1)]
+        return min(max((v - 0.07) / 0.08, 0.0), 1.0)
+
+    if a.village < 1.0:
+        bpx = ras.arr("building")
+        print(f"town: {(dens_big[bpx] > 0.11).mean() * 100:.0f}% of the built area, {(dens_big > 0.11).mean() * 100:.0f}% of the map")
     road_lines = []
     for kind, width, main_road, pts in roads:
+        if main_road in (1, 3) and a.village < 1.0:
+            # Towns: side streets narrower, and the residential ones give way to the buildings
+            # (the real street grid does not fit between buildings 2-3x the real size).
+            t_ = town_at(*pts[len(pts) // 2])
+            width = width + (TOWN_STREET - width) * t_
+            if t_ <= 0.5:
+                main_road = min(main_road, 1)
+        elif main_road == 3:
+            main_road = 1
         cur = []
         for x, z in pts:
             inside = -8 < x < world + 8 and -8 < z < world + 8
@@ -434,14 +562,111 @@ def main():
     # main roads, where buildings must not stand.
     road_img = Image.new("L", (ras.size, ras.size), 0)
     main_img = Image.new("L", (ras.size, ras.size), 0)
-    rd, md = ImageDraw.Draw(road_img), ImageDraw.Draw(main_img)
+    street_img = Image.new("L", (ras.size, ras.size), 0)
+    rd, md, sd = ImageDraw.Draw(road_img), ImageDraw.Draw(main_img), ImageDraw.Draw(street_img)
     for kind, width, main_road, pts in road_lines:
         xy = [(x * Raster.RES, z * Raster.RES) for x, z in pts]
         rd.line(xy, fill=255, width=max(1, int((width + 2.4) * Raster.RES)), joint="curve")
-        if main_road:
+        if main_road == 2:
             md.line(xy, fill=255, width=max(1, int(width * Raster.RES)), joint="curve")
+        elif main_road == 1:
+            sd.line(xy, fill=255, width=max(1, int(width * Raster.RES)), joint="curve")
     on_road = np.asarray(road_img) > 127
     on_main = np.asarray(main_img) > 127
+    on_street = np.asarray(street_img) > 127
+
+    # ---------------------------------------------------------------- the river (--river)
+    # The game has one water level, so the land is tilted along the river until the river runs
+    # level: a smooth field (the river's own height, spread out from it) is taken off every vertex,
+    # and hills keep their height above the valley floor. The bed is then dug under the water,
+    # except where a real road or railway bridge (or a culvert) crosses: the ground stays there as a
+    # land bridge.
+    water_level, bridges = None, []
+    if a.river:
+        def sample(grid, x, z):
+            fx = np.clip(np.asarray(x, float) / CELL, 0, n - 0.001)
+            fz = np.clip(np.asarray(z, float) / CELL, 0, n - 0.001)
+            i, j = fx.astype(int), fz.astype(int)
+            u, v = fx - i, fz - j
+            return (grid[j, i] * (1 - u) + grid[j, i + 1] * u) * (1 - v) + (grid[j + 1, i] * (1 - u) + grid[j + 1, i + 1] * u) * v
+
+        segs, covered = [], []
+        for t, g in river_ways:
+            if t.get("name") != a.river:
+                continue
+            segs.append([(p["lat"], p["lon"]) for p in g])
+            if t.get("tunnel", "no") != "no":
+                covered.append([geo.to_world(p["lat"], p["lon"]) for p in g])
+        if not segs:
+            sys.exit(f"no river named {a.river!r} in the area")
+        line = [geo.to_world(*p) for p in chain(segs)[0]]
+        inside = [i for i, (x, z) in enumerate(line) if -4 < x < world + 4 and -4 < z < world + 4]
+        line = line[inside[0]:inside[-1] + 1]
+        if sample(heights, *line[0]) < sample(heights, *line[-1]):
+            line = line[::-1]  # upstream first
+        R = resample(line, 2.0)
+        L = len(R)
+        hr = sample(heights, R[:, 0], R[:, 1])
+        # The river's height: median over ~30 units, never rising downstream.
+        hs = np.minimum.accumulate(np.array([np.median(hr[max(0, i - 7):i + 8]) for i in range(L)]))
+        side = n + 1
+        vz, vx = np.mgrid[0:side, 0:side] * CELL
+        px, pz = vx.ravel().astype(float), vz.ravel().astype(float)
+        # Spread it over the map: Gaussian weights by distance to the river (sigma 90 units).
+        sub, hsub = R[::4], hs[::4]
+        D = np.empty(len(px))
+        for i in range(0, len(px), 4000):
+            d2 = (px[i:i + 4000, None] - sub[None, :, 0]) ** 2 + (pz[i:i + 4000, None] - sub[None, :, 1]) ** 2
+            w_ = np.exp(-(d2 - d2.min(1, keepdims=True)) / (2 * 90.0 ** 2))
+            D[i:i + 4000] = (w_ * hsub[None, :]).sum(1) / w_.sum(1)
+        level = float(hs.min())
+        heights = heights - (D.reshape(side, side) - level)
+        # Other valleys must not end up under the water.
+        low = heights < level + 0.3
+        heights = np.maximum(heights, level + 0.3)
+        water_level = level
+        print(f"river {a.river}: {L * 2} units on the map, falls {hs[0] - hs[-1]:.1f} units; {low.mean() * 100:.1f}% of the land raised to stay dry")
+        dry = heights.copy()
+        # The bed: 1.2 under the water across the river's width, banks rising 0.9 per unit.
+        w_up, w_dn = map(float, a.river_width.split(","))
+        hw = (w_up + (w_dn - w_up) * np.arange(L) / max(1, L - 1)) * 0.5
+        d, idx = nearest(px, pz, R)
+        d, idx = d.reshape(side, side), idx.reshape(side, side)
+        hwv = hw[idx]
+        carved = np.minimum(heights, level - 1.2 + np.maximum(0, d - hwv) * 0.9)
+        # Land across the river, per river point (0..1): culverts, where the river runs underground,
+        # and bridges, each as wide (along the river) as its road, square to the river.
+        land_s = np.zeros(L)
+        if covered:
+            cov = np.concatenate([resample(c, 1.0) for c in covered if len(c) >= 2])
+            dc, _ = nearest(R[:, 0], R[:, 1], cov)
+            land_s = np.maximum(land_s, (dc < 1.5).astype(float))
+        for bw, pts in bridge_ways:
+            for p, q in zip(pts, pts[1:]):
+                bx0, bx1, bz0, bz1 = min(p[0], q[0]), max(p[0], q[0]), min(p[1], q[1]), max(p[1], q[1])
+                for r0, r1 in zip(line, line[1:]):
+                    if max(r0[0], r1[0]) < bx0 or min(r0[0], r1[0]) > bx1 or max(r0[1], r1[1]) < bz0 or min(r0[1], r1[1]) > bz1:
+                        continue
+                    c_ = seg_cross(p, q, r0, r1)
+                    if c_ is None:
+                        continue
+                    bridges.append((c_[0], c_[1], bw))
+        arc = np.arange(L) * 2.0
+        for cx, cz, bw in bridges:
+            ic = int(np.argmin((R[:, 0] - cx) ** 2 + (R[:, 1] - cz) ** 2))
+            land_s = np.maximum(land_s, np.clip((bw / 2 + 1.0 - np.abs(arc - arc[ic])) / 1.0, 0, 1))
+        land = land_s[idx] * np.clip(hwv + 5.0 - d, 0, 1)
+        places = []
+        for cx, cz, _ in bridges:
+            if all(math.hypot(cx - sx, cz - sz) > 6 for sx, sz in places):
+                places.append((cx, cz))
+        print(f"  water level {level:.2f}, {len(places)} bridges ({len(bridges)} crossing ways), {len(covered)} culverts")
+        heights = carved * (1 - land) + np.maximum(dry, level + 0.45) * land
+        # Trees, buildings and bases keep off the water (the ground layer puts mud under it).
+        dr = ImageDraw.Draw(ras.img("water"))
+        for i in range(L - 1):
+            dr.line([(R[i, 0] * Raster.RES, R[i, 1] * Raster.RES), (R[i + 1, 0] * Raster.RES, R[i + 1, 1] * Raster.RES)],
+                    fill=255, width=int(round((hw[i] * 2 + 1.0) * Raster.RES)))
 
     needle, broad, mixed = ras.arr("needle"), ras.arr("broad"), ras.arr("mixed")
     industrial, farmyard = ras.arr("industrial"), ras.arr("farmyard")
@@ -521,6 +746,14 @@ def main():
         for i in range(n):
             if on_main[int((j + 0.5) * CELL * rs), int((i + 0.5) * CELL * rs)]:
                 occ[j, i] = max(occ[j, i], 4)
+    # Streets: a building may line one but not stand on it (no gap needed, unlike the main roads).
+    # Any cell the street touches (not just its centre), so a diagonal street stays one
+    # side-by-side chain of free cells (units do not cut corners).
+    q4 = int(CELL * rs)
+    roadc = on_street[:n * q4, :n * q4].reshape(n, q4, n, q4).sum((1, 3)) >= 2
+    # Shifts (in cells) tried when a building does not fit where the real one stands: the game's
+    # buildings are 2-3x the real size, so in a town most of them only fit when moved a little.
+    nudges = sorted({(dx, dz) for dx in range(-2, 3) for dz in range(-2, 3)}, key=lambda d_: d_[0] ** 2 + d_[1] ** 2)
     props = []
 
     def snap(kind, x, z):
@@ -529,21 +762,32 @@ def main():
             return (math.floor(x / CELL) + 0.5) * CELL, (math.floor(z / CELL) + 0.5) * CELL
         return round(x / CELL) * CELL, round(z / CELL) * CELL
 
-    def place(kind, x, z, yaw, owner=0, margin=1, near_start=60.0):
+    def fits(kind, x, z, margin, near_start):
+        f = foot[kind]
+        x0, z0 = int(round(x / CELL - f / 2)), int(round(z / CELL - f / 2))
+        if x0 - margin < 1 or z0 - margin < 1 or x0 + f + margin > n - 1 or z0 + f + margin > n - 1:
+            return None
+        if occ[z0 - margin:z0 + f + margin, x0 - margin:x0 + f + margin].any() or roadc[z0:z0 + f, x0:x0 + f].any():
+            return None
+        if any(math.hypot(x - sx, z - sz) < near_start for sx, sz in starts):
+            return None
+        return x0, z0
+
+    def place(kind, x, z, yaw, owner=0, margin=1, near_start=60.0, nudge=0):
         if kind not in foot:
             return False
         x, z = snap(kind, x, z)
         f = foot[kind]
-        x0, z0 = int(round(x / CELL - f / 2)), int(round(z / CELL - f / 2))
-        if x0 - margin < 1 or z0 - margin < 1 or x0 + f + margin > n - 1 or z0 + f + margin > n - 1:
-            return False
-        if occ[z0 - margin:z0 + f + margin, x0 - margin:x0 + f + margin].any():
-            return False
-        if any(math.hypot(x - sx, z - sz) < near_start for sx, sz in starts):
-            return False
-        occ[z0:z0 + f, x0:x0 + f] = 2
-        props.append({"def": kind, "pos": {"x": round(x, 2), "y": round(z, 2)}, "yaw": round(yaw, 4), "owner": owner})
-        return True
+        for dx, dz in nudges:
+            if dx * dx + dz * dz > nudge * nudge:
+                break
+            at = fits(kind, x + dx * CELL, z + dz * CELL, margin, near_start)
+            if at:
+                x0, z0 = at
+                occ[z0:z0 + f, x0:x0 + f] = 2
+                props.append({"def": kind, "pos": {"x": round(x + dx * CELL, 2), "y": round(z + dz * CELL, 2)}, "yaw": round(yaw, 4), "owner": owner})
+                return True
+        return False
 
     # Landmarks first: towers on hills, churches, water towers.
     for t, (x, z) in points:
@@ -572,7 +816,10 @@ def main():
     for _, _, x, z, yaw, kind in cand:
         if len(props) >= a.max_props:
             break
-        place(kind, x, z, yaw)
+        t_ = town_at(x, z)
+        if rng.random() > a.village + (1 - a.village) * t_:
+            continue
+        place(kind, x, z, yaw, nudge=2 if t_ > 0.5 else 1)
     # Power pylons along the real lines (sparse).
     pyl = 0
     for t, (x, z) in points:
@@ -625,9 +872,10 @@ def main():
     # Same offsets for every start, turned towards the map centre.
     base = [(7, 3), (-3, 7), (-7, -5), (5, -7)]
     exp_rng = random.Random(a.seed * 7 + 3)
+    ex_s = max(1.0, world / 768.0)  # larger maps spread the expansions out
     expansions = [(50, -32), (34, 52)]
     while len(expansions) < 13:
-        fwd, side = exp_rng.uniform(-40, 190), exp_rng.uniform(-170, 170)
+        fwd, side = exp_rng.uniform(-40, 190) * ex_s, exp_rng.uniform(-170, 170) * ex_s
         if math.hypot(fwd, side) < 45 or any(math.hypot(fwd - e[0], side - e[1]) < 30 for e in expansions):
             continue
         expansions.append((fwd, side))
@@ -774,6 +1022,28 @@ def main():
         kinds[k] = kinds.get(k, 0) + 1
     print(f"{len(feats)} trees and rocks:", kinds)
 
+    # Town side streets: the paint stops where a building stands on them, so what is left are
+    # the lanes between the buildings.
+    if any(r_[2] == 3 for r_ in road_lines):
+        kept = []
+        for kind, width, level, pts in road_lines:
+            if level != 3:
+                kept.append((kind, width, level, pts))
+                continue
+            cur = []
+            for p in resample(pts, 1.0):
+                i, j = int(p[0] / CELL), int(p[1] / CELL)
+                if 0 <= i < n and 0 <= j < n and occ[j, i] == 2:
+                    if len(cur) >= 3:
+                        kept.append((kind, width, level, simplify(cur, 0.2)))
+                    cur = []
+                else:
+                    cur.append((float(p[0]), float(p[1])))
+            if len(cur) >= 3:
+                kept.append((kind, width, level, simplify(cur, 0.2)))
+        print(f"town side streets cut by buildings: {len(road_lines)} -> {len(kept)} road lines")
+        road_lines = kept
+
     # ---------------------------------------------------------------- ground textures
     # Each layer's mask: its area averaged over each cell, softened a little (the game blends
     # the edges with the textures' height, so they come out ragged, not blurry).
@@ -816,7 +1086,7 @@ def main():
     m = {
         "name": a.title or a.name,
         "n": n,
-        "water": round(mn - 2.0, 3),
+        "water": round(water_level, 3) if water_level is not None else round(mn - 2.0, 3),
         "min_height": mn,
         "max_height": mx,
         "deposits": [{"x": d[0], "y": d[1]} for d in deposits],
@@ -840,6 +1110,9 @@ def main():
     img = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).resize(((n + 1) * S // 1, (n + 1) * S // 1))
     d = ImageDraw.Draw(img)
     k = S / CELL
+    if water_level is not None:
+        wet = Image.fromarray(((heights < water_level) * 255).astype(np.uint8)).resize(img.size)
+        img.paste((40, 90, 200), mask=wet)
     for kind, width, _, pts in road_lines:
         d.line([(x * k, z * k) for x, z in pts], fill=(60, 60, 60) if kind == "asphalt" else (140, 110, 70), width=max(1, int(width * k)))
     for f in feats:
@@ -855,6 +1128,8 @@ def main():
         d.rectangle([x - h, z - h, x + h, z + h], fill=(200, 40, 40) if p["owner"] == 0 else (255, 0, 255))
     for x, z in deposits:
         d.ellipse([x * k - 2, z * k - 2, x * k + 2, z * k + 2], fill=(40, 220, 255))
+    for cx, cz, *_ in bridges:
+        d.ellipse([cx * k - 3, cz * k - 3, cx * k + 3, cz * k + 3], outline=(255, 220, 0), width=2)
     for i, (x, z) in enumerate(starts):
         d.ellipse([x * k - 8, z * k - 8, x * k + 8, z * k + 8], outline=(255, 255, 0), width=3)
         d.text((x * k + 10, z * k - 6), str(i + 1), fill=(255, 255, 0))
