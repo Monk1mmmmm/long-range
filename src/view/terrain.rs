@@ -557,7 +557,7 @@ pub fn spawn_deposits(commands: &mut Commands, map: &MapData, meshes: &mut Asset
     let disc = meshes.add(Cylinder::new(0.8, 0.12));
     let core = meshes.add(Cylinder::new(0.35, 0.2));
     let m1 = materials.add(StandardMaterial { base_color: Color::srgb(0.32, 0.34, 0.36), metallic: 0.8, perceptual_roughness: 0.45, ..default() });
-    let m2 = materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.8, 0.85), metallic: 0.9, perceptual_roughness: 0.25, ..default() });
+    let m2 = materials.add(StandardMaterial { base_color: Color::srgb(0.25, 0.95, 0.4), emissive: LinearRgba::rgb(0.3, 2.2, 0.6), perceptual_roughness: 0.4, ..default() });
     for d in &map.deposits {
         let y = map.h(*d);
         commands.spawn((Mesh3d(disc.clone()), MeshMaterial3d(m1.clone()), Transform::from_xyz(d.x, y + 0.03, d.y), NotShadowCaster, DepositMarker, GroundSnap(0.03), GameScene));
@@ -628,7 +628,7 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
             let (px, py) = (x + dx, y + dy);
             if px >= 0 && py >= 0 && (px as usize) < side && (py as usize) < side {
                 let i = (py as usize * side + px as usize) * 4;
-                out[i..i + 3].copy_from_slice(&[235, 240, 250]);
+                out[i..i + 3].copy_from_slice(&[90, 255, 120]);
             }
         }
     }

@@ -1518,13 +1518,25 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // ---------------------------------------------------------------- 2D overlay: icons, blips, bars
     let bg = ctx.layer_painter(egui::LayerId::background());
     let blip = p.assets.blip.get_or_insert_with(|| ctx.load_texture("blip", egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &icons::render_blip()), egui::TextureOptions::LINEAR)).clone();
-    if view.cam_dist > 110.0 {
-        for dep in &map.deposits {
-            if let Some((sp, _)) = w2s(view, dep.at(map.h(*dep))) {
-                bg.circle_filled(sp, 3.2, rgba(0, 0, 0, 160));
-                bg.circle_filled(sp, 2.2, rgba(205, 215, 230, 230));
-            }
+    // Free mass deposits: a bright green marker floating above the spot, at every zoom level.
+    // A deposit with a known extractor on it (seen or remembered) shows that building's icon instead.
+    let pumps: Vec<V2> = seen.iter().filter(|s| s.def.map_or(false, |d| defs.get(d).needs_deposit)).map(|s| s.pos).collect();
+    for dep in &map.deposits {
+        if pumps.iter().any(|q| q.dist(*dep) < 1.5) {
+            continue;
         }
+        let y = map.h(*dep).max(map.water);
+        let (Some((base, _)), Some((top, _))) = (w2s(view, dep.at(y)), w2s(view, dep.at(y + 2.2))) else { continue };
+        let r = (900.0 / view.cam_dist.max(1.0)).clamp(8.0, 12.0);
+        // Never closer to the spot than the marker is tall, so it stays "above" when zoomed far out.
+        let c = egui::pos2(top.x, top.y.min(base.y - r * 1.5));
+        bg.line_segment([base, c], Stroke::new(3.0, rgba(0, 0, 0, 150)));
+        bg.line_segment([base, c], Stroke::new(1.5, rgba(90, 255, 120, 230)));
+        bg.circle_filled(base, 2.2, rgba(90, 255, 120, 230));
+        let hex = |k: f32| -> Vec<Pos2> { (0..6).map(|i| { let a = i as f32 * std::f32::consts::FRAC_PI_3; egui::pos2(c.x + a.sin() * r * k, c.y - a.cos() * r * k) }).collect() };
+        bg.add(egui::Shape::convex_polygon(hex(1.0), rgba(10, 35, 15, 235), Stroke::NONE));
+        bg.add(egui::Shape::convex_polygon(hex(0.8), rgba(60, 235, 95, 255), Stroke::NONE));
+        bg.add(egui::Shape::convex_polygon(hex(0.42), rgba(225, 255, 190, 255), Stroke::NONE));
     }
     for (k, s) in seen.iter().enumerate() {
         if !s.on_screen {
