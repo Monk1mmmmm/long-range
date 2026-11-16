@@ -3,7 +3,19 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## Unreleased
+## v0.6.1
+
+Bug fixes:
+
+- Host no longer resigns when a client left (main.rs, session_update). Commands left over when no tick was due were put back into LocalCommands, which made them the host’s own. A leaver’s Resign then killed the host’s commander — most frames have no tick due. They are now held in Session.held with their player.
+- Capturing engineer no longer repairs its target (systems.rs, build_progress). Builder.work is also the capture target, so a damaged enemy got repaired, and an upgrading enemy building got its upgrade paid for. Builders now only work for their own team; Assist on another team’s unit pops.
+- Missiles no longer follow targets indoors. A missile with no blast radius still hit a unit that had boarded a transport or building. Missiles now lose such a target, and an Attack order on it ends.
+- Fixed platform-dependent maths. MapData::generate used std sin_cos (while scatter_features already used fm for this reason), and brain.rs used std powf. Both now go through libm, so a seed gives the same map and AI choices on Linux and Windows.
+- Simple AI no longer iterates in ECS order (ai.rs) while drawing from its RNG. It now goes by unit id like everything else.
+- Fixed data loader gaps (data.rs). The loader now rejects:
+ - a playable faction without a commander (it could never be defeated, and Resign did nothing);
+ - an upgrade to a different footprint or a non-structure (the host’s occupancy grid would differ from a client’s after rollback);
+ - hp or cost.time of 0 or less.
 
 ## v0.6
 
