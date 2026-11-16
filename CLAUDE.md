@@ -131,6 +131,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
     executor: its systems are all chained, and the multi-threaded one doubled the tick time;
   - anything that survives from one tick to the next must be in `sim::Snapshot` (`make_snapshot`/`restore`),
     which is also the state a client joins with and the repair sent when a client's state hash differs;
+  - a unit component is added to the `unit_state!` list in `sim/mod.rs` (required or optional), nowhere
+    else: that list makes `UnitSnap` and how snapshots read, restore and strip it (for `Limbo`). Then
+    `spawn_site` does not compile until it sets the new field. `cargo test --release --lib sim::tests`
+    checks the round trip; `tests::full_unit` needs the new component too;
   - new simulation objects are created with `spawn_unit` / `spawn_projectile` / `spawn_wreck` (they reuse the
     entity a rolled-back object had, so models do not flicker), never with `commands.spawn`;
   - terrain heights change only through `sim::Ground::set` (craters, terraforming): it records the vertex in
@@ -146,7 +150,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - Units refer to each other by network id (`u32`), never by `Entity`.
 - ECS layout: one entity per unit with `Unit`, `Body`, `Health`, `Orders`, `Intel` plus optional `Weapons`,
   `Builder`, `Factory`, `Mover`, marker/state components `UnderConstruction`, `Upgrading`,
-  `Hosted` (still inside its factory), `Structure`. Projectiles and wrecks are entities too.
+  `Hosted` (still inside its factory), `Structure` and more: the full list is `unit_state!` in `sim/mod.rs`.
+  Projectiles and wrecks are entities too. The view adds its own components (`Interp`, `Transform`, model
+  children) to the same entities; they are not part of the state.
 - Systems read other units through the per-tick `Census` resource (plain copies + spatial grid) and queue
   cross-entity effects in `Effects` (damage, reclaim) instead of holding conflicting mutable queries.
 - All content lives in JSON under `assets/data`. Never hard-code unit stats or unit names in Rust; the AI finds

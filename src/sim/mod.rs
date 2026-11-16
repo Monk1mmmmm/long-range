@@ -109,11 +109,11 @@ impl Body {
 pub struct Health(pub f32);
 
 /// Present while a unit is still being built; value is progress 0..1.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct UnderConstruction(pub f32);
 
 /// A construction site made by reviving the wreck with this id: only scavengers work on it.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Revival(pub u32);
 
 /// Present on a unit somebody is capturing: who, and how far along (0..1).
@@ -124,10 +124,10 @@ pub struct Capture {
 }
 
 /// Present while a structure upgrades to its `upgrade` definition.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Upgrading(pub f32);
 
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Orders(pub Vec<Order>);
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Default)]
@@ -175,7 +175,7 @@ pub struct Factory {
 }
 
 /// The unit is inside the factory (while being built) or the transport with this id.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Hosted(pub u32);
 
 /// Team bitmasks (bit = team number, up to 14 player teams plus neutral and hostile):
@@ -191,10 +191,10 @@ pub struct Intel {
 }
 
 /// Switched off by the player: no construction work, no production, no upkeep, no radar.
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Paused;
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Structure;
 
 /// Movement state.
@@ -250,7 +250,7 @@ impl Wreck {
 
 /// Mass of its wreck value a building has already dropped as debris (taken off its wreck and
 /// off what reclaiming it gives).
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Shed(pub f32);
 
 pub const PROJ_SHELL: u8 = 0;
@@ -1105,22 +1105,30 @@ pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
     let hp = d.hp * built.map_or(1.0, |b| 0.05 + 0.95 * b.clamp(0.0, 1.0));
     let weapons = d.armed().then(|| Weapons { list: d.weapons.iter().map(|_| WeaponState { yaw, ..default() }).collect(), ..default() });
     let (builder, factory, structure) = (d.build.is_some(), d.is_factory(), d.mv.kind == MoveKind::None);
+    // Every field of the state is spelt out (no `..default()`): a component added to `unit_state!`
+    // does not compile until it is given its starting value here.
+    let state = UnitSnap {
+        unit: Unit { id, def, owner },
+        body: Body { pos, y, yaw, vel: v2(0.0, 0.0) },
+        health: Health(hp),
+        orders: Orders::default(),
+        intel: Intel { seen: 1 << team, radar: 1 << team, look: yaw, lock: 0 },
+        built: built.map(UnderConstruction),
+        upgrading: None,
+        capture: None,
+        weapons,
+        builder: builder.then(Builder::default),
+        factory: factory.then(Factory::default),
+        hosted: (hosted != 0).then_some(Hosted(hosted)),
+        paused: None,
+        structure: structure.then_some(Structure),
+        mover: (!structure).then(|| Mover { anchor: pos, path_goal: pos, ..default() }),
+        shed: None,
+        revival: (revival != 0).then_some(Revival(revival)),
+    };
     commands.queue(move |world: &mut World| {
         let e = claim(world, KIND_UNIT, id);
-        let mut em = world.entity_mut(e);
-        em.insert((Unit { id, def, owner }, Body { pos, y, yaw, vel: v2(0.0, 0.0) }, Health(hp), Orders::default(), Intel { seen: 1 << team, radar: 1 << team, look: yaw, lock: 0 }));
-        put(&mut em, built.map(UnderConstruction));
-        put(&mut em, None::<Upgrading>);
-        put(&mut em, None::<Capture>);
-        put(&mut em, weapons);
-        put(&mut em, builder.then(Builder::default));
-        put(&mut em, factory.then(Factory::default));
-        put(&mut em, (hosted != 0).then_some(Hosted(hosted)));
-        put(&mut em, None::<Paused>);
-        put(&mut em, structure.then_some(Structure));
-        put(&mut em, (!structure).then(|| Mover { anchor: pos, path_goal: pos, ..default() }));
-        put(&mut em, None::<Shed>);
-        put(&mut em, (revival != 0).then_some(Revival(revival)));
+        state.write(&mut world.entity_mut(e));
     });
     id
 }
@@ -1198,27 +1206,73 @@ pub fn clear_game(world: &mut World) {
 
 // ---------------------------------------------------------------------------- state save / restore
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct UnitSnap {
-    pub unit: Unit,
-    pub body: Body,
-    pub hp: f32,
-    pub built: Option<f32>,
-    pub upg: Option<f32>,
-    pub orders: Vec<Order>,
-    pub weapons: Option<Weapons>,
-    pub builder: Option<Builder>,
-    pub factory: Option<Factory>,
-    pub mover: Option<Mover>,
-    pub hosted: Option<u32>,
-    pub intel: Intel,
-    pub paused: bool,
-    pub structure: bool,
-    pub capture: Option<Capture>,
-    /// Mass dropped as debris (`Shed`).
-    pub shed: f32,
-    /// Revival site: the wreck it came from (`Revival`), 0 otherwise.
-    pub revival: u32,
+/// Declares the simulation components of a unit, once: the snapshot record `UnitSnap` (one field
+/// per component) and how it is read from an entity, written to one and stripped off one. Snapshots,
+/// rollback, joining, the state hash and `spawn_site` all go through these, so a new unit
+/// component added to the list is saved and restored everywhere with nothing else to keep in step
+/// (and `spawn_site` fails to compile until it sets it).
+///
+/// `required`: every unit has these. `optional`: present or not (`Option` in the record); also the
+/// marker and state components such as `UnderConstruction` or `Paused`. The order is the order of
+/// the serialized record (part of the network format and the state hash).
+macro_rules! unit_state {
+    (required { $($(#[$rm:meta])* $req:ident: $rty:ty),* $(,)? } optional { $($(#[$om:meta])* $opt:ident: $oty:ty),* $(,)? }) => {
+        /// One unit's complete simulation state, as kept in a `Snapshot`. Made by `unit_state!`.
+        #[derive(Clone, Serialize, Deserialize)]
+        pub struct UnitSnap {
+            $($(#[$rm])* pub $req: $rty,)*
+            $($(#[$om])* pub $opt: Option<$oty>,)*
+        }
+
+        impl UnitSnap {
+            /// The state of a unit entity (`None` if it lacks a required component).
+            pub fn read(e: &EntityRef) -> Option<UnitSnap> {
+                Some(UnitSnap {
+                    $($req: e.get::<$rty>()?.clone(),)*
+                    $($opt: e.get::<$oty>().cloned(),)*
+                })
+            }
+
+            /// Makes the entity hold exactly this state: sets every component it lists and removes
+            /// the optional ones it does not have. Other components (the view's) stay.
+            pub fn write(&self, em: &mut EntityWorldMut) {
+                em.insert(($(self.$req.clone(),)*));
+                $(put(em, self.$opt.clone());)*
+            }
+
+            /// Takes every simulation component of a unit off the entity (it goes to `Limbo`).
+            pub fn strip(em: &mut EntityWorldMut) {
+                $(em.remove::<$rty>();)*
+                $(em.remove::<$oty>();)*
+            }
+        }
+    };
+}
+
+unit_state! {
+    required {
+        unit: Unit,
+        body: Body,
+        health: Health,
+        orders: Orders,
+        intel: Intel,
+    }
+    optional {
+        built: UnderConstruction,
+        upgrading: Upgrading,
+        capture: Capture,
+        weapons: Weapons,
+        builder: Builder,
+        factory: Factory,
+        hosted: Hosted,
+        paused: Paused,
+        structure: Structure,
+        mover: Mover,
+        /// Mass dropped as debris.
+        shed: Shed,
+        /// Revival site: the wreck it came from.
+        revival: Revival,
+    }
 }
 
 /// The complete simulation state between two ticks, in id order. It is what a joining or
@@ -1240,44 +1294,8 @@ pub struct Snapshot {
 
 pub fn make_snapshot(world: &mut World) -> Snapshot {
     let mut s = Snapshot { game: world.resource::<Game>().clone(), rng: world.get_resource::<SimRng>().map_or(1, |r| r.0 .0), damage: world.get_resource::<Effects>().map(|e| e.damage.clone()).unwrap_or_default(), ..default() };
-    let mut q = world.query::<(
-        &Unit,
-        &Body,
-        &Health,
-        Option<&UnderConstruction>,
-        Option<&Upgrading>,
-        &Orders,
-        Option<&Weapons>,
-        Option<&Builder>,
-        Option<&Factory>,
-        Option<&Mover>,
-        Option<&Hosted>,
-        &Intel,
-        Has<Paused>,
-        Has<Structure>,
-        (Option<&Capture>, Option<&Shed>, Option<&Revival>),
-    )>();
-    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure, (cap, shed, rev)) in q.iter(world) {
-        s.units.push(UnitSnap {
-            unit: *u,
-            body: *b,
-            hp: h.0,
-            built: uc.map(|x| x.0),
-            upg: up.map(|x| x.0),
-            orders: o.0.clone(),
-            weapons: w.cloned(),
-            builder: bl.copied(),
-            factory: f.cloned(),
-            mover: m.cloned(),
-            hosted: ho.map(|h| h.0),
-            intel: *i,
-            paused,
-            structure,
-            capture: cap.copied(),
-            shed: shed.map_or(0.0, |s| s.0),
-            revival: rev.map_or(0, |r| r.0),
-        });
-    }
+    let mut q = world.query_filtered::<EntityRef, With<Unit>>();
+    s.units = q.iter(world).filter_map(|e| UnitSnap::read(&e)).collect();
     s.units.sort_by_key(|u| u.unit.id);
     let mut q = world.query::<&Projectile>();
     s.projectiles = q.iter(world).cloned().collect();
@@ -1375,23 +1393,10 @@ pub fn restore(world: &mut World, s: &Snapshot) {
     let mut have: HashMap<u32, Entity> = q.iter(world).map(|(e, u)| (u.id, e)).collect();
     for u in &s.units {
         let e = have.remove(&u.unit.id).or_else(|| limbo.units.remove(&u.unit.id)).filter(|e| world.get_entity(*e).is_ok()).unwrap_or_else(|| world.spawn_empty().id());
-        let mut em = world.entity_mut(e);
-        em.insert((u.unit, u.body, Health(u.hp), Orders(u.orders.clone()), u.intel));
-        put(&mut em, u.built.map(UnderConstruction));
-        put(&mut em, u.upg.map(Upgrading));
-        put(&mut em, u.weapons.clone());
-        put(&mut em, u.builder);
-        put(&mut em, u.factory.clone());
-        put(&mut em, u.mover.clone());
-        put(&mut em, u.hosted.map(Hosted));
-        put(&mut em, u.paused.then_some(Paused));
-        put(&mut em, u.structure.then_some(Structure));
-        put(&mut em, u.capture);
-        put(&mut em, (u.shed > 0.0).then_some(Shed(u.shed)));
-        put(&mut em, (u.revival != 0).then_some(Revival(u.revival)));
+        u.write(&mut world.entity_mut(e));
     }
     for (id, e) in have {
-        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure, Capture)>().remove::<(Shed, Revival)>();
+        UnitSnap::strip(&mut world.entity_mut(e));
         limbo.units.insert(id, e);
     }
     let mut q = world.query::<(Entity, &Projectile)>();
@@ -1464,5 +1469,74 @@ impl Plugin for SimPlugin {
         });
         app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>().init_resource::<Features>().init_resource::<WreckList>();
         systems::register(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit with every optional component of `unit_state!` present (and none of them default).
+    fn full_unit() -> UnitSnap {
+        let p = v2(10.0, 20.0);
+        UnitSnap {
+            unit: Unit { id: 7, def: 3, owner: 1 },
+            body: Body { pos: p, y: 1.5, yaw: 0.3, vel: v2(0.1, 0.2) },
+            health: Health(55.0),
+            orders: Orders(vec![Order::Move(p)]),
+            intel: Intel { seen: 3, radar: 5, look: 0.7, lock: 9 },
+            built: Some(UnderConstruction(0.4)),
+            upgrading: Some(Upgrading(0.2)),
+            capture: Some(Capture { by: 2, progress: 0.5 }),
+            weapons: Some(Weapons { focus: 4, ..default() }),
+            builder: Some(Builder { work: 11 }),
+            factory: Some(Factory { queue: vec![1, 2], repeat: true, rally: Some(p), building: 12 }),
+            hosted: Some(Hosted(13)),
+            paused: Some(Paused),
+            structure: Some(Structure),
+            mover: Some(Mover { goal: Some(p), anchor: p, ..default() }),
+            shed: Some(Shed(8.0)),
+            revival: Some(Revival(14)),
+        }
+    }
+
+    fn bytes(s: &UnitSnap) -> Vec<u8> {
+        bincode::serialize(s).unwrap()
+    }
+
+    #[test]
+    fn unit_state_round_trip() {
+        let mut world = World::new();
+        let e = world.spawn_empty().id();
+        let full = full_unit();
+        full.write(&mut world.entity_mut(e));
+        let back = UnitSnap::read(&world.entity(e).into()).expect("a unit");
+        assert_eq!(bytes(&back), bytes(&full), "a component was lost between write and read");
+
+        // Writing a state without the optional components takes them off again.
+        let bare = UnitSnap {
+            built: None,
+            upgrading: None,
+            capture: None,
+            weapons: None,
+            builder: None,
+            factory: None,
+            hosted: None,
+            paused: None,
+            structure: None,
+            mover: None,
+            shed: None,
+            revival: None,
+            ..full_unit()
+        };
+        bare.write(&mut world.entity_mut(e));
+        let back = UnitSnap::read(&world.entity(e).into()).expect("a unit");
+        assert_eq!(bytes(&back), bytes(&bare), "an optional component stayed behind");
+
+        // Stripping leaves an entity that is no unit at all (what `Limbo` keeps).
+        full.write(&mut world.entity_mut(e));
+        UnitSnap::strip(&mut world.entity_mut(e));
+        assert!(UnitSnap::read(&world.entity(e).into()).is_none());
+        assert_eq!(world.entity(e).archetype().component_count(), 0, "a simulation component was not stripped");
     }
 }
