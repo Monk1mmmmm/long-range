@@ -3,6 +3,8 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
 ## v0.6
 
 Not compatible with v0.5.4 in multiplayer: everybody needs this version.
