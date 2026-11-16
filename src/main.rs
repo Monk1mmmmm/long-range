@@ -246,6 +246,8 @@ struct Session {
     acc: f32,
     /// Host: the game is paused, by that player.
     paused: Option<u8>,
+    /// Host: commands (with their player) that came in while no tick was due; the next tick takes them.
+    held: Vec<(u8, Command)>,
 }
 
 /// The preset editor: a preset is a named copy of the game data that can be changed freely.
@@ -547,7 +549,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     let sim = HostSim::new(world);
     *l.host.info.lock().unwrap() = "(game in progress)".into();
     view::start_view(world, 0, true);
-    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None })
+    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None, held: vec![] })
 }
 
 fn leave_game(world: &mut World) {
@@ -569,7 +571,8 @@ fn session_update(world: &mut World) {
         let toggle = world.get_resource_mut::<ViewState>().map_or(false, |mut v| std::mem::take(&mut v.pause_toggle));
         match &mut s.role {
             Role::Host { host, remote, sim, waiting, wait_left, ai_reclaim } => {
-                let mut cmds: Vec<(u8, Command)> = local.into_iter().map(|c| (me, c)).collect();
+                let mut cmds: Vec<(u8, Command)> = std::mem::take(&mut s.held);
+                cmds.extend(local.into_iter().map(|c| (me, c)));
                 // Pause requests: (player, pause or resume).
                 let mut pause: Vec<(u8, bool)> = vec![];
                 if toggle {
@@ -688,12 +691,9 @@ fn session_update(world: &mut World) {
                 if n == cap {
                     s.acc = 0.0;
                 }
-                // Commands given while no tick was due wait for the next frame.
-                if !cmds.is_empty() {
-                    if let Some(mut lc) = world.get_resource_mut::<LocalCommands>() {
-                        lc.0.extend(cmds.into_iter().map(|c| c.1));
-                    }
-                }
+                // Commands given while no tick was due wait for the next one, each still under its
+                // own player (a leaver's `Resign` must not become the host's).
+                s.held = cmds;
             }
             Role::Client { client, sim, heard, rejoin, skip } => {
                 let dt = world.resource::<Time>().delta_secs().min(0.25);
@@ -786,6 +786,7 @@ fn session_update(world: &mut World) {
         if let Some(role) = promoted {
             s.role = role;
             s.paused = None;
+            s.held.clear();
             s.acc = 0.0;
         }
         if world.get_resource::<ViewState>().map_or(false, |v| v.quit) {
@@ -1315,7 +1316,7 @@ fn menu_ui(world: &mut World) {
                     }
                     if let Some(sim) = started {
                         if let Screen::ClientLobby(l) = std::mem::replace(&mut app.screen, Screen::Menu) {
-                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim, heard: 0.0, rejoin: None, skip: vec![] }, acc: 0.0, paused: None }));
+                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim, heard: 0.0, rejoin: None, skip: vec![] }, acc: 0.0, paused: None, held: vec![] }));
                         }
                     } else if let Some(why) = lost {
                         app.message = why;
