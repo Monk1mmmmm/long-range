@@ -1150,6 +1150,15 @@ impl Defs {
             if u.radar_stealth && u.stealth == 0 {
                 u.stealth = 3;
             }
+            if !(u.hp > 0.0 && u.cost.time > 0.0) {
+                return Err(format!("{}: hp and cost.time must be above 0", u.id));
+            }
+            // An upgrade happens in place: the occupancy grid and the unit's components stay.
+            if let Some(t) = u.upgrade_id.map(|t| &snapshot[t as usize]) {
+                if !u.is_structure() || !t.is_structure() || t.footprint != u.footprint {
+                    return Err(format!("{}: upgrade '{}' must be a structure with the same footprint", u.id, t.id));
+                }
+            }
             if u.stealth > 3 {
                 return Err(format!("{}: stealth goes from 0 to 3", u.id));
             }
@@ -1171,8 +1180,12 @@ impl Defs {
         if units.len() >= DefId::MAX as usize {
             return Err("too many units".into());
         }
-        if !factions.iter().any(|f: &Faction| f.playable && f.commander.is_some()) {
-            return Err("no playable faction with a commander".into());
+        // A side is defeated with its commander (and `Resign` kills it): every playable faction needs one.
+        if let Some(f) = factions.iter().find(|f: &&Faction| f.playable && f.commander.is_none()) {
+            return Err(format!("playable faction '{}' has no commander", f.id));
+        }
+        if !factions.iter().any(|f: &Faction| f.playable) {
+            return Err("no playable faction".into());
         }
         Ok(Defs { rules, units, by_name, factions, feature_by_name, hash, pack: Arc::new(pack) })
     }
