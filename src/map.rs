@@ -161,6 +161,9 @@ pub mod fm {
     pub fn acos(x: f32) -> f32 {
         libm::acosf(x)
     }
+    pub fn powf(x: f32, y: f32) -> f32 {
+        libm::powf(x, y)
+    }
 }
 
 #[derive(Clone)]
@@ -483,7 +486,8 @@ impl MapData {
         let c = v2(w * 0.5, w * 0.5);
         let rot = |p: V2, k: usize| -> V2 {
             let q = p - c;
-            let (sn, cs) = (step * k as f32).sin_cos();
+            // `fm` trigonometry: a seed must give the same map on every platform.
+            let (sn, cs) = (fm::sin(step * k as f32), fm::cos(step * k as f32));
             v2(q.x * cs - q.y * sn, q.x * sn + q.y * cs) + c
         };
         // Averaging a noise field over the four rotations makes it symmetric and seamless.

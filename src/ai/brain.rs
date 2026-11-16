@@ -1022,7 +1022,7 @@ fn eco(b: &mut Brain, rng: &mut Rng, pf: &Profile, reclaim: bool, me: u8, cx: &C
         let of = |r: Role| -> Vec<&UnitDef> { opts.iter().filter(|d| b.info[d.idx as usize].role == r && d.cost.mass <= budget).copied().collect() };
         let have = |r: Role| role_mass[r as usize] + queued[r as usize];
         let n_of = |r: Role, air: bool| mine.iter().filter(|x| b.info[x.def as usize].role == r && defs.get(x.def).is_air() == air).count() as u32;
-        let tiered = |d: &UnitDef| (d.tier as f32).powf(pf.tier_pow) * (b.info[d.idx as usize].range / 40.0).clamp(0.5, 2.0);
+        let tiered = |d: &UnitDef| fm::powf(d.tier as f32, pf.tier_pow) * (b.info[d.idx as usize].range / 40.0).clamp(0.5, 2.0);
         let mut pick: Option<&UnitDef> = None;
         if is_fac(df, true) {
             let scouts = of(Role::Scout);
