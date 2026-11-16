@@ -109,7 +109,7 @@
     "albedo": "models/engineer_albedo.png",
     "team_mask": "models/engineer_team.png",
     "normal": "models/engineer_normal.png",
-    "scale": 0.075
+    "scale": 0.15
    },
    "built_by": "land",
    "move": {
@@ -1263,7 +1263,7 @@
     "albedo": "models/engineer2_albedo.png",
     "team_mask": "models/engineer2_team.png",
     "normal": "models/engineer2_normal.png",
-    "scale": 0.08
+    "scale": 0.16
    },
    "built_by": "land",
    "move": {
@@ -1377,7 +1377,7 @@
     "albedo": "models/engineer3_albedo.png",
     "team_mask": "models/engineer3_team.png",
     "normal": "models/engineer3_normal.png",
-    "scale": 0.1
+    "scale": 0.2
    },
    "built_by": "land",
    "move": {
