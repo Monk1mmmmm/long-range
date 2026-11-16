@@ -562,7 +562,7 @@ pub struct WeaponDef {
     pub damage: f32,
     #[serde(default = "normal")]
     pub damage_type: String,
-    /// Blast radius, 0 = direct hits only.
+    /// Blast radius, 0 = direct hits only. Damage fades from all at the centre to none at the edge.
     #[serde(default)]
     pub radius: f32,
     pub range: f32,

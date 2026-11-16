@@ -2304,7 +2304,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 t += &format!(" (min {:.0})", w.min_range);
             }
             if w.radius > 0.0 {
-                t += &format!(", blast {:.0}", w.radius);
+                t += &format!(", blast {:.1}", w.radius);
             }
             if let Some(tu) = &w.turret {
                 t += &format!(", traverse {:.0} deg/s", tu.yaw_speed);

@@ -14,7 +14,7 @@
   "radar_fade_secs": 10.0,
   "radar_los_height": 4.0,
   "power_stall_pump_factor": 0.25,
-  "friendly_fire": false,
+  "friendly_fire": true,
   "_comment_switches": "Game features that can be switched off: terraforming, craters, wrecks left by destroyed units, hills blocking sight, trees/rocks/wrecks blocking sight, hills blocking radar, enemy buildings remembered from sight shown dimmed once destroyed out of sight (ghosts_show_destroyed, view only). near_sight: everything closer than this to a unit is seen regardless.",
   "terraforming": true,
   "craters": true,
@@ -59,7 +59,7 @@
   ],
   "commander_death": {
     "damage": 1500,
-    "radius": 20
+    "radius": 25
   },
   "damage_types": [
     "Normal",

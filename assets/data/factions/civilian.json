@@ -247,7 +247,7 @@
    ],
    "death": {
     "damage": 500,
-    "radius": 12.0
+    "radius": 15.0
    }
   },
   {
@@ -318,7 +318,7 @@
    ],
    "death": {
     "damage": 350,
-    "radius": 9.0
+    "radius": 11.25
    }
   },
   {

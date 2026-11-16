@@ -2236,7 +2236,7 @@ fn projectiles(
                 let vert = if at.y < c.y { c.y - at.y } else { (at.y - c.y - c.hit_h).max(0.0) };
                 let d = (horiz * horiz + vert * vert).sqrt();
                 if d < p.radius {
-                    effects.damage.push((c.id, p.damage * (1.0 - 0.6 * d / p.radius), p.dtype as usize));
+                    effects.damage.push((c.id, p.damage * blast_share(d, p.radius), p.dtype as usize));
                 }
             });
         } else if victim != 0 {
@@ -2316,6 +2316,12 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
     }
 }
 
+/// Share of a blast's damage at distance `d` from its centre: all of it at the centre, fading in a
+/// straight line to nothing at the edge.
+pub fn blast_share(d: f32, radius: f32) -> f32 {
+    (1.0 - d / radius).clamp(0.0, 1.0)
+}
+
 /// Weapon damage to the reclaimables around an impact at `at`: a shell (`radius` 0) hurts what it
 /// lands on, a blast everything within its radius, with the same fall-off as for units. A tree or
 /// rock loses the share of its worth that the damage is of its hit points (changed at once); hits
@@ -2327,7 +2333,7 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
     let hurt = |horiz: f32, ground: f32, top: f32| -> Option<f32> {
         let vert = (at.y - top).max(0.0) + (ground - 0.5 - at.y).max(0.0);
         let d = (horiz * horiz + vert * vert).sqrt();
-        (d < reach).then(|| if radius > 0.0 { damage * (1.0 - 0.6 * d / radius) } else { damage })
+        (d < reach).then(|| if radius > 0.0 { damage * blast_share(d, radius) } else { damage })
     };
     let mut hit: Vec<(usize, f32)> = vec![];
     features.near(centre, reach + 6.0, |i, s| {
@@ -2665,7 +2671,7 @@ fn deaths(
             let flat = (c.pos.dist(pos) - c.hit_r * 0.7).max(0.0);
             let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
             if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
-                effects.damage.push((c.id, damage * (1.0 - 0.6 * d / radius), blast_type));
+                effects.damage.push((c.id, damage * blast_share(d, radius), blast_type));
             }
         });
     }

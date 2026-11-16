@@ -237,7 +237,7 @@ pub const UNIT_TRANSPORT: &[Field] = &[f(
 
 pub const UNIT_DEATH: &[Field] = &[
     num("damage", "Damage", 100.0, BIG, "Damage of the explosion when it is destroyed."),
-    num("radius", "Radius", 5.0, 1000.0, "Radius of that explosion."),
+    num("radius", "Radius", 5.0, 1000.0, "Radius of that explosion. Full damage at the centre, fading to nothing at the edge."),
 ];
 
 pub const UNIT_ICON: &[Field] = &[
@@ -252,7 +252,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     f("kind", "Kind", Kind::Choice(WEAPON_KINDS, "direct"), "direct: flat shot, needs a clear line of fire and leads its target. arc / high_arc: ballistic, fires over hills. missile: homing. bomb: dropped from a plane."),
     num("damage", "Damage", 10.0, BIG, "Damage of one shell."),
     f("damage_type", "Damage type", Kind::Pick(Src::DamageType, false), "Decides the armor multiplier (Armor table in rules.json)."),
-    num("radius", "Blast radius", 0.0, 1000.0, "0 = it only hurts what it hits directly."),
+    num("radius", "Blast radius", 0.0, 1000.0, "0 = it only hurts what it hits directly. Otherwise full damage at the centre, fading to nothing at the edge."),
     num("range", "Range", 50.0, 10000.0, "Furthest target distance. Units must see or radar their target to shoot it."),
     num("min_range", "Least range", 0.0, 10000.0, "It cannot fire at targets closer than this."),
     num("reload", "Reload (s)", 1.0, 3600.0, "Seconds between shots (or salvos)."),
