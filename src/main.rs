@@ -2434,7 +2434,46 @@ fn scavenger_tests(defs: &Defs) {
     println!("== Scavenger: windmill wreck revived after {:?} ticks, tank wreck after {:?} (wrecks {}, debris pieces {pieces}).  Area reclaim of debris + 4 pines + a rock done after {cleared:?} ticks, {gained:.0} mass", back[0], back[1], wrecks.len());
     assert!(back.iter().all(|b| b.is_some()) && cleared.is_some(), "scavenger");
 
-    // 3. A commander riding in an APC dies with it, and so does its side.
+    // 3. Teamwork: two scavengers on one area revive work on the same wreck when it is close, a
+    // third one assisting the first helps with whatever it does, an engineer cannot help revive.
+    let t1 = spawn(world, "crony", 1, v2(60.0, 150.0));
+    let t2 = spawn(world, "crony", 1, v2(67.0, 150.0));
+    world.resource_mut::<CommandQueue>().0.push((1, Command::SelfDestruct { ids: vec![t1, t2] }));
+    for _ in 0..40 {
+        world.run_schedule(SimTick);
+    }
+    let sa = spawn(world, "scavenger", 0, v2(58.0, 170.0));
+    let sb = spawn(world, "scavenger", 0, v2(72.0, 172.0));
+    let sc = spawn(world, "scavenger", 0, v2(50.0, 175.0));
+    let eng = spawn(world, "engineer", 0, v2(64.0, 170.0));
+    order(world, vec![sa, sb], Order::ReviveArea { pos: v2(63.0, 150.0), radius: 10.0 });
+    order(world, vec![sc], Order::Assist(sa));
+    let work_of = |world: &mut World, id: u32| world.query::<(&Unit, &Builder)>().iter(world).find(|(u, _)| u.id == id).map_or(0, |(_, b)| b.work);
+    let (mut shared, mut helped, mut eng_worked, mut eng_order) = (false, false, false, false);
+    let mut revived = None;
+    for t in 0..3000u32 {
+        world.run_schedule(SimTick);
+        world.resource_mut::<Game>().players[0].mass = 5000.0;
+        let (wa, wb, wc) = (work_of(world, sa), work_of(world, sb), work_of(world, sc));
+        shared |= wa != 0 && wa == wb;
+        helped |= wa != 0 && wa == wc;
+        // The engineer is told to assist whatever revival site exists.
+        let site = world.query::<(&Unit, Has<UnderConstruction>)>().iter(world).find(|(u, uc)| u.owner == 0 && *uc && defs.get(u.def).id == "crony").map(|(u, _)| u.id);
+        if let (Some(s), false) = (site, eng_order) {
+            order(world, vec![eng], Order::Assist(s));
+            eng_order = true;
+        }
+        eng_worked |= site.map_or(false, |s| work_of(world, eng) == s);
+        let n = world.query::<(&Unit, Has<UnderConstruction>)>().iter(world).filter(|(u, uc)| u.owner == 0 && !*uc && defs.get(u.def).id == "crony").count();
+        if n >= 3 {
+            revived = Some(t);
+            break;
+        }
+    }
+    println!("== Scavenger teamwork: both wrecks revived after {revived:?} ticks; two on one revival: {shared}, assisting scavenger helped: {helped}, engineer helped revive: {eng_worked}");
+    assert!(revived.is_some() && shared && helped && !eng_worked, "scavenger teamwork");
+
+    // 4. A commander riding in an APC dies with it, and so does its side.
     let com = world.query::<&Unit>().iter(world).find(|u| u.owner == 0 && defs.factions[faction as usize].commander == Some(u.def)).map(|u| u.id).expect("commander");
     let cpos = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == com).map(|(_, b)| b.pos).unwrap();
     let apc = spawn(world, "apc", 0, cpos + v2(4.0, 0.0));

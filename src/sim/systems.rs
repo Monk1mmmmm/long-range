@@ -21,6 +21,10 @@ pub fn register(app: &mut App) {
     );
 }
 
+/// How much farther (world units) a worker on an area reclaim or revive order goes to help a
+/// teammate with its target than to the nearest one of its own.
+const TEAMWORK: f32 = 12.0;
+
 fn begin_tick(
     mut game: ResMut<Game>,
     mut nav: ResMut<Nav>,
@@ -51,11 +55,11 @@ fn census_build(
     mut wrecks: ResMut<WreckList>,
     game: Res<Game>,
     defs: Res<Defs>,
-    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>)>,
+    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>, Option<&Revival>)>,
     wq: Query<&Wreck>,
 ) {
     census.clear();
-    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused, rev) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         census.push(Cen {
             e,
@@ -82,6 +86,7 @@ fn census_build(
             building: factory.map_or(0, |f| f.building),
             upgrading,
             paused,
+            revival: if uc { rev.map_or(0, |r| r.0) } else { 0 },
         });
     }
     wrecks.0.clear();
@@ -156,8 +161,9 @@ fn apply_commands(
                         }
                         Order::Capture(_) if !df.is_engineer() => continue,
                         Order::Revive(_) if !df.is_scavenger() => continue,
-                        // Scavengers work on wrecks only.
-                        Order::Assist(_) | Order::Attack(_) if df.is_scavenger() => continue,
+                        Order::Attack(_) if df.is_scavenger() => continue,
+                        // Only scavengers build what is being revived.
+                        Order::Assist(t) if !df.is_scavenger() && census.get(*t).map_or(false, |t| t.reviving()) => continue,
                         _ => {}
                     }
                     if let Some(mut f) = factory {
@@ -575,7 +581,9 @@ fn think(
                         if c.team != team || c.id == id || c.hosted || c.hp <= 0.0 || pos.dist(c.pos) > r + c.radius {
                             return;
                         }
-                        let job = if !c.done || c.upgrading {
+                        let job = if c.reviving() {
+                            return;
+                        } else if !c.done || c.upgrading {
                             c.id
                         } else if c.building != 0 {
                             c.building
@@ -709,7 +717,9 @@ fn think(
             Some(Order::Assist(tid)) => match census.get(tid) {
                 Some(t) if t.hp > 0.0 && tid != id => {
                     let r = reach(t.radius);
+                    let td = defs.get(t.def);
                     if df.can_assist() || df.is_scavenger() {
+                        // What the assisted unit is working on (or needs itself).
                         let job = if !t.done || t.upgrading {
                             t.id
                         } else if t.building != 0 {
@@ -721,7 +731,35 @@ fn think(
                         } else {
                             0
                         };
-                        if pos.dist(t.pos) > r {
+                        // A tree, rock or wreck it is reclaiming: reclaim it too.
+                        let reclaim = match job {
+                            0 => None,
+                            j if is_feature(j) => features.get(j).map(|f| (f.pos, defs.rules.features.get(f.def as usize).map_or(0.5, |d| d.radius()))),
+                            j => wrecks.0.iter().find(|w| w.0 == j).map(|w| (w.1, 0.5)),
+                        };
+                        // Scavengers only build what is being revived, everybody else anything but that.
+                        let job = match (reclaim, census.get(job)) {
+                            (Some(_), _) => job,
+                            (None, Some(j)) if if j.reviving() { df.is_scavenger() } else { df.can_assist() } => job,
+                            _ => 0,
+                        };
+                        if let Some((at, jr)) = reclaim.filter(|_| job != 0) {
+                            if pos.dist(at) > reach(jr) {
+                                if is_struct {
+                                    pop = true;
+                                } else {
+                                    goal = Some(at);
+                                }
+                            } else {
+                                let amount = df.build_rate() * defs.rules.reclaim_rate * DT;
+                                if is_feature(job) {
+                                    effects.reclaim_feature.push((job, amount, owner));
+                                } else {
+                                    effects.reclaim.push((job, amount, owner));
+                                }
+                                work = job;
+                            }
+                        } else if pos.dist(t.pos) > r {
                             if is_struct {
                                 pop = true;
                             } else {
@@ -730,8 +768,11 @@ fn think(
                         } else {
                             work = job;
                         }
-                        let td = defs.get(t.def);
-                        if job == 0 && !(td.is_factory() || td.can_assist()) {
+                        // With nothing to do, keep following a constructor (or a factory) that may
+                        // find something; a scavenger only follows those that reclaim, and not when
+                        // more orders wait (the assist a revive put in front of its area order).
+                        let guard = if df.is_scavenger() { (td.is_engineer() || td.is_scavenger()) && orders.0.len() == 1 } else { td.is_factory() || td.can_assist() || td.is_scavenger() };
+                        if job == 0 && !guard {
                             pop = true;
                         }
                     } else if is_struct {
@@ -817,6 +858,11 @@ fn think(
                         work = sid;
                     }
                 }
+                // Somebody of the side revived it already: help build it.
+                None if df.is_scavenger() => match census.list.iter().find(|c| c.revival == wid && c.reviving() && c.owner == owner && c.hp > 0.0) {
+                    Some(c) => orders.0[0] = Order::Assist(c.id),
+                    None => pop = true,
+                },
                 _ => pop = true,
             },
             Some(Order::ReviveArea { pos: c, radius }) => {
@@ -828,8 +874,28 @@ fn think(
                     .filter(|w| !defs.get(w.3).is_structure() || can_place(&defs, &map, &nav.occ, w.3, w.1))
                     .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
                     .copied();
-                match best {
-                    Some(w) if df.is_scavenger() => {
+                // An unfinished revival of ours in the circle: worth a detour of up to `TEAMWORK`
+                // to help with it rather than starting another one.
+                let mut site: Option<(f32, u32)> = None;
+                census.near(c, radius, |t| {
+                    if t.owner == owner && t.reviving() && t.hp > 0.0 && !t.hosted {
+                        let d = pos.dist(t.pos) - TEAMWORK;
+                        if site.map_or(true, |s| d < s.0 || (d == s.0 && t.id < s.1)) {
+                            site = Some((d, t.id));
+                        }
+                    }
+                });
+                let site = site.filter(|s| best.map_or(true, |w| s.0 < w.1.dist(pos))).and_then(|s| census.get(s.1));
+                match (site, best) {
+                    (Some(t), _) if df.is_scavenger() => {
+                        if pos.dist(t.pos) > reach(t.radius) {
+                            goal = Some(t.pos);
+                        } else {
+                            orders.0.insert(0, Order::Assist(t.id));
+                            work = t.id;
+                        }
+                    }
+                    (None, Some(w)) if df.is_scavenger() => {
                         if pos.dist(w.1) > reach(defs.get(w.3).radius()) {
                             goal = Some(w.1);
                         } else {
@@ -967,22 +1033,31 @@ fn think(
                 }
             }
             Some(Order::ReclaimArea { pos: c, radius }) => {
-                // The nearest wreck, tree or rock in the circle.
-                let wreck = wrecks
-                    .0
-                    .iter()
-                    .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0)
-                    .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
-                    .map(|w| (w.0, w.1, 0.5));
-                let feature = if df.can_assist() || df.is_scavenger() {
-                    features.nearest(c, radius, pos).map(|(fid, fp)| (fid, fp, features.get(fid).and_then(|f| defs.rules.features.get(f.def as usize)).map_or(0.5, |d| d.radius())))
-                } else {
-                    None
-                };
-                let best = match (wreck, feature) {
-                    (Some(w), Some(f)) => Some(if f.1.dist(pos) < w.1.dist(pos) { f } else { w }),
-                    (w, f) => w.or(f),
-                };
+                // The nearest wreck, tree or rock in the circle; one the side is already reclaiming
+                // counts `TEAMWORK` nearer, so a group works on the same things together.
+                let mut busy: Vec<u32> = census.list.iter().filter(|u| u.team == team && u.id != id && u.work != 0).map(|u| u.work).collect();
+                busy.sort_unstable();
+                busy.dedup();
+                let score = |tid: u32, tp: V2| pos.dist(tp) - if busy.binary_search(&tid).is_ok() { TEAMWORK } else { 0.0 };
+                let feature_r = |fid: u32| features.get(fid).and_then(|f| defs.rules.features.get(f.def as usize)).map_or(0.5, |d| d.radius());
+                let mut cands: Vec<(u32, V2, f32)> = vec![];
+                cands.extend(
+                    wrecks
+                        .0
+                        .iter()
+                        .filter(|w| w.1.dist(c) <= radius && w.2 > 0.0)
+                        .min_by(|a, b| score(a.0, a.1).partial_cmp(&score(b.0, b.1)).unwrap_or(std::cmp::Ordering::Equal))
+                        .map(|w| (w.0, w.1, 0.5)),
+                );
+                if df.can_assist() || df.is_scavenger() {
+                    cands.extend(features.nearest(c, radius, pos).map(|(fid, fp)| (fid, fp, feature_r(fid))));
+                    for &fid in busy.iter().filter(|f| is_feature(**f)) {
+                        if let Some(f) = features.get(fid).filter(|f| f.pos.dist(c) <= radius) {
+                            cands.push((fid, f.pos, feature_r(fid)));
+                        }
+                    }
+                }
+                let best = cands.into_iter().min_by(|a, b| score(a.0, a.1).partial_cmp(&score(b.0, b.1)).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
                 match best {
                     Some((tid, tp, tr)) if df.can_assist() || df.is_scavenger() => {
                         if pos.dist(tp) > reach(tr) {
@@ -1189,7 +1264,7 @@ fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q:
 fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId, f32), owner: u8) -> u32 {
     let wd = defs.get(w.3);
     let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
-    let sid = spawn_unit_built(commands, defs, game, map, w.3, owner, w.1, PI * 0.5, Some(built), 0);
+    let sid = spawn_site(commands, defs, game, map, w.3, owner, w.1, PI * 0.5, Some(built), 0, w.0);
     if wd.is_structure() {
         nav.stamp(map, w.1, wd.footprint, 2);
     }
@@ -1291,7 +1366,8 @@ fn build_progress(
                 continue;
             }
             if let Some(t) = census.get(b.work) {
-                if t.e != e {
+                // Only scavengers build what is being revived.
+                if t.e != e && (!t.reviving() || d.is_scavenger()) {
                     jobs.push((u.owner, t.e, d.build_rate()));
                 }
             }
@@ -1359,7 +1435,7 @@ fn build_progress(
             uc.0 += prog;
             h.0 = (h.0 + prog * max_hp).min(max_hp);
             if uc.0 >= 0.9999 {
-                commands.entity(te).remove::<UnderConstruction>();
+                commands.entity(te).remove::<(UnderConstruction, Revival)>();
                 // Marked complete right away so later contributions in this tick see it.
                 uc.0 = 2.0;
             }

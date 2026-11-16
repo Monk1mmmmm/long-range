@@ -318,7 +318,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
   a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.
   `ReclaimArea` collects wrecks, debris, trees and rocks, not buildings. Scavengers reclaim
-  every reclaimable and revive whole wrecks (`Revive(wreck)` / `ReviveArea`; debris cannot come back). While a
+  every reclaimable and revive whole wrecks (`Revive(wreck)` / `ReviveArea`; debris cannot come back). A revived wreck
+  becomes a construction site with the `Revival(wreck id)` component (snapshot `revival`, `Cen::reviving`): only
+  scavengers build it (`apply_commands`, `think`'s Assist, stations and `build_progress` keep engineers off it).
+  Scavengers take `Assist`: on a revival site, or on a scavenger/engineer to revive or reclaim what it works on
+  (any assister reclaims the tree/rock/wreck the assisted unit reclaims). On `ReclaimArea` / `ReviveArea` a target
+  the side already works on (or an own unfinished revival in the circle) counts `systems::TEAMWORK` (12) nearer,
+  so a group works together; a `Revive` whose wreck a teammate already revived helps build that site. While a
   reclaim or revive order is being given, the HUD shows what the circle (or the thing under the pointer) yields or costs.
 - **Trees and rocks** (map "features"): types in `rules.json: features` (class tree/rock, shape, mass,
   energy, size, weight); a map holds `feature_kinds` + `features` (saved as one line each, "kind x z yaw

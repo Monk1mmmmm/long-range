@@ -111,6 +111,10 @@ pub struct Health(pub f32);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct UnderConstruction(pub f32);
 
+/// A construction site made by reviving the wreck with this id: only scavengers work on it.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Revival(pub u32);
+
 /// Present on a unit somebody is capturing: who, and how far along (0..1).
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Capture {
@@ -518,8 +522,14 @@ pub struct Cen {
     pub building: u32,
     pub upgrading: bool,
     pub paused: bool,
+    /// Wreck id this unit is being revived from (0 = not a revival site, or finished).
+    pub revival: u32,
 }
 impl Cen {
+    /// An unfinished revival site: scavengers build it, engineers do not.
+    pub fn reviving(&self) -> bool {
+        self.revival != 0 && !self.done
+    }
     pub fn p3(&self) -> Vec3 {
         self.pos.at(self.y)
     }
@@ -1070,6 +1080,12 @@ pub fn spawn_unit(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
 /// `built`: `None` for a finished unit, otherwise how far its construction already is (0..1).
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_unit_built(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, built: Option<f32>, hosted: u32) -> u32 {
+    spawn_site(commands, defs, game, map, def, owner, pos, yaw, built, hosted, 0)
+}
+
+/// `spawn_unit_built`, for a construction site revived from wreck `revival` (0 = none).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, built: Option<f32>, hosted: u32, revival: u32) -> u32 {
     let d = defs.get(def);
     let id = game.alloc();
     let team = game.team_of(owner);
@@ -1092,6 +1108,7 @@ pub fn spawn_unit_built(commands: &mut Commands, defs: &Defs, game: &mut Game, m
         put(&mut em, structure.then_some(Structure));
         put(&mut em, (!structure).then(|| Mover { anchor: pos, path_goal: pos, ..default() }));
         put(&mut em, None::<Shed>);
+        put(&mut em, (revival != 0).then_some(Revival(revival)));
     });
     id
 }
@@ -1188,6 +1205,8 @@ pub struct UnitSnap {
     pub capture: Option<Capture>,
     /// Mass dropped as debris (`Shed`).
     pub shed: f32,
+    /// Revival site: the wreck it came from (`Revival`), 0 otherwise.
+    pub revival: u32,
 }
 
 /// The complete simulation state between two ticks, in id order. It is what a joining or
@@ -1224,9 +1243,9 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
         &Intel,
         Has<Paused>,
         Has<Structure>,
-        (Option<&Capture>, Option<&Shed>),
+        (Option<&Capture>, Option<&Shed>, Option<&Revival>),
     )>();
-    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure, (cap, shed)) in q.iter(world) {
+    for (u, b, h, uc, up, o, w, bl, f, m, ho, i, paused, structure, (cap, shed, rev)) in q.iter(world) {
         s.units.push(UnitSnap {
             unit: *u,
             body: *b,
@@ -1244,6 +1263,7 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
             structure,
             capture: cap.copied(),
             shed: shed.map_or(0.0, |s| s.0),
+            revival: rev.map_or(0, |r| r.0),
         });
     }
     s.units.sort_by_key(|u| u.unit.id);
@@ -1356,9 +1376,10 @@ pub fn restore(world: &mut World, s: &Snapshot) {
         put(&mut em, u.structure.then_some(Structure));
         put(&mut em, u.capture);
         put(&mut em, (u.shed > 0.0).then_some(Shed(u.shed)));
+        put(&mut em, (u.revival != 0).then_some(Revival(u.revival)));
     }
     for (id, e) in have {
-        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure, Capture)>().remove::<Shed>();
+        world.entity_mut(e).remove::<(Unit, Body, Health, Orders, Intel, UnderConstruction, Upgrading, Weapons, Builder, Factory, Mover, Hosted, Paused, Structure, Capture)>().remove::<(Shed, Revival)>();
         limbo.units.insert(id, e);
     }
     let mut q = world.query::<(Entity, &Projectile)>();
