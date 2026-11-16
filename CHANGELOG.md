@@ -3,6 +3,21 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.5.4
+
+Not compatible with v0.5.3 in multiplayer: everybody needs this version.
+
+New
+- Control points are part of the map now, like the start positions. The map editor has a "Control point"
+  tool (left click places one, right click removes it, "Auto place" puts them where a game would) and
+  `lr-editor --points NAME` gives a saved map its points. All premade maps come with their own points;
+  a map that has none still gets them placed automatically.
+- The lobby map picture shows the control points in control points mode.
+
+Changed
+- The starting points of a control points game are typed in the lobby (any number) instead of picked
+  from a list. Default raised from 400 to 1200.
+
 ## v0.5.3
 
 Not compatible with v0.5.2 in multiplayer: everybody needs this version.
