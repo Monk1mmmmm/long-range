@@ -721,7 +721,7 @@ fn think(
                 pop = true;
                 if let Some(t) = census.get(tid) {
                     let range = df.weapons.iter().filter(|w| if t.air { w.hits_air } else { w.hits_land }).map(|w| w.range).fold(0.0, f32::max);
-                    if range > 0.0 && t.hp > 0.0 && t.known_to(team) && t.team != team {
+                    if range > 0.0 && t.hp > 0.0 && !t.hosted && t.known_to(team) && t.team != team {
                         pop = false;
                         focus = tid;
                         if plane || (!is_struct && pos.dist(t.pos) > range * 0.9) {
@@ -782,7 +782,7 @@ fn think(
                 }
             }
             Some(Order::Assist(tid)) => match census.get(tid) {
-                Some(t) if t.hp > 0.0 && tid != id => {
+                Some(t) if t.hp > 0.0 && tid != id && t.team == team => {
                     let r = reach(t.radius);
                     let td = defs.get(t.def);
                     if df.can_assist() || df.is_scavenger() {
@@ -1433,8 +1433,9 @@ fn build_progress(
                 continue;
             }
             if let Some(t) = census.get(b.work) {
-                // Only scavengers build what is being revived.
-                if t.e != e && (!t.reviving() || d.is_scavenger()) {
+                // Only scavengers build what is being revived. `work` is also the unit being
+                // captured: nobody builds, upgrades or repairs for another team.
+                if t.e != e && t.team == game.team_of(u.owner) && (!t.reviving() || d.is_scavenger()) {
                     jobs.push((u.owner, t.e, d.build_rate()));
                 }
             }
@@ -1898,7 +1899,6 @@ fn weapons(
         for (wi, w) in df.weapons.iter().enumerate() {
             let Some(st) = ws.list.get_mut(wi) else { continue };
             st.cd = (st.cd - DT).max(0.0);
-            let fixed = w.turret.is_none();
             let bomb = w.kind == WeaponKind::Bomb;
             // Bombs carry forward as far as the bomber flies while they fall, so a bomber has to
             // pick its target up well before it is overhead, whatever the JSON range says.
@@ -2033,7 +2033,6 @@ fn weapons(
             if w.kind == WeaponKind::Direct && !map.los(origin, sol.point + Vec3::Y * 0.3) {
                 continue;
             }
-            let _ = fixed;
             st.cd = w.reload;
             st.burst = w.salvo.saturating_sub(1);
             st.burst_cd = w.salvo_delay;
@@ -2147,7 +2146,7 @@ fn projectiles(
         let mut hit: Option<(Vec3, u32)> = None;
         if p.kind == PROJ_MISSILE {
             let speed = vel.length().max(1.0);
-            if let Some(t) = census.get(p.target).filter(|t| t.hp > 0.0) {
+            if let Some(t) = census.get(p.target).filter(|t| t.hp > 0.0 && !t.hosted) {
                 // Lead pursuit: steer for where the target will be when the missile gets there.
                 let tgo = (t.center() - a).length() / speed;
                 let want = (t.center() + t.vel.at(0.0) * tgo - a).normalize_or_zero();
