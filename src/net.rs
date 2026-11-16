@@ -27,6 +27,8 @@ pub struct SlotInfo {
     pub name: String,
     pub team: u8,
     pub faction: u8,
+    /// AI slots: `ai::AiKind::id`.
+    pub ai: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]

@@ -3,6 +3,32 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+Not compatible with v0.5.4 in multiplayer: everybody needs this version.
+
+New
+- Five new AI types, built on ideas from the Forged Alliance AI mods M27, M28 and RNG. Click an AI slot in
+  the lobby to go through them (hover it to read what the type does):
+  - Zones (after M28): takes and holds the map zone by zone, keeps scouts on every zone, sends help to
+    allies' zones.
+  - Overseer (after M27): changes its strategy with the situation - early rush, eco and tech, air, turtle,
+    all-in on a hurt commander.
+  - Adaptive (after RNG): expands wide, raids extractors, builds what counters the army it has seen.
+  - Rusher: many factories, cheap units, early and constant attacks.
+  - Turtle: turrets, radar and long range guns; techs up and attacks late.
+  The old AI is still there as "Simple".
+- The new AIs play by what their team sees and has on radar (they remember buildings like your ghosts), scout,
+  build radar and bring mobile radar with the army, gather before attacking and fall back from fights they
+  are losing, keep longer guns out of reach of shorter ones, shell remembered buildings with artillery, raid
+  with fast units, defend zones under attack, answer aircraft with anti-air, upgrade extractors and radars,
+  and reclaim wrecks.
+- They also use scavengers (reviving the wrecks in the zones they hold), put waiting infantry into buildings
+  near their front and their base, and fly air transports: engineers to islands with free deposits, army
+  units to an enemy they cannot reach by land, raiders to far-away extractors. Cut off by water, they switch
+  to aircraft.
+- `--skirmish` starts against three different AI types.
+
 ## v0.5.4
 
 Not compatible with v0.5.3 in multiplayer: everybody needs this version.

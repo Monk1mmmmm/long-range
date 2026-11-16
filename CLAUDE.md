@@ -54,6 +54,9 @@ Debug environment variables: `LR_SPEED=8` (fast-forward a hosted game), `LR_WATC
 slot), `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmish`), `LR_DUEL=1` (stages a tank
 fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED=n` (another map and AI seed
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
+For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
+each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control points mode), `LR_COMP=1` (lists
+what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
 (screenshot of a running game after `secs` of game time, then quit).
 
@@ -131,7 +134,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
     `Ground.changed` (the snapshot's `ground` list, a diff against the map the game started on), updates
     `map.blocked` around it and tells the view which chunks to rebuild. Writing `map.heights` directly
     desyncs rollback, joining and the state hash.
-- The AI runs on the host only; its commands reach clients inside the turns.
+- The AI runs on the host only; its commands reach clients inside the turns. Its working state (`ai::Ai`,
+  `brain::Brain`) is not part of the simulation state: after a host migration the new host starts fresh AIs of
+  the same types (`Player.ai_kind`) and they rebuild what they know from the world.
 - A player who leaves resigns (`Command::Resign`) and the game goes on. When the host leaves (connection closed, or
   silent for `HOST_SILENT_SECS`), the remaining humans take over (host migration, `main.rs::take_over`): the host
   sends `S2C::Peers` (human players + addresses) at the start and whenever someone leaves; the lowest-numbered
@@ -172,7 +177,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/surface.rs`, `surface.wesl` | the terrain material (`ExtendedMaterial` with our WESL fragment shader): procedural layer textures with mips, mask/road/scorch textures, `SurfaceView::burn`, `Tint` (average colours for minimap/preview/apron) |
 | `src/sim/mod.rs` | components, resources, `Order`/`Command`, spawning, `Ground` (changed terrain), control point placement, state save/restore |
 | `src/sim/systems.rs` | tick systems: commands, visibility, economy, orders (`think`), factories, build, movement, transports (`carry`), weapons, projectiles, reclaim, capture, deaths, craters/terraform (`apply_ground`), control points, victory |
-| `src/ai.rs` | skirmish AI and formation assignment |
+| `src/ai.rs` | AI types (`AiKind`), the `Simple` AI, `ai_system` (dispatch, once a second per AI), formation assignment |
+| `src/ai/brain.rs` | the zone AI behind every other type: unit roles from the JSON (`info`), per-type numbers (`Profile`), zones, enemy memory, strategy, economy (`eco`), army (`army`) |
 | `src/net.rs` | TCP host/client, UDP LAN discovery, message types |
 | `src/netplay.rs` | `HostSim` (turn scheduling, hash check) and `ClientSim` (prediction, rollback, resync) |
 | `src/view/mod.rs` | view state, unit visuals, interpolation, turret animation |
@@ -412,8 +418,38 @@ and the APC are JSON box models. The Stork uses the mod's hooked stock UEF trans
 
 - No music, navy, air staging or shields. One playable faction (the format supports more).
 - No friendly-fire by default (`rules.friendly_fire`).
+- **AI types** (`ai::AiKind`, picked per lobby slot; ideas taken from the FA AI mods M27, M28 and RNG, no code):
+  Simple (the old one), Overseer (M27: switches strategy - rush, main, eco and tech, air, turtle, commander
+  kill - from the balance of forces), Zones (M28: zone by zone, scouts everything, defends allies), Adaptive
+  (RNG: wide expansion, raiders, production counters what the enemy fields), Rusher, Turtle. All but Simple
+  share `brain.rs` and differ by `Profile`. How the engine works:
+  - the map is cut into zones (starts, control points, deposit groups, filler); each keeps both sides'
+    strength, its worth, when it was last seen. Armies gather at the rally zone (our safe zone nearest the
+    enemy), attack the zone with the best worth / distance / defence that the force at the rally can take
+    (`pick_target`), travel zone by zone as one body with reinforcements following in groups, retreat when
+    outmatched (`Phase`). Waiting makes impatient (`nerve`), a stand-off without progress ends in a push or in
+    leaving the zone alone (`avoid`);
+  - it only knows what its team sees or has on radar plus `Brain::memory` (buildings until destroyed, units for
+    30 s); an unscouted enemy start is assumed to hold a base with an army that grows with time (`Zone::guess`);
+  - mass discipline: factories and upgrades only add spending while `spend_m` stays below a multiple of the
+    income (a stall slows extractors too); planned generators count (`coming_e`), or every engineer starts one;
+  - engineers that only assist or reclaim are free for real jobs (an Assist order never ends by itself);
+  - micro: longer guns back off from shorter ones, artillery ground-fires remembered buildings, mobile radar
+    follows the army;
+  - scavengers (`Profile.scav`, built while whole wrecks lie in safe zones): `ReviveArea` on the dearest
+    wreck, then `ReclaimArea` for what cannot come back;
+  - garrisons (`Profile.garrison`): infantry waiting near the rally point or the start walks into buildings
+    there (`Order::Load`); buildings the front has left behind are emptied (`Unload` on the building);
+  - air transports: zones carry the number of their land mass (`Zone::comp`). Jobs of an idle transport, in
+    order: an engineer to a land mass with free deposits (it then builds extractors there only), army units
+    from the rally point to an enemy that cannot be reached by land (they fight on their own over there,
+    "abroad"), raiders to a raid zone far away. Passengers get `Load(transport)` and are left alone while in
+    `Brain::boarding`. An AI cut off by water builds more air, and techs its air factory for a transport.
+  Test a change with duels against `simple` on a few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); the
+  new types should win all of them.
 - The hostile side only holds positions; it has no AI.
-- The AI does not use scavengers, transports, terraforming or garrisons (its infantry do take cover).
+- The AI does not terraform, storm enemy-held buildings on purpose or use the land transport (APC). The
+  `Simple` type uses no scavengers, transports or garrisons at all.
 - The minimap picture and the cached fog/radar shadows do not follow craters and terraforming; the
   minimap does not show trees and rocks or scorch marks. Ground layers do not change with craters (only scorch).
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
