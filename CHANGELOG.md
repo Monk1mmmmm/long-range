@@ -3,7 +3,7 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## Unreleased
+## v0.6
 
 Not compatible with v0.5.4 in multiplayer: everybody needs this version.
 
@@ -28,6 +28,23 @@ New
   units to an enemy they cannot reach by land, raiders to far-away extractors. Cut off by water, they switch
   to aircraft.
 - `--skirmish` starts against three different AI types.
+- Graphics setting "Remembered buildings: Show models in the fog". Off, buildings you have lost sight of
+  show only their icons, no models.
+
+Changed
+- The "Map icons from zoom" slider goes much further out (camera distance 100 to 2500, steps of 100).
+
+Performance
+- The simulation tick is much faster: a 10-AI test game went from 2.2 ms to 0.8 ms per tick, and the
+  slowest tick from 17 ms to 10-12 ms (sight lines and path searches now use several cores, with the same
+  results on any number of threads).
+
+Under the hood
+- A unit's components are now listed once (`unit_state!`) and snapshots, rollback and joining are generated
+  from that list, so a new component can no longer be forgotten in one place and desync netplay. (Thanks to
+  Sadsaltan for this and the speed-up.)
+- `--selftest` knows `LR_AI`, `LR_TEAMS`, `LR_POINTS`, `LR_COMP`, `LR_MOAT` and `LR_PROFILE=1` (time per
+  system).
 
 ## v0.5.4
 
