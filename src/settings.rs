@@ -37,11 +37,14 @@ pub struct Settings {
     /// without shadows, fewer explosion puffs, no flash lights), 1 = medium (debris falls and
     /// tumbles), 2 = high (also dust where debris lands, debris shadows).
     pub effects: u8,
+    /// Buildings seen earlier and now out of sight keep their last-seen models (`view::ghost_visuals`);
+    /// off: only their icons.
+    pub ghost_models: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2 }
+        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), big_icons: false, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true }
     }
 }
 
@@ -538,6 +541,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
             }
         });
         ui.end_row();
+        ui.label("Remembered buildings").on_hover_text("Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons.");
+        ui.checkbox(&mut s.ghost_models, "Show models in the fog");
+        ui.end_row();
         ui.label("Anti-aliasing");
         let aa = |a: &str| match a {
             "fxaa" => "FXAA",
@@ -567,7 +573,7 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(" px"));
         ui.end_row();
         ui.label("Map icons from zoom");
-        ui.add(egui::Slider::new(&mut s.icon_dist, 20.0..=800.0).logarithmic(true).step_by(5.0).suffix(" camera distance"));
+        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(" camera distance"));
         ui.end_row();
         ui.label("Build menu icons");
         ui.checkbox(&mut s.big_icons, "Bigger");
