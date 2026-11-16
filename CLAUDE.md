@@ -40,6 +40,7 @@ cargo run -- --ground out.png     # every ground texture in one picture, plus ta
 cargo run --bin lr-editor         # map editor
 cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky)
 cargo run --bin lr-editor -- --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
+cargo run --bin lr-editor -- --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
@@ -362,8 +363,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
   `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated).
-- **Control points** (`Game.mode == MODE_POINTS`): `Game.points` / `Game.scores` (points left per team, start `Game.cp_start`,
-  picked in the lobby or `rules.cp_start_points`). A team holding fewer points than its strongest opponent loses
+- **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
+  `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);
+  a map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points
+  left per team, start `Game.cp_start`: typed in the lobby, else `rules.cp_start_points`, default 1200). A team holding fewer points than its strongest opponent loses
   `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
 - **Selection**: a box takes fighting units first, then builders (`build` present), then buildings.
 - **Selection sounds**: `view::sound::select_sound` picks by role, `"select_sound"` in the unit JSON overrides.
@@ -381,7 +384,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
 - `assets/maps/<name>/map.json` + `height.png` (16-bit) + `layerN.png` (8-bit ground layer masks) - premade maps; `props` are pre-placed neutral
-  (owner 0) or hostile (owner 1) units of any faction.
+  (owner 0) or hostile (owner 1) units of any faction; `points` are the control points.
 - Host and clients play with identical data: a client whose data hash differs gets the host's `DataPack`
   (and asset files the built-in data does not refer to) with `S2C::Start`.
 
@@ -410,7 +413,7 @@ and the APC are JSON box models. The Stork uses the mod's hooked stock UEF trans
 - No music, navy, air staging or shields. One playable faction (the format supports more).
 - No friendly-fire by default (`rules.friendly_fire`).
 - The hostile side only holds positions; it has no AI.
-- The AI does not use scavengers, transports, terraforming or garrisons (its infantry do take cover). Maps cannot place their own control points.
+- The AI does not use scavengers, transports, terraforming or garrisons (its infantry do take cover).
 - The minimap picture and the cached fog/radar shadows do not follow craters and terraforming; the
   minimap does not show trees and rocks or scorch marks. Ground layers do not change with craters (only scorch).
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war

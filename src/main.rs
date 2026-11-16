@@ -48,6 +48,8 @@ struct HostLobby {
     map: Option<(MapKey, MapData)>,
     preview: Vec<u8>,
     starts: Vec<(f32, f32)>,
+    /// The control points the game will use (0..1 across, see `MapData::control_points`).
+    points: Vec<(f32, f32)>,
     tex: Option<egui::TextureHandle>,
     /// Thumbnails of the premade maps for the Map tab (made one per frame).
     thumbs: Vec<Option<egui::TextureHandle>>,
@@ -140,6 +142,7 @@ impl HostLobby {
         self.preview = view::terrain::map_preview(&map, defs, PREVIEW);
         let w = map.world().max(1.0);
         self.starts = map.starts.iter().map(|s| (s.x / w, s.y / w)).collect();
+        self.points = map.control_points().iter().map(|s| (s.x / w, s.y / w)).collect();
         self.tex = None;
         self.map = Some((key, map));
         self.dirty = true;
@@ -171,6 +174,7 @@ impl HostLobby {
             preview: self.preview.clone(),
             preview_side: PREVIEW as u16,
             starts: self.starts.clone(),
+            points: if self.mode == MODE_POINTS { self.points.clone() } else { vec![] },
         }
     }
 }
@@ -439,6 +443,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         map: None,
         preview: vec![],
         starts: vec![],
+        points: vec![],
         tex: None,
         thumbs,
         tab: 0,
@@ -825,7 +830,7 @@ fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editab
 }
 
 /// The lobby's map picture with numbered start positions in the players' colours.
-fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(f32, f32)], defs: &Defs, size: f32) {
+fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(f32, f32)], points: &[(f32, f32)], defs: &Defs, size: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let p = ui.painter_at(rect);
     match tex {
@@ -840,6 +845,13 @@ fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(
     p.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0, egui::Color32::from_gray(90)), egui::StrokeKind::Inside);
     // Start markers grow with the picture.
     let r = (size / 35.0).clamp(9.0, 16.0);
+    // Control points: white diamonds.
+    for (x, y) in points {
+        let at = rect.min + egui::vec2(x * size, y * size);
+        let d = r * 0.6;
+        let shape = vec![at + egui::vec2(0.0, -d), at + egui::vec2(d, 0.0), at + egui::vec2(0.0, d), at + egui::vec2(-d, 0.0)];
+        p.add(egui::Shape::convex_polygon(shape, egui::Color32::from_rgb(235, 235, 235), egui::Stroke::new(1.5, egui::Color32::BLACK)));
+    }
     for (k, (x, y)) in starts.iter().enumerate() {
         let c = defs.rules.player_colors[k % defs.rules.player_colors.len()];
         let at = rect.min + egui::vec2(x * size, y * size);
@@ -1076,7 +1088,7 @@ fn menu_ui(world: &mut World) {
                             if l.tex.is_none() && l.preview.len() == PREVIEW * PREVIEW * 4 {
                                 l.tex = Some(ctx.load_texture("lobby_map", egui::ColorImage::from_rgba_unmultiplied([PREVIEW, PREVIEW], &l.preview), egui::TextureOptions::LINEAR));
                             }
-                            map_picture(ui, l.tex.as_ref(), &l.starts, &cur, pic);
+                            map_picture(ui, l.tex.as_ref(), &l.starts, if l.mode == MODE_POINTS { &l.points } else { &[] }, &cur, pic);
                             ui.label(egui::RichText::new(l.map_label()).strong());
                             ui.add_space(6.0);
                             ui.horizontal(|ui| {
@@ -1090,18 +1102,23 @@ fn menu_ui(world: &mut World) {
                                     l.dirty = true;
                                 }
                                 if l.mode == MODE_POINTS {
-                                    // Left click: next choice, right click: previous. 0 = the game data's value.
-                                    const CP_STARTS: [u32; 8] = [0, 100, 200, 300, 400, 600, 800, 1200];
-                                    let label = format!("Starting points: {:.0}{}", l.cp_points(&cur), if l.cp_start == 0 { " (game data default)" } else { "" });
-                                    let r = ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(label));
-                                    let at = CP_STARTS.iter().position(|&n| n == l.cp_start).unwrap_or(0);
-                                    if r.clicked() {
-                                        l.cp_start = CP_STARTS[(at + 1) % CP_STARTS.len()];
-                                        l.dirty = true;
-                                    } else if r.secondary_clicked() {
-                                        l.cp_start = CP_STARTS[(at + CP_STARTS.len() - 1) % CP_STARTS.len()];
-                                        l.dirty = true;
-                                    }
+                                    // Typed in by hand; 0 = the game data's value until the host changes it.
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("Starting points").size(15.0));
+                                        let mut v = l.cp_points(&cur).round().max(1.0) as u32;
+                                        if ui.add(egui::DragValue::new(&mut v).range(1..=1_000_000).speed(10.0)).changed() {
+                                            l.cp_start = v;
+                                            l.dirty = true;
+                                        }
+                                        if l.cp_start == 0 {
+                                            ui.label(egui::RichText::new("(game data default)").weak());
+                                        } else if ui.button("Default").on_hover_text(format!("Use the game data's value ({:.0})", cur.rules.cp_start_points)).clicked() {
+                                            l.cp_start = 0;
+                                            l.dirty = true;
+                                        }
+                                    });
+                                    let own = l.map.as_ref().map_or(false, |m| !m.1.points.is_empty());
+                                    ui.label(egui::RichText::new(format!("{} control points{}", l.points.len(), if own { ", placed by the map" } else { ", placed automatically (the map has none of its own)" })).weak());
                                 }
                                 // Game data: the built-in values or one of the presets (main menu -> Game data presets).
                                 if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(format!("Game data: {}", l.preset_label()))).clicked() && !l.presets.is_empty() {
@@ -1270,7 +1287,7 @@ fn menu_ui(world: &mut World) {
                                 ui.add_space(20.0);
                                 ui.vertical(|ui| {
                                     ui.set_width(right_w);
-                                    map_picture(ui, l.tex.as_ref().map(|t| &t.1), &i.starts, &defs, pic);
+                                    map_picture(ui, l.tex.as_ref().map(|t| &t.1), &i.starts, &i.points, &defs, pic);
                                     ui.label(egui::RichText::new(&i.map_name).strong());
                                     ui.add_space(6.0);
                                     ui.label(egui::RichText::new("Game options").size(16.0));

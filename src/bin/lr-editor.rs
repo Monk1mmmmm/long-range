@@ -3,6 +3,7 @@
 //!   lr-editor                       interactive editor
 //!   lr-editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   write a generated map with settlements, trees and rocks to assets/maps/NAME
 //!                                   (BIOME: temperate, desert, arctic, rocky; default from the seed)
+//!   lr-editor --points NAME                          place control points on the saved map NAME (as a game would by itself)
 //!   lr-editor --scatter NAME [SEED] [AMOUNT]          add trees and rocks to the saved map NAME (AMOUNT 1 = normal)
 //!
 //! Maps are stored as `assets/maps/<name>/map.json` plus a 16-bit `height.png` and one 8-bit
@@ -28,6 +29,8 @@ enum Tool {
     Flatten,
     Deposit,
     Start,
+    /// Control points of the control points mode (right mouse removes one).
+    Point,
     Prop,
     Erase,
     /// Paint trees or rocks (right mouse removes them).
@@ -128,7 +131,8 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
                     }
                 }
             }
-            if map.deposits.iter().any(|dp| dp.dist(*s) < f as f32 * CELL + 3.0) || map.starts.iter().any(|st| st.dist(*s) < 45.0) {
+            // Towns may surround a control point, but leave its middle open.
+            if map.deposits.iter().any(|dp| dp.dist(*s) < f as f32 * CELL + 3.0) || map.starts.iter().any(|st| st.dist(*s) < 45.0) || map.points.iter().any(|cp| cp.dist(*s) < f as f32 * CELL + 6.0) {
                 return false;
             }
         }
@@ -236,6 +240,31 @@ fn clear_under_props(map: &mut MapData, defs: &Defs) {
     for (pos, f) in foots {
         map.clear_features_square(pos, f);
     }
+}
+
+/// Control points as a game would place them, kept off the map's buildings (a point under a house
+/// could not be stood on).
+fn auto_points(map: &mut MapData, defs: &Defs) -> Vec<V2> {
+    map.rebuild_blocked();
+    let n = map.n;
+    for p in &map.props {
+        let Some(d) = defs.id(&p.def) else { continue };
+        let f = defs.get(d).footprint;
+        if f <= 0 {
+            continue;
+        }
+        let (x0, y0) = foot_origin(p.pos, f);
+        for y in y0 - 1..y0 + f + 1 {
+            for x in x0 - 1..x0 + f + 1 {
+                if map.inside(x, y) {
+                    map.blocked[y as usize * n + x as usize] = 1;
+                }
+            }
+        }
+    }
+    let out = map.auto_points();
+    map.rebuild_blocked();
+    out
 }
 
 /// The feature types the brush can put down.
@@ -494,6 +523,7 @@ fn editor_ui(
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut ed.tool, Tool::Deposit, "Deposit");
             ui.selectable_value(&mut ed.tool, Tool::Start, "Start");
+            ui.selectable_value(&mut ed.tool, Tool::Point, "Control point");
             ui.selectable_value(&mut ed.tool, Tool::Prop, "Building/unit");
             ui.selectable_value(&mut ed.tool, Tool::Erase, "Erase");
         });
@@ -503,6 +533,22 @@ fn editor_ui(
             if map.starts.len() > 2 && ui.button("Remove last start").clicked() {
                 map.starts.pop();
             }
+        }
+        if ed.tool == Tool::Point {
+            if map.points.is_empty() {
+                ui.label("No control points: games on this map place them automatically.");
+            } else {
+                ui.label(format!("{} control points.", map.points.len()));
+            }
+            ui.label(egui::RichText::new("Left mouse places one, right mouse removes the one under the pointer.").weak());
+            ui.horizontal(|ui| {
+                if ui.button("Auto place").on_hover_text("Replace them with the ones a game would place by itself").clicked() {
+                    map.points = auto_points(map, &defs);
+                }
+                if ui.button("Clear").clicked() {
+                    map.points.clear();
+                }
+            });
         }
         if ed.tool == Tool::Prop {
             egui::ComboBox::from_id_salt("prop").selected_text(defs.get(ed.prop).name.clone()).height(360.0).show_ui(ui, |ui| {
@@ -517,7 +563,7 @@ fn editor_ui(
             ui.add(egui::Slider::new(&mut ed.prop_yaw, 0.0..=6.28).text("facing"));
         }
         ui.separator();
-        ui.label(format!("{} cells, {} deposits, {} starts, {} objects, {} trees and rocks", map.n, map.deposits.len(), map.starts.len(), map.props.len(), map.features.len()));
+        ui.label(format!("{} cells, {} deposits, {} starts, {} control points, {} objects, {} trees and rocks", map.n, map.deposits.len(), map.starts.len(), map.points.len(), map.props.len(), map.features.len()));
         ui.label(egui::RichText::new("Left mouse: use tool.  Arrows/WASD pan, wheel zoom.").weak());
         if !ed.status.is_empty() {
             ui.label(&ed.status);
@@ -574,6 +620,12 @@ fn editor_ui(
         let col = Color::srgb(c[0], c[1], c[2]);
         ring(&mut gizmos, map, *s, 4.0, col);
         gizmos.line(s.at(map.h(*s)), s.at(map.h(*s) + 14.0), col);
+    }
+    // Control points: a ring of the capture radius and a pole.
+    let cp_col = Color::srgb(1.0, 0.95, 0.6);
+    for c in &map.points {
+        ring(&mut gizmos, map, *c, defs.rules.cp_radius, cp_col);
+        gizmos.line(c.at(map.h(*c)), c.at(map.h(*c) + 10.0), cp_col);
     }
 
     // --- tools
@@ -710,6 +762,13 @@ fn editor_ui(
                         map.starts[k] = p;
                     }
                 }
+                Tool::Point => {
+                    let (cx, cy) = map.cell_of(p);
+                    let c = v2((cx as f32 + 0.5) * CELL, (cy as f32 + 0.5) * CELL);
+                    if !map.points.iter().any(|q| q.dist(c) < 4.0) {
+                        map.points.push(c);
+                    }
+                }
                 Tool::Prop => {
                     let d = defs.get(ed.prop);
                     let pos = if d.is_structure() { longrange::sim::snap(&defs, map, ed.prop, p) } else { p };
@@ -720,6 +779,12 @@ fn editor_ui(
                     full_rebuild = true;
                 }
                 _ => {}
+            }
+        }
+        if ed.tool == Tool::Point && buttons.just_pressed(MouseButton::Right) {
+            // The nearest one within its capture radius.
+            if let Some(i) = map.points.iter().enumerate().filter(|(_, q)| q.dist(p) < defs.rules.cp_radius.max(4.0)).min_by(|a, b| a.1.dist(p).total_cmp(&b.1.dist(p))).map(|(i, _)| i) {
+                map.points.remove(i);
             }
         }
         // Erase works while the button is held, so a drag clears a path through trees and rocks.
@@ -884,6 +949,40 @@ fn main() {
         let dir = asset_root().join("maps").join(&name);
         match map.save(&dir) {
             Ok(()) => println!("wrote {} ({} cells, {} deposits, {} objects, {} trees and rocks)", dir.display(), map.n, map.deposits.len(), map.props.len(), map.features.len()),
+            Err(e) => eprintln!("failed: {e}"),
+        }
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--points") {
+        let name = args.get(i + 1).cloned().unwrap_or_default();
+        let dir = asset_root().join("maps").join(&name);
+        let mut map = match MapData::load(&dir) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("cannot load map '{name}': {e}");
+                std::process::exit(1);
+            }
+        };
+        if !map.points.is_empty() {
+            eprintln!("{} already has {} control points (move them in the editor)", dir.display(), map.points.len());
+            std::process::exit(1);
+        }
+        let points = auto_points(&mut map, &defs);
+        // Only the points go into map.json: saving the whole map would also write what it reads
+        // with defaults (ground layers of a map saved without them).
+        let file = dir.join("map.json");
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        let list = serde_json::to_string_pretty(&points).unwrap_or_default().replace('\n', "\n  ");
+        let block = format!("\n  \"points\": {list},");
+        let at = text.find("\n  \"props\":").or_else(|| text.find("\n  \"seed\":"));
+        let Some(at) = at else {
+            eprintln!("{}: no props or seed entry to put the points before", file.display());
+            std::process::exit(1);
+        };
+        let out = format!("{}{}{}", &text[..at], block, &text[at..]);
+        match MapData::load(&dir).and_then(|_| std::fs::write(&file, &out).map_err(|e| e.to_string())).and_then(|_| MapData::load(&dir)) {
+            Ok(m) if m.points.len() == points.len() => println!("{}: {} control points placed", dir.display(), points.len()),
+            Ok(_) => eprintln!("{}: the points did not read back", file.display()),
             Err(e) => eprintln!("failed: {e}"),
         }
         return;

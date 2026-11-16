@@ -128,7 +128,7 @@ pub const RULE_TERRAIN: &[Field] = &[
 pub const RULE_POINTS: &[Field] = &[
     num("cp_radius", "Capture radius", 12.0, 500.0, "Control points mode: units within this distance of a point take it."),
     num("cp_capture_secs", "Capture time (s)", 20.0, 3600.0, "Seconds a team needs to take a control point."),
-    num("cp_start_points", "Starting points", 400.0, BIG, "Points every team starts with (the host can pick another number in the lobby). A team at 0 is defeated."),
+    num("cp_start_points", "Starting points", 1200.0, BIG, "Points every team starts with (the host can pick another number in the lobby). A team at 0 is defeated."),
     num("cp_bleed", "Bleed per second", 1.0, 1000.0, "A team holding fewer control points than its strongest opponent loses this many points per second for each point of difference."),
 ];
 

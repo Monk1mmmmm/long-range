@@ -250,6 +250,10 @@ pub struct MapData {
     pub water: f32,
     pub deposits: Vec<V2>,
     pub starts: Vec<V2>,
+    /// Control points of the control points mode (placed in the editor like the starts).
+    /// Empty: the game places them itself (`auto_points`).
+    #[serde(default)]
+    pub points: Vec<V2>,
     pub props: Vec<Prop>,
     /// Feature type ids used by `features`.
     pub feature_kinds: Vec<String>,
@@ -280,6 +284,9 @@ struct MapFile {
     max_height: f32,
     deposits: Vec<V2>,
     starts: Vec<V2>,
+    /// Control points (control points mode); maps without them get `MapData::auto_points`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    points: Vec<V2>,
     #[serde(default)]
     props: Vec<Prop>,
     #[serde(default)]
@@ -526,6 +533,7 @@ impl MapData {
         }
         let mut m = MapData { name: format!("Random {seed}"), n, heights, water: 0.0, deposits: vec![], starts, seed, ..Default::default() };
         m.rebuild_blocked();
+        m.points = m.auto_points();
         // Dirt tracks along the open lanes, rotated like everything else (visual only).
         for k in 0..kk {
             let road = |a: V2, b: V2, salt: u64| crate::surface::Road { kind: "dirt_road".into(), width: 3.5, points: crate::surface::winding(a, b, 6.0, seed ^ salt) };
@@ -726,6 +734,7 @@ impl MapData {
             max_height: mx,
             deposits: self.deposits.clone(),
             starts: self.starts.clone(),
+            points: self.points.clone(),
             props: self.props.clone(),
             seed: self.seed,
             features: self.features.iter().map(|f| format!("{} {:.2} {:.2} {:.2} {:.2}", self.feature_kinds.get(f.kind as usize).map_or("?", |k| k.as_str()), f.pos.x, f.pos.y, f.yaw, f.scale)).collect(),
@@ -759,7 +768,7 @@ impl MapData {
             return Err(format!("height.png must be {side}x{side} pixels for a map of {} cells", f.n));
         }
         let heights = img.as_raw().iter().map(|v| f.min_height + (*v as f32 / 65535.0) * (f.max_height - f.min_height)).collect();
-        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
+        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, points: f.points, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
         for line in &f.roads {
             m.roads.push(crate::surface::parse_road(line)?);
         }
@@ -793,6 +802,43 @@ impl MapData {
             m.paint_ground(crate::surface::Biome::Temperate);
         }
         Ok(m)
+    }
+
+    /// Control points for a map that does not place its own: the centre, the middle between
+    /// neighbouring starts and the half-way marks towards the centre, moved off cliffs and water.
+    pub fn auto_points(&self) -> Vec<V2> {
+        let c = self.center();
+        let mut starts = self.starts.clone();
+        starts.sort_by(|a, b| (*a - c).angle().total_cmp(&(*b - c).angle()));
+        let k = starts.len();
+        let mut want = vec![c];
+        for i in 0..k {
+            want.push(starts[i].lerp(starts[(i + 1) % k], 0.5));
+        }
+        for s in &starts {
+            want.push(s.lerp(c, 0.5));
+        }
+        if k == 2 {
+            // Two players face each other across the centre: add the flanks.
+            let side = (starts[0] - c).perp() * 0.7;
+            want.push(self.clamp(c + side));
+            want.push(self.clamp(c - side));
+        }
+        let mut out: Vec<V2> = vec![];
+        for p in want {
+            let (cx, cy) = self.cell_of(self.clamp(p));
+            let Some((x, y)) = nearest_free(&self.blocked, self.n, cx, cy) else { continue };
+            let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+            if out.iter().all(|o| o.dist(p) > 24.0) && starts.iter().all(|s| s.dist(p) > 28.0) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    /// The control points a game on this map uses: its own, or `auto_points` when it has none.
+    pub fn control_points(&self) -> Vec<V2> {
+        if self.points.is_empty() { self.auto_points() } else { self.points.clone() }
     }
 
     /// Number of start positions of a saved map, without loading the heightmap.

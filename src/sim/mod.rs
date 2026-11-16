@@ -1015,42 +1015,10 @@ pub fn terraform_left(map: &MapData, ground: &Ground, occ: &[u8], pos: V2, radiu
     terraform_targets(map, ground, occ, pos, radius, height, limit).iter().map(|(i, t)| (t - map.heights[*i]).abs()).sum()
 }
 
-/// Positions of the control points for a map: the centre, the middle between neighbouring starts
-/// and the half-way marks towards the centre, moved off cliffs and water.
-pub fn control_point_spots(map: &MapData) -> Vec<V2> {
-    let c = map.center();
-    let mut starts = map.starts.clone();
-    starts.sort_by(|a, b| (*a - c).angle().total_cmp(&(*b - c).angle()));
-    let k = starts.len();
-    let mut want = vec![c];
-    for i in 0..k {
-        want.push(starts[i].lerp(starts[(i + 1) % k], 0.5));
-    }
-    for s in &starts {
-        want.push(s.lerp(c, 0.5));
-    }
-    if k == 2 {
-        // Two players face each other across the centre: add the flanks.
-        let side = (starts[0] - c).perp() * 0.7;
-        want.push(map.clamp(c + side));
-        want.push(map.clamp(c - side));
-    }
-    let mut out: Vec<V2> = vec![];
-    for p in want {
-        let (cx, cy) = map.cell_of(map.clamp(p));
-        let Some((x, y)) = nearest_free(&map.blocked, map.n, cx, cy) else { continue };
-        let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
-        if out.iter().all(|o| o.dist(p) > 24.0) && starts.iter().all(|s| s.dist(p) > 28.0) {
-            out.push(p);
-        }
-    }
-    out
-}
-
 /// Switches a freshly set up game to control points mode; every team starts with `start` points.
 pub fn enable_control_points(world: &mut World, start: f32) {
     let start = start.max(1.0);
-    let spots = control_point_spots(world.resource::<MapData>());
+    let spots = world.resource::<MapData>().control_points();
     let mut game = world.resource_mut::<Game>();
     game.mode = MODE_POINTS;
     game.points = spots.into_iter().map(|pos| ControlPoint { pos, owner: NOBODY, by: NOBODY, progress: 0.0 }).collect();

@@ -34,7 +34,7 @@
   "_comment_points": "Control points mode: units within cp_radius take a point in cp_capture_secs; every team starts with cp_start_points (the host can pick another number in the lobby); a team holding fewer control points than its strongest opponent loses cp_bleed points per second for each point of difference, nothing changes while they hold equally many; a team at 0 is defeated.",
   "cp_radius": 12,
   "cp_capture_secs": 20,
-  "cp_start_points": 400,
+  "cp_start_points": 1200,
   "cp_bleed": 1,
   "_comment_features": "Reclaimable trees and rocks placed by maps. class: tree or rock (where the map generator puts it), shape: pine, broadleaf, bush or rock (procedural model), size scales the model, weight is how often the generator picks it within its class. Energy reclaims reclaim_energy_factor times faster than mass. hp: weapon damage it takes to destroy (times the map's scale for that tree or rock).",
   "reclaim_energy_factor": 5,

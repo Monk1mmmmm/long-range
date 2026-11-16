@@ -40,6 +40,8 @@ pub struct LobbyInfo {
     pub preview: Vec<u8>,
     pub preview_side: u16,
     pub starts: Vec<(f32, f32)>,
+    /// Control points (0..1 across); empty unless the mode is control points.
+    pub points: Vec<(f32, f32)>,
 }
 
 #[derive(Serialize, Deserialize)]
