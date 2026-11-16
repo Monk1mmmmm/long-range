@@ -141,6 +141,8 @@ fn census_build(
             structure: d.is_structure(),
             radius: d.radius(),
             height: d.height(),
+            hit_r: d.hit_radius(),
+            hit_h: d.hit_height(),
             seen: i.seen,
             radar: i.radar,
             work: builder.map_or(0, |b| b.work),
@@ -2155,7 +2157,7 @@ fn projectiles(
                 let max = p.turn.to_radians() * DT;
                 let nd = if ang <= max || ang < 1e-4 { want } else { cur.lerp(want, max / ang).normalize_or_zero() };
                 vel = nd * speed;
-                if (t.center() - a).length() < speed * DT + t.radius * 0.7 {
+                if (t.center() - a).length() < speed * DT + t.hit_r * 0.7 {
                     hit = Some((t.center(), t.id));
                 }
             }
@@ -2180,8 +2182,8 @@ fn projectiles(
                 let t = (rel.dot(seg2) / len2).clamp(0.0, 1.0);
                 let at = a + seg * t;
                 let horiz = Vec2::new(at.x - c.pos.x, at.z - c.pos.y).length();
-                let r = if c.structure { c.radius * 1.1 } else { c.radius } + 0.12;
-                if horiz < r && at.y > c.y - 0.3 && at.y < c.y + c.height + 0.3 && best.map_or(true, |x| t < x.0) {
+                let r = if c.structure { c.hit_r * 1.1 } else { c.hit_r } + 0.12;
+                if horiz < r && at.y > c.y - 0.3 && at.y < c.y + c.hit_h + 0.3 && best.map_or(true, |x| t < x.0) {
                     best = Some((t, c.id));
                 }
             });
@@ -2230,8 +2232,8 @@ fn projectiles(
                 if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) {
                     return;
                 }
-                let horiz = (c.pos.dist(flat(at)) - c.radius * 0.7).max(0.0);
-                let vert = if at.y < c.y { c.y - at.y } else { (at.y - c.y - c.height).max(0.0) };
+                let horiz = (c.pos.dist(flat(at)) - c.hit_r * 0.7).max(0.0);
+                let vert = if at.y < c.y { c.y - at.y } else { (at.y - c.y - c.hit_h).max(0.0) };
                 let d = (horiz * horiz + vert * vert).sqrt();
                 if d < p.radius {
                     effects.damage.push((c.id, p.damage * (1.0 - 0.6 * d / p.radius), p.dtype as usize));
@@ -2660,7 +2662,7 @@ fn deaths(
             effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
         }
         census.near(pos, radius + 4.0, |c| {
-            let flat = (c.pos.dist(pos) - c.radius * 0.7).max(0.0);
+            let flat = (c.pos.dist(pos) - c.hit_r * 0.7).max(0.0);
             let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
             if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
                 effects.damage.push((c.id, damage * (1.0 - 0.6 * d / radius), blast_type));

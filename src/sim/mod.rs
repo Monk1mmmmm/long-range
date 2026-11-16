@@ -520,6 +520,9 @@ pub struct Cen {
     pub structure: bool,
     pub radius: f32,
     pub height: f32,
+    /// The cylinder shots and blasts hit (`UnitDef::hit_radius` / `hit_height`).
+    pub hit_r: f32,
+    pub hit_h: f32,
     pub seen: u16,
     pub radar: u16,
     pub work: u32,
@@ -538,7 +541,7 @@ impl Cen {
         self.pos.at(self.y)
     }
     pub fn center(&self) -> Vec3 {
-        self.pos.at(self.y + self.height * 0.5)
+        self.pos.at(self.y + self.hit_h * 0.5)
     }
     pub fn known_to(&self, team: u8) -> bool {
         (self.seen | self.radar) & (1 << team) != 0

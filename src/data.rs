@@ -676,6 +676,12 @@ pub struct UnitDef {
     pub cost: Cost,
     /// Collision box: width (x), height (y), length (z).
     pub size: [f32; 3],
+    /// What shots and blasts hit, where it is smaller (or bigger) than the body: radius and height.
+    /// Absent = from `size` / `footprint`.
+    #[serde(default)]
+    pub hit_radius: Option<f32>,
+    #[serde(default)]
+    pub hit_height: Option<f32>,
     /// Structures: side length in grid cells.
     #[serde(default)]
     pub footprint: i32,
@@ -795,6 +801,12 @@ impl UnitDef {
     }
     pub fn height(&self) -> f32 {
         self.size[1]
+    }
+    pub fn hit_radius(&self) -> f32 {
+        self.hit_radius.unwrap_or(self.radius())
+    }
+    pub fn hit_height(&self) -> f32 {
+        self.hit_height.unwrap_or(self.height())
     }
     /// How far its radar finds a unit of this stealth level (0 = none): the largest range among
     /// the radar levels above it.
@@ -1152,6 +1164,9 @@ impl Defs {
             }
             if !(u.hp > 0.0 && u.cost.time > 0.0) {
                 return Err(format!("{}: hp and cost.time must be above 0", u.id));
+            }
+            if u.hit_radius.map_or(false, |r| !(r > 0.0)) || u.hit_height.map_or(false, |h| !(h > 0.0)) {
+                return Err(format!("{}: hit_radius and hit_height must be above 0", u.id));
             }
             // An upgrade happens in place: the occupancy grid and the unit's components stay.
             if let Some(t) = u.upgrade_id.map(|t| &snapshot[t as usize]) {

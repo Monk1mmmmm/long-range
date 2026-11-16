@@ -184,7 +184,9 @@ pub const UNIT_COST: &[Field] = &[
 ];
 
 pub const UNIT_BODY: &[Field] = &[
-    f("size", "Size (width, height, length)", Kind::Vec3, "Collision box: shots hit and units bump into it. Height also sets where it looks from."),
+    f("size", "Size (width, height, length)", Kind::Vec3, "Collision box: shots hit it (unless a hit radius / height is set below) and units bump into it. Height also sets where it looks from."),
+    f("hit_radius", "Hit radius", Kind::OptNum(0.05, 100.0, 0.5), "Radius of what shots and blasts hit. Unset = half the size (structures: the footprint)."),
+    f("hit_height", "Hit height", Kind::OptNum(0.05, 100.0, 1.0), "Height of what shots and blasts hit. Unset = the size's height."),
     f("footprint", "Footprint (cells)", Kind::Int(0, 0, 64), "Structures: side length on the build grid (1 cell = 2 units). Mobile units: 0."),
     f("move.kind", "Movement", Kind::Choice(MOVE_KINDS, "none"), "none = a structure; land drives, hover floats over water, plane flies."),
     num("move.speed", "Speed", 0.0, 1000.0, "Top speed forward (units per second)."),
