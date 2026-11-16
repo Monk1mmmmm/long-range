@@ -1560,12 +1560,17 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             (_, Some(d)) => {
                 // Known type, not in sight: dimmed icon (radar contact or remembered building).
-                let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
-                let a = if s.contact == Contact::Stale { 0.5 * s.fade } else { 0.85 };
-                let tex = p.assets.icon(&ctx, d);
-                bg.image(tex.id(), egui::Rect::from_center_size(s.sp, egui::vec2(size, size)), UV, col.gamma_multiply(a));
-                if s.contact == Contact::Stale {
-                    bg.circle_stroke(s.sp, size * 0.6, Stroke::new(1.0, rgba(255, 255, 255, 60)));
+                // A remembered neutral building whose model stands in the fog follows the zoom
+                // setting like a building in sight: no icon over the model up close.
+                let model_only = s.contact == Contact::Stale && s.owner == NEUTRAL && d.is_structure() && p.settings.ghost_models && !(icons_zoom || s.rpx * 2.0 < 5.0);
+                if !model_only {
+                    let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
+                    let a = if s.contact == Contact::Stale { 0.5 * s.fade } else { 0.85 };
+                    let tex = p.assets.icon(&ctx, d);
+                    bg.image(tex.id(), egui::Rect::from_center_size(s.sp, egui::vec2(size, size)), UV, col.gamma_multiply(a));
+                    if s.contact == Contact::Stale {
+                        bg.circle_stroke(s.sp, size * 0.6, Stroke::new(1.0, rgba(255, 255, 255, 60)));
+                    }
                 }
             }
             (_, None) => {
