@@ -238,6 +238,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   facing at half the turn rate (all round from a garrison roof). Fog view: `FogGrid.cone` (`covered_cone`);
   the HUD draws the cone of selected units (brighter while locked). `--combattest` checks scan, lock and tracking
   (alone: `LR_TEST=binoculars`).
+- **Spotting delay** (unit JSON `spot_time` / `spot_time_moving`, seconds; 0 = seen at once, the default: tanks,
+  buildings; the three troopers: 5 / 0.5): a unit with either is only `seen` by a team once that team has had it in
+  view (range + line of sight, as before) for that long. `Intel.spot[team]` (snapshotted) counts up to `sim::SPOTTED`
+  in `visibility`: at the moving rate while it moves or a weapon is reloading (`Cen::firing`), at the hiding rate
+  while it keeps still; out of view it drains over `rules.spot_forget` (3 s). Within `rules.near_sight` it is seen at
+  once. Once spotted it stays seen while in view. `--combattest` "Spotting" line (with `LR_TEST=binoculars`).
 - **Radar levels and stealth**: a unit has up to three radar ranges, `radar` (level 1), `radar2`, `radar3`, and a
   `stealth` level 0-3 (`radar_stealth: true` is the old form of 3). Radar of level L finds stealth below L, so a
   unit of stealth s shows within `UnitDef::radar_vs(s)` = the largest range of the levels above s; stealth 3

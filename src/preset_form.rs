@@ -93,7 +93,8 @@ pub const RULE_COMBAT: &[Field] = &[
 ];
 
 pub const RULE_INTEL: &[Field] = &[
-    num("near_sight", "Close-range sight", 6.0, 100.0, "Everything closer than this to a unit is seen, whatever stands in between."),
+    num("near_sight", "Close-range sight", 6.0, 100.0, "Everything closer than this to a unit is seen at once, whatever stands in between."),
+    num("spot_forget", "Spotting progress lost after (s)", 3.0, 600.0, "Units with a time to spot: how long out of the enemy's view until he has to start spotting them from nothing again."),
     num("vision_los_height", "Eye height", 1.5, 100.0, "Units look from this high above their top; a higher eye sees over more hills and trees."),
     num("radar_los_height", "Radar eye height", 4.0, 100.0, "Radar looks from this high above the unit's top (when hills block radar)."),
     num("radar_fade_secs", "Radar blip memory (s)", 10.0, 600.0, "How long the blip of a moving unit stays on the map after radar has lost it."),
@@ -198,6 +199,8 @@ pub const UNIT_BODY: &[Field] = &[
 
 pub const UNIT_INTEL: &[Field] = &[
     num("vision", "Vision range", 0.0, 5000.0, "How far it sees (hills, trees and rocks may block it, see the rules switches)."),
+    num("spot_time", "Time to spot, hiding (s)", 0.0, 600.0, "How long an enemy must have it in view before it is seen, while it keeps still and holds its fire. 0 = at once (tanks, buildings)."),
+    num("spot_time_moving", "Time to spot, moving (s)", 0.0, 600.0, "The same while it moves or has just fired. 0 = at once."),
     num("radar", "Radar range", 0.0, 5000.0, "How far its radar reaches; radar shows contacts but not what they are. This level finds only units without stealth."),
     num("radar2", "T2 radar range", 0.0, 5000.0, "How far its level 2 radar reaches: also finds stealth 1 units. A unit is found within the largest range of the levels above its stealth."),
     num("radar3", "T3 radar range", 0.0, 5000.0, "How far its level 3 radar reaches: also finds stealth 2 units."),

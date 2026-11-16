@@ -48,6 +48,9 @@ fn yes() -> bool {
 fn near_sight() -> f32 {
     6.0
 }
+fn spot_forget() -> f32 {
+    3.0
+}
 fn crater_scale() -> f32 {
     0.025
 }
@@ -325,6 +328,10 @@ pub struct Rules {
     /// Everything closer than this to a unit is seen, whatever stands in between.
     #[serde(default = "near_sight")]
     pub near_sight: f32,
+    /// Spotting progress on a unit with a `spot_time` drains over this many seconds once the
+    /// enemy has lost sight of it.
+    #[serde(default = "spot_forget")]
+    pub spot_forget: f32,
     /// Shell holes: depth = `crater_scale` x sqrt(damage); 0 switches craters off.
     #[serde(default = "crater_scale")]
     pub crater_scale: f32,
@@ -689,6 +696,13 @@ pub struct UnitDef {
     pub mv: Move,
     #[serde(default)]
     pub vision: f32,
+    /// Seconds an enemy team must have it in view before it counts as seen, while it keeps still
+    /// and holds its fire (0 = at once). Closer than `rules.near_sight` it is seen at once.
+    #[serde(default)]
+    pub spot_time: f32,
+    /// The same while it moves or has fired within its reload time.
+    #[serde(default)]
+    pub spot_time_moving: f32,
     /// A long, narrow view cone on top of `vision` (infantry spotters).
     #[serde(default)]
     pub binoculars: Option<BinocularsDef>,

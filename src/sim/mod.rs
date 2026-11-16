@@ -188,7 +188,12 @@ pub struct Intel {
     pub look: f32,
     /// The enemy the binoculars follow (0 = none: scanning).
     pub lock: u32,
+    /// Units with a `spot_time`: how far each team has got with spotting it (`SPOTTED` = seen).
+    #[serde(default)]
+    pub spot: [u16; 16],
 }
+/// `Intel.spot` of a team that has made the unit out.
+pub const SPOTTED: u16 = u16::MAX;
 
 /// Switched off by the player: no construction work, no production, no upkeep, no radar.
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
@@ -529,6 +534,8 @@ pub struct Cen {
     pub building: u32,
     pub upgrading: bool,
     pub paused: bool,
+    /// A weapon is reloading: it has fired a moment ago.
+    pub firing: bool,
     /// Wreck id this unit is being revived from (0 = not a revival site, or finished).
     pub revival: u32,
 }
@@ -1118,7 +1125,7 @@ pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
         body: Body { pos, y, yaw, vel: v2(0.0, 0.0) },
         health: Health(hp),
         orders: Orders::default(),
-        intel: Intel { seen: 1 << team, radar: 1 << team, look: yaw, lock: 0 },
+        intel: Intel { seen: 1 << team, radar: 1 << team, look: yaw, lock: 0, spot: [0; 16] },
         built: built.map(UnderConstruction),
         upgrading: None,
         capture: None,
@@ -1490,7 +1497,7 @@ mod tests {
             body: Body { pos: p, y: 1.5, yaw: 0.3, vel: v2(0.1, 0.2) },
             health: Health(55.0),
             orders: Orders(vec![Order::Move(p)]),
-            intel: Intel { seen: 3, radar: 5, look: 0.7, lock: 9 },
+            intel: Intel { seen: 3, radar: 5, look: 0.7, lock: 9, spot: [7; 16] },
             built: Some(UnderConstruction(0.4)),
             upgrading: Some(Upgrading(0.2)),
             capture: Some(Capture { by: 2, progress: 0.5 }),

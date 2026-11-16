@@ -2902,6 +2902,36 @@ fn binocular_tests(defs: &Defs) {
         println!("== Binoculars: enemy behind seen {behind_seen} of 150 ticks; enemy 110 ahead found after {found:?} ticks, locked {locked}; driving round to ({:.0},{:.0}) it stayed in sight {kept} of {ticks} ticks, binoculars at {:.0} deg, still locked {}", end.x, end.y, i.look.to_degrees(), i.lock == ahead);
         assert!(behind_seen == 0 && found.is_some() && locked && i.lock == ahead && intel(world, ahead).seen & 1 != 0 && kept > ticks * 9 / 10, "binoculars");
     }
+    // Spotting delay: a tank in view is seen at once, walking infantry quickly, infantry that
+    // keeps still only after its `spot_time`; out of view the progress is lost again.
+    {
+        let (mut app, map) = flat();
+        let world = app.world_mut();
+        let seen = |world: &mut World, id: u32| -> bool { world.query::<(&Unit, &Intel)>().iter(world).find(|(u, _)| u.id == id).map_or(false, |(_, i)| i.seen & 1 != 0) };
+        let td = defs.get(defs.id("trooper").unwrap());
+        let watcher = spawn(world, &map, "overtaker", 0, v2(120.0, 150.0), 0.0);
+        let tank = spawn(world, &map, "overtaker", 1, v2(150.0, 140.0), 3.14);
+        let still = spawn(world, &map, "trooper", 1, v2(150.0, 150.0), 3.14);
+        let walker = spawn(world, &map, "trooper", 1, v2(150.0, 160.0), 3.14);
+        for id in [watcher, tank, still, walker] {
+            set_hp(world, id, 1.0e6);
+        }
+        order(world, 1, vec![walker], Order::Move(v2(150.0, 175.0)));
+        let mut first = [None; 3];
+        for k in 1..=200 {
+            world.run_schedule(SimTick);
+            for (n, id) in [tank, still, walker].into_iter().enumerate() {
+                if first[n].is_none() && seen(world, id) {
+                    first[n] = Some(k);
+                }
+            }
+        }
+        println!("== Spotting (trooper: {} s hiding, {} s moving): at 30 from an Overtaker the tank is seen after {:?} ticks, the walking trooper after {:?}, the one keeping still after {:?}", td.spot_time, td.spot_time_moving, first[0], first[2], first[1]);
+        if td.spot_time > td.spot_time_moving {
+            let (t, s, w) = (first[0].unwrap_or(999), first[1].unwrap_or(999), first[2].unwrap_or(999));
+            assert!(t <= 2 && w > t && s > w && s as f32 <= td.spot_time * 10.0 + 3.0, "spotting delay");
+        }
+    }
 }
 
 /// Bombing runs, fighter-bombers and the SAM site (`--combattest`, or alone with `LR_TEST=air`).

@@ -116,11 +116,11 @@ fn census_build(
     mut wrecks: ResMut<WreckList>,
     game: Res<Game>,
     defs: Res<Defs>,
-    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>, Option<&Revival>)>,
+    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>, Option<&Revival>, Option<&Weapons>)>,
     wq: Query<&Wreck>,
 ) {
     census.clear();
-    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused, rev) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused, rev, weapons) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
         census.push(Cen {
             e,
@@ -149,6 +149,7 @@ fn census_build(
             building: factory.map_or(0, |f| f.building),
             upgrading,
             paused,
+            firing: weapons.map_or(false, |w| w.list.iter().any(|x| x.cd > 0.0 || x.burst > 0)),
             revival: if uc { rev.map_or(0, |r| r.0) } else { 0 },
         });
     }
@@ -468,13 +469,16 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     let map = &*map;
     let found = par_map(&census.list, 32, |c| {
         let own = 1u16 << c.team;
-        let (mut seen, mut radar) = (own, own);
+        let (mut seen, mut radar, mut near) = (own, own, own);
         let head = c.pos.at(c.y + c.height + 0.5);
         // Stealth level 3 never shows on radar.
-        let stealth = defs.get(c.def).stealth.min(3) as usize;
+        let d = defs.get(c.def);
+        let stealth = d.stealth.min(3) as usize;
+        // Units that take time to spot: `seen` is "in view" here, `near` those that see it at once.
+        let slow = d.spot_time > 0.0 || d.spot_time_moving > 0.0;
         for v in &viewers {
             let bit = 1u16 << v.team;
-            if seen & bit != 0 && radar & bit != 0 {
+            if seen & bit != 0 && radar & bit != 0 && (!slow || near & bit != 0) {
                 continue;
             }
             let d2 = (v.pos - c.pos).len2();
@@ -485,22 +489,50 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
                     let along = (c.pos - v.pos).dot(v.dir);
                     along > 0.0 && along * along >= v.cos2 * d2
                 });
-            if seen & bit == 0 && in_view && (d2 < near2 || map.sight_line(v.look, head, &block, hills_sight)) {
+            if in_view && d2 < near2 {
+                seen |= bit;
+                near |= bit;
+            } else if seen & bit == 0 && in_view && map.sight_line(v.look, head, &block, hills_sight) {
                 seen |= bit;
             }
             if radar & bit == 0 && stealth < 3 && d2 < v.radar2[stealth] && (!hills_radar || map.los(v.eye, head)) {
                 radar |= bit;
             }
         }
-        (seen, radar)
+        (seen, radar, near)
     });
-    for (c, (seen, radar)) in census.list.iter_mut().zip(found) {
+    let step = |secs: f32| if secs > 0.0 { ((SPOTTED as f32 * DT / secs) as u32).clamp(1, SPOTTED as u32) as u16 } else { SPOTTED };
+    let forget = step(defs.rules.spot_forget);
+    for (c, (mut seen, radar, near)) in census.list.iter_mut().zip(found) {
+        let Ok(mut i) = q.get_mut(c.e) else { continue };
+        // Spotting delay: a team that has the unit in view gets on with making it out, quickly
+        // while it moves or fires, slowly while it keeps still; out of view the progress drains.
+        let d = defs.get(c.def);
+        if d.spot_time > 0.0 || d.spot_time_moving > 0.0 {
+            let exposed = c.firing || c.vel.len2() > 0.04;
+            let gain = step(if exposed { d.spot_time_moving } else { d.spot_time });
+            for t in 0..16 {
+                let bit = 1u16 << t;
+                if t == c.team as usize {
+                    continue;
+                }
+                let s = &mut i.spot[t];
+                *s = if near & bit != 0 {
+                    SPOTTED
+                } else if seen & bit != 0 {
+                    s.saturating_add(gain)
+                } else {
+                    s.saturating_sub(forget)
+                };
+                if *s < SPOTTED {
+                    seen &= !bit;
+                }
+            }
+        }
         c.seen = seen;
         c.radar = radar;
-        if let Ok(mut i) = q.get_mut(c.e) {
-            i.seen = seen;
-            i.radar = radar;
-        }
+        i.seen = seen;
+        i.radar = radar;
     }
 }
 
