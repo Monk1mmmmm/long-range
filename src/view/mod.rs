@@ -483,6 +483,57 @@ fn animate_parts(
 #[derive(Component)]
 struct WreckVisual;
 
+/// The remembered look of an enemy building that is out of sight (SupCom style): its model as last seen,
+/// kept where it stood until the spot is seen again (`intel::IntelMemory`, also after it was destroyed).
+#[derive(Component)]
+struct GhostVisual {
+    id: u32,
+    def: DefId,
+    owner: u8,
+    built: Option<f32>,
+    yaw: f32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ghost_visuals(
+    mut commands: Commands,
+    mem: Res<intel::IntelMemory>,
+    defs: Res<Defs>,
+    game: Res<Game>,
+    q: Query<(Entity, &GhostVisual)>,
+    mut cache: ResMut<ModelCache>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let want = |g: &intel::Ghost| g.structure && !g.seen && g.def.is_some();
+    let mut shown = std::collections::HashSet::new();
+    for (e, gv) in &q {
+        let keep = mem.ghosts.get(&gv.id).is_some_and(|g| want(g) && g.def == Some(gv.def) && g.owner == gv.owner && g.built == gv.built && g.yaw == gv.yaw);
+        if keep {
+            shown.insert(gv.id);
+        } else {
+            commands.entity(e).despawn();
+        }
+    }
+    let mut fresh: Vec<&intel::Ghost> = mem.ghosts.values().filter(|g| want(g) && !shown.contains(&g.id)).collect();
+    fresh.sort_by_key(|g| g.id);
+    for g in fresh.into_iter().take(12) {
+        let def = g.def.unwrap();
+        let d = defs.get(def);
+        let (ci, rgb) = owner_color(&defs, &game, g.owner);
+        let root = spawn_model(&mut commands, &mut cache, &defs, def, ci, rgb, g.built.is_some(), None, &mut meshes, &mut images, &mut materials);
+        let scale = match g.built {
+            Some(p) if d.is_structure() => Vec3::new(1.0, 0.25 + 0.75 * p.clamp(0.0, 1.0), 1.0),
+            _ => Vec3::ONE,
+        };
+        let t = Transform::from_translation(g.pos.at(g.y)).with_rotation(yaw_quat(g.yaw)).with_scale(scale);
+        commands
+            .spawn((GhostVisual { id: g.id, def, owner: g.owner, built: g.built, yaw: g.yaw }, t, Visibility::Visible, GameScene))
+            .add_child(root);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn wreck_visuals(
     mut commands: Commands,
@@ -544,7 +595,7 @@ impl Plugin for ViewPlugin {
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, debris::debris_visuals, unit_transforms, drive_anims, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, ghost_visuals, debris::debris_visuals, unit_transforms, drive_anims, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
                 .chain()
                 .run_if(in_game),
         );

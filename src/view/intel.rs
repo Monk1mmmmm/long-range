@@ -47,10 +47,15 @@ pub struct Ghost {
     pub owner: u8,
     pub pos: V2,
     pub y: f32,
+    pub yaw: f32,
+    /// Construction progress when last seen (`None`: finished).
+    pub built: Option<f32>,
     pub structure: bool,
     pub last_tick: u32,
     /// Detected right now (by sight or radar).
     pub live: bool,
+    /// In sight right now (its own model shows; otherwise a remembered building shows a ghost model).
+    pub seen: bool,
 }
 
 #[derive(Resource, Default)]
@@ -137,7 +142,7 @@ pub fn update_intel(
     mut mem: ResMut<IntelMemory>,
     tex: Option<Res<FogTexture>>,
     mut images: ResMut<Assets<Image>>,
-    q: Query<(&Unit, &Body, &Intel, Has<UnderConstruction>, Option<&Hosted>, Has<Paused>)>,
+    q: Query<(&Unit, &Body, &Intel, Option<&UnderConstruction>, Option<&Hosted>, Has<Paused>)>,
     (features, wrecks): (Res<Features>, Res<WreckList>),
 ) {
     if mem.tick == game.tick {
@@ -170,7 +175,7 @@ pub fn update_intel(
                 },
                 None => None,
             };
-            if game.team_of(u.owner) != team || uc {
+            if game.team_of(u.owner) != team || uc.is_some() {
                 continue;
             }
             let d = defs.get(u.def);
@@ -259,17 +264,19 @@ pub fn update_intel(
     // Lobby option: the map's neutral and hostile buildings start out as remembered buildings.
     if game.reveal_props && !mem.props_known {
         mem.props_known = true;
-        for (u, b, _, _, hosted, _) in &q {
+        for (u, b, _, uc, hosted, _) in &q {
             let d = defs.get(u.def);
             if (u.owner == NEUTRAL || u.owner == HOSTILE) && d.is_structure() && hosted.is_none() && game.team_of(u.owner) != team {
-                mem.ghosts.insert(u.id, Ghost { id: u.id, def: Some(u.def), owner: u.owner, pos: b.pos, y: b.y, structure: true, last_tick: game.tick, live: false });
+                let built = uc.map(|p| p.0);
+                mem.ghosts.insert(u.id, Ghost { id: u.id, def: Some(u.def), owner: u.owner, pos: b.pos, y: b.y, yaw: b.yaw, built, structure: true, last_tick: game.tick, live: false, seen: false });
             }
         }
     }
     for g in mem.ghosts.values_mut() {
         g.live = false;
+        g.seen = false;
     }
-    for (u, b, intel, _, hosted, _) in &q {
+    for (u, b, intel, uc, hosted, _) in &q {
         let ut = game.team_of(u.owner);
         if ut == team || hosted.is_some() {
             continue;
@@ -280,13 +287,18 @@ pub fn update_intel(
         if !seen && !radar {
             continue;
         }
-        let g = mem.ghosts.entry(u.id).or_insert(Ghost { id: u.id, def: None, owner: u.owner, pos: b.pos, y: b.y, structure: d.is_structure(), last_tick: game.tick, live: true });
+        let g = mem.ghosts.entry(u.id).or_insert(Ghost { id: u.id, def: None, owner: u.owner, pos: b.pos, y: b.y, yaw: b.yaw, built: None, structure: d.is_structure(), last_tick: game.tick, live: true, seen });
         g.pos = b.pos;
         g.y = b.y;
         g.last_tick = game.tick;
         g.live = true;
+        g.seen = seen;
         if seen {
+            // What it looks like now: a ghost model shows this once it is out of sight.
             g.def = Some(u.def);
+            g.owner = u.owner;
+            g.yaw = b.yaw;
+            g.built = uc.map(|p| p.0);
         } else if !g.structure {
             // A mobile blip tells us where, not what.
             g.def = None;
