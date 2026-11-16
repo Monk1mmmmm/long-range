@@ -381,6 +381,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   view restarts. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
   selected layer, right removes it, on layer 0 it clears all layers above; Road tool: left adds points, right finishes
   or deletes the road under the pointer). `--generate` towns get paving/gravel around the buildings and asphalt roads.
+- **Water levels**: `MapData.water` is the sea; lakes above it are `MapData.lakes` (levels, at most 255) +
+  `lake_of` (one byte per cell: 0 = sea, k = `lakes[k - 1]`; map.json `lakes` + `lakes.png`). A lake covers the
+  cells with ground below its level (`flood_lake`; the editor's Lake tool: left fills the hollow under the pointer
+  to the "lake depth" slider, right drains; `osm_map.py` makes them from OSM lakes). Never read `map.water` for
+  a position: use `water_at` / `water_xz` / `water_cell`, `water_vertex` (craters), `surface(p)` (ground or water
+  top: hover, markers), `water_near` (looks only). Levels are fixed during a game: a pit dug beside a lake stays
+  dry. View: `terrain::lake_mesh` (one mesh, all lake cells), the sea plane as before.
 - **Terrain**: ground hits of `crater_min_damage` or more dig craters; `Order::Terraform {pos, radius, height}`
   moves the circle towards `height` for energy. Vertices under buildings and on the map border are locked.
   Craters are limited so they never block a cell or dig below the water (`sim::dig_crater`), which keeps
@@ -409,7 +416,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - `assets/data/factions/coalition.json` - the playable faction (the mod roster).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
-- `assets/maps/<name>/map.json` + `height.png` (16-bit) + `layerN.png` (8-bit ground layer masks) - premade maps; `props` are pre-placed neutral
+- `assets/maps/<name>/map.json` + `height.png` (16-bit) + `layerN.png` (8-bit ground layer masks) + `lakes.png` (8-bit, lake number per cell, only with lakes) - premade maps; `props` are pre-placed neutral
   (owner 0) or hostile (owner 1) units of any faction; `points` are the control points.
 - Host and clients play with identical data: a client whose data hash differs gets the host's `DataPack`
   (and asset files the built-in data does not refer to) with `S2C::Start`.

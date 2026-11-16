@@ -368,7 +368,7 @@ fn drive_anims(
                     toward(s, target && !moving, 1.0);
                 }
                 AnimKind::Land => toward(s, moving, 1.0),
-                AnimKind::Water => toward(s, map.h(i.cur.0) < map.water, 1.0),
+                AnimKind::Water => toward(s, map.h(i.cur.0) < map.water_at(i.cur.0), 1.0),
                 AnimKind::Rolloff => {
                     // Out, held while the finished unit leaves, then back.
                     let building = factory.map_or(0, |f| f.building);

@@ -231,11 +231,12 @@ impl MapData {
         fn patches(p: V2, freq: f32, seed: u64, salt: u64, a: f32, b: f32) -> f32 {
             smooth(a, b, fbm(p.x * freq + 17.0, p.y * freq + 17.0, seed ^ salt))
         }
-        fn shore(m: &MapData, h: f32) -> f32 {
-            ((m.water + 0.9 - h) / 0.9).clamp(0.0, 1.0)
+        // Shores follow the water nearby: the sea, or a lake a cell or two away.
+        fn shore(m: &MapData, h: f32, p: V2) -> f32 {
+            ((m.water_near(p, 2) + 0.9 - h) / 0.9).clamp(0.0, 1.0)
         }
-        fn under(m: &MapData, h: f32) -> f32 {
-            ((m.water - 0.2 - h) / 1.5).clamp(0.0, 1.0)
+        fn under(m: &MapData, h: f32, p: V2) -> f32 {
+            ((m.water_near(p, 1) - 0.2 - h) / 1.5).clamp(0.0, 1.0)
         }
         fn cliff(s: f32, a: f32, b: f32) -> f32 {
             smooth(a, b, s)
@@ -245,24 +246,24 @@ impl MapData {
                 ("grass", |_, _, _, _, _, _| 1.0),
                 ("meadow", |_, _, _, _, p, s| patches(p, 1.0 / 60.0, s, 0x21, 0.52, 0.66)),
                 ("dirt", |_, _, sl, _, p, s| patches(p, 1.0 / 22.0, s, 0x33, 0.62, 0.72).max(smooth(0.06, 0.11, sl) * 0.8)),
-                ("sand", |m, h, _, _, _, _| shore(m, h)),
-                ("mud", |m, h, _, _, _, _| under(m, h)),
+                ("sand", |m, h, _, _, p, _| shore(m, h, p)),
+                ("mud", |m, h, _, _, p, _| under(m, h, p)),
                 ("stone", |_, _, sl, f, _, _| cliff(sl, 0.12, 0.22).max(smooth(0.82, 0.95, f))),
             ],
             Biome::Desert => vec![
                 ("dunes", |_, _, _, _, _, _| 1.0),
                 ("cracked", |_, _, _, f, p, s| patches(p, 1.0 / 45.0, s, 0x45, 0.50, 0.62) * (1.0 - smooth(0.5, 0.8, f))),
                 ("gravel", |_, _, sl, _, p, s| patches(p, 1.0 / 25.0, s, 0x57, 0.64, 0.74).max(smooth(0.05, 0.10, sl))),
-                ("sand", |m, h, _, _, _, _| shore(m, h)),
-                ("mud", |m, h, _, _, _, _| under(m, h)),
+                ("sand", |m, h, _, _, p, _| shore(m, h, p)),
+                ("mud", |m, h, _, _, p, _| under(m, h, p)),
                 ("stone", |_, _, sl, _, _, _| cliff(sl, 0.10, 0.20)),
             ],
             Biome::Arctic => vec![
                 ("snow", |_, _, _, _, _, _| 1.0),
                 // Frozen shores and wind-blown ice on flat low ground.
-                ("ice", |m, h, sl, f, p, s| ((m.water + 0.6 - h) / 0.8).clamp(0.0, 1.0).max(patches(p, 1.0 / 50.0, s, 0x69, 0.66, 0.74) * (1.0 - smooth(0.02, 0.05, sl)) * (1.0 - smooth(0.2, 0.4, f)))),
+                ("ice", |m, h, sl, f, p, s| ((m.water_near(p, 2) + 0.6 - h) / 0.8).clamp(0.0, 1.0).max(patches(p, 1.0 / 50.0, s, 0x69, 0.66, 0.74) * (1.0 - smooth(0.02, 0.05, sl)) * (1.0 - smooth(0.2, 0.4, f)))),
                 ("gravel", |_, _, sl, _, p, s| patches(p, 1.0 / 30.0, s, 0x71, 0.64, 0.74) * 0.9 + smooth(0.07, 0.13, sl) * 0.3),
-                ("mud", |m, h, _, _, _, _| under(m, h)),
+                ("mud", |m, h, _, _, p, _| under(m, h, p)),
                 ("stone", |_, _, sl, _, _, _| cliff(sl, 0.14, 0.26)),
                 ("snow", |_, _, sl, f, _, _| smooth(0.75, 0.9, f) * (1.0 - cliff(sl, 0.3, 0.45))),
             ],
@@ -270,7 +271,7 @@ impl MapData {
                 ("dirt", |_, _, _, _, _, _| 1.0),
                 ("grass", |_, _, sl, f, p, s| (1.0 - smooth(0.04, 0.09, sl)) * (1.0 - smooth(0.45, 0.65, f)) * patches(p, 1.0 / 40.0, s, 0x83, 0.40, 0.52)),
                 ("gravel", |_, _, sl, _, p, s| patches(p, 1.0 / 26.0, s, 0x95, 0.60, 0.70).max(smooth(0.06, 0.12, sl) * 0.7)),
-                ("mud", |m, h, _, _, _, _| under(m, h).max(shore(m, h) * 0.6)),
+                ("mud", |m, h, _, _, p, _| under(m, h, p).max(shore(m, h, p) * 0.6)),
                 ("stone", |_, _, sl, f, _, _| cliff(sl, 0.10, 0.18).max(smooth(0.55, 0.75, f))),
                 ("snow", |_, _, sl, f, _, _| smooth(0.86, 0.97, f) * (1.0 - cliff(sl, 0.25, 0.4))),
             ],

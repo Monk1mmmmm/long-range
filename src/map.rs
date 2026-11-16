@@ -250,7 +250,15 @@ pub struct MapData {
     /// Side length in cells; the heightmap has (n+1)^2 vertices.
     pub n: usize,
     pub heights: Vec<f32>,
+    /// The sea: the water level of every cell that belongs to no lake.
     pub water: f32,
+    /// Water levels of the lakes that lie above the sea (at most `MAX_LAKES`).
+    #[serde(default)]
+    pub lakes: Vec<f32>,
+    /// Per cell: 0 = the sea level `water`, k = `lakes[k - 1]`. Empty on a map without lakes.
+    /// A lake covers every cell that has ground below its level (see `flood_lake`).
+    #[serde(default)]
+    pub lake_of: Vec<u8>,
     pub deposits: Vec<V2>,
     pub starts: Vec<V2>,
     /// Control points of the control points mode (placed in the editor like the starts).
@@ -303,7 +311,14 @@ struct MapFile {
     /// One line per road: "kind width x z x z ...".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     roads: Vec<String>,
+    /// Water levels of lakes above `water`; `lakes.png` (8-bit, one pixel per cell) holds each
+    /// cell's lake: 0 = none, k = `lakes[k - 1]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    lakes: Vec<f32>,
 }
+
+/// Most lakes a map can hold (a cell's lake is one byte, 0 = none).
+pub const MAX_LAKES: usize = 255;
 
 impl MapData {
     pub fn world(&self) -> f32 {
@@ -340,7 +355,168 @@ impl MapData {
     pub fn h(&self, p: V2) -> f32 {
         self.height(p.x, p.y)
     }
-    /// Height units stand on (never below the water surface for display purposes).
+    /// Water level of a cell: its lake's, else the sea's.
+    pub fn water_cell(&self, cx: usize, cy: usize) -> f32 {
+        if self.lake_of.is_empty() {
+            return self.water;
+        }
+        let m = self.n.saturating_sub(1);
+        match self.lake_of.get(cy.min(m) * self.n + cx.min(m)) {
+            Some(&k) if k > 0 => self.lakes.get(k as usize - 1).map_or(self.water, |l| l.max(self.water)),
+            _ => self.water,
+        }
+    }
+    /// Water level at a world position.
+    pub fn water_xz(&self, x: f32, z: f32) -> f32 {
+        if self.lake_of.is_empty() {
+            return self.water;
+        }
+        self.water_cell((x / CELL).max(0.0) as usize, (z / CELL).max(0.0) as usize)
+    }
+    pub fn water_at(&self, p: V2) -> f32 {
+        self.water_xz(p.x, p.y)
+    }
+    /// Highest water level of the (up to four) cells around a vertex.
+    pub fn water_vertex(&self, x: usize, y: usize) -> f32 {
+        if self.lake_of.is_empty() || self.n == 0 {
+            return self.water;
+        }
+        let mut w = self.water;
+        for cy in y.saturating_sub(1)..=y.min(self.n - 1) {
+            for cx in x.saturating_sub(1)..=x.min(self.n - 1) {
+                w = w.max(self.water_cell(cx, cy));
+            }
+        }
+        w
+    }
+    /// Highest water level within `r` cells of a position (for looks: shores, ground painting).
+    pub fn water_near(&self, p: V2, r: usize) -> f32 {
+        if self.lake_of.is_empty() || self.n == 0 {
+            return self.water;
+        }
+        let (cx, cy) = ((p.x / CELL).max(0.0) as usize, (p.y / CELL).max(0.0) as usize);
+        let mut w = self.water;
+        for y in cy.saturating_sub(r)..=(cy + r).min(self.n - 1) {
+            for x in cx.saturating_sub(r)..=(cx + r).min(self.n - 1) {
+                w = w.max(self.water_cell(x, y));
+            }
+        }
+        w
+    }
+    /// The ground, or the water surface where it lies under water: what hovercraft float on and
+    /// markers are drawn on.
+    pub fn surface(&self, p: V2) -> f32 {
+        self.height(p.x, p.y).max(self.water_xz(p.x, p.y))
+    }
+
+    fn cell_low(&self, x: usize, y: usize) -> f32 {
+        self.vertex(x, y).min(self.vertex(x + 1, y)).min(self.vertex(x, y + 1)).min(self.vertex(x + 1, y + 1))
+    }
+
+    /// The connected cells around `start` (8 neighbours) for which `take` holds.
+    fn connected(&self, start: (usize, usize), take: impl Fn(usize, usize) -> bool) -> Vec<usize> {
+        let n = self.n;
+        let mut seen = vec![false; n * n];
+        let mut out = vec![];
+        let mut stack = vec![start];
+        while let Some((x, y)) = stack.pop() {
+            if x >= n || y >= n || seen[y * n + x] || !take(x, y) {
+                continue;
+            }
+            seen[y * n + x] = true;
+            out.push(y * n + x);
+            for (dx, dy) in [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx >= 0 && ny >= 0 {
+                    stack.push((nx as usize, ny as usize));
+                }
+            }
+        }
+        out
+    }
+
+    /// Fills the hollow at `p` with water up to `level`: every connected cell with ground below
+    /// the level joins the lake (a lake already at `p` is replaced). Returns the number of cells.
+    pub fn flood_lake(&mut self, p: V2, level: f32) -> Result<usize, String> {
+        let n = self.n;
+        if n == 0 {
+            return Err("no map".into());
+        }
+        if level <= self.water {
+            return Err("a lake must lie above the map's water level".into());
+        }
+        let start = (((p.x / CELL).max(0.0) as usize).min(n - 1), ((p.y / CELL).max(0.0) as usize).min(n - 1));
+        if self.cell_low(start.0, start.1) >= level {
+            return Err("the ground here is above that level".into());
+        }
+        self.remove_lake(p);
+        if self.lakes.len() >= MAX_LAKES {
+            return Err(format!("a map holds at most {MAX_LAKES} lakes"));
+        }
+        let cells = self.connected(start, |x, y| self.cell_low(x, y) < level);
+        self.lake_of.resize(n * n, 0);
+        self.lakes.push(level);
+        let k = self.lakes.len() as u8;
+        for c in &cells {
+            self.lake_of[*c] = k;
+        }
+        self.tidy_lakes();
+        self.rebuild_blocked();
+        Ok(cells.len())
+    }
+
+    /// Drains the lake at `p`. False if there is none.
+    pub fn remove_lake(&mut self, p: V2) -> bool {
+        let n = self.n;
+        if n == 0 || self.lake_of.len() != n * n {
+            return false;
+        }
+        let start = (((p.x / CELL).max(0.0) as usize).min(n - 1), ((p.y / CELL).max(0.0) as usize).min(n - 1));
+        let k = self.lake_of[start.1 * n + start.0];
+        if k == 0 {
+            return false;
+        }
+        for c in self.connected(start, |x, y| self.lake_of[y * n + x] == k) {
+            self.lake_of[c] = 0;
+        }
+        self.tidy_lakes();
+        self.rebuild_blocked();
+        true
+    }
+
+    pub fn clear_lakes(&mut self) {
+        self.lakes.clear();
+        self.lake_of.clear();
+        self.rebuild_blocked();
+    }
+
+    /// Drops lake levels no cell uses (and the cell list when no lake is left).
+    fn tidy_lakes(&mut self) {
+        let mut used = vec![false; self.lakes.len() + 1];
+        for k in &mut self.lake_of {
+            if *k as usize >= used.len() {
+                *k = 0;
+            }
+            used[*k as usize] = true;
+        }
+        let mut new = vec![0u8; used.len()];
+        let mut lakes = vec![];
+        for k in 1..used.len() {
+            if used[k] {
+                lakes.push(self.lakes[k - 1]);
+                new[k] = lakes.len() as u8;
+            }
+        }
+        self.lakes = lakes;
+        if self.lakes.is_empty() {
+            self.lake_of.clear();
+        } else {
+            for k in &mut self.lake_of {
+                *k = new[*k as usize];
+            }
+        }
+    }
+
     pub fn normal(&self, x: f32, z: f32) -> Vec3 {
         let e = CELL * 0.5;
         let dx = self.height(x + e, z) - self.height(x - e, z);
@@ -353,7 +529,7 @@ impl MapData {
         let hs = [self.vertex(x, y), self.vertex(x + 1, y), self.vertex(x, y + 1), self.vertex(x + 1, y + 1)];
         let (mn, mx) = (hs.iter().cloned().fold(f32::MAX, f32::min), hs.iter().cloned().fold(f32::MIN, f32::max));
         let avg = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25;
-        (mx - mn) / CELL > 0.85 || avg < self.water - 0.3
+        (mx - mn) / CELL > 0.85 || avg < self.water_cell(x, y) - 0.3
     }
 
     pub fn rebuild_blocked(&mut self) {
@@ -436,7 +612,7 @@ impl MapData {
             return None;
         }
         let w = self.world();
-        let ground = |p: Vec3| self.height(p.x, p.z).max(self.water);
+        let ground = |p: Vec3| self.height(p.x, p.z).max(self.water_xz(p.x, p.z));
         let mut t = 0.0;
         let mut prev = origin;
         // Skip quickly down to the highest possible terrain.
@@ -665,7 +841,7 @@ impl MapData {
                 return false;
             }
             let (cx, cy) = m.cell_of(p);
-            if !m.inside(cx, cy) || m.blocked[cy as usize * m.n + cx as usize] != 0 || on_road[cy as usize * m.n + cx as usize] || m.h(p) < m.water + 0.4 {
+            if !m.inside(cx, cy) || m.blocked[cy as usize * m.n + cx as usize] != 0 || on_road[cy as usize * m.n + cx as usize] || m.h(p) < m.water_at(p) + 0.4 {
                 return false;
             }
             !m.starts.iter().any(|s| s.dist(p) < 26.0) && !m.deposits.iter().any(|d| d.dist(p) < 3.5 + r) && !foots.iter().any(|(q, fr)| q.dist(p) < fr + r)
@@ -744,7 +920,15 @@ impl MapData {
             features: self.features.iter().map(|f| format!("{} {:.2} {:.2} {:.2} {:.2}", self.feature_kinds.get(f.kind as usize).map_or("?", |k| k.as_str()), f.pos.x, f.pos.y, f.yaw, f.scale)).collect(),
             layers: self.layers.clone(),
             roads: self.roads.iter().map(crate::surface::road_line).collect(),
+            lakes: self.lakes.clone(),
         };
+        let file = dir.join("lakes.png");
+        if self.lakes.is_empty() || self.lake_of.len() != self.n * self.n {
+            let _ = std::fs::remove_file(&file);
+        } else {
+            let img = image::GrayImage::from_raw(self.n as u32, self.n as u32, self.lake_of.clone()).ok_or("bad lake map size")?;
+            img.save(&file).map_err(|e| e.to_string())?;
+        }
         let len = self.mask_len();
         for i in 1..crate::surface::MAX_LAYERS {
             let file = dir.join(format!("layer{i}.png"));
@@ -789,6 +973,18 @@ impl MapData {
                 px.copy_from_slice(img.as_raw());
             }
             m.masks.extend_from_slice(&px);
+        }
+        if !f.lakes.is_empty() {
+            if f.lakes.len() > MAX_LAKES || !f.lakes.iter().all(|l| l.is_finite()) {
+                return Err(format!("map.json: bad lakes (at most {MAX_LAKES} levels)"));
+            }
+            let img = image::open(dir.join("lakes.png")).map_err(|e| format!("lakes.png: {e}"))?.into_luma8();
+            if img.width() as usize != m.n || img.height() as usize != m.n {
+                return Err(format!("lakes.png must be {0}x{0} pixels", m.n));
+            }
+            m.lakes = f.lakes;
+            m.lake_of = img.into_raw();
+            m.tidy_lakes();
         }
         for line in &f.features {
             let mut it = line.split_whitespace();
@@ -1045,4 +1241,69 @@ pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, sc: &mut PathScratch) -
         out.push(goal_pos);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A flat map at height 10 with a bowl (bottom 6) around (40, 40); the sea is at 0.
+    fn bowl() -> MapData {
+        let n = 48;
+        let mut m = MapData { n, heights: vec![10.0; (n + 1) * (n + 1)], water: 0.0, ..Default::default() };
+        for y in 0..=n {
+            for x in 0..=n {
+                let d = v2(x as f32 * CELL, y as f32 * CELL).dist(v2(40.0, 40.0));
+                m.heights[y * (n + 1) + x] = 6.0 + (d / 5.0).min(4.0);
+            }
+        }
+        m.rebuild_blocked();
+        m
+    }
+
+    #[test]
+    fn lake_above_the_sea() {
+        let mut m = bowl();
+        let c = v2(40.0, 40.0);
+        assert!(m.flood_lake(v2(80.0, 80.0), 8.0).is_err(), "dry ground takes no lake");
+        assert!(m.flood_lake(c, -1.0).is_err(), "below the sea");
+        let cells = m.flood_lake(c, 8.0).unwrap();
+        // Radius 10 at level 8: about pi * 5^2 cells.
+        assert!((60..130).contains(&cells), "{cells} cells");
+        assert_eq!(m.water_at(c), 8.0);
+        assert_eq!(m.surface(c), 8.0);
+        assert_eq!(m.water_at(v2(80.0, 80.0)), 0.0);
+        assert_eq!(m.surface(v2(80.0, 80.0)), 10.0);
+        // Deep water blocks, the far ground does not.
+        let (cx, cy) = m.cell_of(c);
+        assert_eq!(m.blocked[cy as usize * m.n + cx as usize], 1);
+        assert_eq!(m.blocked[40 * m.n + 40], 0);
+        // The pointer ray stops at the lake's surface.
+        let hit = m.raycast(Vec3::new(40.0, 50.0, 40.0), Vec3::NEG_Y).unwrap();
+        assert!((hit.y - 8.0).abs() < 0.01, "{hit}");
+        // A second click replaces the lake; draining leaves nothing behind.
+        m.flood_lake(c, 9.0).unwrap();
+        assert_eq!(m.lakes, vec![9.0]);
+        assert!(m.remove_lake(c));
+        assert!(m.lakes.is_empty() && m.lake_of.is_empty());
+        assert_eq!(m.blocked[cy as usize * m.n + cx as usize], 0);
+    }
+
+    #[test]
+    fn lakes_survive_saving() {
+        let mut m = bowl();
+        m.name = "lake test".into();
+        m.flood_lake(v2(40.0, 40.0), 8.0).unwrap();
+        let dir = std::env::temp_dir().join(format!("lr-lake-test-{}", std::process::id()));
+        m.save(&dir).unwrap();
+        let back = MapData::load(&dir).unwrap();
+        assert_eq!(back.lakes, m.lakes);
+        assert_eq!(back.lake_of, m.lake_of);
+        assert_eq!(back.blocked, m.blocked);
+        m.clear_lakes();
+        m.save(&dir).unwrap();
+        assert!(!dir.join("lakes.png").exists());
+        assert!(MapData::load(&dir).unwrap().lakes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

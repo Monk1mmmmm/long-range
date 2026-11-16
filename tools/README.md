@@ -82,7 +82,8 @@ The rectangle is in degrees: on openstreetmap.org, *Export* shows the box of the
 | OSM water towers, towers/masts, power pylons | `water_tower`, `comm_tower`, `pylon` |
 | highest hilltop away from the bases | neutral comm tower + three hostile bunkers |
 | OSM highways (`highway=*` up to service roads and tracks; tunnels left out) | roads: asphalt, gravel or dirt track by `surface`, drawn wider than true scale (`ROAD_WIDTH`); trees and rocks keep off them, buildings keep a cell off the main roads (tertiary and up) and off every other street except service roads and tracks |
-| OSM river named by `--river` (`waterway=river`), road and railway bridges over it, culverts | water: the land is tilted along the river so it runs level (one water level per map), the bed is dug under it, and every real bridge or culvert stays a land crossing |
+| OSM river named by `--river` (`waterway=river`), road and railway bridges over it, culverts | water: the land is tilted along the river so it runs level (a river has one level), the bed is dug under it, and every real bridge or culvert stays a land crossing |
+| OSM lakes, ponds, reservoirs (`natural=water` that is not a river, `landuse=reservoir/basin`) | lakes, each at its own water level (`lakes` + `lakes.png`): the height the terrain has across it; the bed is dug up to 1.8 under it, the ground around kept above it. `--lake-min 60` is the smallest one kept (square world units), `--no-lakes` leaves them dry |
 | OSM fields/meadows, forests, farmyards and construction, industry/commerce, built-up blocks, sand, water, rock + steep slopes | ground texture layers (`layerN.png`): meadow, forest floor, dirt, gravel, paving, sand, mud, stone over grass |
 
 Start positions (`--players`, default 4: corners) are searched in open, flat ground at equal distance from the
@@ -95,8 +96,8 @@ are packed solid and villages stay loose; the default 1.0 keeps everything that 
 `--river NAME` makes that river water, `--river-width 5,7` its width (world units, upstream,downstream).
 In towns (with `--village`) residential side streets are drawn narrower and give way to the buildings: their
 paint stops under a building, so they show as the lanes between them; main roads and through streets stay open.
-Ground lower than the river ends up just above the water. Other water is not flooded; lakes stay free of
-trees and buildings. The preview shows the water in blue and the bridges as yellow rings.
+Ground lower than the river ends up just above the water. Lakes are filled at their own levels and stay free
+of trees and buildings; other rivers and streams stay dry. The preview shows the water in blue and the bridges as yellow rings.
 
 Downloads are cached in `tools/out/osm_cache` (delete the files to fetch fresh data); the Overpass servers are
 sometimes busy, the script retries. It writes a check picture `tools/out/NAME_preview.png`: terrain, roads, trees

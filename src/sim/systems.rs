@@ -1647,7 +1647,7 @@ fn locomotion(
                 }
                 body.yaw = turn_toward(body.yaw, desired, turn * DT);
                 body.pos = body.pos + V2::from_angle(body.yaw) * (mv.speed * DT);
-                let want = map.h(body.pos).max(map.water) + mv.altitude;
+                let want = map.surface(body.pos) + mv.altitude;
                 body.y += (want - body.y).clamp(-5.0 * DT, 5.0 * DT);
             }
             MoveKind::Hover => {
@@ -1665,7 +1665,7 @@ fn locomotion(
                 if want_speed == 0.0 {
                     m.speed = 0.0;
                 }
-                let want = map.h(body.pos).max(map.water) + mv.altitude;
+                let want = map.surface(body.pos) + mv.altitude;
                 body.y += (want - body.y).clamp(-4.0 * DT, 4.0 * DT);
             }
             MoveKind::Land => {
@@ -1955,7 +1955,7 @@ fn weapons(
                     r.next();
                     let off = V2::from_angle(r.range(0.0, 6.283)) * (r.f().sqrt() * radius);
                     let p = map.clamp(gp + off);
-                    gpoint = Some(p.at(map.h(p).max(map.water)));
+                    gpoint = Some(p.at(map.surface(p)));
                 }
             }
             if gpoint.is_none() {
@@ -2225,7 +2225,7 @@ fn projectiles(
             for i in 1..=steps {
                 let t = i as f32 / steps as f32;
                 let s = a + seg * t;
-                if s.y <= map.height(s.x, s.z).max(map.water - 0.5) {
+                if s.y <= map.height(s.x, s.z).max(map.water_xz(s.x, s.z) - 0.5) {
                     ground_t = Some(t);
                     break;
                 }
@@ -2255,7 +2255,7 @@ fn projectiles(
         fx.push(at, FX_BLAST, p.radius.max(0.25 + p.damage.sqrt() * 0.05));
         // Shells that land on the ground leave a hole.
         let rules = &defs.rules;
-        if rules.craters_on() && p.damage >= rules.crater_min_damage && (victim == 0 || p.radius > 0.0) && at.y - map.height(at.x, at.z) < 1.5 && at.y > map.water - 0.5 {
+        if rules.craters_on() && p.damage >= rules.crater_min_damage && (victim == 0 || p.radius > 0.0) && at.y - map.height(at.x, at.z) < 1.5 && at.y > map.water_xz(at.x, at.z) - 0.5 {
             let depth = rules.crater_scale * p.damage.sqrt() * if p.radius > 0.0 { 1.0 } else { 0.5 };
             effects.craters.push((flat(at), p.radius * 0.5, depth));
         }

@@ -426,6 +426,8 @@ def main():
     ap.add_argument("--max-props", type=int, default=600, help="buildings (pylons and the outpost come on top)")
     ap.add_argument("--river", default="", help="OSM name of a river to make water: the land is tilted along it so it runs level")
     ap.add_argument("--river-width", default="5,7", help="width of the river in world units, upstream,downstream")
+    ap.add_argument("--no-lakes", action="store_true", help="leave lakes and ponds dry (mud), as before the game had lakes")
+    ap.add_argument("--lake-min", type=float, default=60.0, help="smallest lake kept, in square world units")
     ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
     a = ap.parse_args()
 
@@ -452,7 +454,7 @@ def main():
     # OSM layers.
     els = overpass(geo, a.name, river=bool(a.river))
     ras = Raster(world)
-    buildings, points, roads = [], [], []
+    buildings, points, roads, lake_polys = [], [], [], []
     river_ways, bridge_ways = [], []
     for el in els:
         t = el.get("tags", {})
@@ -497,6 +499,9 @@ def main():
             ras.poly("scrub", outer, inner)
         elif nat == "water" or lu in ("reservoir", "basin") or t.get("waterway") == "riverbank":
             ras.poly("water", outer, inner)
+            # Standing water becomes a lake at its own level (rivers slope: they are left to --river).
+            if t.get("waterway") != "riverbank" and t.get("water") not in ("river", "stream", "canal", "ditch", "drain"):
+                lake_polys.append((outer, inner))
         elif nat in ("bare_rock", "scree", "rock"):
             ras.poly("rock", outer, inner)
         elif t.get("leisure") == "park" or lu == "cemetery":
@@ -719,6 +724,72 @@ def main():
         t = np.clip((46 - d) / 20, 0, 1)
         t = t * t * (3 - 2 * t)
         heights = heights * (1 - t) + mean * t
+
+    # ---------------------------------------------------------------- lakes
+    # Every lake or pond of the real place keeps its own water level (the game's `lakes`): the
+    # level is the height the terrain model has across it, the bed is dug under it (deeper away
+    # from the shore) and the ground just around it is kept above it.
+    side = n + 1
+    lake_levels, lake_lab = [], np.zeros((side, side), np.int32)
+    if lake_polys and not a.no_lakes:
+        im = Image.new("I", (side, side), 0)
+        dr = ImageDraw.Draw(im)
+        for k, (outer, inner) in enumerate(lake_polys):
+            for r in outer:
+                if len(r) >= 3:
+                    dr.polygon([(x / CELL, z / CELL) for x, z in r], fill=k + 1)
+            for r in inner:
+                if len(r) >= 3:
+                    dr.polygon([(x / CELL, z / CELL) for x, z in r], fill=0)
+        lab = np.asarray(im).astype(np.int32)
+        # Polygons that touch are one lake.
+        parent = list(range(len(lake_polys) + 1))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for u, v in ((lab[:, :-1], lab[:, 1:]), (lab[:-1, :], lab[1:, :])):
+            m_ = (u > 0) & (v > 0) & (u != v)
+            for i, j in set(zip(u[m_].tolist(), v[m_].tolist())):
+                parent[find(i)] = find(j)
+        lab = np.array([find(i) for i in range(len(parent))], np.int32)[lab]
+        sea = water_level if water_level is not None else float(heights.min()) - 2.0
+        found = []
+        for k in np.unique(lab[lab > 0]):
+            m_ = lab == k
+            level = float(np.median(heights[m_]))
+            if m_.sum() * CELL * CELL >= a.lake_min and level > sea + 0.3:
+                found.append((int(m_.sum()), int(k), level))
+        found.sort(reverse=True)
+        for _, k, level in found[:255]:
+            lake_levels.append(round(level, 3))
+            lake_lab[lab == k] = len(lake_levels)
+
+        def grow(g):
+            out = g.copy()
+            for dj, di in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                sh = np.zeros_like(g)
+                sh[max(dj, 0):side + min(dj, 0), max(di, 0):side + min(di, 0)] = g[max(-dj, 0):side + min(-dj, 0), max(-di, 0):side + min(-di, 0)]
+                out = np.maximum(out, sh)
+            return out
+
+        if lake_levels:
+            lv = np.array([0.0] + lake_levels)
+            inside = lake_lab > 0
+            # Steps in from the shore (up to 3): 0.6 deep at the edge, 1.8 from the third vertex on.
+            depth, core = np.zeros((side, side)), inside
+            for _ in range(3):
+                depth += core * 0.6
+                core = ~grow(~core)
+            bed = lv[lake_lab] - depth
+            heights = np.where(inside, np.minimum(heights, bed), heights)
+            ring = grow(grow(lake_lab))
+            rim = (ring > 0) & ~inside
+            heights = np.where(rim, np.maximum(heights, lv[ring] + 0.25), heights)
+            print(f"lakes: {len(lake_levels)}, levels {min(lake_levels):.1f}..{max(lake_levels):.1f}, {inside.mean() * 100:.1f}% of the map")
 
     def h_at(x, z):
         fx, fz = min(max(x / CELL, 0), n - 0.001), min(max(z / CELL, 0), n - 0.001)
@@ -1083,6 +1154,17 @@ def main():
     mn, mx = float(heights.min()), float(heights.max())
     px = np.round((heights - mn) / (mx - mn) * 65535).astype(np.uint16)
     Image.fromarray(px).save(os.path.join(out, "height.png"))
+    # A cell belongs to a lake when one of its corners lies in it (the ground there is below the
+    # lake's level, and no lower ground outside the rim gets flooded).
+    lake_file = os.path.join(out, "lakes.png")
+    lake_cells = np.zeros((n, n), np.uint8)
+    if lake_levels:
+        lc = np.stack([lake_lab[:-1, :-1], lake_lab[:-1, 1:], lake_lab[1:, :-1], lake_lab[1:, 1:]]).max(0)
+        low = np.stack([heights[:-1, :-1], heights[:-1, 1:], heights[1:, :-1], heights[1:, 1:]]).min(0)
+        lake_cells = np.where(low < np.array([-1e9] + lake_levels)[lc], lc, 0).astype(np.uint8)
+        Image.fromarray(lake_cells).save(lake_file)
+    elif os.path.exists(lake_file):
+        os.remove(lake_file)
     m = {
         "name": a.title or a.name,
         "n": n,
@@ -1097,6 +1179,8 @@ def main():
         "layers": layer_list,
         "roads": [f"{kind} {width:.2f} " + " ".join(f"{x:.2f} {z:.2f}" for x, z in pts) for kind, width, _, pts in road_lines],
     }
+    if lake_levels:
+        m["lakes"] = lake_levels
     with open(os.path.join(out, "map.json"), "w", encoding="utf-8") as f:
         json.dump(m, f, indent=2)
     print("wrote", out)
@@ -1113,6 +1197,8 @@ def main():
     if water_level is not None:
         wet = Image.fromarray(((heights < water_level) * 255).astype(np.uint8)).resize(img.size)
         img.paste((40, 90, 200), mask=wet)
+    if lake_levels:
+        img.paste((40, 90, 200), mask=Image.fromarray(((lake_cells > 0) * 255).astype(np.uint8)).resize(img.size))
     for kind, width, _, pts in road_lines:
         d.line([(x * k, z * k) for x, z in pts], fill=(60, 60, 60) if kind == "asphalt" else (140, 110, 70), width=max(1, int(width * k)))
     for f in feats:

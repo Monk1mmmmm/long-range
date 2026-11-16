@@ -566,7 +566,7 @@ fn ring(g: &mut Gizmos, map: &MapData, c: V2, r: f32, col: Color) {
     let pt = |k: usize| {
         let a = k as f32 / n as f32 * std::f32::consts::TAU;
         let p = map.clamp(c + V2::from_angle(a) * r);
-        p.at(map.h(p).max(map.water) + 0.25)
+        p.at(map.surface(p) + 0.25)
     };
     g.linestrip((0..=n).map(pt), col);
 }
@@ -576,7 +576,7 @@ fn binocular_cone(g: &mut Gizmos, map: &MapData, c: V2, yaw: f32, angle: f32, r:
     let col = if locked { Color::srgba(1.0, 0.85, 0.3, 0.8) } else { Color::srgba(0.95, 0.9, 0.6, 0.45) };
     let at = |p: V2| {
         let p = map.clamp(p);
-        p.at(map.h(p).max(map.water) + 0.25)
+        p.at(map.surface(p) + 0.25)
     };
     let steps = (r / 4.0).clamp(4.0, 80.0) as usize;
     let arc = 12;
@@ -625,7 +625,7 @@ fn ground_line(g: &mut Gizmos, map: &MapData, a: V2, b: V2, col: Color) {
     g.linestrip(
         (0..=n).map(|k| {
             let p = a.lerp(b, k as f32 / n as f32);
-            p.at(map.h(p).max(map.water) + 0.3)
+            p.at(map.surface(p) + 0.3)
         }),
         col,
     );
@@ -719,7 +719,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let t = t * t * (3.0 - 2.0 * t);
         // The zoom sets the default pitch; holding Space turns and tilts the camera on top of it.
         let pitch = (50.0 + 34.0 * t + view.cam_tilt).clamp(12.0, 88.0).to_radians();
-        let target = view.cam_target.at(map.h(view.cam_target).max(map.water));
+        let target = view.cam_target.at(map.surface(view.cam_target));
         view.cam_pos = target + Vec3::new(d * pitch.cos() * view.cam_yaw.sin(), d * pitch.sin(), d * pitch.cos() * view.cam_yaw.cos());
         view.vp = view_proj(FOV, sw / sh, view.cam_pos, target);
         view.inv = view.vp.inverse();
@@ -1446,7 +1446,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let b = team_rgb(cp.by);
             ring(g, map, cp.pos, (defs.rules.cp_radius * cp.progress).max(0.5), Color::srgba(b[0], b[1], b[2], 1.0));
         }
-        let base = cp.pos.at(map.h(cp.pos).max(map.water));
+        let base = cp.pos.at(map.surface(cp.pos));
         g.line(base, base + Vec3::Y * 7.0, Color::srgba(c[0], c[1], c[2], 0.9));
     }
     // Previews for the active command.
@@ -1466,7 +1466,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 let ok = can_place(defs, map, &occ, d, *pt);
                 let c = if ok { Color::srgba(0.3, 1.0, 0.4, 1.0) } else { Color::srgba(1.0, 0.25, 0.2, 1.0) };
                 let h = df.footprint as f32 * CELL * 0.5;
-                let base = map.h(*pt).max(map.water);
+                let base = map.surface(*pt);
                 for (a, b) in [((-h, -h), (h, -h)), ((h, -h), (h, h)), ((h, h), (-h, h)), ((-h, h), (-h, -h))] {
                     let (pa, pb) = (*pt + v2(a.0, a.1), *pt + v2(b.0, b.1));
                     ground_line(g, map, pa, pb, c);
@@ -1508,7 +1508,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     if view.pathing.is_some() && path_len(&view.path) >= 2.5 {
         let c = if view.pathing == Some(0) || alt { Color::srgba(1.0, 0.45, 0.3, 1.0) } else { Color::srgba(0.3, 0.9, 1.0, 1.0) };
-        g.linestrip(view.path.iter().map(|pt| pt.at(map.h(*pt).max(map.water) + 0.35)), c);
+        g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.35)), c);
         let movers: Vec<&Info> = selected.iter().copied().filter(|u| !fr.d(u.def).is_structure() && !fr.d(u.def).is_plane()).collect();
         for pt in fr.formation(&movers, &view.path) {
             ring(g, map, pt, 0.45, c);
@@ -1525,7 +1525,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if pumps.iter().any(|q| q.dist(*dep) < 1.5) {
             continue;
         }
-        let y = map.h(*dep).max(map.water);
+        let y = map.surface(*dep);
         let (Some((base, _)), Some((top, _))) = (w2s(view, dep.at(y)), w2s(view, dep.at(y + 2.2))) else { continue };
         let r = (900.0 / view.cam_dist.max(1.0)).clamp(8.0, 12.0);
         // Never closer to the spot than the marker is tall, so it stays "above" when zoomed far out.
@@ -1636,7 +1636,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if !game.points.is_empty() {
         let tex = p.assets.order_icons(&ctx);
         for cp in &game.points {
-            let Some((sp, _)) = w2s(view, cp.pos.at(map.h(cp.pos).max(map.water) + 7.0)) else { continue };
+            let Some((sp, _)) = w2s(view, cp.pos.at(map.surface(cp.pos) + 7.0)) else { continue };
             bg.circle_filled(sp, 13.0, rgba(0, 0, 0, 150));
             if let Some(tx) = tex.get("flag") {
                 bg.image(tx.id(), egui::Rect::from_center_size(sp, egui::vec2(20.0, 20.0)), UV, rgb(team_rgb(cp.owner)));

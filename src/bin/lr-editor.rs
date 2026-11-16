@@ -39,6 +39,8 @@ enum Tool {
     Ground,
     /// Draw roads point by point (right mouse finishes, or deletes the road under the pointer).
     Road,
+    /// Fill the hollow under the pointer with a lake (right mouse drains the lake there).
+    Lake,
 }
 
 /// What the tree and rock brush paints.
@@ -55,6 +57,8 @@ struct Editor {
     tool: Tool,
     radius: f32,
     strength: f32,
+    /// Lake tool: water depth at the clicked spot.
+    lake_depth: f32,
     cam_target: V2,
     cam_dist: f32,
     name: String,
@@ -312,7 +316,7 @@ fn paint_features(map: &mut MapData, defs: &Defs, rng: &mut Rng, paint: Paint, s
         let scale = rng.range(0.8, 1.2);
         let fr = def.radius() * scale;
         let w = map.world();
-        if p.x < 1.0 || p.y < 1.0 || p.x > w - 1.0 || p.y > w - 1.0 || map.h(p) < map.water + 0.2 {
+        if p.x < 1.0 || p.y < 1.0 || p.x > w - 1.0 || p.y > w - 1.0 || map.h(p) < map.water_at(p) + 0.2 {
             continue;
         }
         if near.iter().any(|(q, qr)| q.dist(p) < (qr + fr) * 0.85 * spacing) {
@@ -465,6 +469,18 @@ fn editor_ui(
                 t.translation.y = map.water;
             }
         }
+        // Lakes above that level (real places: a lake up in the hills).
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut ed.tool, Tool::Lake, "Lake").on_hover_text("Left click: fill the hollow under the pointer with water, as deep at that spot as the slider says. Right click: drain the lake there. Click a lake again after reshaping its shore.");
+            ui.label(format!("{} on the map", map.lakes.len()));
+            if !map.lakes.is_empty() && ui.button("Drain all").clicked() {
+                map.clear_lakes();
+                full_rebuild = true;
+            }
+        });
+        if ed.tool == Tool::Lake {
+            ui.add(egui::Slider::new(&mut ed.lake_depth, 0.3..=30.0).logarithmic(true).text("lake depth"));
+        }
         ui.separator();
         ground_ui(ui, ed, map, &mut surface, &mut full_rebuild);
         ui.separator();
@@ -594,7 +610,7 @@ fn editor_ui(
     }
     ed.cam_target = v2(ed.cam_target.x.clamp(0.0, world), ed.cam_target.y.clamp(0.0, world));
     let pitch = 62f32.to_radians();
-    let target = ed.cam_target.at(map.h(ed.cam_target).max(map.water));
+    let target = ed.cam_target.at(map.surface(ed.cam_target));
     let cam_pos = target + Vec3::new(0.0, ed.cam_dist * pitch.sin(), ed.cam_dist * pitch.cos());
     if let Ok(mut t) = camera.single_mut() {
         *t = Transform::from_translation(cam_pos).looking_at(target, Vec3::Y);
@@ -610,7 +626,7 @@ fn editor_ui(
         g.linestrip(
             (0..=n).map(|k| {
                 let p = map.clamp(c + V2::from_angle(k as f32 / n as f32 * 6.2832) * r);
-                p.at(map.h(p).max(map.water) + 0.3)
+                p.at(map.surface(p) + 0.3)
             }),
             col,
         );
@@ -646,9 +662,24 @@ fn editor_ui(
                 }
             }
         }
+        if ed.tool == Tool::Lake {
+            if buttons.just_pressed(MouseButton::Left) {
+                // Under an existing lake the pointer is on its surface: measure from the bed.
+                let level = map.h(p) + ed.lake_depth;
+                ed.status = match map.flood_lake(p, level) {
+                    Ok(cells) => format!("Lake at level {level:.1}: {cells} cells"),
+                    Err(e) => format!("No lake: {e}"),
+                };
+                full_rebuild = true;
+            }
+            if buttons.just_pressed(MouseButton::Right) && map.remove_lake(p) {
+                ed.status = "Lake drained".into();
+                full_rebuild = true;
+            }
+        }
         if ed.tool == Tool::Road {
             // The road being drawn, and where the next point would go.
-            let line: Vec<Vec3> = ed.drawing.iter().chain(std::iter::once(&p)).map(|q| q.at(map.h(*q).max(map.water) + 0.3)).collect();
+            let line: Vec<Vec3> = ed.drawing.iter().chain(std::iter::once(&p)).map(|q| q.at(map.surface(*q) + 0.3)).collect();
             if line.len() > 1 {
                 gizmos.linestrip(line, Color::srgb(1.0, 0.85, 0.3));
             }
@@ -1024,6 +1055,7 @@ fn main() {
             tool: Tool::Raise,
             radius: 14.0,
             strength: 6.0,
+            lake_depth: 2.0,
             cam_target: map.center(),
             cam_dist: 140.0,
             name: "my_map".into(),

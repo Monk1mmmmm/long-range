@@ -1005,11 +1005,12 @@ pub fn dig_crater(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, r
         let k = (1.0 - t * t) * (1.0 - t * t);
         let h = map.heights[i];
         let mut floor = ground.base[i] - max_depth;
-        if ground.base[i] > map.water + 0.1 {
-            floor = floor.max(map.water + 0.1);
-        }
         // Locked vertices are never inside the circle, so all eight neighbours exist.
         let (x, y) = (i % side, i / side);
+        let water = map.water_vertex(x, y);
+        if ground.base[i] > water + 0.1 {
+            floor = floor.max(water + 0.1);
+        }
         for (nx, ny) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)] {
             floor = floor.max(map.heights[ny * side + nx] - CRATER_STEP);
         }

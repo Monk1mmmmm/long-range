@@ -425,21 +425,26 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     ));
     // Water covers the map and the sea around it; it takes no shadows (cascade borders showed up
     // as rectangles on it).
+    let water_mat = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
+        alpha_mode: AlphaMode::Blend,
+        perceptual_roughness: 0.12,
+        reflectance: 0.6,
+        ..default()
+    });
     commands.spawn((
         Mesh3d(meshes.add(water_mesh(world * 12.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
-            alpha_mode: AlphaMode::Blend,
-            perceptual_roughness: 0.12,
-            reflectance: 0.6,
-            ..default()
-        })),
+        MeshMaterial3d(water_mat.clone()),
         Transform::from_xyz(world * 0.5, map.water, world * 0.5),
         NotShadowCaster,
         NotShadowReceiver,
         WaterPlane,
         GameScene,
     ));
+    // Lakes above the sea have their own surface.
+    if let Some(mesh) = lake_mesh(map) {
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(water_mat), Transform::IDENTITY, NotShadowCaster, NotShadowReceiver, GameScene));
+    }
     spawn_deposits(commands, map, meshes, materials);
     commands.spawn((
         DirectionalLight { illuminance: 13000.0, shadow_maps_enabled: true, ..default() },
@@ -470,6 +475,51 @@ fn water_mesh(size: f32) -> Mesh {
         .with_inserted_indices(Indices::U32(vec![0, 3, 2, 0, 2, 1]))
 }
 
+/// The surfaces of the lakes (`MapData::lakes`): every lake cell at its level, cells in a row
+/// joined into strips. Cells the ground has since risen above stay in; the terrain hides them.
+/// Drawn before the fog overlays like the sea (the extra vertex of `water_mesh`).
+fn lake_mesh(map: &MapData) -> Option<Mesh> {
+    let n = map.n;
+    if map.lakes.is_empty() || map.lake_of.len() != n * n {
+        return None;
+    }
+    let (mut pos, mut uvs, mut idx) = (vec![], vec![], vec![]);
+    for y in 0..n {
+        let mut x = 0;
+        while x < n {
+            let k = map.lake_of[y * n + x];
+            let x0 = x;
+            while x < n && map.lake_of[y * n + x] == k {
+                x += 1;
+            }
+            let level = map.water_cell(x0, y);
+            if k == 0 || level <= map.water {
+                continue;
+            }
+            let (a, b, z) = (x0 as f32 * CELL, x as f32 * CELL, y as f32 * CELL);
+            let first = pos.len() as u32;
+            for (px, pz) in [(a, z), (b, z), (b, z + CELL), (a, z + CELL)] {
+                pos.push([px, level, pz]);
+                uvs.push([px / 12.0, pz / 12.0]);
+            }
+            idx.extend_from_slice(&[first, first + 3, first + 2, first, first + 2, first + 1]);
+        }
+    }
+    if pos.is_empty() {
+        return None;
+    }
+    pos.push([map.world() * 0.5, -100_000.0, map.world() * 0.5]);
+    uvs.push([0.0, 0.0]);
+    let count = pos.len();
+    Some(
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; count])
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+            .with_inserted_indices(Indices::U32(idx)),
+    )
+}
+
 /// The dashed line along the map border. `width` is the line's width the mesh was built for; it
 /// follows the camera distance (rebuilt in steps), so the line stays about as wide on screen.
 #[derive(Component)]
@@ -496,7 +546,7 @@ fn edge_mesh(map: &MapData, width: f32) -> Mesh {
             let first = pos.len() as u32;
             for i in 0..=pieces {
                 let p = a + dir * (t + (end - t) * i as f32 / pieces as f32);
-                let y = map.height(p.x, p.y).max(map.height(p.x + inward.x * half, p.y + inward.y * half)).max(map.water) + lift;
+                let y = map.height(p.x, p.y).max(map.height(p.x + inward.x * half, p.y + inward.y * half)).max(map.water_at(p)) + lift;
                 for side in [-1.0, 1.0] {
                     let q = p + inward * (half * side);
                     pos.push([q.x, y, q.y]);
@@ -538,7 +588,7 @@ pub fn map_edge_sync(map: Option<Res<MapData>>, camera: Query<&GlobalTransform, 
     // Nearest border point.
     let (x, z) = (c.x.clamp(0.0, world), c.z.clamp(0.0, world));
     let b = if (x.min(world - x)) < (z.min(world - z)) { v2(if x < world - x { 0.0 } else { world }, z) } else { v2(x, if z < world - z { 0.0 } else { world }) };
-    let dist = c.distance(b.at(map.height(b.x, b.y).max(map.water)));
+    let dist = c.distance(b.at(map.surface(b)));
     let w = edge_width(dist);
     for (mut e, mesh) in &mut edges {
         if (e.width - w).abs() > 1e-3 {
@@ -584,8 +634,9 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
             let (wx, wz) = ((x as f32 + 0.5) * k, (y as f32 + 0.5) * k);
             let mut c = picture_color(map, &tint, wx, wz);
             let h = map.height(wx, wz);
-            if h < map.water {
-                let t = ((map.water - h) / 2.0).clamp(0.3, 1.0);
+            let water = map.water_xz(wx, wz);
+            if h < water {
+                let t = ((water - h) / 2.0).clamp(0.3, 1.0);
                 c = [c[0] * (1.0 - t) + 0.07 * t, c[1] * (1.0 - t) + 0.22 * t, c[2] * (1.0 - t) + 0.34 * t];
             }
             let nrm = map.normal(wx, wz);
@@ -645,8 +696,9 @@ pub fn minimap_pixels(map: &MapData) -> Vec<u8> {
             let (wx, wz) = ((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
             let mut c = picture_color(map, &tint, wx, wz);
             let h = map.height(wx, wz);
-            if h < map.water {
-                let k = ((map.water - h) / 2.0).clamp(0.3, 1.0);
+            let water = map.water_xz(wx, wz);
+            if h < water {
+                let k = ((water - h) / 2.0).clamp(0.3, 1.0);
                 c = [c[0] * (1.0 - k) + 0.07 * k, c[1] * (1.0 - k) + 0.22 * k, c[2] * (1.0 - k) + 0.34 * k];
             }
             // Simple hill shading.
