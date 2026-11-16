@@ -501,13 +501,15 @@ fn ghost_visuals(
     mem: Res<intel::IntelMemory>,
     defs: Res<Defs>,
     game: Res<Game>,
+    settings: Res<crate::settings::Settings>,
     q: Query<(Entity, &GhostVisual)>,
     mut cache: ResMut<ModelCache>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let want = |g: &intel::Ghost| g.structure && !g.seen && g.def.is_some();
+    // Graphics setting: without ghost models every one of them is despawned and none made.
+    let want = |g: &intel::Ghost| settings.ghost_models && g.structure && !g.seen && g.def.is_some();
     let dim = |g: &intel::Ghost| g.gone && defs.rules.ghosts_show_destroyed;
     let mut shown = std::collections::HashSet::new();
     for (e, gv) in &q {

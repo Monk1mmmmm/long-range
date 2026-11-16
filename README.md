@@ -13,7 +13,8 @@ unwieldy tanks with long guns, slow turrets and long reloads, where scouting and
 - Fog of war, radar blocked by terrain, radar blips that fade, remembered enemy buildings
 - Command queues, attack-move, patrol, ground fire, area reclaim, area extractor placement,
   drag a line to spread units along it
-- Skirmish AI and LAN multiplayer for 2-10 players (free-for-all or teams)
+- Six skirmish AI types (zone control, strategy-switching overseer, adaptive expander, rusher, turtle, simple)
+  and LAN multiplayer for 2-10 players (free-for-all or teams)
 - Units, weapons, factions and rules are JSON files; maps are a JSON file plus a heightmap PNG
 - Map editor (`lr-editor`) with neutral and hostile pre-placed buildings
 
@@ -42,7 +43,8 @@ type the host's IP (shown in the lobby) into **Or by IP**. Allow the game throug
 networks (TCP 47800, UDP 47801). The game data (`assets/data`) is the host's: a player whose files differ
 receives the host's rules and units for that game.
 
-In the lobby the host clicks a slot to switch it between Open / AI / Closed, sets teams (same number = allies),
+In the lobby the host clicks a slot to switch it between Open / the AI types / Closed (hover an AI slot to read
+what that type does), sets teams (same number = allies),
 factions and the map: random (three sizes, 2-10 players) or any map from `assets/maps`, which brings its own
 number of start positions. **Mode** switches between annihilation and control points; **Game data** picks the
 built-in values or one of your presets.

@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use longrange::ai::{Ai, Ais};
+use longrange::ai::{Ai, AiKind, Ais, AI_KINDS};
 use longrange::data::{asset_root, DataPack, Defs};
 use longrange::map::*;
 use longrange::net::*;
@@ -20,6 +20,8 @@ struct Slot {
     name: String,
     team: u8,
     faction: u8,
+    /// AI slots: which AI plays it.
+    ai: AiKind,
     conn: u32,
     /// Fingerprint of that player's game data (from `Hello`).
     hash: u64,
@@ -114,7 +116,7 @@ impl HostLobby {
         }
         while self.slots.len() < n {
             let k = self.slots.len() as u8;
-            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, conn: 0, hash: 0 });
+            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, ai: AI_KINDS[0], conn: 0, hash: 0 });
         }
         self.dirty = true;
     }
@@ -167,7 +169,7 @@ impl HostLobby {
     }
     fn info(&self, you: i8, defs: &Defs) -> LobbyInfo {
         LobbyInfo {
-            slots: self.slots.iter().map(|s| SlotInfo { kind: s.kind, name: s.name.clone(), team: s.team, faction: s.faction }).collect(),
+            slots: self.slots.iter().map(|s| SlotInfo { kind: s.kind, name: s.name.clone(), team: s.team, faction: s.faction, ai: s.ai.id() }).collect(),
             map_name: self.map_label(),
             you,
             extra: self.options_text(defs),
@@ -215,8 +217,8 @@ fn take_over(world: &mut World, sim: &mut ClientSim, me: u8, name: &str) -> Resu
     restore(world, &snap);
     flush_limbo(world);
     let seed = (snap.game.tick as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    let ais = world.resource::<Game>().players.iter().enumerate().filter(|(_, pl)| pl.is_ai && pl.alive).map(|(k, _)| {
-        let mut ai = Ai::new(k as u8, seed);
+    let ais = world.resource::<Game>().players.iter().enumerate().filter(|(_, pl)| pl.is_ai && pl.alive).map(|(k, pl)| {
+        let mut ai = Ai::with_kind(k as u8, seed, AiKind::from_id(pl.ai_kind));
         ai.reclaim = sim.ai_reclaim;
         ai
     });
@@ -419,7 +421,7 @@ fn local_ip() -> String {
 fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     let host = Host::start(name)?;
     let faction = defs.playable_factions().first().copied().unwrap_or(0) as u8;
-    let mut slots: Vec<Slot> = (0..4).map(|k| Slot { kind: 0, name: String::new(), team: k, faction, conn: 0, hash: 0 }).collect();
+    let mut slots: Vec<Slot> = (0..4).map(|k| Slot { kind: 0, name: String::new(), team: k, faction, ai: AI_KINDS[0], conn: 0, hash: 0 }).collect();
     slots[0].kind = 2;
     slots[0].name = name.to_string();
     slots[2].kind = 3;
@@ -473,14 +475,14 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         let idx = setup.len() as u8;
         // LR_WATCH=1 lets an AI play the local slot too (spectating / testing).
         if s.kind == 3 || (s.conn == 0 && std::env::var("LR_WATCH").is_ok()) {
-            let mut ai = Ai::new(idx, seed);
+            let mut ai = Ai::with_kind(idx, seed, s.ai);
             ai.reclaim = l.ai_reclaim;
             ais.push(ai);
         } else if s.conn != 0 {
             remote.push((s.conn, idx));
             hashes.push((s.conn, s.hash));
         }
-        let name = if s.kind == 3 { format!("AI {}", k + 1) } else { s.name.clone() };
+        let name = if s.kind == 3 { format!("AI {} ({})", k + 1, s.ai.name()) } else { s.name.clone() };
         setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, faction: s.faction });
     }
     let sent_map = map.clone();
@@ -490,6 +492,9 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         enable_control_points(world, start);
     }
     world.resource_mut::<Game>().reveal_props = l.reveal_props;
+    for ai in &ais {
+        world.resource_mut::<Game>().players[ai.player as usize].ai_kind = ai.kind.id();
+    }
     world.insert_resource(Ais(ais));
     // LR_DUEL=1 stages a tank fight next to the first start (visual testing of combat).
     if std::env::var("LR_DUEL").is_ok() {
@@ -811,9 +816,11 @@ fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editab
                 0 => "Open".to_string(),
                 1 => "Closed".to_string(),
                 2 => format!("{}{}", s.name, if k as i8 == you { " (you)" } else { "" }),
-                _ => "AI".to_string(),
+                _ => format!("AI: {}", AiKind::from_id(s.ai).name()),
             };
-            if ui.add_sized([name_w, 30.0], egui::Button::new(label)).clicked() && editable {
+            let button = ui.add_sized([name_w, 30.0], egui::Button::new(label));
+            let button = if s.kind == 3 { button.on_hover_text(AiKind::from_id(s.ai).desc()) } else { button };
+            if button.clicked() && editable {
                 clicked = Some((k, 0));
             }
             if ui.add_sized([team_w, 30.0], egui::Button::new(format!("Team {}", s.team + 1))).clicked() && editable {
@@ -891,16 +898,18 @@ fn menu_ui(world: &mut World) {
         app.skirmish = false;
         match new_lobby(&app.name, &defs) {
             Ok(mut l) => {
-                for s in l.slots.iter_mut().skip(1) {
+                for (k, s) in l.slots.iter_mut().skip(1).enumerate() {
                     s.kind = 3;
+                    s.ai = AI_KINDS[k % 3];
                 }
                 // LR_MAP=<name> picks a premade map for --skirmish.
                 if let Ok(m) = std::env::var("LR_MAP") {
                     if let Some(k) = l.maps.iter().position(|x| *x == m) {
                         l.map_choice = SIZES.len() + k;
                         l.resize_slots(0);
-                        for s in l.slots.iter_mut().skip(1) {
+                        for (k, s) in l.slots.iter_mut().skip(1).enumerate() {
                             s.kind = 3;
+                            s.ai = AI_KINDS[k % 3];
                         }
                     }
                 }
@@ -1062,18 +1071,20 @@ fn menu_ui(world: &mut World) {
                                             s.name.clear();
                                             s.conn = 0;
                                         } else {
-                                            s.kind = match s.kind {
-                                                0 => 3,
-                                                3 => 1,
-                                                _ => 0,
-                                            };
+                                            // Open, every AI type in turn, closed.
+                                            match (s.kind, s.ai.next()) {
+                                                (0, _) => (s.kind, s.ai) = (3, AI_KINDS[0]),
+                                                (3, Some(next)) => s.ai = next,
+                                                (3, None) => s.kind = 1,
+                                                _ => s.kind = 0,
+                                            }
                                         }
                                     }
                                     _ => {}
                                 }
                                 l.dirty = true;
                             }
-                            ui.label(egui::RichText::new("Click a slot to switch Open / AI / Closed. Same team number = allies.").size(12.0).weak());
+                            ui.label(egui::RichText::new("Click a slot to switch Open / the AI types / Closed (hover an AI for what it does). Same team number = allies.").size(12.0).weak());
                             if !app.message.is_empty() {
                                 ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
                             }
@@ -1627,24 +1638,55 @@ fn selftest() {
         }
         Err(_) => {
             let mut map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345 + seed, n);
+            // LR_MOAT=1 digs water around the second start: nobody reaches the other by land.
+            if std::env::var("LR_MOAT").is_ok() {
+                let (c, water, side) = (map.starts[1], map.water, map.n + 1);
+                for k in 0..map.heights.len() {
+                    let d = v2((k % side) as f32 * CELL, (k / side) as f32 * CELL).dist(c);
+                    if d > 46.0 && d < 56.0 {
+                        map.heights[k] = water - 3.0;
+                    }
+                }
+                map.deposits.retain(|d| d.dist(c) <= 44.0 || d.dist(c) >= 58.0);
+                map.rebuild_blocked();
+            }
             map.scatter_features(&defs.rules.features, 12345 + seed, 1.0);
             (map, n)
         }
     };
     println!("map: {} ({} cells), {} trees and rocks, {} props", map.name, map.n, map.features.len(), map.props.len());
     let faction = defs.playable_factions()[0] as u8;
-    let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i}"), team: i as u8, is_ai: true, slot: i, faction }).collect();
+    // LR_AI=zones,overseer,simple,... picks the AI of every player in turn (default: one of each type).
+    let kinds: Vec<AiKind> = std::env::var("LR_AI").ok().map(|s| s.split(',').filter_map(AiKind::parse).collect()).filter(|v: &Vec<AiKind>| !v.is_empty()).unwrap_or(AI_KINDS.to_vec());
+    let kind = |i: usize| kinds[i % kinds.len()];
+    // LR_TEAMS=2 puts the players into that many teams (player i in team i % n).
+    let teams = std::env::var("LR_TEAMS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(n).clamp(2, n);
+    let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i} {}", kind(i).name()), team: (i % teams) as u8, is_ai: true, slot: i, faction }).collect();
     let world = app.world_mut();
     setup_game(world, map, &setup);
-    world.insert_resource(Ais((0..n).map(|i| Ai::new(i as u8, 99 + seed)).collect()));
+    for i in 0..n {
+        world.resource_mut::<Game>().players[i].ai_kind = kind(i).id();
+    }
+    // LR_POINTS=n plays control points mode with that many starting points.
+    if let Some(points) = std::env::var("LR_POINTS").ok().and_then(|s| s.parse::<f32>().ok()) {
+        enable_control_points(world, points);
+    }
+    world.insert_resource(Ais((0..n).map(|i| Ai::with_kind(i as u8, 99 + seed, kind(i))).collect()));
     // LR_PROFILE=1 prints how long each tick system took at the end.
     if std::env::var("LR_PROFILE").is_ok() {
         world.insert_resource(longrange::sim::systems::SimProfile::default());
     }
     let t0 = std::time::Instant::now();
+    let mut alive = vec![true; n];
     for t in 0..36000u32 {
         world.run_schedule(SimTick);
         let game = world.resource::<Game>().clone();
+        for (k, p) in game.players.iter().enumerate() {
+            if !p.alive && alive[k] {
+                alive[k] = false;
+                println!("   -- {} is out after {}s", p.name, t / 10);
+            }
+        }
         if t % 3000 == 0 || game.winner.is_some() {
             let snap = make_snapshot(world);
             let bytes = bincode::serialize(&snap).map(|b| b.len()).unwrap_or(0);
@@ -1652,7 +1694,18 @@ fn selftest() {
             for (k, p) in game.players.iter().enumerate() {
                 let mine: Vec<&UnitSnap> = snap.units.iter().filter(|u| u.unit.owner as usize == k).collect();
                 let top = mine.iter().map(|u| defs.get(u.unit.def).tier).max().unwrap_or(0);
-                println!("   {} alive={} mass {:.0}/{:.0} +{:.1} -{:.1}  energy {:.0}/{:.0} +{:.0} -{:.0}  units={} top tier={}", p.name, p.alive, p.mass, p.max_mass, p.income_m, p.spend_m, p.energy, p.max_energy, p.income_e, p.spend_e, mine.len(), top);
+                let army: f32 = mine.iter().map(|u| defs.get(u.unit.def)).filter(|d| !d.is_structure() && d.armed() && d.build.is_none()).map(|d| d.cost.mass).sum();
+                let strategy = world.resource::<Ais>().0.iter().find(|a| a.player as usize == k).map_or(String::new(), |a| format!("\n        {}", a.debug()));
+                let com = mine.iter().find(|u| defs.factions[p.faction as usize].commander == Some(u.unit.def)).map_or(String::new(), |u| format!(" commander hp {:.0} at {:.0} from start", u.health.0, u.body.pos.dist(p.start)));
+                // LR_COMP=1 lists what every player has.
+                if std::env::var("LR_COMP").is_ok() {
+                    let mut n: std::collections::BTreeMap<&str, u32> = Default::default();
+                    for u in &mine {
+                        *n.entry(defs.get(u.unit.def).id.as_str()).or_default() += 1;
+                    }
+                    println!("        {}", n.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "));
+                }
+                println!("   {} alive={} mass {:.0}/{:.0} +{:.1} -{:.1}  energy {:.0}/{:.0} +{:.0} -{:.0}  units={} army={:.0} top tier={}{}{}", p.name, p.alive, p.mass, p.max_mass, p.income_m, p.spend_m, p.energy, p.max_energy, p.income_e, p.spend_e, mine.len(), army, top, com, strategy);
             }
         }
         if game.winner.is_some() {

@@ -287,6 +287,9 @@ pub struct Player {
     pub color: u8,
     pub faction: u8,
     pub is_ai: bool,
+    /// AI players: `ai::AiKind::id` (a new host restarts the AIs as what they were).
+    #[serde(default)]
+    pub ai_kind: u8,
     pub alive: bool,
     pub mass: f32,
     pub energy: f32,

@@ -1,5 +1,5 @@
-//! Skirmish AI. It reads the JSON definitions by role (extractor, generator, factory, ...)
-//! rather than by unit name, so it keeps working with modded rosters, and it plays through
+//! Skirmish AIs (`AiKind`). They read the JSON definitions by role (extractor, generator, factory, ...)
+//! rather than by unit name, so they keep working with modded rosters, and they play through
 //! the same `Command` queue as human players.
 use crate::data::{DefId, Defs, UnitDef};
 use crate::map::*;
@@ -7,24 +7,122 @@ use crate::sim::*;
 use crate::sim::Command;
 use bevy::prelude::*;
 
+pub mod brain;
+
+/// The AI types a lobby slot can hold. `Simple` is the original build-and-wave AI; the others
+/// run on the zone engine in `brain.rs` and differ in how they use it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum AiKind {
+    #[default]
+    Simple,
+    /// M27 style: switches between grand strategies as the balance of forces changes.
+    Overseer,
+    /// M28 style: holds and takes the map zone by zone, helps its allies' zones.
+    Zones,
+    /// RNG style: expands wide, raids, builds what counters the enemy.
+    Adaptive,
+    Rusher,
+    Turtle,
+}
+
+/// In the order the lobby cycles through them.
+pub const AI_KINDS: [AiKind; 6] = [AiKind::Zones, AiKind::Overseer, AiKind::Adaptive, AiKind::Rusher, AiKind::Turtle, AiKind::Simple];
+
+impl AiKind {
+    pub fn id(self) -> u8 {
+        self as u8
+    }
+    pub fn from_id(id: u8) -> AiKind {
+        AI_KINDS.iter().copied().find(|k| k.id() == id).unwrap_or(AiKind::Simple)
+    }
+    /// Short name: player names, `LR_AI`.
+    pub fn name(self) -> &'static str {
+        match self {
+            AiKind::Simple => "Simple",
+            AiKind::Overseer => "Overseer",
+            AiKind::Zones => "Zones",
+            AiKind::Adaptive => "Adaptive",
+            AiKind::Rusher => "Rusher",
+            AiKind::Turtle => "Turtle",
+        }
+    }
+    pub fn desc(self) -> &'static str {
+        match self {
+            AiKind::Simple => "the old AI: builds up at home and attacks in growing waves",
+            AiKind::Overseer => "changes its strategy with the situation: rush, eco and tech, air, turtle, commander kill (after M27)",
+            AiKind::Zones => "takes and holds the map zone by zone, scouts everything, helps allies (after M28)",
+            AiKind::Adaptive => "expands wide, raids extractors, builds what counters your army (after RNG)",
+            AiKind::Rusher => "many factories, cheap units, early and constant attacks",
+            AiKind::Turtle => "turrets, radar and long range guns; techs up and attacks late",
+        }
+    }
+    pub fn parse(s: &str) -> Option<AiKind> {
+        AI_KINDS.iter().copied().find(|k| k.name().eq_ignore_ascii_case(s.trim()))
+    }
+    pub fn next(self) -> Option<AiKind> {
+        let k = AI_KINDS.iter().position(|x| *x == self).unwrap_or(0);
+        AI_KINDS.get(k + 1).copied()
+    }
+}
+
 pub struct Ai {
     pub player: u8,
+    pub kind: AiKind,
     /// Idle engineers reclaim trees and rocks (a lobby option).
     pub reclaim: bool,
     wave: u32,
     rng: Rng,
+    brain: brain::Brain,
 }
 
 impl Ai {
     pub fn new(player: u8, seed: u64) -> Ai {
-        Ai { player, reclaim: true, wave: 0, rng: Rng(seed.wrapping_mul(31).wrapping_add(player as u64 * 7919) | 1) }
+        Ai::with_kind(player, seed, AiKind::Simple)
+    }
+    pub fn with_kind(player: u8, seed: u64, kind: AiKind) -> Ai {
+        Ai { player, kind, reclaim: true, wave: 0, rng: Rng(seed.wrapping_mul(31).wrapping_add(player as u64 * 7919) | 1), brain: Default::default() }
+    }
+    /// What the AI is up to (for the self-test's report).
+    pub fn debug(&self) -> String {
+        if self.kind == AiKind::Simple { format!("wave {}", self.wave) } else { self.brain.debug() }
     }
 }
 
 #[derive(Resource, Default)]
 pub struct Ais(pub Vec<Ai>);
 
-fn find_spot(rng: &mut Rng, defs: &Defs, map: &MapData, occ: &[u8], d: DefId, center: V2) -> Option<V2> {
+/// What the zone AI reads of the world.
+pub struct Ctx<'a> {
+    pub census: &'a Census,
+    pub defs: &'a Defs,
+    pub map: &'a MapData,
+    pub nav: &'a Nav,
+    pub game: &'a Game,
+    pub features: &'a Features,
+    pub wrecks: &'a WreckList,
+}
+
+/// One of the AI's own units, as the zone AI sees it.
+pub struct Mine {
+    pub id: u32,
+    pub def: DefId,
+    pub pos: V2,
+    /// Its current order and how many it has.
+    pub order: Option<Order>,
+    pub orders: usize,
+    /// Under construction, upgrading, inside a factory or transport.
+    pub uc: bool,
+    pub upg: bool,
+    pub hosted: bool,
+    /// Factories: length of the production queue.
+    pub fq: Option<usize>,
+    /// Hit points, 0..1.
+    pub hp: f32,
+    /// Its queued build orders.
+    pub builds: Vec<(DefId, V2)>,
+}
+
+pub(crate) fn find_spot(rng: &mut Rng, defs: &Defs, map: &MapData, occ: &[u8], d: DefId, center: V2) -> Option<V2> {
     let step = (defs.get(d).footprint + 1) as f32 * CELL;
     for ring in 1..14i32 {
         let mut cands = vec![];
@@ -57,6 +155,7 @@ pub fn ai_system(
     nav: Res<Nav>,
     game: Res<Game>,
     features: Res<Features>,
+    wrecks: Res<WreckList>,
     mut queue: ResMut<CommandQueue>,
 ) {
     let Some(mut ais) = ais else { return };
@@ -70,6 +169,30 @@ pub fn ai_system(
             continue;
         }
         let mut out: Vec<Command> = vec![];
+        if ai.kind != AiKind::Simple {
+            let mut mine: Vec<Mine> = q
+                .iter()
+                .filter(|(u, ..)| u.owner == me)
+                .map(|(u, b, orders, factory, uc, upg, hosted)| Mine {
+                    id: u.id,
+                    def: u.def,
+                    pos: b.pos,
+                    order: orders.0.first().copied(),
+                    orders: orders.0.len(),
+                    uc,
+                    upg,
+                    hosted,
+                    fq: factory.map(|f| f.queue.len()),
+                    hp: census.get(u.id).map_or(1.0, |c| c.hp / c.max_hp.max(1.0)),
+                    builds: orders.0.iter().filter_map(|o| if let Order::Build { def, pos } = o { Some((*def, *pos)) } else { None }).collect(),
+                })
+                .collect();
+            mine.sort_by_key(|m| m.id);
+            let cx = Ctx { census: &census, defs: &defs, map: &map, nav: &nav, game: &game, features: &features, wrecks: &wrecks };
+            brain::run(&mut ai.brain, &mut ai.rng, ai.kind, ai.reclaim, me, &cx, &mine, &mut out);
+            queue.0.extend(out.into_iter().map(|c| (me, c)));
+            continue;
+        }
         let team = p.team;
         let start = p.start;
         let world = map.world();
