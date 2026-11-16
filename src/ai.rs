@@ -193,6 +193,9 @@ pub fn ai_system(
             queue.0.extend(out.into_iter().map(|c| (me, c)));
             continue;
         }
+        // In id order: the ECS's own order is not the same on every machine or run.
+        let mut all: Vec<_> = q.iter().collect();
+        all.sort_by_key(|x| x.0.id);
         let team = p.team;
         let start = p.start;
         let world = map.world();
@@ -205,7 +208,7 @@ pub fn ai_system(
         let mut count = vec![0u32; defs.units.len()];
         let mut claimed: Vec<V2> = vec![];
         let mut upgrading_any = false;
-        for (u, b, orders, _, _, upg, _) in &q {
+        for (u, b, orders, _, _, upg, _) in all.iter().copied() {
             if defs.get(u.def).needs_deposit {
                 claimed.push(b.pos);
             }
@@ -235,7 +238,7 @@ pub fn ai_system(
             || p.income_e < 40.0 + mexes as f32 * 6.0 + (land_facs + air_facs) as f32 * 40.0;
 
         // --- builders
-        for (u, b, orders, _, uc, _, hosted) in &q {
+        for (u, b, orders, _, uc, _, hosted) in all.iter().copied() {
             let df = defs.get(u.def);
             if u.owner != me || uc || hosted || !df.is_engineer() || !orders.0.is_empty() {
                 continue;
@@ -317,7 +320,7 @@ pub fn ai_system(
 
         // --- factories: tier up when the economy allows, otherwise produce
         let mut eng_count = engineers;
-        for (u, _, _, factory, uc, upg, _) in &q {
+        for (u, _, _, factory, uc, upg, _) in all.iter().copied() {
             let (Some(f), false, false) = (factory, uc, upg) else { continue };
             let df = defs.get(u.def);
             if u.owner != me || !f.queue.is_empty() {
@@ -360,7 +363,7 @@ pub fn ai_system(
 
         // --- extractor upgrades
         if !upgrading_any && p.mass > 400.0 && mexes >= 4 && p.income_e > 150.0 {
-            if let Some((u, ..)) = q.iter().find(|(u, _, _, _, uc, upg, _)| {
+            if let Some((u, ..)) = all.iter().copied().find(|(u, _, _, _, uc, upg, _)| {
                 let d = defs.get(u.def);
                 u.owner == me && !uc && !upg && d.needs_deposit && d.upgrade_id.map_or(false, |t| defs.get(t).cost.mass < p.mass + p.income_m * 100.0)
             }) {
@@ -369,8 +372,9 @@ pub fn ai_system(
         }
 
         // --- army
-        let army: Vec<(u32, V2)> = q
+        let army: Vec<(u32, V2)> = all
             .iter()
+            .copied()
             .filter(|(u, _, orders, _, uc, _, hosted)| {
                 let d = defs.get(u.def);
                 u.owner == me && !uc && !hosted && orders.0.is_empty() && !d.is_structure() && d.build.is_none() && d.transport.is_none()
