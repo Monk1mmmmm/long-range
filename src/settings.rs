@@ -567,7 +567,7 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(" px"));
         ui.end_row();
         ui.label("Map icons from zoom");
-        ui.add(egui::Slider::new(&mut s.icon_dist, 20.0..=800.0).logarithmic(true).step_by(5.0).suffix(" camera distance"));
+        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(" camera distance"));
         ui.end_row();
         ui.label("Build menu icons");
         ui.checkbox(&mut s.big_icons, "Bigger");
