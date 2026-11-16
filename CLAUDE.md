@@ -231,7 +231,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
   buildings once detected stay as ghosts until the spot is seen again and found empty. A ghost of a building
   that was seen keeps its model (as last seen: type, owner, facing, construction height) out of sight
-  (`view::ghost_visuals`), also after it was destroyed unseen. Right-clicking a
+  (`view::ghost_visuals`), also after it was destroyed unseen: then, with the preset switch
+  `rules.ghosts_show_destroyed` (default on), its model is drawn dark (`ModelCache::dim_mat`) and its icon faded. Right-clicking a
   ghost issues ground fire at its position.
 - **Reclaimables** (the user's word for trees, rocks and wrecks together): shells do not stop at them, but a
   shell flying through one loses its `cover` share of the damage to it (cover, below), and a

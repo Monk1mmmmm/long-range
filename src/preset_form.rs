@@ -71,6 +71,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("sight_blocked_by_terrain", "Hills block sight", "A unit only sees what it has a clear line to over the terrain. Off: units see everything within their vision range, hills or not."),
     yes("sight_blocked_by_reclaimables", "Trees, rocks and wrecks block sight", "Standing trees, rocks and wrecks block the view like small hills. Off: sight passes through them (they still soak up shots as cover)."),
     yes("radar_blocked_by_terrain", "Hills block radar", "Radar needs a clear line over the terrain, looking from 'Radar eye height' above the unit. Off: radar sees through hills."),
+    yes("ghosts_show_destroyed", "Dim destroyed remembered buildings", "An enemy building you have seen and then lost sight of stays on your map as you last saw it. When it is destroyed while nobody of your team looks, its model turns dim (as in SupCom), so you know it is gone without scouting. Off: it looks intact until you see the empty spot."),
     no("friendly_fire", "Friendly fire", "Shots and blasts also hurt your own and allied units, not just enemies."),
 ];
 

@@ -142,6 +142,8 @@ pub struct ModelCache {
     mats: HashMap<(DefId, u8), UnitMats>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
     wreck: HashMap<DefId, Handle<StandardMaterial>>,
+    /// Dark copies of unit materials (remembered buildings destroyed out of sight).
+    dim: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
     pub ghost_ok: Handle<StandardMaterial>,
     pub ghost_bad: Handle<StandardMaterial>,
     pub ghost_queued: Handle<StandardMaterial>,
@@ -375,6 +377,21 @@ impl ModelCache {
         self.flat.entry(key).or_insert_with(|| materials.add(StandardMaterial { base_color: Color::srgb(c[0], c[1], c[2]), perceptual_roughness: 0.75, ..default() })).clone()
     }
 
+    /// A darkened copy of `mat` (opaque: see-through parts of one model would sort badly).
+    pub fn dim_mat(&mut self, mat: &Handle<StandardMaterial>, materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
+        if let Some(m) = self.dim.get(&mat.id()) {
+            return m.clone();
+        }
+        let mut m = materials.get(mat).cloned().unwrap_or_default();
+        let c = m.base_color.to_srgba();
+        m.base_color = Color::srgba(c.red * 0.3, c.green * 0.3, c.blue * 0.32, c.alpha);
+        m.emissive = LinearRgba::BLACK;
+        m.reflectance = 0.1;
+        let h = materials.add(m);
+        self.dim.insert(mat.id(), h.clone());
+        h
+    }
+
     pub fn wreck_mat(&mut self, defs: &Defs, def: DefId, images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
         if let Some(m) = self.wreck.get(&def) {
             return m.clone();
@@ -491,6 +508,25 @@ pub fn spawn_model(
     images: &mut Assets<Image>,
     materials: &mut Assets<StandardMaterial>,
 ) -> Entity {
+    spawn_model_dim(commands, cache, defs, def, color, rgb, building, override_mat, false, meshes, images, materials)
+}
+
+/// `spawn_model`, `dim`: every part drawn with a darkened copy of its material.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_model_dim(
+    commands: &mut Commands,
+    cache: &mut ModelCache,
+    defs: &Defs,
+    def: DefId,
+    color: u8,
+    rgb: [f32; 3],
+    building: bool,
+    override_mat: Option<Handle<StandardMaterial>>,
+    dim: bool,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Entity {
     let model = cache.model(defs, def, meshes).clone();
     let mats = cache.unit_mats(defs, def, color, rgb, images, materials);
     let d = defs.get(def);
@@ -521,6 +557,7 @@ pub fn spawn_model(
                 }
                 (None, PartMat::Flat(spec)) => cache.flat_mat(spec, color, rgb, materials),
             };
+            let mat = if dim { cache.dim_mat(&mat, materials) } else { mat };
             e.insert((Mesh3d(mesh.clone()), MeshMaterial3d(mat)));
         }
         for (wi, w) in d.weapons.iter().enumerate().filter(|_| live) {

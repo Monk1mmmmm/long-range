@@ -56,6 +56,8 @@ pub struct Ghost {
     pub live: bool,
     /// In sight right now (its own model shows; otherwise a remembered building shows a ghost model).
     pub seen: bool,
+    /// The unit no longer exists (destroyed out of sight; `rules.ghosts_show_destroyed` shows it dimmed).
+    pub gone: bool,
 }
 
 #[derive(Resource, Default)]
@@ -268,13 +270,15 @@ pub fn update_intel(
             let d = defs.get(u.def);
             if (u.owner == NEUTRAL || u.owner == HOSTILE) && d.is_structure() && hosted.is_none() && game.team_of(u.owner) != team {
                 let built = uc.map(|p| p.0);
-                mem.ghosts.insert(u.id, Ghost { id: u.id, def: Some(u.def), owner: u.owner, pos: b.pos, y: b.y, yaw: b.yaw, built, structure: true, last_tick: game.tick, live: false, seen: false });
+                mem.ghosts.insert(u.id, Ghost { id: u.id, def: Some(u.def), owner: u.owner, pos: b.pos, y: b.y, yaw: b.yaw, built, structure: true, last_tick: game.tick, live: false, seen: false, gone: false });
             }
         }
     }
+    let exists: std::collections::HashSet<u32> = q.iter().map(|(u, ..)| u.id).collect();
     for g in mem.ghosts.values_mut() {
         g.live = false;
         g.seen = false;
+        g.gone = !exists.contains(&g.id);
     }
     for (u, b, intel, uc, hosted, _) in &q {
         let ut = game.team_of(u.owner);
@@ -287,7 +291,7 @@ pub fn update_intel(
         if !seen && !radar {
             continue;
         }
-        let g = mem.ghosts.entry(u.id).or_insert(Ghost { id: u.id, def: None, owner: u.owner, pos: b.pos, y: b.y, yaw: b.yaw, built: None, structure: d.is_structure(), last_tick: game.tick, live: true, seen });
+        let g = mem.ghosts.entry(u.id).or_insert(Ghost { id: u.id, def: None, owner: u.owner, pos: b.pos, y: b.y, yaw: b.yaw, built: None, structure: d.is_structure(), last_tick: game.tick, live: true, seen, gone: false });
         g.pos = b.pos;
         g.y = b.y;
         g.last_tick = game.tick;

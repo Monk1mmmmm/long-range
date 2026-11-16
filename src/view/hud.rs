@@ -854,7 +854,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
             } else {
                 Contact::Stale
             };
-            let fade = if g.live || g.structure { 1.0 } else { (1.0 - (game.tick.saturating_sub(g.last_tick)) as f32 / fade_ticks).clamp(0.0, 1.0) };
+            let fade = if g.gone && g.structure && defs.rules.ghosts_show_destroyed {
+                // Destroyed out of sight: dimmed like its model (`view::ghost_visuals`).
+                0.4
+            } else if g.live || g.structure {
+                1.0
+            } else {
+                (1.0 - (game.tick.saturating_sub(g.last_tick)) as f32 / fade_ticks).clamp(0.0, 1.0)
+            };
             let (sp, on_screen, rpx) = project(pos, y, d);
             let shown_def = if contact == Contact::Visible { infos.get(&g.id).map(|u| u.def).or(g.def) } else { g.def };
             seen.push(Seen { id: g.id, def: shown_def, owner: g.owner, pos, sp, on_screen, rpx, contact, mine: false, enemy: hostile(team, game.team_of(g.owner)), fade });
@@ -2218,7 +2225,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if any_holder && action("unload", "Unload (drag = area)", "K", view.mode == Mode::Unload) {
             new_mode = Some(Mode::Unload);
         }
-        if can_assist && faf && action("assist", "Assist / repair", "I", view.mode == Mode::Assist) {
+        if can_reclaim && faf && action("assist", "Assist / repair (scavengers: help revive and reclaim)", "I", view.mode == Mode::Assist) {
             new_mode = Some(Mode::Assist);
         }
         if action("stop", "Stop", if faf { "Esc" } else { "S" }, false) {

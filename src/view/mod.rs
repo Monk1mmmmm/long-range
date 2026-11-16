@@ -492,6 +492,7 @@ struct GhostVisual {
     owner: u8,
     built: Option<f32>,
     yaw: f32,
+    dim: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -507,9 +508,10 @@ fn ghost_visuals(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let want = |g: &intel::Ghost| g.structure && !g.seen && g.def.is_some();
+    let dim = |g: &intel::Ghost| g.gone && defs.rules.ghosts_show_destroyed;
     let mut shown = std::collections::HashSet::new();
     for (e, gv) in &q {
-        let keep = mem.ghosts.get(&gv.id).is_some_and(|g| want(g) && g.def == Some(gv.def) && g.owner == gv.owner && g.built == gv.built && g.yaw == gv.yaw);
+        let keep = mem.ghosts.get(&gv.id).is_some_and(|g| want(g) && g.def == Some(gv.def) && g.owner == gv.owner && g.built == gv.built && g.yaw == gv.yaw && dim(g) == gv.dim);
         if keep {
             shown.insert(gv.id);
         } else {
@@ -522,14 +524,14 @@ fn ghost_visuals(
         let def = g.def.unwrap();
         let d = defs.get(def);
         let (ci, rgb) = owner_color(&defs, &game, g.owner);
-        let root = spawn_model(&mut commands, &mut cache, &defs, def, ci, rgb, g.built.is_some(), None, &mut meshes, &mut images, &mut materials);
+        let root = spawn_model_dim(&mut commands, &mut cache, &defs, def, ci, rgb, g.built.is_some(), None, dim(g), &mut meshes, &mut images, &mut materials);
         let scale = match g.built {
             Some(p) if d.is_structure() => Vec3::new(1.0, 0.25 + 0.75 * p.clamp(0.0, 1.0), 1.0),
             _ => Vec3::ONE,
         };
         let t = Transform::from_translation(g.pos.at(g.y)).with_rotation(yaw_quat(g.yaw)).with_scale(scale);
         commands
-            .spawn((GhostVisual { id: g.id, def, owner: g.owner, built: g.built, yaw: g.yaw }, t, Visibility::Visible, GameScene))
+            .spawn((GhostVisual { id: g.id, def, owner: g.owner, built: g.built, yaw: g.yaw, dim: dim(g) }, t, Visibility::Visible, GameScene))
             .add_child(root);
     }
 }

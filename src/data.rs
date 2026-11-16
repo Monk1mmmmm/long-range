@@ -319,6 +319,9 @@ pub struct Rules {
     /// Hills block radar.
     #[serde(default = "yes")]
     pub radar_blocked_by_terrain: bool,
+    /// A remembered enemy building that was destroyed out of sight shows dimmed (SupCom style; view only).
+    #[serde(default = "yes")]
+    pub ghosts_show_destroyed: bool,
     /// Everything closer than this to a unit is seen, whatever stands in between.
     #[serde(default = "near_sight")]
     pub near_sight: f32,
@@ -411,6 +414,7 @@ impl Rules {
             (self.sight_blocked_by_terrain, "hills blocking sight"),
             (self.sight_blocked_by_reclaimables, "trees, rocks and wrecks blocking sight"),
             (self.radar_blocked_by_terrain, "hills blocking radar"),
+            (self.ghosts_show_destroyed, "dimming remembered buildings destroyed out of sight"),
         ] {
             if !on {
                 out.push(name);
