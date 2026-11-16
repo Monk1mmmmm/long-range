@@ -1092,8 +1092,17 @@ impl PartialOrd for Node {
     }
 }
 
+/// Occupancy value of a cell a field work (sandbags, a trench) stands on: nothing else can be
+/// built there, but units cross it and its ground is not locked.
+pub const OCC_WORK: u8 = 3;
+
+/// Can a unit stand on a cell with this occupancy value?
+pub fn passable(occ: u8) -> bool {
+    occ == 0 || occ == OCC_WORK
+}
+
 fn free(occ: &[u8], n: i32, x: i32, y: i32) -> bool {
-    x >= 0 && y >= 0 && x < n && y < n && occ[(y * n + x) as usize] == 0
+    x >= 0 && y >= 0 && x < n && y < n && passable(occ[(y * n + x) as usize])
 }
 
 /// True if a straight walk from a to b stays on free cells.

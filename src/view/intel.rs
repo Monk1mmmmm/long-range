@@ -168,7 +168,7 @@ pub fn update_intel(
         let mut spotting = std::collections::HashSet::new();
         let mut cone_budget = 24;
         // Infantry inside a building look out from its roof (as in `sim::systems::visibility`).
-        let garrisons: HashMap<u32, f32> = q.iter().filter(|(u, ..)| defs.get(u.def).is_garrison()).map(|(u, ..)| (u.id, defs.get(u.def).height())).collect();
+        let garrisons: HashMap<u32, (f32, f32)> = q.iter().filter(|(u, ..)| defs.get(u.def).is_garrison()).map(|(u, ..)| (u.id, (defs.get(u.def).height(), defs.get(u.def).roof_vision(&defs.rules)))).collect();
         for (u, b, intel, uc, hosted, paused) in &q {
             let roof = match hosted {
                 Some(h) => match garrisons.get(&h.0) {
@@ -181,9 +181,9 @@ pub fn update_intel(
                 continue;
             }
             let d = defs.get(u.def);
-            let top = roof.unwrap_or(d.height().max(1.0));
+            let top = roof.map_or(d.height().max(1.0), |r| r.0);
             // From a building's roof they see further (as in `sim::systems::visibility`).
-            let gain = if roof.is_some() { defs.rules.garrison_vision } else { 1.0 };
+            let gain = roof.map_or(1.0, |r| r.1);
             let vision = d.vision * gain;
             let power_out = game.players.get(u.owner as usize).map_or(false, |p| p.power_out);
             // The fog shows the furthest radar reach (what unstealthed units are found within).

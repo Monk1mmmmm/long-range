@@ -301,7 +301,7 @@ pub struct Rules {
     /// Share of the target's energy cost a capture uses up.
     #[serde(default = "capture_energy")]
     pub capture_energy: f32,
-    #[serde(default)]
+    #[serde(default = "yes")]
     pub friendly_fire: bool,
     /// Switches for whole game features (the preset editor's "Switches" section).
     /// Engineers can level, raise and lower the ground.
@@ -519,6 +519,24 @@ pub struct BinocularsDef {
 pub struct TransportDef {
     /// Cargo slots (a unit takes `cargo` slots, 1 unless its JSON says otherwise).
     pub capacity: u8,
+    /// A building infantry occupy: their vision and binocular range times this instead of
+    /// `rules.garrison_vision` (a watch tower).
+    #[serde(default)]
+    pub vision: Option<f32>,
+}
+
+/// A field work (sandbags, a trench piece): a structure that is cover rather than a target.
+/// Shots fly through it and lose its `cover` share to it, units walk and drive over it, nobody
+/// aims at it unless ordered to, and blasts wear it down like anything else.
+#[derive(Deserialize, Clone, Debug)]
+pub struct FieldworkDef {
+    /// Share of a shot's damage it takes instead of what it shelters.
+    pub cover: f32,
+    /// A trench: the ground of its cell is dug this much below the original ground (and stays so
+    /// when the trench is gone). It shelters the infantry standing in it, from every side.
+    /// 0 = a wall: it covers whatever enemy shots have to fly through it to reach.
+    #[serde(default)]
+    pub dig: f32,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -606,6 +624,10 @@ pub struct WeaponDef {
     /// Missiles: launch elevation in degrees (90 = straight up, like a cold-launched SAM); 0 = a low 20 degrees.
     #[serde(default)]
     pub launch_pitch: f32,
+    /// Sniper rifle: a hit on a building with enemy infantry inside harms one of them and leaves
+    /// the building alone; the weapon never shoots at buildings without enemy riders.
+    #[serde(default)]
+    pub snipe: bool,
     #[serde(skip)]
     pub dtype: usize,
     #[serde(skip)]
@@ -757,6 +779,9 @@ pub struct UnitDef {
     /// one against those storming it. 0 = cannot storm buildings.
     #[serde(default)]
     pub assault: f32,
+    /// Sandbags, trenches: cover that is built (see `FieldworkDef`).
+    #[serde(default)]
+    pub fieldwork: Option<FieldworkDef>,
     /// Sound played when the unit is selected (one of `view::sound::UI_SOUNDS`); empty = by role.
     #[serde(default)]
     pub select_sound: String,
@@ -855,6 +880,18 @@ impl UnitDef {
     /// A building infantry can occupy and fire from (a structure with a `transport` block).
     pub fn is_garrison(&self) -> bool {
         self.is_structure() && self.transport.is_some()
+    }
+    /// How much further infantry inside this building see (vision and binoculars).
+    pub fn roof_vision(&self, rules: &Rules) -> f32 {
+        self.transport.as_ref().and_then(|t| t.vision).filter(|v| *v > 0.0).unwrap_or(rules.garrison_vision)
+    }
+    /// Built cover (sandbags, a trench piece), see `FieldworkDef`.
+    pub fn is_fieldwork(&self) -> bool {
+        self.fieldwork.is_some() && self.is_structure()
+    }
+    /// Cover share and dug depth of a field work.
+    pub fn work(&self) -> Option<(f32, f32)> {
+        self.fieldwork.as_ref().filter(|_| self.is_structure()).map(|f| (f.cover.clamp(0.0, 1.0), f.dig.max(0.0)))
     }
 }
 

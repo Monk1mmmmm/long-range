@@ -104,7 +104,7 @@ fn begin_tick(
     if nav.dirty || nav.occ.len() != map.blocked.len() {
         nav.occ = map.blocked.clone();
         for (u, b) in &structures {
-            nav.stamp(&map, b.pos, defs.get(u.def).footprint, 2);
+            nav.stamp_def(&map, defs.get(u.def), b.pos);
         }
         nav.dirty = false;
     }
@@ -151,6 +151,7 @@ fn census_build(
             paused,
             firing: weapons.map_or(false, |w| w.list.iter().any(|x| x.cd > 0.0 || x.burst > 0)),
             revival: if uc { rev.map_or(0, |r| r.0) } else { 0 },
+            fieldwork: d.is_fieldwork(),
         });
     }
     wrecks.0.clear();
@@ -433,7 +434,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             c.height.max(1.0)
         };
         let d = defs.get(c.def);
-        let gain = if roof { defs.rules.garrison_vision } else { 1.0 };
+        let gain = if roof { census.get(c.host).map_or(1.0, |h| defs.get(h.def).roof_vision(&defs.rules)) } else { 1.0 };
         let vision = d.vision * gain;
         let (mut bin2, mut dir, mut cos2) = (0.0, v2(1.0, 0.0), 1.0);
         if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
@@ -803,7 +804,7 @@ fn think(
                                 goal = Some(bp);
                             } else if can_place(&defs, &map, &nav.occ, bd, bp) {
                                 let sid = spawn_unit(&mut commands, &defs, &mut game, &map, bd, owner, bp, PI * 0.5, false, 0);
-                                nav.stamp(&map, bp, defs.get(bd).footprint, 2);
+                                nav.stamp_def(&map, defs.get(bd), bp);
                                 // Trees and rocks on the plot are flattened.
                                 features.clear_square(bp, defs.get(bd).footprint);
                                 effects.sites.push((bd, bp, sid));
@@ -1253,8 +1254,29 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
             threat = Some((d, c.pos));
         }
     });
-    let (_, enemy) = threat?;
     let me = df.radius();
+    // A trench piece near by is the best place there is, whichever way the enemy comes from
+    // (and with no enemy about, too): one soldier per piece, the nearest free one.
+    let mut trench: Option<(f32, V2)> = None;
+    census.near(anchor, search + 1.0, |c| {
+        if !c.fieldwork || !c.done || c.hp <= 0.0 || defs.get(c.def).work().map_or(true, |w| w.1 <= 0.0) || c.pos.dist(anchor) > search {
+            return;
+        }
+        let mut taken = false;
+        census.near(c.pos, 2.0, |o| {
+            if o.id != id && !o.air && !o.hosted && !o.structure && in_cell(o.pos, c.pos) {
+                taken = true;
+            }
+        });
+        let score = c.pos.dist(pos) + c.pos.dist(anchor) * 0.5;
+        if !taken && trench.map_or(true, |b| score < b.0) {
+            trench = Some((score, c.pos));
+        }
+    });
+    if let Some(t) = trench {
+        return Some(t.1);
+    }
+    let (_, enemy) = threat?;
     // Too low to hide behind (bushes, small stones).
     let low = (df.height() * 0.45).max(0.7);
     let mut best: Option<(f32, V2)> = None;
@@ -1285,6 +1307,12 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
             consider(s.pos, s.radius, s.height);
         }
     });
+    // Sandbags.
+    census.near(anchor, search + 3.0, |c| {
+        if c.fieldwork && c.done && c.hp > 0.0 && defs.get(c.def).work().map_or(false, |w| w.0 > 0.05 && w.1 <= 0.0) {
+            consider(c.pos, c.radius, c.height);
+        }
+    });
     if rules.wreck_cover > 0.05 {
         for &(_, wp, mass, wd, piece) in &wrecks.0 {
             // Debris too small to hide behind does not count.
@@ -1295,6 +1323,27 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
         }
     }
     best.map(|b| b.1)
+}
+
+/// Is `p` on the cell whose centre is `cell`?
+fn in_cell(p: V2, cell: V2) -> bool {
+    (p.x - cell.x).abs() <= CELL * 0.5 && (p.y - cell.y).abs() <= CELL * 0.5
+}
+
+/// The trench piece a unit stands in, if it is infantry on foot: (trench id, cover share, centre).
+fn trench_of(census: &Census, defs: &Defs, c: &Cen) -> Option<(u32, f32, V2)> {
+    if c.air || c.structure || c.hosted || !defs.get(c.def).is_infantry() {
+        return None;
+    }
+    let mut best: Option<(u32, f32, V2)> = None;
+    census.near(c.pos, CELL, |t| {
+        if t.fieldwork && t.done && t.hp > 0.0 && in_cell(c.pos, t.pos) && best.map_or(true, |b| t.id < b.0) {
+            if let Some((cover, _)) = defs.get(t.def).work().filter(|w| w.1 > 0.0) {
+                best = Some((t.id, cover, t.pos));
+            }
+        }
+    });
+    best
 }
 
 /// The fight for an occupied building: infantry at its door (queued by `think` in `Effects.assault`)
@@ -1688,7 +1737,7 @@ fn locomotion(
                 let occ = &nav.occ;
                 let blocked = |p: V2| -> bool {
                     let (cx, cy) = ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
-                    cx < 0 || cy < 0 || cx >= n || cy >= n || occ[(cy * n + cx) as usize] != 0
+                    cx < 0 || cy < 0 || cx >= n || cy >= n || !crate::map::passable(occ[(cy * n + cx) as usize])
                 };
                 while m.path.len() > 1 && body.pos.dist(*m.path.last().unwrap()) < 1.0 {
                     m.path.pop();
@@ -1987,6 +2036,10 @@ fn weapons(
                     target = census.nearest_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air);
                 }
             }
+            // A sniper rifle ignores buildings with nobody of the enemy inside.
+            if w.snipe && target.is_some_and(|c| defs.get(c.def).is_garrison() && !census.list.iter().any(|r| r.host == c.id && r.done && r.hp > 0.0 && hostile(team, r.team))) {
+                target = None;
+            }
             st.target = target.map_or(0, |c| c.id);
 
             // --- bursts keep firing along the barrel
@@ -2151,6 +2204,7 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
         hits_land: w.hits_land,
         hits_air: w.hits_air,
         from: flat(origin),
+        snipe: w.snipe,
     };
     spawn_projectile(commands, shot);
 }
@@ -2207,6 +2261,10 @@ fn projectiles(
                 if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) {
                     return;
                 }
+                // Sandbags and trenches stop nothing (they soak, below), unless they are what was aimed at.
+                if c.fieldwork && c.id != p.target {
+                    return;
+                }
                 if if c.air { !p.hits_air } else { !p.hits_land } {
                     return;
                 }
@@ -2238,6 +2296,7 @@ fn projectiles(
         }
         // Cover: trees, rocks and wrecks the shot flies through on the way soak up part of it.
         soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
+        soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, team, &map, &defs, &census, &mut effects);
         let w = map.world();
         let Some((at, victim)) = hit else {
             if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > w + 20.0 || b.z > w + 20.0 {
@@ -2268,9 +2327,25 @@ fn projectiles(
                 let vert = if at.y < c.y { c.y - at.y } else { (at.y - c.y - c.hit_h).max(0.0) };
                 let d = (horiz * horiz + vert * vert).sqrt();
                 if d < p.radius {
-                    effects.damage.push((c.id, p.damage * blast_share(d, p.radius), p.dtype as usize));
+                    // Infantry in a trench are sheltered from a blast that is not in there with them.
+                    let open = trench_of(&census, &defs, c).filter(|t| !in_cell(flat(at), t.2)).map_or(1.0, |t| 1.0 - t.1);
+                    effects.damage.push((c.id, p.damage * blast_share(d, p.radius) * open, p.dtype as usize));
                 }
             });
+        } else if victim != 0 && p.snipe {
+            // Through the window: the lowest-id enemy rider takes it, the building nothing.
+            let rider = census.get(victim).filter(|c| defs.get(c.def).is_garrison()).and_then(|_| {
+                census.list.iter().filter(|r| r.host == victim && r.done && r.hp > 0.0 && hostile(team, r.team)).min_by_key(|r| r.id)
+            });
+            match rider {
+                Some(r) => effects.damage.push((r.id, p.damage, p.dtype as usize)),
+                None => {
+                    // Not a garrison (a unit in the open): an ordinary hit.
+                    if !census.get(victim).is_some_and(|c| defs.get(c.def).is_garrison()) {
+                        effects.damage.push((victim, p.damage, p.dtype as usize));
+                    }
+                }
+            }
         } else if victim != 0 {
             effects.damage.push((victim, p.damage, p.dtype as usize));
         }
@@ -2345,6 +2420,50 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
             let d = defs.get(w.3);
             wreck_hits.push((key, soak * defs.armor_mult(p.dtype as usize, d.armor_id)));
         }
+    }
+}
+
+/// Built cover (field works) in the way of a shot flying from `a` to `b` this tick. Sandbags of a
+/// side hostile to the shooter that it flies through take their `cover` share, like trees do
+/// (`soak_cover`; a side's own shots pass over its own works). A shot that hits infantry standing
+/// in a trench loses the trench's share to the trench. Works within `rules.cover_grace` of the
+/// shooter do not count. What a work soaks up is damage to it, so cover is shot to pieces in time.
+#[allow(clippy::too_many_arguments)]
+fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, team: u8, map: &MapData, defs: &Defs, census: &Census, effects: &mut Effects) {
+    let grace = defs.rules.cover_grace;
+    let seg = b - a;
+    let seg2 = Vec2::new(seg.x, seg.z);
+    let len2 = seg2.length_squared();
+    if p.damage <= 0.0 || len2 < 1e-6 {
+        return;
+    }
+    // (position along the stretch, work id, cover share)
+    let mut cross: Vec<(f32, u32, f32)> = vec![];
+    census.near(flat((a + b) * 0.5), seg2.length() * 0.5 + 4.0, |c| {
+        if !c.fieldwork || !c.done || c.hp <= 0.0 || c.id == p.target || !hostile(team, c.team) || c.pos.dist(p.from) - c.radius < grace {
+            return;
+        }
+        let Some((cover, _)) = defs.get(c.def).work().filter(|w| w.0 > 0.0 && w.1 <= 0.0) else { return };
+        let t = Vec2::new(c.pos.x - a.x, c.pos.y - a.z).dot(seg2) / len2;
+        if t < 0.0 || if hit.is_some() { t > 1.0 } else { t >= 1.0 } {
+            return;
+        }
+        let at = a + seg * t;
+        let ground = map.h(c.pos);
+        if Vec2::new(at.x - c.pos.x, at.z - c.pos.y).length() < c.radius && at.y > ground - 0.3 && at.y < ground + c.height + 0.2 {
+            cross.push((t, c.id, cover));
+        }
+    });
+    if let Some((id, cover, pos)) = hit.and_then(|h| census.get(h.1)).and_then(|v| trench_of(census, defs, v)) {
+        if pos.dist(p.from) - CELL * 0.5 >= grace {
+            cross.push((2.0, id, cover));
+        }
+    }
+    cross.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
+    for (_, id, cover) in cross {
+        let soak = p.damage * cover;
+        p.damage -= soak;
+        effects.damage.push((id, soak, p.dtype as usize));
     }
 }
 
@@ -2797,12 +2916,42 @@ fn debris_fall(mut q: Query<&mut Wreck>, census: Res<Census>, defs: Res<Defs>, m
 }
 
 /// Applies this tick's craters and terraforming to the terrain.
-fn apply_ground(mut effects: ResMut<Effects>, mut map: ResMut<MapData>, mut ground: ResMut<Ground>, mut nav: ResMut<Nav>, mut game: ResMut<Game>, defs: Res<Defs>) {
-    if effects.craters.is_empty() && effects.terraform.is_empty() {
-        return;
-    }
+#[allow(clippy::type_complexity)]
+fn apply_ground(
+    mut effects: ResMut<Effects>,
+    mut map: ResMut<MapData>,
+    mut ground: ResMut<Ground>,
+    mut nav: ResMut<Nav>,
+    mut game: ResMut<Game>,
+    defs: Res<Defs>,
+    census: Res<Census>,
+    mut works: Query<(&Unit, &mut Body, &Health), With<Structure>>,
+) {
     let rules = &defs.rules;
     let (map, ground) = (&mut *map, &mut *ground);
+    // Trenches are dug as they are built (the depth follows the site's hit points), and field
+    // works sit on ground that shells may move: they follow it.
+    let mut dug = false;
+    if census.list.iter().any(|c| c.fieldwork) {
+        for (u, mut b, h) in works.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+            let d = defs.get(u.def);
+            let Some((_, dig)) = d.work() else { continue };
+            if dig > 0.0 && h.0 > 0.0 {
+                let before = ground.hash;
+                let built = if census.get(u.id).map_or(false, |c| c.done) { 1.0 } else { (h.0 / d.hp.max(1.0)).min(1.0) };
+                dig_trench(map, ground, &nav.occ, b.pos, dig * built);
+                dug |= ground.hash != before;
+            }
+            let y = map.h(b.pos);
+            if b.y != y {
+                b.y = y;
+            }
+        }
+    }
+    if effects.craters.is_empty() && effects.terraform.is_empty() {
+        nav.dirty |= dug;
+        return;
+    }
     for (pos, radius, depth) in effects.craters.drain(..) {
         dig_crater(map, ground, &nav.occ, pos, radius.min(12.0), depth.min(2.0), rules.crater_max_depth);
     }

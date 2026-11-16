@@ -471,7 +471,8 @@ impl Brain {
         let (census, defs) = (cx.census, cx.defs);
         let tick = cx.game.tick;
         for c in &census.list {
-            if hostile(team, c.team) && c.known_to(team) && !c.hosted && c.hp > 0.0 {
+            // (Sandbags and trenches are no targets.)
+            if hostile(team, c.team) && c.known_to(team) && !c.hosted && !c.fieldwork && c.hp > 0.0 {
                 self.memory.insert(c.id, Seen { def: c.def, pos: c.pos, tick, structure: c.structure, air: c.air, team: c.team, hp: c.hp / c.max_hp.max(1.0), known: true });
             }
         }

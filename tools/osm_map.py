@@ -426,6 +426,7 @@ def main():
     ap.add_argument("--max-props", type=int, default=600, help="buildings (pylons and the outpost come on top)")
     ap.add_argument("--river", default="", help="OSM name of a river to make water: the land is tilted along it so it runs level")
     ap.add_argument("--river-width", default="5,7", help="width of the river in world units, upstream,downstream")
+    ap.add_argument("--points", type=int, default=-1, help="control points (default: by the number of players; 0: none, the game places its own)")
     ap.add_argument("--no-lakes", action="store_true", help="leave lakes and ponds dry (mud), as before the game had lakes")
     ap.add_argument("--lake-min", type=float, default=60.0, help="smallest lake kept, in square world units")
     ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
@@ -693,27 +694,77 @@ def main():
     if a.starts:
         starts = [tuple(map(float, s_.split(","))) for s_ in a.starts.split(";")]
     else:
-        # Players sit evenly around the centre (2 and 4 in the corners, like the generator) at the
-        # same distance; each may slide a little along its circle and in or out to find open, flat
-        # ground (no forest, buildings or water within ~30 units).
-        starts = []
+        # Each player gets open, flat, dry ground outside the towns; the places are spread as far
+        # from each other as the land allows, wherever that is (nothing is mirrored).
+        step, edge = 6.0, 60.0
+        gx, gz = np.meshgrid(np.arange(edge, world - edge, step), np.arange(edge, world - edge, step))
+        gx, gz = gx.ravel(), gz.ravel()
+        pi, pj = (gx * rs).astype(int), (gz * rs).astype(int)
+        town_c = dens_big[pj, pi]
+        cost = open_[pj, pi] * 3.0 + slope_b[(gz / CELL).astype(int), (gx / CELL).astype(int)] * 4.0 + np.maximum(town_c - 0.02, 0) * 30.0
         k = a.players
-        ang0 = -3 * math.pi / 4 if k in (2, 4) else -math.pi / 2
-        rad0 = world * (0.42 if k in (2, 4) else 0.36)
-        for p in range(k):
-            ang = ang0 + p * 2 * math.pi / k
-            best = None
-            for rad in np.arange(rad0 * 0.8, rad0 * 1.08, 4.0):
-                for da in np.linspace(-0.3, 0.3, 31):
-                    x, z = c + math.cos(ang + da) * rad, c + math.sin(ang + da) * rad
-                    if not (60 < x < world - 60 and 60 < z < world - 60):
-                        continue
-                    o = open_[int(z * rs), int(x * rs)]
-                    s = slope_b[int(z / CELL), int(x / CELL)]
-                    score = o * 3.0 + s * 4.0 + abs(rad - rad0) / world * 6.0 + abs(da) * 1.5
-                    if best is None or score < best[0]:
-                        best = (score, x, z)
-            starts.append((round(float(best[1]), 1), round(float(best[2]), 1)))
+        ok = np.zeros(len(gx), bool)
+        for town_max, share in ((0.05, 0.5), (0.07, 0.6), (0.11, 0.75), (9.0, 1.0)):
+            out_of_town = town_c < town_max
+            if out_of_town.sum() >= k * 8:
+                ok = out_of_town & (cost <= np.quantile(cost[out_of_town], share))
+                # Enough room for everyone at a fair distance?
+                if ok.sum() >= k * 8:
+                    break
+        cx_, cz_, cc = gx[ok], gz[ok], cost[ok]
+        cc = (cc - cc.min()) / max(cc.max() - cc.min(), 1e-6)
+        # Farthest-point start (from a random good place), then swaps while the closest pair gets further apart.
+        chosen = [int(rng.choice(np.argsort(cc)[:max(1, len(cc) // 10)].tolist()))]
+        dmin = np.hypot(cx_ - cx_[chosen[0]], cz_ - cz_[chosen[0]])
+        while len(chosen) < k:
+            nxt = int(np.argmax(dmin * (1.0 - 0.25 * cc)))
+            chosen.append(nxt)
+            dmin = np.minimum(dmin, np.hypot(cx_ - cx_[nxt], cz_ - cz_[nxt]))
+        for _ in range(4 * k):
+            moved = False
+            for m_ in range(k):
+                others = [q_ for q_ in chosen if q_ != chosen[m_]]
+                d_o = np.min([np.hypot(cx_ - cx_[q_], cz_ - cz_[q_]) for q_ in others], axis=0) if others else np.full(len(cx_), world)
+                val = d_o * (1.0 - 0.25 * cc)
+                best_ = int(np.argmax(val))
+                if val[best_] > val[chosen[m_]] * 1.02:
+                    chosen[m_], moved = best_, True
+            if not moved:
+                break
+        # That layout is the widest one, and close to a ring along the edges. Keep 3/4 of its
+        # spacing as the least distance and draw layouts at random from the best ground instead;
+        # the winner has good sites and nobody much more crowded than the others.
+        def nn_dist(sel):
+            return [min(math.hypot(cx_[p_] - cx_[q_], cz_[p_] - cz_[q_]) for q_ in sel if q_ != p_) for p_ in sel]
+
+        if k > 1:
+            least = min(nn_dist(chosen)) * 0.7
+            good = np.argsort(cc)[:max(k * 8, len(cc) * 2 // 3)]
+            land_x, land_z = gx[out_of_town], gz[out_of_town]
+            best_layout = (-1e9, chosen)
+            for _ in range(600):
+                # Each next player goes to one of the emptier places (not the emptiest: that is the ring again).
+                sel, dg = [int(good[rng.randrange(len(good))])], None
+                while len(sel) < k:
+                    d_ = np.hypot(cx_[good] - cx_[sel[-1]], cz_[good] - cz_[sel[-1]])
+                    dg = d_ if dg is None else np.minimum(dg, d_)
+                    room = np.flatnonzero(dg >= max(least, dg.max() * 0.7))
+                    if not len(room):
+                        break
+                    sel.append(int(good[rng.choice(room.tolist())]))
+                if len(sel) == k:
+                    nn = nn_dist(sel)
+                    # No big stretch of good land left without a player either.
+                    empty = np.min([np.hypot(land_x - cx_[q_], land_z - cz_[q_]) for q_ in sel], axis=0).max()
+                    score = 2.0 * min(nn) / max(nn) - sum(cc[q_] for q_ in sel) / k - 6.0 * empty / world
+                    if score > best_layout[0]:
+                        best_layout = (score, sel)
+            chosen = best_layout[1]
+        # Numbered clockwise from the north-west, so neighbours in the lobby are neighbours on the map.
+        chosen.sort(key=lambda q_: math.atan2(cz_[q_] - c, cx_[q_] - c))
+        starts = [(round(float(cx_[q_]), 1), round(float(cz_[q_]), 1)) for q_ in chosen]
+        near = min(math.hypot(p_[0] - q_[0], p_[1] - q_[1]) for ii, p_ in enumerate(starts) for q_ in starts[ii + 1:]) if k > 1 else 0
+        print(f"closest starts {near:.0f} apart; built-up share around them {[round(float(dens_big[int(z_ * rs), int(x_ * rs)]), 3) for x_, z_ in starts]}")
     print("starts", starts)
 
     # Level the bases: blend to the mean height within 26 units, fading out by 46.
@@ -790,6 +841,8 @@ def main():
             rim = (ring > 0) & ~inside
             heights = np.where(rim, np.maximum(heights, lv[ring] + 0.25), heights)
             print(f"lakes: {len(lake_levels)}, levels {min(lake_levels):.1f}..{max(lake_levels):.1f}, {inside.mean() * 100:.1f}% of the map")
+
+    lake_cells_early = np.stack([lake_lab[:-1, :-1], lake_lab[:-1, 1:], lake_lab[1:, :-1], lake_lab[1:, 1:]]).max(0) > 0
 
     def h_at(x, z):
         fx, fz = min(max(x / CELL, 0), n - 0.001), min(max(z / CELL, 0), n - 0.001)
@@ -960,10 +1013,46 @@ def main():
         for ox, oz in base:
             rx, rz = ox * math.cos(th) - oz * math.sin(th), ox * math.sin(th) + oz * math.cos(th)
             add_dep(sx + rx, sz + rz, search=6, keep=4)
-        for fwd, side in expansions:
+        for fwd, side in expansions[:max(6, 52 // len(starts))]:
             add_dep(sx + fx * fwd - fz * side, sz + fz * fwd + fx * side)
-    for ang in range(0, 360, 60):
-        add_dep(c + math.cos(math.radians(ang)) * 28, c + math.sin(math.radians(ang)) * 28)
+    # ---------------------------------------------------------------- control points
+    # Points of interest: town centres first (the most built-up places, on a road so units can stand
+    # there), the rest around the towns where the map has no point yet. Each has two deposits.
+    cp = []
+    if a.points != 0:
+        want = a.points if a.points > 0 else max(5, round(len(starts) * 1.5) + 3)
+        spacing = world * 0.13
+        cand = []
+        for j in range(15, n - 15, 2):
+            for i in range(15, n - 15, 2):
+                x, z = (i + 0.5) * CELL, (j + 0.5) * CELL
+                pj_, pi_ = int(z * rs), int(x * rs)
+                if blocked[j, i] or wcell[pj_, pi_] or not (on_main[pj_, pi_] or on_street[pj_, pi_]):
+                    continue
+                if lake_cells_early[j - 1:j + 2, i - 1:i + 2].any() or min(math.hypot(x - sx, z - sz) for sx, sz in starts) < max(90.0, spacing):
+                    continue
+                cand.append((x, z, float(dens_big[pj_, pi_]), bool(on_main[pj_, pi_])))
+
+        def far(x, z, others):
+            return min([math.hypot(x - q_[0], z - q_[1]) for q_ in others] or [world])
+
+        # In the towns: the densest places, main roads first, well apart.
+        for x, z, t_, main_ in sorted(cand, key=lambda q_: -(q_[2] + 0.02 * q_[3])):
+            if len(cp) >= math.ceil(want * 0.6) or t_ < 0.07:
+                break
+            if far(x, z, cp) >= spacing:
+                cp.append((x, z))
+        # Around them: villages and town edges, each time the place furthest from the points so far.
+        fringe = [q_ for q_ in cand if 0.015 < q_[2] < 0.09] or cand
+        while len(cp) < want and fringe:
+            x, z, *_ = max(fringe, key=lambda q_: far(q_[0], q_[1], cp))
+            if far(x, z, cp) < spacing * 0.6:
+                break
+            cp.append((x, z))
+        for x, z in cp:
+            add_dep(x + 5, z + 3)
+            add_dep(x - 5, z - 3)
+        print(f"{len(cp)} control points: {sum(1 for x, z in cp if town_at(x, z) > 0)} in towns")
     print(f"{len(deposits)} deposits")
 
     # ---------------------------------------------------------------- trees and rocks
@@ -1173,6 +1262,7 @@ def main():
         "max_height": mx,
         "deposits": [{"x": d[0], "y": d[1]} for d in deposits],
         "starts": [{"x": s[0], "y": s[1]} for s in starts],
+        "points": [{"x": p_[0], "y": p_[1]} for p_ in cp],
         "props": props,
         "seed": a.seed,
         "features": feats,
@@ -1216,6 +1306,8 @@ def main():
         d.ellipse([x * k - 2, z * k - 2, x * k + 2, z * k + 2], fill=(40, 220, 255))
     for cx, cz, *_ in bridges:
         d.ellipse([cx * k - 3, cz * k - 3, cx * k + 3, cz * k + 3], outline=(255, 220, 0), width=2)
+    for x, z in cp:
+        d.rectangle([x * k - 6, z * k - 6, x * k + 6, z * k + 6], outline=(255, 255, 255), width=2)
     for i, (x, z) in enumerate(starts):
         d.ellipse([x * k - 8, z * k - 8, x * k + 8, z * k + 8], outline=(255, 255, 0), width=3)
         d.text((x * k + 10, z * k - 6), str(i + 1), fill=(255, 255, 0))

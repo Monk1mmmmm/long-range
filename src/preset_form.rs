@@ -72,7 +72,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("sight_blocked_by_reclaimables", "Trees, rocks and wrecks block sight", "Standing trees, rocks and wrecks block the view like small hills. Off: sight passes through them (they still soak up shots as cover)."),
     yes("radar_blocked_by_terrain", "Hills block radar", "Radar needs a clear line over the terrain, looking from 'Radar eye height' above the unit. Off: radar sees through hills."),
     yes("ghosts_show_destroyed", "Dim destroyed remembered buildings", "An enemy building you have seen and then lost sight of stays on your map as you last saw it. When it is destroyed while nobody of your team looks, its model turns dim (as in SupCom), so you know it is gone without scouting. Off: it looks intact until you see the empty spot."),
-    no("friendly_fire", "Friendly fire", "Shots and blasts also hurt your own and allied units, not just enemies."),
+    yes("friendly_fire", "Friendly fire", "Shots and blasts also hurt your own and allied units, not just enemies."),
 ];
 
 pub const RULE_ECONOMY: &[Field] = &[
@@ -231,12 +231,15 @@ pub const UNIT_BINOCULARS: &[Field] = &[
     num("scan", "Scan arc (deg)", 60.0, 180.0, "With nothing to look at it scans this far to either side of where the unit faces; 180 = all round (always so from a building's roof)."),
 ];
 
-pub const UNIT_TRANSPORT: &[Field] = &[f(
-    "capacity",
-    "Capacity (slots)",
-    Kind::Int(4, 1, 255),
-    "Cargo slots it carries. On a structure: a building infantry can occupy and fire from.",
-)];
+pub const UNIT_TRANSPORT: &[Field] = &[
+    f("capacity", "Capacity (slots)", Kind::Int(4, 1, 255), "Cargo slots it carries. On a structure: a building infantry can occupy and fire from."),
+    num("vision", "Roof vision", 0.0, 10.0, "A building infantry occupy: their vision and binocular range times this (a watch tower). 0 or absent: the rule 'Roof vision'."),
+];
+
+pub const UNIT_FIELDWORK: &[Field] = &[
+    num("cover", "Cover", 0.5, 1.0, "Share of a shot's damage it takes instead of what it shelters (0 - 1)."),
+    num("dig", "Trench depth", 0.0, 1.4, "Above 0 it is a trench: the ground of its cell is dug this deep (and stays so when the trench is destroyed) and it shelters the infantry standing in it from every side. 0: a wall (sandbags) that covers what enemy shots must fly through it to reach."),
+];
 
 pub const UNIT_DEATH: &[Field] = &[
     num("damage", "Damage", 100.0, BIG, "Damage of the explosion when it is destroyed."),
@@ -268,6 +271,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     f("targets", "Targets", Kind::Tags(TARGETS, &["land"]), "What it can shoot at: land (ground units and buildings), air."),
     num("turn_rate", "Missile turn rate (deg/s)", 0.0, 3600.0, "Missiles: how fast they steer toward their target."),
     num("launch_pitch", "Missile launch angle (deg)", 0.0, 90.0, "Missiles: launch elevation (90 = straight up, like a SAM); 0 = a low 20 degrees."),
+    no("snipe", "Sniper rifle", "A hit on a building kills one enemy rider inside instead of damaging the building; it never shoots buildings without enemy riders."),
     f("sound", "Sound", Kind::Pick(Src::Sound, true), "Shot sound; none = chosen by weapon kind."),
 ];
 
@@ -697,6 +701,7 @@ pub fn unit_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     section(ui, "Construction, transport, death blast", false, |ui| {
         ch |= optional(ui, v, "build", "Can build", "Engineers, factories and stations: builds, assists, reclaims, repairs.", json!({ "rate": 10, "categories": [] }), UNIT_BUILD, ctx, "build");
         ch |= optional(ui, v, "transport", "Carries units", "A transport (aircraft, APC) or, on a structure, a building infantry can occupy.", json!({ "capacity": 4 }), UNIT_TRANSPORT, ctx, "transport");
+        ch |= optional(ui, v, "fieldwork", "Field work (built cover)", "Sandbags or a trench piece: shots fly through it and lose its cover share to it, units cross it, nobody aims at it unless ordered to. Blasts and the shots it stops wear it down.", json!({ "cover": 0.5 }), UNIT_FIELDWORK, ctx, "fieldwork");
         ch |= optional(ui, v, "death", "Explodes when destroyed", "A blast that hurts everything around it.", json!({ "damage": 100, "radius": 5 }), UNIT_DEATH, ctx, "death");
     });
     section(ui, "Icon and model", false, |ui| ch |= grid(ui, v, UNIT_ICON, ctx, "icon"));

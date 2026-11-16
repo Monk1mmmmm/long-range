@@ -436,6 +436,13 @@ impl Frame<'_> {
         let per = delta * (step / major);
         for k in 1..=n.min(40) {
             let p = snap(self.defs, self.map, d, a_s + per * k as f32);
+            // Sandbags and trenches make an unbroken line: a diagonal step gets a piece in its corner.
+            if let (true, Some(last)) = (df.is_fieldwork(), out.last().copied()) {
+                let corner = v2(p.x, last.y);
+                if last.x != p.x && last.y != p.y && !out.contains(&corner) {
+                    out.push(corner);
+                }
+            }
             if !out.contains(&p) {
                 out.push(p);
             }
@@ -518,7 +525,7 @@ fn local_occ(map: &MapData, defs: &Defs, infos: &HashMap<u32, Info>, game: &Game
             for y in y0..y0 + f {
                 for x in x0..x0 + f {
                     if map.inside(x, y) {
-                        occ[y as usize * map.n + x as usize] = 2;
+                        occ[y as usize * map.n + x as usize] = if defs.get(def).is_fieldwork() { crate::map::OCC_WORK } else { 2 };
                     }
                 }
             }

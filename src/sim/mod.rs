@@ -281,6 +281,9 @@ pub struct Projectile {
     /// stop its own shots (`rules.cover_grace`).
     #[serde(default)]
     pub from: V2,
+    /// Sniper round: kills a rider of the garrison it hits instead of damaging the building.
+    #[serde(default)]
+    pub snipe: bool,
 }
 
 // ---------------------------------------------------------------------------- resources
@@ -409,7 +412,8 @@ impl FxLog {
     }
 }
 
-/// Occupancy grid for building and pathfinding: 0 free, 1 terrain, 2 structure.
+/// Occupancy grid for building and pathfinding: 0 free, 1 terrain, 2 structure,
+/// 3 field work (`map::OCC_WORK`: taken for building, open to traffic).
 #[derive(Resource, Default)]
 pub struct Nav {
     pub occ: Vec<u8>,
@@ -428,6 +432,10 @@ impl Nav {
                 }
             }
         }
+    }
+    /// Marks the cells of a building of type `d` standing at `pos`.
+    pub fn stamp_def(&mut self, map: &MapData, d: &crate::data::UnitDef, pos: V2) {
+        self.stamp(map, pos, d.footprint, if d.is_fieldwork() { crate::map::OCC_WORK } else { 2 });
     }
     pub fn at(&self, map: &MapData, p: V2) -> u8 {
         let (cx, cy) = map.cell_of(p);
@@ -538,6 +546,8 @@ pub struct Cen {
     pub firing: bool,
     /// Wreck id this unit is being revived from (0 = not a revival site, or finished).
     pub revival: u32,
+    /// Sandbags, a trench: cover, not a target (`UnitDef::is_fieldwork`).
+    pub fieldwork: bool,
 }
 impl Cen {
     /// An unfinished revival site: scavengers build it, engineers do not.
@@ -610,7 +620,7 @@ impl Census {
         }
     }
     pub fn valid_target(&self, c: &Cen, team: u8, land: bool, air: bool) -> bool {
-        c.hp > 0.0 && !c.hosted && hostile(team, c.team) && c.known_to(team) && if c.air { air } else { land }
+        c.hp > 0.0 && !c.hosted && !c.fieldwork && hostile(team, c.team) && c.known_to(team) && if c.air { air } else { land }
     }
     pub fn nearest_enemy(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool) -> Option<&Cen> {
         let mut best: Option<(f32, usize)> = None;
@@ -1019,6 +1029,37 @@ pub fn dig_crater(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, r
     }
 }
 
+/// Digs a trench piece: the four corners of the cell at `pos` go down to `depth` below the
+/// original ground (never up, so shell holes stay). Like craters it keeps every cell passable,
+/// stays above the water and leaves the corners of other buildings' cells alone.
+pub fn dig_trench(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, depth: f32) {
+    const STEP: f32 = 1.4;
+    let side = map.n + 1;
+    let (cx, cy) = map.cell_of(pos);
+    if !map.inside(cx, cy) {
+        return;
+    }
+    for (x, y) in [(cx, cy), (cx + 1, cy), (cx, cy + 1), (cx + 1, cy + 1)] {
+        let (x, y) = (x as usize, y as usize);
+        if ground_locked(map, occ, x, y) {
+            continue;
+        }
+        let i = y * side + x;
+        let h = map.heights[i];
+        let mut floor = ground.base[i] - depth;
+        let water = map.water_vertex(x, y);
+        if ground.base[i] > water + 0.1 {
+            floor = floor.max(water + 0.1);
+        }
+        for (nx, ny) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)] {
+            floor = floor.max(map.heights[ny * side + nx] - STEP);
+        }
+        if floor < h {
+            ground.set(map, i, floor);
+        }
+    }
+}
+
 /// Where a terraforming order wants each vertex of its circle: (index, wanted height).
 /// Heights stay within `limit` of the original ground.
 pub fn terraform_targets(map: &MapData, ground: &Ground, occ: &[u8], pos: V2, radius: f32, height: f32, limit: f32) -> Vec<(usize, f32)> {
@@ -1182,7 +1223,7 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
             let owner = if prop.owner == PROP_HOSTILE { HOSTILE } else { NEUTRAL };
             let pos = if defs.get(d).is_structure() { snap(&defs, &map, d, prop.pos) } else { prop.pos };
             if defs.get(d).is_structure() {
-                nav.stamp(&map, pos, defs.get(d).footprint, 2);
+                nav.stamp_def(&map, defs.get(d), pos);
                 features.clear_square(pos, defs.get(d).footprint);
             }
             spawns.push((d, owner, pos, prop.yaw));

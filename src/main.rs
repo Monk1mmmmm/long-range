@@ -2428,6 +2428,7 @@ fn combattest() {
     }
     air_tests(&defs);
     infantry_tests(&defs);
+    fieldwork_tests(&defs);
     binocular_tests(&defs);
     scavenger_tests(&defs);
 }
@@ -2819,6 +2820,181 @@ fn infantry_tests(defs: &Defs) {
         println!("== Mortar hold ({hold}s): first shot after {fired:?} ticks, ordered away then, started moving after {waited:?} ticks; shots while driving {on_move}; arrived after {arrived:?}, firing again there: {after}");
         let w = waited.unwrap_or(0) as f32 / 10.0;
         assert!(fired.is_some() && w >= hold - 0.25 && w <= hold + 1.0 && on_move == 0 && arrived.is_some() && after, "mortar hold");
+    }
+}
+
+/// Field works: sandbags, trenches, the field bunker and the watch tower
+/// (`--combattest`, or alone with `LR_TEST=fieldworks`).
+fn fieldwork_tests(defs: &Defs) {
+    let faction = defs.playable_factions()[0] as u8;
+    let new_world = || -> (App, MapData) {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(128, 4242, 2);
+        map.heights.iter_mut().for_each(|h| *h = 2.0);
+        map.feature_kinds = vec![];
+        map.features = vec![];
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        setup_game(app.world_mut(), map.clone(), &setup);
+        for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
+            p.energy = 100000.0;
+            p.max_energy = 100000.0;
+            p.mass = 10000.0;
+            p.max_mass = 10000.0;
+        }
+        (app, map)
+    };
+    let spawn = |world: &mut World, map: &MapData, name: &str, owner: u8, pos: V2, yaw: f32| -> u32 {
+        let mut game = world.resource::<Game>().clone();
+        let id = {
+            let mut commands = world.commands();
+            spawn_unit(&mut commands, defs, &mut game, map, defs.id(name).expect("unit"), owner, pos, yaw, true, 0)
+        };
+        world.insert_resource(game);
+        world.flush();
+        world.resource_mut::<Nav>().dirty = true;
+        id
+    };
+    let hp = |world: &mut World, id: u32| -> f32 { world.query::<(&Unit, &Health)>().iter(world).find(|(u, _)| u.id == id).map_or(0.0, |(_, h)| h.0) };
+    let set_hp = |world: &mut World, id: u32, v: f32| {
+        if let Some((_, mut h)) = world.query::<(&Unit, &mut Health)>().iter_mut(world).find(|(u, _)| u.id == id) {
+            h.0 = v;
+        }
+    };
+    let body = |world: &mut World, id: u32| -> Option<(V2, f32, bool)> { world.query::<(&Unit, &Body, Has<Hosted>)>().iter(world).find(|(u, ..)| u.id == id).map(|(_, b, h)| (b.pos, b.y, h)) };
+    let run = |world: &mut World, n: u32| (0..n).for_each(|_| world.run_schedule(SimTick));
+    let id_of = |name: &str| defs.id(name).expect("unit");
+
+    // 1. Only the field engineer builds them.
+    let works = ["sandbags", "trench", "field_bunker", "watch_tower"];
+    let builders: Vec<&str> = defs.units.iter().filter(|u| works.iter().all(|w| u.builds.contains(&id_of(w)))).map(|u| u.id.as_str()).collect();
+    let some: Vec<&str> = defs.units.iter().filter(|u| works.iter().any(|w| u.builds.contains(&id_of(w)))).map(|u| u.id.as_str()).collect();
+    println!("== Field works: built by {builders:?}");
+    assert!(builders == ["sparky"] && some == builders, "who builds field works");
+
+    // 2. A Sparky builds a line of trench; the ground goes down, stays passable, and stays down
+    // when the trench is destroyed.
+    {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let sparky = spawn(world, &map, "sparky", 0, v2(120.0, 101.0), 0.0);
+        let spots: Vec<V2> = (0..4).map(|k| v2(127.0 + k as f32 * 2.0, 101.0)).collect();
+        for (k, p) in spots.iter().enumerate() {
+            world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![sparky], orders: vec![Order::Build { def: id_of("trench"), pos: *p }], queue: k > 0 }));
+        }
+        run(world, 600);
+        let trenches: Vec<(u32, V2, f32, bool)> = world.query::<(&Unit, &Body, Has<UnderConstruction>)>().iter(world).filter(|(u, ..)| u.def == id_of("trench")).map(|(u, b, uc)| (u.id, b.pos, b.y, !uc)).collect();
+        let floor = world.resource::<MapData>().h(spots[1]);
+        let free = spots.iter().all(|p| passable(world.resource::<Nav>().at(world.resource::<MapData>(), *p)));
+        println!("== Trench: {} of 4 pieces built, floor {:.2} below the ground, pieces stand at {:.2}, cells passable: {free}", trenches.iter().filter(|t| t.3).count(), 2.0 - floor, 2.0 - trenches.first().map_or(0.0, |t| t.2));
+        assert!(trenches.len() == 4 && trenches.iter().all(|t| t.3) && (2.0 - floor - 0.8).abs() < 0.01 && free, "trench line");
+        assert!(trenches.iter().all(|t| (t.2 - floor).abs() < 0.01), "trench pieces follow the ground");
+        // A second work cannot go on top of one.
+        assert!(!can_place(defs, world.resource::<MapData>(), &world.resource::<Nav>().occ, id_of("sandbags"), spots[0]), "works do not stack");
+        for t in &trenches {
+            set_hp(world, t.0, -1.0);
+        }
+        run(world, 5);
+        let left = world.query::<&Unit>().iter(world).filter(|u| u.def == id_of("trench")).count();
+        let after = world.resource::<MapData>().h(spots[1]);
+        let wrecks = world.query::<&Wreck>().iter(world).count();
+        println!("== Trench destroyed: {left} pieces left, {wrecks} wrecks, the ground is still {:.2} lower", 2.0 - after);
+        assert!(left == 0 && wrecks == 0 && (after - floor).abs() < 0.01, "a destroyed trench leaves its ditch");
+    }
+
+    // 3. Cover: a trooper under fire from three enemy troopers for 30 s, in the open, in a trench
+    // and behind sandbags. The work takes what the trooper does not, and wears down.
+    let mut lost = [0.0f32; 3];
+    let mut work_left = [1.0f32; 3];
+    let mut fired = [0.0f32; 3];
+    for (k, work) in [None, Some("trench"), Some("sandbags")].into_iter().enumerate() {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let at = v2(131.0, 101.0);
+        // Sandbags stand between the trooper and the enemy to the east.
+        let w = work.map(|n| spawn(world, &map, n, 0, if n == "sandbags" { at + v2(2.0, 0.0) } else { at }, 0.0));
+        if let Some(w) = w {
+            set_hp(world, w, 1.0e5);
+        }
+        let t = spawn(world, &map, "trooper", 0, at, 0.0);
+        set_hp(world, t, 1.0e6);
+        let foes: Vec<u32> = (0..3).map(|i| spawn(world, &map, "trooper", 1, v2(159.0, 97.0 + i as f32 * 4.0), 3.14)).collect();
+        for f in &foes {
+            set_hp(world, *f, 1.0e6);
+        }
+        run(world, 300);
+        lost[k] = 1.0e6 - hp(world, t);
+        fired[k] = foes.iter().map(|f| 1.0e6 - hp(world, *f)).sum();
+        if let Some(w) = w {
+            work_left[k] = 1.0e5 - hp(world, w);
+        }
+        let (p, ..) = body(world, t).unwrap();
+        assert!(p.dist(at) < 1.0, "the trooper stays in its cover ({:.1},{:.1})", p.x, p.y);
+    }
+    println!("== Field cover: a trooper shot at for 30 s loses {:.0} hp in the open, {:.0} in a trench (the trench {:.0}), {:.0} behind sandbags (the sandbags {:.0}); it deals {:.0} / {:.0} / {:.0}", lost[0], lost[1], work_left[1], lost[2], work_left[2], fired[0], fired[1], fired[2]);
+    assert!(lost[0] > 0.0 && lost[1] > 0.0 && lost[1] < lost[0] * 0.6 && work_left[1] > 0.0, "trench cover");
+    assert!(lost[2] > 0.0 && lost[2] < lost[0] * 0.7 && work_left[2] > 0.0, "sandbag cover");
+    assert!(fired[1] > fired[0] * 0.7 && fired[2] > fired[0] * 0.7, "troopers fire out of their cover");
+
+    // 4. Idle infantry walk into a trench near by, one per piece, enemy or not.
+    {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let pieces = [v2(131.0, 101.0), v2(133.0, 101.0)];
+        for p in pieces {
+            spawn(world, &map, "trench", 0, p, 0.0);
+        }
+        let men: Vec<u32> = (0..2).map(|i| spawn(world, &map, "trooper", 0, v2(127.0, 99.0 + i as f32 * 3.0), 0.0)).collect();
+        run(world, 150);
+        let at: Vec<V2> = men.iter().map(|m| body(world, *m).unwrap().0).collect();
+        let filled = pieces.iter().filter(|p| at.iter().any(|a| a.dist(**p) < 0.6)).count();
+        println!("== Trench: 2 idle troopers near 2 pieces stand in {filled} of them");
+        assert!(filled == 2, "infantry man the trench");
+    }
+
+    // 5. Bombed out: a mortar shelling sandbags and a trench destroys both.
+    {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let spot = v2(171.0, 101.0);
+        spawn(world, &map, "sandbags", 1, spot, 0.0);
+        spawn(world, &map, "trench", 1, spot + v2(2.0, 0.0), 0.0);
+        let pike = spawn(world, &map, "pike", 0, v2(111.0, 101.0), 0.0);
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![pike], orders: vec![Order::AttackGround { pos: spot + v2(1.0, 0.0), radius: 0.0 }], queue: false }));
+        let mut gone_at = None;
+        for t in 0..3000 {
+            world.run_schedule(SimTick);
+            if world.query::<&Unit>().iter(world).filter(|u| u.owner == 1 && defs.get(u.def).is_fieldwork()).count() == 0 {
+                gone_at = Some(t);
+                break;
+            }
+        }
+        let h = world.resource::<MapData>().h(spot + v2(2.0, 0.0));
+        println!("== Bombed out: a Pike Mortar destroys a sandbag piece and a trench piece in {:?} s; the ditch is {:.2} deep", gone_at.map(|t| t / 10), 2.0 - h);
+        assert!(gone_at.is_some() && h < 2.0 - 0.75, "bombing out field works");
+    }
+
+    // 6. Bunker and watch tower take infantry; from the tower they see further.
+    {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let bunker = spawn(world, &map, "field_bunker", 0, v2(130.0, 130.0), 0.0);
+        let tower = spawn(world, &map, "watch_tower", 0, v2(131.0, 141.0), 0.0);
+        let a: Vec<u32> = (0..5).map(|i| spawn(world, &map, "trooper", 0, v2(124.0, 126.0 + i as f32 * 1.5), 0.0)).collect();
+        let b: Vec<u32> = (0..3).map(|i| spawn(world, &map, "trooper", 0, v2(125.0, 139.0 + i as f32 * 1.5), 0.0)).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: a.clone(), orders: vec![Order::Load(bunker)], queue: false }));
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: b.clone(), orders: vec![Order::Load(tower)], queue: false }));
+        run(world, 150);
+        let inside = |world: &mut World, ids: &[u32]| ids.iter().filter(|id| body(world, **id).map_or(false, |x| x.2)).count();
+        let (n_bunker, n_tower) = (inside(world, &a), inside(world, &b));
+        // An enemy tank beyond a trooper's own sight, inside the tower's.
+        let vision = defs.get(id_of("trooper")).vision;
+        let gain = defs.get(id_of("watch_tower")).roof_vision(&defs.rules);
+        let far = spawn(world, &map, "overtaker", 1, v2(131.0 + vision * (1.0 + gain) * 0.5, 141.0), 3.14);
+        run(world, 20);
+        let seen = world.query::<(&Unit, &Intel)>().iter(world).find(|(u, _)| u.id == far).map_or(false, |(_, i)| i.seen & 1 != 0);
+        println!("== Garrisons: {n_bunker} of 5 troopers in the field bunker, {n_tower} of 3 in the watch tower; a tank at {:.0} (trooper vision {vision:.0}, x{gain} from the tower) is seen: {seen}", vision * (1.0 + gain) * 0.5);
+        assert!(n_bunker == 4 && n_tower == 2 && seen, "bunker and watch tower");
     }
 }
 
@@ -3426,6 +3602,9 @@ fn main() {
     if args.iter().any(|a| a == "--combattest") {
         if std::env::var("LR_TEST").as_deref() == Ok("infantry") {
             return infantry_tests(&load_defs());
+        }
+        if std::env::var("LR_TEST").as_deref() == Ok("fieldworks") {
+            return fieldwork_tests(&load_defs());
         }
         if std::env::var("LR_TEST").as_deref() == Ok("binoculars") {
             return binocular_tests(&load_defs());
