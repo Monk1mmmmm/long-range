@@ -1603,6 +1603,7 @@ fn load_defs() -> Defs {
 
 /// Headless world with just the simulation.
 fn headless(defs: Defs) -> App {
+    init_headless_pool();
     let mut app = App::new();
     app.insert_resource(defs);
     app.add_plugins(SimPlugin);
@@ -1636,6 +1637,10 @@ fn selftest() {
     let world = app.world_mut();
     setup_game(world, map, &setup);
     world.insert_resource(Ais((0..n).map(|i| Ai::new(i as u8, 99 + seed)).collect()));
+    // LR_PROFILE=1 prints how long each tick system took at the end.
+    if std::env::var("LR_PROFILE").is_ok() {
+        world.insert_resource(longrange::sim::systems::SimProfile::default());
+    }
     let t0 = std::time::Instant::now();
     for t in 0..36000u32 {
         world.run_schedule(SimTick);
@@ -1654,6 +1659,9 @@ fn selftest() {
             println!("winner: team {:?} after {}s", game.winner, t / 10);
             break;
         }
+    }
+    if let Some(p) = world.get_resource::<longrange::sim::systems::SimProfile>() {
+        print!("{}", p.report());
     }
 }
 

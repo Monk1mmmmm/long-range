@@ -6,6 +6,7 @@ use crate::data::{DefId, Defs, MoveKind};
 use crate::map::*;
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
+use bevy::tasks::ParallelSlice;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -405,7 +406,7 @@ impl FxLog {
 pub struct Nav {
     pub occ: Vec<u8>,
     pub dirty: bool,
-    pub scratch: PathScratch,
+    /// Path searches left this tick (`locomotion` plans them).
     pub paths_left: i32,
 }
 
@@ -1029,6 +1030,49 @@ pub fn enable_control_points(world: &mut World, start: f32) {
 #[derive(Resource)]
 pub struct SimRng(pub Rng);
 
+// ---------------------------------------------------------------------------- parallel work
+
+/// Maps `items` to results on Bevy's compute threads, results in the order of `items`.
+/// `min_chunk`: fewest items worth handing to a thread (about 1 for work of a millisecond, like a
+/// path search; tens for small per-unit work, which otherwise costs more to share out than to do).
+///
+/// Only for work where each result depends on its own item and on shared data nobody writes
+/// meanwhile (no `SimRng`, id allocation, budgets or queued effects inside `f`): then the outcome is
+/// bit for bit the one a plain loop gives, on any number of threads, and the simulation stays
+/// deterministic. Apply the results in a sequential loop afterwards. Short lists run inline.
+pub fn par_map<T: Sync, R: Send + 'static>(items: &[T], min_chunk: usize, f: impl Fn(&T) -> R + Send + Sync) -> Vec<R> {
+    let min_chunk = min_chunk.max(1);
+    let pool = compute_pool();
+    if items.len() < min_chunk * 2 || pool.thread_num() < 2 {
+        return items.iter().map(f).collect();
+    }
+    // A few chunks per thread, so that a chunk of expensive items does not hold up the rest.
+    let chunk = (items.len() / (pool.thread_num() * 4)).max(min_chunk);
+    let parts = items.par_chunk_map(pool, chunk, |_, c| c.iter().map(&f).collect::<Vec<R>>());
+    let mut out = Vec::with_capacity(items.len());
+    for p in parts {
+        out.extend(p);
+    }
+    out
+}
+
+/// Bevy's compute task pool (the game's `TaskPoolPlugin`, or the schedule executor, sets it up).
+pub fn compute_pool() -> &'static bevy::tasks::TaskPool {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default)
+}
+
+/// Headless tests: makes the compute pool before anything else does, `LR_THREADS=n` threads
+/// (`LR_THREADS=1` runs `par_map` inline: the state hashes must not change).
+pub fn init_headless_pool() {
+    bevy::tasks::ComputeTaskPool::get_or_init(|| {
+        let mut b = bevy::tasks::TaskPoolBuilder::new().thread_name("sim compute".into());
+        if let Some(n) = std::env::var("LR_THREADS").ok().and_then(|s| s.parse::<usize>().ok()) {
+            b = b.num_threads(n.max(1));
+        }
+        b.build()
+    });
+}
+
 // ---------------------------------------------------------------------------- spawning
 
 #[derive(Clone)]
@@ -1411,6 +1455,13 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_schedule(SimTick);
+        // The tick's systems run strictly one after another (`systems::register` chains them all), so
+        // the multi-threaded executor has nothing to overlap and only adds the cost of handing every
+        // system to a worker thread: that doubled the tick time on a 20-thread machine. Work inside
+        // a system that can be shared out goes through `par_map`.
+        app.edit_schedule(SimTick, |s| {
+            s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+        });
         app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>().init_resource::<Features>().init_resource::<WreckList>();
         systems::register(app);
     }

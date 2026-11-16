@@ -9,16 +9,77 @@ use crate::data::{Defs, MoveKind, WeaponDef, WeaponKind};
 use std::f32::consts::PI;
 
 pub fn register(app: &mut App) {
+    // `mark::<I>` between the systems times them when a `SimProfile` is present (LR_PROFILE=1).
     app.add_systems(
         SimTick,
         (
             // Inner tuples need their own chain(): the outer one only orders the groups.
-            (begin_tick, census_build, crate::ai::ai_system, apply_commands, visibility, income).chain(),
-            (think, assaults, factories, build_progress, locomotion, separation, carry, garrisons).chain(),
-            (weapons, projectiles, debris_fall, apply_reclaim, apply_capture, deaths, apply_ground, control_points, victory).chain(),
+            (mark::<0>, begin_tick, mark::<1>, census_build, mark::<2>, crate::ai::ai_system, mark::<3>, apply_commands, mark::<4>, visibility, mark::<5>, income, mark::<6>).chain(),
+            (think, mark::<7>, assaults, mark::<8>, factories, mark::<9>, build_progress, mark::<10>, locomotion, mark::<11>, separation, mark::<12>, carry, mark::<13>, garrisons, mark::<14>).chain(),
+            (weapons, mark::<15>, projectiles, mark::<16>, debris_fall, mark::<17>, apply_reclaim, mark::<18>, apply_capture, mark::<19>, deaths, mark::<20>, apply_ground, mark::<21>, control_points, mark::<22>, victory, mark::<23>).chain(),
         )
             .chain(),
     );
+}
+
+/// The tick's systems in the order `register` runs them (names for `SimProfile`).
+pub const SYSTEM_NAMES: [&str; 23] = [
+    "begin_tick", "census_build", "ai_system", "apply_commands", "visibility", "income", "think", "assaults", "factories", "build_progress", "locomotion", "separation", "carry", "garrisons", "weapons", "projectiles", "debris_fall", "apply_reclaim", "apply_capture", "deaths", "apply_ground", "control_points", "victory",
+];
+
+/// Wall time each tick system took, summed over the ticks run while it is present (`LR_PROFILE=1`
+/// in the headless tests), and the slowest single tick of each. Measurement only: no system reads
+/// it, it is not part of the state.
+#[derive(Resource)]
+pub struct SimProfile {
+    last: std::time::Instant,
+    start: std::time::Instant,
+    pub total: [std::time::Duration; SYSTEM_NAMES.len()],
+    pub worst: [std::time::Duration; SYSTEM_NAMES.len()],
+    /// Slowest whole tick.
+    pub worst_tick: std::time::Duration,
+    pub ticks: u32,
+}
+
+impl Default for SimProfile {
+    fn default() -> Self {
+        let now = std::time::Instant::now();
+        SimProfile { last: now, start: now, total: Default::default(), worst: Default::default(), worst_tick: Default::default(), ticks: 0 }
+    }
+}
+
+impl SimProfile {
+    /// The systems that took longest, with their share of the tick, the time per tick and their
+    /// slowest tick.
+    pub fn report(&self) -> String {
+        let sum: f64 = self.total.iter().map(|d| d.as_secs_f64()).sum::<f64>().max(1e-9);
+        let ticks = self.ticks.max(1) as f64;
+        let mut rows: Vec<(usize, f64)> = self.total.iter().map(|d| d.as_secs_f64()).enumerate().collect();
+        rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let mut out = format!("tick systems over {} ticks: {:.3} ms per tick, slowest tick {:.3} ms\n", self.ticks, sum * 1000.0 / ticks, self.worst_tick.as_secs_f64() * 1000.0);
+        for (i, t) in rows {
+            out += &format!("  {:<15} {:6.1}%  {:8.3} ms/tick  slowest {:7.3} ms\n", SYSTEM_NAMES[i], t * 100.0 / sum, t * 1000.0 / ticks, self.worst[i].as_secs_f64() * 1000.0);
+        }
+        out
+    }
+}
+
+fn mark<const I: usize>(p: Option<ResMut<SimProfile>>) {
+    let Some(mut p) = p else { return };
+    let now = std::time::Instant::now();
+    if I == 0 {
+        p.ticks += 1;
+        p.start = now;
+    } else {
+        let d = now - p.last;
+        p.total[I - 1] += d;
+        p.worst[I - 1] = p.worst[I - 1].max(d);
+        if I == SYSTEM_NAMES.len() {
+            let t = now - p.start;
+            p.worst_tick = p.worst_tick.max(t);
+        }
+    }
+    p.last = now;
 }
 
 /// How much farther (world units) a worker on an area reclaim or revive order goes to help a
@@ -400,7 +461,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             cos2,
         });
     }
-    for c in census.list.iter_mut() {
+    // Who sees each unit depends only on the viewers and the terrain, so the units are worked out
+    // in parallel (the sight lines are most of the tick) and written back in order.
+    let map = &*map;
+    let found = par_map(&census.list, 32, |c| {
         let own = 1u16 << c.team;
         let (mut seen, mut radar) = (own, own);
         let head = c.pos.at(c.y + c.height + 0.5);
@@ -426,6 +490,9 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
                 radar |= bit;
             }
         }
+        (seen, radar)
+    });
+    for (c, (seen, radar)) in census.list.iter_mut().zip(found) {
         c.seen = seen;
         c.radar = radar;
         if let Ok(mut i) = q.get_mut(c.e) {
@@ -1478,6 +1545,30 @@ fn locomotion(
 ) {
     let world = map.world();
     let n = map.n as i32;
+    let needs_path = |df: &crate::data::UnitDef, m: &Mover| -> Option<V2> {
+        let g = m.goal?;
+        (df.mv.kind == MoveKind::Land && m.hold <= 0.0 && (m.path.is_empty() || m.path_goal.dist(g) > 3.0)).then_some(g)
+    };
+    // Path searches (A*, the slowest thing a tick can do) are planned first: the first `paths_left`
+    // land units in id order that need a new path, exactly those the loop below would serve. They
+    // only read the occupancy grid, which nothing changes in here, so they run in parallel.
+    let mut wanted: Vec<(u32, V2, V2)> = vec![];
+    for (u, body, m, _) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
+        if wanted.len() as i32 >= nav.paths_left {
+            break;
+        }
+        if let Some(g) = needs_path(defs.get(u.def), m) {
+            wanted.push((u.id, body.pos, g));
+        }
+    }
+    nav.paths_left -= wanted.len() as i32;
+    let occ = &nav.occ;
+    let found = par_map(&wanted, 1, |&(_, from, to)| {
+        thread_local!(static SCRATCH: std::cell::RefCell<PathScratch> = Default::default());
+        SCRATCH.with(|sc| find_path(occ, map.n, from, to, &mut sc.borrow_mut()))
+    });
+    let mut paths: Vec<(u32, Vec<V2>)> = wanted.iter().map(|w| w.0).zip(found).collect();
+    paths.reverse();
     for (u, mut body, mut m, mut orders) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         let mv = &df.mv;
@@ -1552,12 +1643,11 @@ fn locomotion(
                     continue;
                 };
                 if m.path.is_empty() || m.path_goal.dist(g) > 3.0 {
-                    if nav.paths_left <= 0 {
+                    // Planned above in the same id order; no path left in this tick's budget: wait.
+                    if paths.last().map_or(true, |p| p.0 != u.id) {
                         continue;
                     }
-                    nav.paths_left -= 1;
-                    let nav = &mut *nav;
-                    m.path = find_path(&nav.occ, map.n, body.pos, g, &mut nav.scratch);
+                    m.path = paths.pop().unwrap().1;
                     m.path_goal = g;
                 }
                 let occ = &nav.occ;
@@ -1644,6 +1734,7 @@ fn locomotion(
         body.pos = v2(body.pos.x.clamp(0.5, world - 0.5), body.pos.y.clamp(0.5, world - 0.5));
         body.vel = (body.pos - old) * (1.0 / DT);
     }
+    debug_assert!(paths.is_empty(), "locomotion planned paths it did not use");
 }
 
 /// Pushes overlapping mobile units apart.

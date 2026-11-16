@@ -55,7 +55,7 @@ slot), `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmi
 fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED=n` (another map and AI seed
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
-(screenshot of a running game after `secs` of game time, then quit).
+(screenshot of a running game after `secs` of game time, then quit). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per tick and its slowest tick), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 
 ### Testing the window without a desktop
 
@@ -123,6 +123,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
     `.sort_by_key::<&Unit, _>(|u| u.id)` - plain ECS order differs per machine and after a rollback;
   - `sin/cos/atan2/acos/atan/powf...` only through `map::fm` (libm); `sqrt`, `+ - * /`, `floor` are fine;
   - never iterate a `HashMap`, never read `Entity` values, wall-clock time or view state in a sim system;
+  - parallel work only through `sim::par_map` (results in item order, applied by a sequential loop
+    afterwards), and only where each result depends on its own item and on data nobody writes meanwhile
+    (no `SimRng`, id allocation, budgets or effects inside). Used by `visibility` (sight lines) and
+    `locomotion` (A* searches, planned in id order within `Nav.paths_left` first). Check with
+    `LR_THREADS=1` and the default: `--selftest` hashes must be equal. `SimTick` runs on the single-threaded
+    executor: its systems are all chained, and the multi-threaded one doubled the tick time;
   - anything that survives from one tick to the next must be in `sim::Snapshot` (`make_snapshot`/`restore`),
     which is also the state a client joins with and the repair sent when a client's state hash differs;
   - new simulation objects are created with `spawn_unit` / `spawn_projectile` / `spawn_wreck` (they reuse the
