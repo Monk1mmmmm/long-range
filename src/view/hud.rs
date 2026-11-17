@@ -516,11 +516,19 @@ fn key_letter(k: KeyCode) -> &'static str {
 /// Local occupancy grid for placement previews (works on clients too, which have no `Nav`).
 /// Where the local player believes buildings stand: their team's own, and enemy ones they have
 /// detected. A spot the enemy has taken unseen still looks free, so the order can be given.
-fn local_occ(map: &MapData, defs: &Defs, infos: &HashMap<u32, Info>, game: &Game, team: u8, mem: &IntelMemory, reveal: bool) -> Vec<u8> {
+/// Sites the local player's builders have queued count as taken too, except the queues of `replaced`
+/// (the selected builders when the new order replaces their queue instead of adding to it).
+fn local_occ(map: &MapData, defs: &Defs, infos: &HashMap<u32, Info>, game: &Game, team: u8, mem: &IntelMemory, reveal: bool, replaced: &[u32]) -> Vec<u8> {
     let mut occ = map.blocked.clone();
     let own = infos.values().filter(|u| reveal || game.team_of(u.owner) == team).map(|u| (u.def, u.pos));
     let known = mem.ghosts.values().filter(|g| g.structure).filter_map(|g| g.def.map(|d| (d, g.pos)));
-    for (def, pos) in own.chain(known) {
+    let planned = infos.values().filter(|u| !replaced.contains(&u.id)).flat_map(|u| {
+        u.orders.iter().filter_map(|o| match o {
+            Order::Build { def, pos } => Some((*def, *pos)),
+            _ => None,
+        })
+    });
+    for (def, pos) in own.chain(known).chain(planned) {
         let f = defs.get(def).footprint;
         if f > 0 {
             let (x0, y0) = foot_origin(pos, f);
@@ -897,7 +905,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let hover = fr.hover(over_hud);
     let out = &mut p.out.0;
     let out_before = out.len();
-    let occ = if matches!(view.mode, Mode::Place(_)) { local_occ(map, defs, &infos, game, team, &p.mem, reveal) } else { vec![] };
+    let occ = if matches!(view.mode, Mode::Place(_)) { local_occ(map, defs, &infos, game, team, &p.mem, reveal, if shift { &[] } else { &view.sel }) } else { vec![] };
     let lmb_down = p.mouse.just_pressed(MouseButton::Left);
     let lmb_up = p.mouse.just_released(MouseButton::Left);
     let lmb_held = p.mouse.pressed(MouseButton::Left);
