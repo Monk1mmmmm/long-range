@@ -301,7 +301,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `rules.garrison_damage` (0.04) x the raw damage, their armor applied (`deaths`). `systems::garrisons`
   gives a map building to the owner of its lowest-id rider and back to `NEUTRAL` when empty (playable
   factions' buildings and `HOSTILE` ones keep their owner); garrisonable buildings can't be captured.
-  `Unload` from a building sets them down at its side and walks them to the spot. When the building dies,
+  `Unload` from a building sets them down at its side and walks them to the spot. Move-type orders (move,
+  attack-move, patrol) given to riders of a building take them out of the side facing the goal first
+  (`apply_commands`, `garrison_door`); the HUD sends a selected own building's move orders to its riders
+  (`hud::Frame::garrison_riders`), so right-clicking ground with an occupied house selected empties it there. When the building dies,
   `deaths` throws them out with `rules.garrison_eject_damage` x max hp damage (none if reclaimed);
   riders of a mobile transport still die with it.
   **Storming**: `Order::Load` on a building enemy infantry hold (right-click it with infantry selected; `hud::Frame::stormers`)

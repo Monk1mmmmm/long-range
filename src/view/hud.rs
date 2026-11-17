@@ -231,6 +231,16 @@ impl Frame<'_> {
     fn selected<'b>(&'b self, view: &ViewState) -> Vec<&'b Info> {
         view.sel.iter().filter_map(|id| self.infos.get(id)).filter(|u| u.owner == view.me).collect()
     }
+    /// The infantry inside the selected own buildings: move orders for the buildings go to them.
+    fn garrison_riders(&self, view: &ViewState) -> Vec<&Info> {
+        let held: Vec<u32> = self.selected(view).iter().filter(|u| self.d(u.def).is_garrison() && self.d(u.def).is_structure()).map(|u| u.id).collect();
+        if held.is_empty() {
+            return vec![];
+        }
+        let mut riders: Vec<&Info> = self.infos.values().filter(|r| r.owner == view.me && r.built.is_none() && held.contains(&r.host)).collect();
+        riders.sort_by_key(|r| r.id);
+        riders
+    }
     fn d(&self, id: DefId) -> &UnitDef {
         self.defs.get(id)
     }
@@ -302,7 +312,9 @@ impl Frame<'_> {
         if !planes.is_empty() {
             out.push(Command::Orders { ids: planes, orders: vec![mk(end)], queue });
         }
-        let movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure() && !self.d(u.def).is_plane()).collect();
+        let mut movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure() && !self.d(u.def).is_plane()).collect();
+        // Infantry in selected buildings leave them and go too.
+        movers.extend(self.garrison_riders(view).into_iter().filter(|r| !self.d(r.def).is_plane()));
         if movers.is_empty() {
             return;
         }
@@ -1819,22 +1831,48 @@ pub fn ui_system(mut p: UiParams) -> Result {
 
     // --- economy bar
     hud.rect_filled(rect(0.0, 0.0, sw, TOP), 0.0, panel_bg);
-    let res = |x: f32, name: &str, cur: f32, max: f32, inc: f32, exp: f32, col: Color32| {
+    // Mass overflow (FAF style): storage full while income exceeds spending, so mass is wasted.
+    // The mass bar blinks; a warning sounds when it begins (at most every 15 s).
+    let overflow = !observer && player.alive && player.mass >= player.max_mass.max(1.0) - 0.5 && player.income_m > player.spend_m + 0.01;
+    if overflow && !view.mass_overflow.0 && game.tick > 50 && now - view.mass_overflow.1 > 15.0 {
+        p.ui_sounds.0.push(("mass_overflow", 0.6));
+        view.mass_overflow.1 = now;
+    }
+    view.mass_overflow.0 = overflow;
+    let blink = overflow && (now * 3.0).fract() < 0.5;
+    // Economy numbers drawn thick: twice, a pixel apart, over a dark shadow.
+    let bold = |x: f32, y: f32, align: Align2, t: &str, size: f32, c: Color32| {
+        hud.text(Pos2::new(x + 1.0, y + 1.0), align, t, font(size), rgba(0, 0, 0, 200));
+        hud.text(Pos2::new(x, y), align, t, font(size), c);
+        hud.text(Pos2::new(x + 0.8, y), align, t, font(size), c);
+    };
+    let res = |x: f32, name: &str, cur: f32, max: f32, inc: f32, exp: f32, col: Color32, blink: bool| {
         if let Some(tx) = res_tex.get(name) {
-            hud.image(tx.id(), rect(x + 30.0, 3.0, 24.0, 24.0), UV, col);
+            hud.image(tx.id(), rect(x + 30.0, 3.0, 24.0, 24.0), UV, if blink { Color32::WHITE } else { col });
         }
         let bx = x + 62.0;
-        hud.rect_filled(rect(bx, 7.0, 150.0, 16.0), 2.0, rgba(0, 0, 0, 220));
-        hud.rect_filled(rect(bx, 7.0, 150.0 * (cur / max.max(1.0)).clamp(0.0, 1.0), 16.0), 2.0, col.gamma_multiply(0.7));
-        text_c(bx + 75.0, 15.0, &format!("{:.0} / {:.0}", cur, max), 12.0, Color32::WHITE);
-        text(bx + 158.0, 7.0, &format!("+{:.1}", inc), 14.0, rgba(110, 255, 130, 255));
-        text(bx + 220.0, 7.0, &format!("-{:.1}", exp), 14.0, if exp > inc + 0.01 { rgba(255, 105, 90, 255) } else { rgba(215, 215, 215, 255) });
+        let bar = rect(bx, 7.0, 150.0, 16.0);
+        hud.rect_filled(bar, 2.0, rgba(0, 0, 0, 220));
+        let fill = if blink { rgba(255, 255, 255, 235) } else { col.gamma_multiply(0.7) };
+        hud.rect_filled(rect(bx, 7.0, 150.0 * (cur / max.max(1.0)).clamp(0.0, 1.0), 16.0), 2.0, fill);
+        if blink {
+            hud.rect_stroke(bar.expand(1.5), 3.0, Stroke::new(1.5, rgba(255, 255, 255, 255)), StrokeKind::Outside);
+        }
+        let store = format!("{:.0} / {:.0}", cur, max);
+        if blink {
+            hud.text(Pos2::new(bx + 75.0, 15.0), Align2::CENTER_CENTER, &store, font(12.5), rgba(20, 30, 45, 255));
+            hud.text(Pos2::new(bx + 75.8, 15.0), Align2::CENTER_CENTER, &store, font(12.5), rgba(20, 30, 45, 255));
+        } else {
+            bold(bx + 75.0, 15.0, Align2::CENTER_CENTER, &store, 12.5, Color32::WHITE);
+        }
+        bold(bx + 158.0, 6.0, Align2::LEFT_TOP, &format!("+{:.1}", inc), 15.0, rgba(110, 255, 130, 255));
+        bold(bx + 220.0, 6.0, Align2::LEFT_TOP, &format!("-{:.1}", exp), 15.0, if exp > inc + 0.01 { rgba(255, 105, 90, 255) } else { rgba(215, 215, 215, 255) });
     };
     if observer {
         text(12.0, 7.0, "OBSERVING", 14.0, rgba(205, 205, 205, 255));
     } else {
-        res(12.0, "mass", player.mass, player.max_mass, player.income_m, player.spend_m, rgba(190, 215, 240, 255));
-        res(360.0, "energy", player.energy, player.max_energy, player.income_e, player.spend_e, rgba(255, 215, 65, 255));
+        res(12.0, "mass", player.mass, player.max_mass, player.income_m, player.spend_m, rgba(190, 215, 240, 255), blink);
+        res(360.0, "energy", player.energy, player.max_energy, player.income_e, player.spend_e, rgba(255, 215, 65, 255), false);
     }
     if player.power_out {
         text(700.0, 7.0, "POWER STALL", 14.0, rgba(255, 80, 80, 255));
@@ -2437,7 +2475,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 Context::Wreck { reclaim, .. } => Some(if reclaim.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
                 Context::Feature(..) => Some(CursorKind::Reclaim),
                 // Only buildings that cannot move or set a rally point: nothing to do.
-                Context::Move if fr.selected(view).iter().all(|u| fr.d(u.def).is_structure() && !fr.d(u.def).is_factory()) => None,
+                Context::Move if fr.selected(view).iter().all(|u| fr.d(u.def).is_structure() && !fr.d(u.def).is_factory()) && fr.garrison_riders(view).is_empty() => None,
                 Context::Move => Some(if alt { CursorKind::AttackMove } else { CursorKind::Move }),
             },
             Mode::AttackMove if enemy_under => Some(CursorKind::Attack),

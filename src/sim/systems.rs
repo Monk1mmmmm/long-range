@@ -169,6 +169,7 @@ fn apply_commands(
     map: Res<MapData>,
     game: Res<Game>,
     mut effects: ResMut<Effects>,
+    nav: Res<Nav>,
     mut commands: Commands,
     mut q: Query<(&Unit, &Body, &mut Orders, Option<&mut Factory>, Option<&mut Mover>, Option<&mut Weapons>, Has<Upgrading>, Has<UnderConstruction>)>,
 ) {
@@ -187,13 +188,26 @@ fn apply_commands(
                 }
                 for (k, id) in ids.iter().enumerate() {
                     let Some(e) = owned(*id) else { continue };
-                    // Units riding in a transport take no orders.
-                    if census.get(*id).map_or(false, |c| c.hosted && c.done) {
-                        continue;
-                    }
-                    let Ok((u, b, mut ord, factory, mover, _, _, _)) = q.get_mut(e) else { continue };
+                    let hosted = census.get(*id).filter(|c| c.hosted && c.done);
+                    let Ok((u, b, mut ord, factory, mut mover, _, _, _)) = q.get_mut(e) else { continue };
                     let df = defs.get(u.def);
                     let mut o = if orders.len() == ids.len() { orders[k] } else { orders[0] };
+                    // Units riding in a transport take no orders. Infantry in a building take move orders:
+                    // they step out of the side facing where they go first.
+                    let mut from = b.pos;
+                    if let Some(c) = hosted {
+                        let (Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p)) = o else { continue };
+                        let Some(h) = census.get(c.host).filter(|h| h.structure && defs.get(h.def).is_garrison()) else { continue };
+                        let p = map.clamp(p);
+                        let riders: Vec<u32> = census.list.iter().filter(|t| t.host == h.id).map(|t| t.id).collect();
+                        let k = riders.iter().position(|r| *r == c.id).unwrap_or(0);
+                        from = garrison_door(&map, &nav, h.pos, defs.get(h.def).radius(), p, k, riders.len());
+                        commands.entity(e).remove::<Hosted>().insert(Body { pos: from, y: map.h(from), yaw: (p - from).angle(), vel: v2(0.0, 0.0) });
+                        if let Some(m) = mover.as_mut() {
+                            m.anchor = p;
+                            m.path_goal = from;
+                        }
+                    }
                     // Infantry told to attack a building enemy infantry hold storm it, like a right-click
                     // does: shooting at its walls would only wear the building down.
                     // The same for a trench piece enemy infantry hold, or the enemy infantry in it: they
@@ -264,7 +278,7 @@ fn apply_commands(
                         let has = ord.0.iter().any(|x| matches!(x, Order::Patrol(_)));
                         ord.0.push(o);
                         if !has {
-                            ord.0.push(Order::Patrol(b.pos));
+                            ord.0.push(Order::Patrol(from));
                         }
                     } else {
                         ord.0.push(o);
@@ -1139,10 +1153,9 @@ fn think(
                 } else if is_struct {
                     // Infantry leave an occupied building on the side facing the spot and walk there.
                     let n = cargo.len() as f32;
-                    let face = (c - pos).angle();
                     for (k, t) in cargo.iter().enumerate() {
                         let dest = set_down(&map, &nav, c + V2::from_angle(k as f32 * 2.4) * (radius.max(1.5) * ((k as f32 + 0.5) / n).sqrt()));
-                        let door = set_down(&map, &nav, pos + V2::from_angle(face + (k as f32 - n * 0.5) * 0.3) * (df.radius() + 1.2));
+                        let door = garrison_door(&map, &nav, pos, df.radius(), c, k, cargo.len());
                         commands.entity(t.e).remove::<Hosted>().insert((
                             Body { pos: door, y: map.h(door), yaw: (dest - door).angle(), vel: v2(0.0, 0.0) },
                             Orders(vec![Order::Move(dest)]),
@@ -1296,6 +1309,12 @@ fn trench_to_storm(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &
 }
 
 /// The nearest spot a land unit can stand on (off buildings and cliffs).
+/// Where rider `k` of `n` steps out of a building at `pos` (radius `r`): on the side facing `toward`.
+fn garrison_door(map: &MapData, nav: &Nav, pos: V2, r: f32, toward: V2, k: usize, n: usize) -> V2 {
+    let face = (toward - pos).angle();
+    set_down(map, nav, pos + V2::from_angle(face + (k as f32 - n as f32 * 0.5) * 0.3) * (r + 1.2))
+}
+
 fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
     let p = map.clamp(p);
     if nav.at(map, p) == 0 {
