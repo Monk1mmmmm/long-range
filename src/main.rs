@@ -2793,14 +2793,16 @@ fn infantry_tests(defs: &Defs) {
     // in when it is cleared. Riflemen beat AT/SAM troopers inside; the defenders win an even fight.
     // `from`: how far west of the house the stormers start (6 = at the door, so only the
     // close-quarters fight counts; further out the defenders shoot at them on the way in).
-    for (inside, storm, n_in, n_out, from, want_taken) in [
-        ("at_trooper", "trooper", 1, 1, 6.0, Some(true)),
-        ("at_trooper", "trooper", 2, 2, 6.0, Some(true)),
-        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true)),
-        ("trooper", "at_trooper", 1, 1, 6.0, Some(false)),
-        ("trooper", "trooper", 1, 1, 6.0, Some(false)),
-        ("trooper", "trooper", 1, 2, 6.0, Some(true)),
-        ("at_trooper", "trooper", 2, 3, 40.0, None),
+    // `attack`: the stormers get an attack order on the house instead of a load order (they storm it all the same).
+    for (inside, storm, n_in, n_out, from, want_taken, attack) in [
+        ("at_trooper", "trooper", 1, 1, 6.0, Some(true), false),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false),
+        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true), false),
+        ("trooper", "at_trooper", 1, 1, 6.0, Some(false), false),
+        ("trooper", "trooper", 1, 1, 6.0, Some(false), false),
+        ("trooper", "trooper", 1, 2, 6.0, Some(true), false),
+        ("at_trooper", "trooper", 2, 3, 40.0, None, false),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), true),
     ] {
         let (mut app, map) = world_with(&[]);
         let world = app.world_mut();
@@ -2812,7 +2814,7 @@ fn infantry_tests(defs: &Defs) {
         }
         let in_before = held.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
         let men: Vec<u32> = (0..n_out).map(|k| spawn(world, &map, storm, 0, v2(129.0 - from, 127.0 + k as f32 * 1.5), 0.0)).collect();
-        order(world, 0, men.clone(), Order::Load(house));
+        order(world, 0, men.clone(), if attack { Order::Attack(house) } else { Order::Load(house) });
         let mut done_at = None;
         for t in 0..400 {
             world.run_schedule(SimTick);
@@ -2824,7 +2826,8 @@ fn infantry_tests(defs: &Defs) {
         let ours_in = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
         let hps: Vec<f32> = men.iter().map(|id| hp(world, *id)).collect();
         println!(
-            "== Storm from {from}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a house: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
+            "== Storm from {from}{}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a house: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
+            if attack { " (attack order)" } else { "" },
             owner_of(world, house),
             done_at.map(|t| (t + 1) as f32 / 10.0)
         );

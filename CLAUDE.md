@@ -300,7 +300,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `deaths` throws them out with `rules.garrison_eject_damage` x max hp damage (none if reclaimed);
   riders of a mobile transport still die with it.
   **Storming**: `Order::Load` on a building enemy infantry hold (right-click it with infantry selected; `hud::Frame::stormers`)
-  sends infantry with `assault` > 0 (unit JSON: close-quarters dps; Trooper 10, AT 3, SAM 2.5) to its door, where `think`
+  sends infantry with `assault` > 0 (unit JSON: close-quarters dps; Trooper 10, AT 3, SAM 2.5) to its door (an `Order::Attack` on such a building
+  becomes that `Load` for them in `apply_commands`, `systems::storms`; other units still shoot at it), where `think`
   queues them in `Effects.assault` and `systems::assaults` trades damage: attackers' summed assault -> the lowest-id
   defender, defenders' summed assault x `rules.garrison_defense` (1.25) -> the lowest-id attacker. Defenders of a stormed
   building (`Effects.stormed`) do not fire out. When nobody is left inside, `may_board` lets them in (a map building

@@ -194,6 +194,13 @@ fn apply_commands(
                     let Ok((u, b, mut ord, factory, mover, _, _, _)) = q.get_mut(e) else { continue };
                     let df = defs.get(u.def);
                     let mut o = if orders.len() == ids.len() { orders[k] } else { orders[0] };
+                    // Infantry told to attack a building enemy infantry hold storm it, like a right-click
+                    // does: shooting at its walls would only wear the building down.
+                    if let Order::Attack(t) = o {
+                        if census.get(t).is_some_and(|t| storms(&defs, &census, df, t, game.team_of(pl))) {
+                            o = Order::Load(t);
+                        }
+                    }
                     match &mut o {
                         Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) => *p = map.clamp(*p),
                         Order::AttackGround { pos, .. } | Order::ReclaimArea { pos, .. } => *pos = map.clamp(*pos),
@@ -1219,6 +1226,13 @@ fn may_board(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, t
     } else {
         t.team == team
     }
+}
+
+/// Can a unit of type `df` (on `team`) storm `t`: a finished building it could garrison, held by
+/// enemy infantry? Only infantry with an `assault` value do.
+fn storms(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, team: u8) -> bool {
+    let td = defs.get(t.def);
+    df.is_infantry() && df.assault > 0.0 && carriable(df) && td.is_garrison() && t.done && t.hp > 0.0 && hostile(team, t.team) && census.list.iter().any(|r| r.host == t.id && r.done && r.hp > 0.0 && hostile(team, r.team))
 }
 
 /// The nearest spot a land unit can stand on (off buildings and cliffs).
