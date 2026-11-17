@@ -90,6 +90,9 @@ pub const RULE_COMBAT: &[Field] = &[
     num("gravity", "Gravity", 4.9, 100.0, "Pulls every shell and bomb down (units per second squared). Higher: shorter, steeper arcs and less reach for artillery."),
     num("commander_death.damage", "Commander death blast: damage", 1500.0, BIG, "Damage of the explosion when a commander dies."),
     num("commander_death.radius", "Commander death blast: radius", 20.0, 1000.0, "Radius of the explosion when a commander dies."),
+    num("armor_front", "Armor angle: front", 0.6, 10.0, "Armored units (category armored) take this share of a hit head on. Between front, side and rear it blends with the angle; shells falling steeply count the angle less, one falling straight down not at all."),
+    num("armor_side", "Armor angle: side", 1.0, 10.0, "Share of a hit an armored unit takes from the side."),
+    num("armor_rear", "Armor angle: rear", 1.5, 10.0, "Share of a hit an armored unit takes from behind."),
 ];
 
 pub const RULE_INTEL: &[Field] = &[
