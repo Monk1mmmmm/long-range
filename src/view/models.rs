@@ -149,48 +149,82 @@ pub struct ModelCache {
     pub ghost_queued: Handle<StandardMaterial>,
 }
 
-fn load_glb(path: &std::path::Path, meshes: &mut Assets<Mesh>, want_tangents: bool) -> Result<(Vec<ModelPart>, Vec<Arc<Anim>>), String> {
+/// How a glTF primitive is drawn. Materials named "team", "light", "dark" or "metal" take that flat colour
+/// (as box models do); with an albedo texture (`textured`) everything else uses the unit's baked texture;
+/// without one a material's base colour is used, except the converter's placeholder material "unit".
+fn prim_mat(prim: &gltf::Primitive, textured: bool) -> PartMat {
+    let m = prim.material();
+    let name = m.name().unwrap_or("").to_ascii_lowercase();
+    if ["team", "light", "dark", "metal"].contains(&name.as_str()) {
+        return PartMat::Flat(ColorSpec::Name(name));
+    }
+    if textured || m.index().is_none() || name == "unit" {
+        return PartMat::Unit;
+    }
+    // glTF colours are linear; ColorSpec::Rgb is sRGB.
+    let c = m.pbr_metallic_roughness().base_color_factor();
+    let srgb = |v: f32| Color::LinearRgba(LinearRgba::rgb(v, v, v)).to_srgba().red;
+    PartMat::Flat(ColorSpec::Rgb([srgb(c[0]), srgb(c[1]), srgb(c[2])]))
+}
+
+fn prim_mesh(prim: &gltf::Primitive, blob: &[u8], meshes: &mut Assets<Mesh>, want_tangents: bool) -> Option<Handle<Mesh>> {
+    let reader = prim.reader(|_| Some(blob));
+    let pos: Vec<[f32; 3]> = reader.read_positions()?.collect();
+    let n = pos.len();
+    let nrm: Vec<[f32; 3]> = reader.read_normals().map(|i| i.collect()).unwrap_or_else(|| vec![[0.0, 1.0, 0.0]; n]);
+    let uv: Vec<[f32; 2]> = reader.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_else(|| vec![[0.0, 0.0]; n]);
+    let idx: Vec<u32> = reader.read_indices().map(|i| i.into_u32().collect()).unwrap_or_else(|| (0..n as u32).collect());
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    mesh.insert_indices(Indices::U32(idx));
+    if want_tangents {
+        let _ = mesh.generate_tangents();
+    }
+    Some(meshes.add(mesh))
+}
+
+/// Reads a GLB: one part per node. A mesh with several primitives (an object with several materials)
+/// gets one extra child part per further primitive.
+fn load_glb(path: &std::path::Path, meshes: &mut Assets<Mesh>, want_tangents: bool, textured: bool) -> Result<(Vec<ModelPart>, Vec<Arc<Anim>>), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let g = gltf::Gltf::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     let blob = g.blob.clone().unwrap_or_default();
     let mut parts: Vec<ModelPart> = vec![];
     // glTF node index -> part index.
     let mut part_of: HashMap<usize, usize> = HashMap::new();
-    #[allow(clippy::too_many_arguments)]
-    fn walk(node: gltf::Node, parent: Option<usize>, blob: &[u8], meshes: &mut Assets<Mesh>, want_tangents: bool, parts: &mut Vec<ModelPart>, part_of: &mut HashMap<usize, usize>) {
+    struct Load<'a> {
+        blob: &'a [u8],
+        meshes: &'a mut Assets<Mesh>,
+        want_tangents: bool,
+        textured: bool,
+        parts: &'a mut Vec<ModelPart>,
+        part_of: &'a mut HashMap<usize, usize>,
+    }
+    fn walk(node: gltf::Node, parent: Option<usize>, l: &mut Load) {
         let local = Transform::from_matrix(Mat4::from_cols_array_2d(&node.transform().matrix()));
-        let mut mesh_handle = None;
-        if let Some(m) = node.mesh() {
-            if let Some(prim) = m.primitives().next() {
-                let reader = prim.reader(|_| Some(blob));
-                if let Some(pos) = reader.read_positions() {
-                    let pos: Vec<[f32; 3]> = pos.collect();
-                    let n = pos.len();
-                    let nrm: Vec<[f32; 3]> = reader.read_normals().map(|i| i.collect()).unwrap_or_else(|| vec![[0.0, 1.0, 0.0]; n]);
-                    let uv: Vec<[f32; 2]> = reader.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_else(|| vec![[0.0, 0.0]; n]);
-                    let idx: Vec<u32> = reader.read_indices().map(|i| i.into_u32().collect()).unwrap_or_else(|| (0..n as u32).collect());
-                    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-                    mesh.insert_indices(Indices::U32(idx));
-                    if want_tangents {
-                        let _ = mesh.generate_tangents();
-                    }
-                    mesh_handle = Some(meshes.add(mesh));
-                }
-            }
+        let name = node.name().unwrap_or("").to_string();
+        let prims: Vec<gltf::Primitive> = node.mesh().map(|m| m.primitives().collect()).unwrap_or_default();
+        let me = l.parts.len();
+        l.part_of.insert(node.index(), me);
+        let first = prims.first();
+        let mesh = first.and_then(|p| prim_mesh(p, l.blob, l.meshes, l.want_tangents));
+        let mat = first.map_or(PartMat::Unit, |p| prim_mat(p, l.textured));
+        l.parts.push(ModelPart { name: name.clone(), parent, local, mesh, mat, spin: None });
+        for (k, p) in prims.iter().enumerate().skip(1) {
+            let mesh = prim_mesh(p, l.blob, l.meshes, l.want_tangents);
+            let mat = prim_mat(p, l.textured);
+            l.parts.push(ModelPart { name: format!("{name}#{k}"), parent: Some(me), local: Transform::IDENTITY, mesh, mat, spin: None });
         }
-        let me = parts.len();
-        part_of.insert(node.index(), me);
-        parts.push(ModelPart { name: node.name().unwrap_or("").to_string(), parent, local, mesh: mesh_handle, mat: PartMat::Unit, spin: None });
         for c in node.children() {
-            walk(c, Some(me), blob, meshes, want_tangents, parts, part_of);
+            walk(c, Some(me), l);
         }
     }
+    let mut l = Load { blob: &blob, meshes, want_tangents, textured, parts: &mut parts, part_of: &mut part_of };
     for scene in g.document.scenes() {
         for node in scene.nodes() {
-            walk(node, None, &blob, meshes, want_tangents, &mut parts, &mut part_of);
+            walk(node, None, &mut l);
         }
     }
     let mut anims: Vec<Arc<Anim>> = vec![];
@@ -272,7 +306,7 @@ impl ModelCache {
             let md: &ModelDef = &d.model;
             let mut model = Model { parts: vec![], scale: md.scale, anims: vec![] };
             if let Some(mesh) = &md.mesh {
-                match load_glb(&asset_root().join(mesh), meshes, md.normal.is_some()) {
+                match load_glb(&asset_root().join(mesh), meshes, md.normal.is_some(), md.albedo.is_some()) {
                     Ok((parts, anims)) => {
                         model.parts = parts;
                         model.anims = anims;
@@ -324,8 +358,9 @@ impl ModelCache {
             let width = albedo.width();
             for (i, px) in albedo.pixels_mut().enumerate() {
                 let (x, y) = (i as u32 % width, i as u32 / width);
-                // The mod's albedo maps are dark; lift them and paint the team areas.
-                let mut c = [px[0] as f32 / 255.0 * 2.1, px[1] as f32 / 255.0 * 2.1, px[2] as f32 / 255.0 * 2.1];
+                // The mod's albedo maps are dark (`brightness` 2.1 lifts them); paint the team areas.
+                let b = md.brightness;
+                let mut c = [px[0] as f32 / 255.0 * b, px[1] as f32 / 255.0 * b, px[2] as f32 / 255.0 * b];
                 if let Some(m) = &mask {
                     let k = m.get_pixel(x, y)[0] as f32 / 255.0;
                     if k > 0.0 {
@@ -592,7 +627,7 @@ mod tests {
         for f in std::fs::read_dir(&dir).unwrap() {
             let p = f.unwrap().path();
             if p.extension().is_some_and(|e| e == "glb") {
-                let (parts, anims) = load_glb(&p, &mut meshes, false).unwrap();
+                let (parts, anims) = load_glb(&p, &mut meshes, false, true).unwrap();
                 for a in &anims {
                     assert!(a.times.len() >= 2 && a.duration() > 0.0, "{}", p.display());
                     for (part, tr, rot) in &a.tracks {

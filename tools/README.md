@@ -42,6 +42,45 @@ Coordinates are converted from SupCom's left-handed space to glTF's right-handed
 that faces +Z in SupCom faces -Z in the `.glb` (the game's forward direction), and triangle winding is reversed.
 Only LOD0 is used; animations (`.sca`) are not converted.
 
+## blend.py - models made in Blender
+
+    python3 tools/blend.py art/abbey_factory.blend            # -> assets/models/abbey_factory.glb (+ textures)
+    python3 tools/blend.py art/abbey_factory.blend --watch    # exports again every time the file is saved
+
+Needs Blender (found through `$BLENDER`, PATH, then the usual install folders; tested with 5.2) and nothing else.
+It runs Blender in the background with `blend_export.py`, which exports the scene with the settings the game's
+loader (`src/view/models.rs::load_glb`) needs and prints the unit JSON `model` block to paste. The `.blend` file
+is never changed. Options: `--name` (asset name, default the file name), `--out` (default `assets/models`),
+`--front -y|+y|-x|+x` (where the model's front looks in Blender, default `-y`: the side the Front view, numpad 1,
+shows; the game's forward is -Z), `--brightness` (albedo multiplier in the JSON block, default 1; the mod's
+dark textures use 2.1, the default when the JSON leaves it out).
+
+How to build a model for it:
+
+- **Size**: 1 Blender unit = 1 world unit (a tank is ~0.7 wide, a build cell is 2 units), origin on the ground
+  at the middle of the footprint, Z up as usual in Blender. Keep `"scale": 1` in the JSON.
+- **Parts**: every object is a part of the model; moving parts (turret, barrel, factory platform, doors) are
+  separate objects in a parent hierarchy. Their names are what the weapon's `turret` block refers to:
+  `yaw_bone` (turns sideways), `pitch_bone` (child of it, raises the barrel), `muzzle_bone` (an empty at the
+  muzzle), and `spin` (radar dishes). Modifiers are applied on export.
+- **No skinning**: an Armature modifier (vertex weights) is not supported, the game shows the rest pose. Animate
+  objects, or parent objects to bones (Ctrl+P > Bone) and animate the bones. No shape keys.
+- **Colours without textures** (low poly): a material named `team` is drawn in the owner's colour, `light` in a
+  pale team colour, `dark` and `metal` in fixed greys; any other material keeps its Base Color. An object may have
+  several materials.
+- **Textures**: one set per model (one UV layout): the image linked to Base Color becomes `NAME_albedo.png`, the
+  image of a Normal Map node `NAME_normal.png`, and an Image Texture node with "team" in its name or label
+  (white = team colour, same size as the albedo; it need not be connected) `NAME_team.png`. With an albedo
+  texture all materials use it, except those named team / light / dark / metal. Images that are files on disk
+  (PNG) are copied; packed or painted ones are written from their pixels.
+- **Animations**: Blender actions, named after what the game plays them for: `walk` (cycle while moving),
+  `open` (engineers unfold to build; first frame folded), `upgrade`, `work` (pumps), `doors`, `unpack`,
+  `land`, `water`, `rolloff` (factory platform when a unit leaves). Other names are reported and ignored.
+  One action may move several objects (action slots). Every frame of the action is sampled, starting at 0 s.
+
+The script warns about skinning, unknown action names and textures it cannot use. The game loads models at
+start, so restart it (or the editor) to see a new export.
+
 ## scm.py - SCM reader
 
 Library used by the converter; also a quick inspector:
