@@ -1608,6 +1608,99 @@
    ]
   },
   {
+   "id": "bastion",
+   "categories": [
+    "armored"
+   ],
+   "name": "Bastion",
+   "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 320 damage at range 70, slow turret.",
+   "tier": 3,
+   "hp": 1400,
+   "armor": "MediumTank",
+   "cost": {
+    "mass": 1300,
+    "energy": 6000,
+    "time": 2200
+   },
+   "size": [
+    2.438,
+    1.625,
+    3.9
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/crony.glb",
+    "albedo": "models/crony_albedo.png",
+    "team_mask": "models/crony_team.png",
+    "normal": "models/crony_normal.png",
+    "scale": 0.2275
+   },
+   "portrait": "icons/units/crony.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.2,
+    "reverse": 2.0,
+    "accel": 0.7,
+    "turn": 38
+   },
+   "vision": 32,
+   "reactive": {
+    "charges": 4,
+    "block": 0.75
+   },
+   "weapons": [
+    {
+     "name": "Heavy Gauss Cannon",
+     "prefer": "armored",
+     "damage": 320,
+     "range": 70,
+     "reload": 5.0,
+     "speed": 65,
+     "kind": "direct",
+     "damage_type": "AP",
+     "radius": 1.5,
+     "spread": 0.25,
+     "aim_time": 1.2,
+     "turret": {
+      "yaw_speed": 12,
+      "pitch_speed": 50,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    },
+    {
+     "name": "Heavy Machinegun",
+     "prefer": "infantry",
+     "damage": 1,
+     "range": 30,
+     "reload": 1.2,
+     "speed": 100,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.08,
+     "spread": 0.6,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90,
+      "yaw_bone": "MachineGunTurret",
+      "pitch_bone": "MachineGunBarrel",
+      "muzzle_bone": "MachineGunMuzzle"
+     },
+     "targets": [
+      "land",
+      "air"
+     ]
+    }
+   ]
+  },
+  {
    "id": "engineer3",
    "name": "Engineer Mk3",
    "desc": "Builds every structure.",

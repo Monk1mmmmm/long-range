@@ -539,6 +539,16 @@ pub struct FieldworkDef {
     pub dig: f32,
 }
 
+/// Explosive reactive armor: tiles that go off when a missile (an anti-tank guided missile, say)
+/// hits, taking most of its damage. Each hit uses up one charge; a unit repaired to full health
+/// gets all of them back.
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct ReactiveDef {
+    pub charges: u8,
+    /// Share of a missile hit's damage a charge stops (0 - 1).
+    pub block: f32,
+}
+
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WeaponKind {
@@ -797,6 +807,9 @@ pub struct UnitDef {
     /// Sandbags, trenches: cover that is built (see `FieldworkDef`).
     #[serde(default)]
     pub fieldwork: Option<FieldworkDef>,
+    /// Explosive reactive armor (see `ReactiveDef`).
+    #[serde(default)]
+    pub reactive: Option<ReactiveDef>,
     /// Sound played when the unit is selected (one of `view::sound::UI_SOUNDS`); empty = by role.
     #[serde(default)]
     pub select_sound: String,
@@ -1246,6 +1259,9 @@ impl Defs {
             }
             if u.stealth > 3 {
                 return Err(format!("{}: stealth goes from 0 to 3", u.id));
+            }
+            if u.reactive.is_some_and(|r| !(0.0..=1.0).contains(&r.block)) {
+                return Err(format!("{}: reactive armor block goes from 0 to 1", u.id));
             }
             if !u.is_structure() && u.footprint != 0 {
                 return Err(format!("{}: mobile units must not have a footprint", u.id));

@@ -242,6 +242,11 @@ pub const UNIT_FIELDWORK: &[Field] = &[
     num("dig", "Trench depth", 0.0, 1.4, "Above 0 it is a trench: the ground of its cell is dug this deep (and stays so when the trench is destroyed) and it shelters the infantry standing in it from every side. 0: a wall (sandbags) that covers what enemy shots must fly through it to reach."),
 ];
 
+pub const UNIT_REACTIVE: &[Field] = &[
+    num("charges", "Charges", 4.0, 50.0, "Missile hits it can take the edge off. Each hit uses one; a full repair replaces them all."),
+    num("block", "Block", 0.75, 1.0, "Share of a missile hit's damage a charge stops (0 - 1)."),
+];
+
 pub const UNIT_DEATH: &[Field] = &[
     num("damage", "Damage", 100.0, BIG, "Damage of the explosion when it is destroyed."),
     num("radius", "Radius", 5.0, 1000.0, "Radius of that explosion. Full damage at the centre, fading to nothing at the edge."),
@@ -708,6 +713,7 @@ pub fn unit_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
         ch |= optional(ui, v, "build", "Can build", "Engineers, factories and stations: builds, assists, reclaims, repairs.", json!({ "rate": 10, "categories": [] }), UNIT_BUILD, ctx, "build");
         ch |= optional(ui, v, "transport", "Carries units", "A transport (aircraft, APC) or, on a structure, a building infantry can occupy.", json!({ "capacity": 4 }), UNIT_TRANSPORT, ctx, "transport");
         ch |= optional(ui, v, "fieldwork", "Field work (built cover)", "Sandbags or a trench piece: shots fly through it and lose its cover share to it, units cross it, nobody aims at it unless ordered to. Blasts and the shots it stops wear it down.", json!({ "cover": 0.5 }), UNIT_FIELDWORK, ctx, "fieldwork");
+        ch |= optional(ui, v, "reactive", "Reactive armor", "Explosive tiles that go off when a missile hits (AT troopers, Robins) and stop most of its damage, one hit per charge.", json!({ "charges": 4, "block": 0.75 }), UNIT_REACTIVE, ctx, "reactive");
         ch |= optional(ui, v, "death", "Explodes when destroyed", "A blast that hurts everything around it.", json!({ "damage": 100, "radius": 5 }), UNIT_DEATH, ctx, "death");
     });
     section(ui, "Icon and model", false, |ui| ch |= grid(ui, v, UNIT_ICON, ctx, "icon"));

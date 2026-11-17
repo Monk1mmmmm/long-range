@@ -269,6 +269,10 @@ impl Wreck {
     }
 }
 
+/// Reactive armor charges left (units whose type has `reactive`).
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
+pub struct Reactive(pub u8);
+
 /// Mass of its wreck value a building has already dropped as debris (taken off its wreck and
 /// off what reclaiming it gives).
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
@@ -1214,6 +1218,7 @@ pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
         mover: (!structure).then(|| Mover { anchor: pos, path_goal: pos, ..default() }),
         shed: None,
         revival: (revival != 0).then_some(Revival(revival)),
+        reactive: d.reactive.map(|r| Reactive(r.charges)),
     };
     commands.queue(move |world: &mut World| {
         let e = claim(world, KIND_UNIT, id);
@@ -1361,6 +1366,8 @@ unit_state! {
         shed: Shed,
         /// Revival site: the wreck it came from.
         revival: Revival,
+        /// Reactive armor charges left.
+        reactive: Reactive,
     }
 }
 
@@ -1586,6 +1593,7 @@ mod tests {
             mover: Some(Mover { goal: Some(p), anchor: p, ..default() }),
             shed: Some(Shed(8.0)),
             revival: Some(Revival(14)),
+            reactive: Some(Reactive(3)),
         }
     }
 
@@ -1616,6 +1624,7 @@ mod tests {
             mover: None,
             shed: None,
             revival: None,
+            reactive: None,
             ..full_unit()
         };
         bare.write(&mut world.entity_mut(e));

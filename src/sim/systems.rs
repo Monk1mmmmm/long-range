@@ -1577,6 +1577,7 @@ fn build_progress(
     defs: Res<Defs>,
     effects: Res<Effects>,
     mut game: ResMut<Game>,
+    mut reactive: Query<&mut Reactive>,
     mut commands: Commands,
 ) {
     // (payer, target entity, build rate)
@@ -1649,6 +1650,10 @@ fn build_progress(
         let max_hp = defs.get(u.def).hp;
         if kind == 2 {
             h.0 = (h.0 + rate * defs.rules.repair_rate * DT).min(max_hp);
+            // Repaired to full: the reactive armor is replaced too.
+            if let (true, Some(era), Ok(mut left)) = (h.0 >= max_hp, defs.get(u.def).reactive, reactive.get_mut(te)) {
+                left.0 = era.charges;
+            }
             continue;
         }
         let r = ratio.get(payer as usize).copied().unwrap_or(1.0);
@@ -2347,6 +2352,7 @@ fn projectiles(
     mut effects: ResMut<Effects>,
     mut fx: ResMut<FxLog>,
     (mut features, wreck_list): (ResMut<Features>, Res<WreckList>),
+    mut reactive: Query<&mut Reactive>,
     mut commands: Commands,
 ) {
     let mut wreck_hits: Vec<(u32, f32)> = vec![];
@@ -2483,7 +2489,20 @@ fn projectiles(
                 }
             }
         } else if victim != 0 {
-            effects.damage.push((victim, p.damage, p.dtype as usize));
+            let mut dmg = p.damage;
+            // A missile on reactive armor: a charge goes off and takes most of it.
+            if p.kind == PROJ_MISSILE {
+                if let Some((c, era)) = census.get(victim).and_then(|c| defs.get(c.def).reactive.map(|r| (c, r))) {
+                    if let Ok(mut left) = reactive.get_mut(c.e) {
+                        if left.0 > 0 {
+                            left.0 -= 1;
+                            dmg *= 1.0 - era.block;
+                            fx.push(at, FX_BLAST, 0.6);
+                        }
+                    }
+                }
+            }
+            effects.damage.push((victim, dmg, p.dtype as usize));
         }
         // Trees, rocks and wrecks never stop a shot, but what lands on them or blasts next to them wears them down.
         if p.radius > 0.0 || victim == 0 {
