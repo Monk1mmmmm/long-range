@@ -230,7 +230,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   A new rule needs a `Field` in `preset_form.rs` too, or it only shows in the JSON view.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
   over terrain (`map.los`).
-- **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; the three troopers: 140, 20 deg):
+- **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; Trooper and Sniper Trooper: 140, 20 deg):
   a narrow view cone on top of the round `vision`, same line-of-sight rules. `systems::aim_binoculars` (inside
   `visibility`) keeps its direction and target in `Intel.look` / `Intel.lock` (snapshotted): it follows the
   locked enemy while it is in range and known to the team, else takes the best known mobile enemy in range
