@@ -95,6 +95,8 @@ pub struct ViewState {
     /// Mass overflow warning: storage full while income exceeds spending
     /// (overflowing now, `Time::elapsed` of the last warning sound).
     pub mass_overflow: (bool, f64),
+    /// Height of the screen in egui points, from the last HUD pass (model level of detail).
+    pub screen_h: f32,
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -141,6 +143,7 @@ impl ViewState {
             pause_toggle: false,
             net_note: None,
             mass_overflow: (false, -100.0),
+            screen_h: 720.0,
         }
     }
 }
@@ -395,14 +398,43 @@ fn drive_anims(
     }
 }
 
-/// Interpolated transforms, terrain tilt, visibility by fog of war.
-#[allow(clippy::type_complexity)]
+/// Strategic icons replace a model from the icon zoom (`Settings::icon_dist`) on, and wherever
+/// the model is smaller than this on screen (diameter in pixels).
+pub const SPECK_PX: f32 = 5.0;
+
+/// Whether the HUD shows a unit as its strategic icon rather than its model; `rpx` is the unit's
+/// radius on screen (pixels).
+pub fn as_icon(view: &ViewState, settings: &crate::settings::Settings, rpx: f32) -> bool {
+    view.cam_dist >= settings.icon_dist.max(1.0) || rpx * 2.0 < SPECK_PX
+}
+
+/// Screen radius (egui points) of a unit of type `d` standing at `at`, with the camera of the last
+/// HUD pass, the way the HUD measures it. 0 behind the camera.
+pub fn screen_radius(view: &ViewState, d: &crate::data::UnitDef, at: Vec3) -> f32 {
+    let c = view.vp * (at + Vec3::Y * d.height() * 0.5).extend(1.0);
+    if c.w <= 0.05 {
+        return 0.0;
+    }
+    d.radius() * view.screen_h / (2.0 * (hud::FOV * 0.5).tan() * c.w)
+}
+
+/// Level of detail for unit and ghost models (setting `model_lod`): no model where the HUD draws
+/// an icon instead (the icon zoom, or a speck on screen). Neutral buildings keep theirs when the setting hides
+/// their icons.
+fn model_lod(view: &ViewState, settings: &crate::settings::Settings, d: &crate::data::UnitDef, owner: u8, at: Vec3) -> bool {
+    let no_icon = !settings.neutral_icons && owner == NEUTRAL && d.is_structure();
+    settings.model_lod && !no_icon && as_icon(view, settings, screen_radius(view, d, at))
+}
+
+/// Interpolated transforms, terrain tilt, visibility by fog of war and level of detail.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn unit_transforms(
     view: Res<ViewState>,
     time: Res<Time>,
     game: Res<Game>,
     defs: Res<Defs>,
     map: Res<MapData>,
+    settings: Res<crate::settings::Settings>,
     mut q: Query<(&Unit, &Intel, &mut Interp, &mut Transform, &mut Visibility, Has<Hosted>, Option<&UnderConstruction>)>,
 ) {
     let alpha = (((time.elapsed_secs_f64() - view.tick_time) / DT as f64) as f32).clamp(0.0, 1.0);
@@ -431,7 +463,7 @@ fn unit_transforms(
             Some(p) if d.is_structure() => Vec3::new(1.0, 0.25 + 0.75 * p.0.clamp(0.0, 1.0), 1.0),
             _ => Vec3::ONE,
         };
-        let visible = !hosted && (reveal || intel.seen & (1 << team) != 0);
+        let visible = !hosted && (reveal || intel.seen & (1 << team) != 0) && !model_lod(&view, &settings, d, u.owner, t.translation);
         let want = if visible { Visibility::Visible } else { Visibility::Hidden };
         if *vis != want {
             *vis = want;
@@ -506,7 +538,8 @@ fn ghost_visuals(
     defs: Res<Defs>,
     game: Res<Game>,
     settings: Res<crate::settings::Settings>,
-    q: Query<(Entity, &GhostVisual)>,
+    view: Res<ViewState>,
+    mut q: Query<(Entity, &GhostVisual, &Transform, &mut Visibility)>,
     mut cache: ResMut<ModelCache>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -516,10 +549,15 @@ fn ghost_visuals(
     let want = |g: &intel::Ghost| settings.ghost_models && g.structure && !g.seen && g.def.is_some();
     let dim = |g: &intel::Ghost| g.gone && defs.rules.ghosts_show_destroyed;
     let mut shown = std::collections::HashSet::new();
-    for (e, gv) in &q {
+    let lod_vis = |def: DefId, owner: u8, at: Vec3| if model_lod(&view, &settings, defs.get(def), owner, at) { Visibility::Hidden } else { Visibility::Visible };
+    for (e, gv, t, mut vis) in &mut q {
         let keep = mem.ghosts.get(&gv.id).is_some_and(|g| want(g) && g.def == Some(gv.def) && g.owner == gv.owner && g.built == gv.built && g.yaw == gv.yaw && dim(g) == gv.dim);
         if keep {
             shown.insert(gv.id);
+            let v = lod_vis(gv.def, gv.owner, t.translation);
+            if *vis != v {
+                *vis = v;
+            }
         } else {
             commands.entity(e).despawn();
         }
@@ -537,7 +575,7 @@ fn ghost_visuals(
         };
         let t = Transform::from_translation(g.pos.at(g.y)).with_rotation(yaw_quat(g.yaw)).with_scale(scale);
         commands
-            .spawn((GhostVisual { id: g.id, def, owner: g.owner, built: g.built, yaw: g.yaw, dim: dim(g) }, t, Visibility::Visible, GameScene))
+            .spawn((GhostVisual { id: g.id, def, owner: g.owner, built: g.built, yaw: g.yaw, dim: dim(g) }, t, lod_vis(def, g.owner, t.translation), GameScene))
             .add_child(root);
     }
 }

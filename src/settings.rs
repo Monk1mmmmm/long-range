@@ -27,6 +27,9 @@ pub struct Settings {
     pub icon_scale: f32,
     /// Camera distance from which units are drawn as strategic icons instead of models.
     pub icon_dist: f32,
+    /// Level of detail for unit models: where a unit shows as its strategic icon (from `icon_dist`,
+    /// or too small on screen), its model is not drawn (`view::model_lod`). Off: models stay under the icons.
+    pub model_lod: bool,
     /// Volume of shots and explosions, 0 (off) to 1.
     pub sfx_volume: f32,
     /// Model detail of trees and rocks: 0 = low (also no shadows), 1 = medium, 2 = high.
@@ -47,7 +50,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true }
     }
 }
 
@@ -563,6 +566,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label("Map icons from zoom");
         ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(" camera distance"));
+        ui.end_row();
+        ui.label("Units under icons").on_hover_text("Where a unit shows as its strategic icon (zoomed out, or too small to make out), its model is not drawn. Faster with big armies. Off: models stay under the icons.");
+        ui.checkbox(&mut s.model_lod, "Hide models");
         ui.end_row();
         ui.label("Map icon size");
         ui.add(egui::Slider::new(&mut s.icon_scale, 0.5..=3.0).step_by(0.05).suffix("x"));

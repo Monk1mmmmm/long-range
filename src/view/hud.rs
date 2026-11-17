@@ -910,8 +910,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // A fixed draw order (far to near, then by id): overlapping icons must not swap places from
     // frame to frame, which they did when this list came straight out of a hash map.
     seen.sort_by(|a, b| a.sp.y.total_cmp(&b.sp.y).then(a.id.cmp(&b.id)));
-    // Strategic icons replace the models from this zoom on (and for models too small to make out).
-    let icons_zoom = view.cam_dist >= p.settings.icon_dist.max(1.0);
+    // Model level of detail (`view::model_lod`) measures the screen the same way.
+    view.screen_h = sh;
     let fr = Frame { defs, game, map, infos: &infos, seen: &seen, team, sw, sh, mouse };
     let _ = (fr.team, fr.sw, fr.sh, fr.game);
     let hover = fr.hover(over_hud);
@@ -1598,7 +1598,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             (Contact::Visible, Some(d)) => {
                 let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
                 // Strategic icon once the camera is far enough out, or the model is a speck.
-                if icons_zoom || s.rpx * 2.0 < 5.0 {
+                if super::as_icon(view, &p.settings, s.rpx) {
                     let tex = p.assets.icon(&ctx, d);
                     if selected_here {
                         bg.circle_stroke(s.sp, size * 0.62, Stroke::new(1.5, Color32::WHITE));
@@ -1610,7 +1610,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 // Known type, not in sight: dimmed icon (radar contact or remembered building).
                 // A remembered neutral building whose model stands in the fog follows the zoom
                 // setting like a building in sight: no icon over the model up close.
-                let model_only = s.contact == Contact::Stale && s.owner == NEUTRAL && d.is_structure() && p.settings.ghost_models && !(icons_zoom || s.rpx * 2.0 < 5.0);
+                let model_only = s.contact == Contact::Stale && s.owner == NEUTRAL && d.is_structure() && p.settings.ghost_models && !super::as_icon(view, &p.settings, s.rpx);
                 if !model_only {
                     let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
                     let a = if s.contact == Contact::Stale { 0.5 * s.fade } else { 0.85 };

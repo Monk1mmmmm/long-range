@@ -11,6 +11,11 @@
 //! Model detail is a setting (`Settings::flora_detail`): 0 = low (fewest triangles, no shadows),
 //! 1 = medium, 2 = high.
 //!
+//! Level of detail: at medium and high every chunk has two meshes, one at the chosen detail and
+//! one at low detail, and Bevy's `VisibilityRange` crossfades (dithered) from the first to the
+//! second as the camera's distance to the chunk crosses `LOD_FADE`. Each chunk mesh is built
+//! around the chunk's centre (its `Transform`), which is where that distance is measured from.
+//!
 //! Vertex UVs hold the feature's map position, so the fog-of-war texture (whose colour channels
 //! carry the brightness, see `intel.rs`) darkens features in the fog like the terrain.
 use super::terrain::GameScene;
@@ -28,11 +33,17 @@ const VARIANTS: usize = 3;
 /// so frustum culling works in fine steps.
 pub const FLORA_CHUNK: usize = 16;
 
+/// Camera distance to a chunk's centre (world units) over which its detailed mesh fades into the
+/// low-detail one. At the closest zoom chunks around the view centre are about 45-100 away.
+pub const LOD_FADE: std::ops::Range<f32> = 170.0..210.0;
+
 /// The mesh entity of the features in the chunk starting at cell (cx, cy).
 #[derive(Component)]
 pub struct FloraChunk {
     pub cx: usize,
     pub cy: usize,
+    /// The low-detail mesh shown from `LOD_FADE` on (only when the detail setting is above low).
+    pub far: bool,
 }
 
 pub type FloraChunks<'w, 's> = Query<'w, 's, (Entity, &'static FloraChunk, &'static Mesh3d, &'static mut Visibility)>;
@@ -60,6 +71,8 @@ pub struct FloraView {
     pub detail: u8,
     /// Models per feature type of `rules.features`.
     models: Vec<Vec<Model>>,
+    /// The same at low detail, for distant chunks (empty when `detail` is already low).
+    far_models: Vec<Vec<Model>>,
 }
 
 fn build_models(defs: &Defs, detail: u8) -> Vec<Vec<Model>> {
@@ -69,7 +82,12 @@ fn build_models(defs: &Defs, detail: u8) -> Vec<Vec<Model>> {
 impl FloraView {
     pub fn new(defs: &Defs, material: Handle<StandardMaterial>, shown: Vec<bool>, detail: u8) -> FloraView {
         let detail = detail.min(2);
-        FloraView { material, shown, models: build_models(defs, detail), detail, ..default() }
+        let far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
+        FloraView { material, shown, models: build_models(defs, detail), far_models, detail, ..default() }
+    }
+    /// Mesh levels a chunk has: `false` the detailed one, `true` the distant one.
+    fn levels(&self) -> &'static [bool] {
+        if self.detail > 0 { &[false, true] } else { &[false] }
     }
     /// Switches the model detail; every chunk is rebuilt by the next `rebuild_flora`.
     pub fn set_detail(&mut self, defs: &Defs, detail: u8) {
@@ -77,6 +95,7 @@ impl FloraView {
         if detail != self.detail {
             self.detail = detail;
             self.models = build_models(defs, detail);
+            self.far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
             self.all_dirty = true;
         }
     }
@@ -321,17 +340,27 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
     m
 }
 
-/// The mesh of the given features (one chunk's), or `None` if there are none.
-fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32]) -> Option<Mesh> {
+/// Centre of the chunk starting at cell (cx, cy), on the ground: its mesh's origin.
+fn chunk_origin(map: &MapData, cx: usize, cy: usize) -> Vec3 {
+    let half = FLORA_CHUNK as f32 * CELL * 0.5;
+    let world = map.world();
+    let c = v2((cx as f32 * CELL + half).min(world), (cy as f32 * CELL + half).min(world));
+    c.at(map.h(c))
+}
+
+/// The mesh of the given features (one chunk's) at a level (`far`: low detail), relative to the
+/// chunk's centre, or `None` if there are none.
+fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], origin: Vec3, far: bool) -> Option<Mesh> {
+    let models = if far { &view.far_models } else { &view.models };
     let world = map.world().max(1.0);
     let (mut pos, mut nrm, mut col, mut uv) = (vec![], vec![], vec![], vec![]);
     for &i in list {
         let Some(f) = map.features.get(i as usize) else { continue };
         let Some(Some(k)) = kinds.get(f.kind as usize) else { continue };
-        let Some(variants) = view.models.get(*k) else { continue };
+        let Some(variants) = models.get(*k) else { continue };
         let model = &variants[(hash(i as u64, 11) * VARIANTS as f32) as usize % VARIANTS];
         let rot = Quat::from_rotation_y(f.yaw);
-        let at = f.pos.at(map.h(f.pos));
+        let at = f.pos.at(map.h(f.pos)) - origin;
         let tint = 0.86 + 0.26 * hash(i as u64, 12);
         let t = [f.pos.x / world, f.pos.y / world];
         for v in 0..model.pos.len() {
@@ -362,10 +391,24 @@ pub fn flora_material(materials: &mut Assets<StandardMaterial>, fog: Option<Hand
     materials.add(StandardMaterial { base_color: Color::WHITE, base_color_texture: fog, perceptual_roughness: 0.92, reflectance: 0.2, ..default() })
 }
 
-fn spawn_chunk(commands: &mut Commands, view: &FloraView, mesh: Handle<Mesh>, cx: usize, cy: usize) {
-    let mut e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(view.material.clone()), Transform::IDENTITY, Visibility::Inherited, FloraChunk { cx, cy }, GameScene));
-    if view.detail == 0 {
-        e.insert(NotShadowCaster);
+/// Spawns the mesh entities (one per level) of the chunk at cell (cx, cy), if it has features.
+#[allow(clippy::too_many_arguments)]
+fn spawn_chunk(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], meshes: &mut Assets<Mesh>, cx: usize, cy: usize) {
+    let origin = chunk_origin(map, cx, cy);
+    let lod = view.levels().len() > 1;
+    for &far in view.levels() {
+        let Some(m) = chunk_mesh(map, kinds, view, list, origin, far) else { return };
+        let mut e = commands.spawn((Mesh3d(meshes.add(m)), MeshMaterial3d(view.material.clone()), Transform::from_translation(origin), Visibility::Inherited, FloraChunk { cx, cy, far }, GameScene));
+        if view.detail == 0 {
+            e.insert(NotShadowCaster);
+        }
+        if lod {
+            e.insert(if far {
+                bevy::camera::visibility::VisibilityRange { start_margin: LOD_FADE, end_margin: f32::MAX..f32::MAX, use_aabb: false }
+            } else {
+                bevy::camera::visibility::VisibilityRange { start_margin: 0.0..0.0, end_margin: LOD_FADE, use_aabb: false }
+            });
+        }
     }
 }
 
@@ -374,40 +417,38 @@ pub fn spawn_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: &F
     let kinds = kinds_of(map, defs);
     let (side, lists) = buckets(map, view);
     for (k, list) in lists.iter().enumerate() {
-        if let Some(m) = chunk_mesh(map, &kinds, view, list) {
-            spawn_chunk(commands, view, meshes.add(m), (k % side) * FLORA_CHUNK, (k / side) * FLORA_CHUNK);
-        }
+        spawn_chunk(commands, map, &kinds, view, list, meshes, (k % side) * FLORA_CHUNK, (k / side) * FLORA_CHUNK);
     }
 }
 
-/// Rebuilds the meshes of the chunks in `view.dirty` (every chunk after a detail change),
-/// spawning chunk entities that did not exist.
+/// Rebuilds the meshes of the chunks in `view.dirty`, spawning chunk entities that did not
+/// exist; after a detail change (`all_dirty`) every chunk entity is made anew.
 pub fn rebuild_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>) {
     let all = std::mem::take(&mut view.all_dirty);
     let dirty = std::mem::take(&mut view.dirty);
     if dirty.is_empty() && !all {
         return;
     }
+    if all {
+        // The number of levels and the shadows change with the detail: start over.
+        for (e, ..) in chunks.iter() {
+            commands.entity(e).despawn();
+        }
+        spawn_flora(commands, map, defs, view, meshes);
+        return;
+    }
     let kinds = kinds_of(map, defs);
     let (side, lists) = buckets(map, view);
     let list_of = |cx: usize, cy: usize| lists.get((cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK).map_or(&[][..], |l| &l[..]);
     let mut done = vec![false; lists.len()];
-    for (e, c, mesh, mut vis) in chunks.iter_mut() {
-        if !all && !dirty.contains(&(c.cx, c.cy)) {
+    for (_, c, mesh, mut vis) in chunks.iter_mut() {
+        if !dirty.contains(&(c.cx, c.cy)) {
             continue;
         }
         if let Some(d) = done.get_mut((c.cy / FLORA_CHUNK) * side + c.cx / FLORA_CHUNK) {
             *d = true;
         }
-        if all {
-            // The detail level decides whether features cast shadows.
-            if view.detail == 0 {
-                commands.entity(e).insert(NotShadowCaster);
-            } else {
-                commands.entity(e).remove::<NotShadowCaster>();
-            }
-        }
-        match chunk_mesh(map, &kinds, view, list_of(c.cx, c.cy)) {
+        match chunk_mesh(map, &kinds, view, list_of(c.cx, c.cy), chunk_origin(map, c.cx, c.cy), c.far) {
             Some(m) => {
                 // Changing the mesh asset makes Bevy recompute the chunk's bounding box, so
                 // frustum culling keeps working with the new shape.
@@ -425,14 +466,11 @@ pub fn rebuild_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: 
             }
         }
     }
-    let wanted: Vec<(usize, usize)> = if all { (0..lists.len()).map(|k| ((k % side) * FLORA_CHUNK, (k / side) * FLORA_CHUNK)).collect() } else { dirty };
-    for (cx, cy) in wanted {
+    for (cx, cy) in dirty {
         if done.get((cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK).copied().unwrap_or(true) {
             continue;
         }
-        if let Some(m) = chunk_mesh(map, &kinds, view, list_of(cx, cy)) {
-            spawn_chunk(commands, view, meshes.add(m), cx, cy);
-        }
+        spawn_chunk(commands, map, &kinds, view, list_of(cx, cy), meshes, cx, cy);
     }
 }
 
