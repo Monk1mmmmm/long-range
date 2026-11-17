@@ -2748,6 +2748,56 @@ fn infantry_tests(defs: &Defs) {
     let body = |world: &mut World, id: u32| -> Option<(V2, bool)> { world.query::<(&Unit, &Body, Has<Hosted>)>().iter(world).find(|(u, ..)| u.id == id).map(|(_, b, h)| (b.pos, h)) };
     let owner_of = |world: &mut World, id: u32| -> Option<u8> { world.query::<&Unit>().iter(world).find(|u| u.id == id).map(|u| u.owner) };
 
+    // 0. Reactive armor: two AT troopers fire at a Bastion for 60 s, with its charges and with them
+    // used up; then an engineer repairs it to full and the charges come back.
+    if defs.id("bastion").is_some() {
+        let charges = |world: &mut World, id: u32| world.query::<(&Unit, &Reactive)>().iter(world).find(|(u, _)| u.id == id).map(|(_, r)| r.0);
+        let mut lost = [0.0f32; 2];
+        let mut left = [0u8; 2];
+        for (k, era) in [true, false].into_iter().enumerate() {
+            let (mut app, map) = world_with(&[]);
+            let world = app.world_mut();
+            let tank = spawn(world, &map, "bastion", 1, v2(135.0, 129.0), 3.14);
+            set_hp(world, tank, 1.0e5);
+            if !era {
+                for (u, mut r) in world.query::<(&Unit, &mut Reactive)>().iter_mut(world) {
+                    if u.id == tank {
+                        r.0 = 0;
+                    }
+                }
+            }
+            for i in 0..2 {
+                let at = spawn(world, &map, "at_trooper", 0, v2(100.0, 125.0 + i as f32 * 6.0), 0.0);
+                set_hp(world, at, 1.0e6);
+            }
+            for _ in 0..600 {
+                world.run_schedule(SimTick);
+            }
+            lost[k] = 1.0e5 - hp(world, tank);
+            left[k] = charges(world, tank).unwrap_or(0);
+        }
+        // Repair: a damaged Bastion with no charges left, an engineer next to it.
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let tank = spawn(world, &map, "bastion", 0, v2(130.0, 129.0), 0.0);
+        let full = defs.get(defs.id("bastion").unwrap()).reactive.map_or(0, |r| r.charges);
+        set_hp(world, tank, 1000.0);
+        for (u, mut r) in world.query::<(&Unit, &mut Reactive)>().iter_mut(world) {
+            if u.id == tank {
+                r.0 = 0;
+            }
+        }
+        let eng = spawn(world, &map, "engineer2", 0, v2(124.0, 129.0), 0.0);
+        order(world, 0, vec![eng], Order::Assist(tank));
+        for _ in 0..1500 {
+            world.run_schedule(SimTick);
+        }
+        let (hp_after, back) = (hp(world, tank), charges(world, tank).unwrap_or(0));
+        println!("== Reactive armor: 2 AT troopers on a Bastion for 60 s take {:.0} hp with its {full} charges ({} left), {:.0} without; repaired from 1000 to {hp_after:.0} hp, charges back to {back}", lost[0], left[0], lost[1]);
+        assert!(left[0] == 0 && lost[0] < lost[1], "reactive armor stops part of the missile damage");
+        assert!(hp_after >= defs.get(defs.id("bastion").unwrap()).hp && back == full, "a full repair replaces the reactive armor");
+    }
+
     // 1. A boulder between a tank and its target soaks up part of every shot.
     let mut lost = [0.0f32; 2];
     let mut left = 1.0;
@@ -2834,56 +2884,6 @@ fn infantry_tests(defs: &Defs) {
             Some(false) => assert!(left_in > 0 && ours_in == 0 && owner_of(world, house) == Some(1), "storm should fail"),
             None => {}
         }
-    }
-
-    // 3d. Reactive armor: two AT troopers fire at a Bastion for 60 s, with its charges and with them
-    // used up; then an engineer repairs it to full and the charges come back.
-    if defs.id("bastion").is_some() {
-        let charges = |world: &mut World, id: u32| world.query::<(&Unit, &Reactive)>().iter(world).find(|(u, _)| u.id == id).map(|(_, r)| r.0);
-        let mut lost = [0.0f32; 2];
-        let mut left = [0u8; 2];
-        for (k, era) in [true, false].into_iter().enumerate() {
-            let (mut app, map) = world_with(&[]);
-            let world = app.world_mut();
-            let tank = spawn(world, &map, "bastion", 1, v2(135.0, 129.0), 3.14);
-            set_hp(world, tank, 1.0e5);
-            if !era {
-                for (u, mut r) in world.query::<(&Unit, &mut Reactive)>().iter_mut(world) {
-                    if u.id == tank {
-                        r.0 = 0;
-                    }
-                }
-            }
-            for i in 0..2 {
-                let at = spawn(world, &map, "at_trooper", 0, v2(100.0, 125.0 + i as f32 * 6.0), 0.0);
-                set_hp(world, at, 1.0e6);
-            }
-            for _ in 0..600 {
-                world.run_schedule(SimTick);
-            }
-            lost[k] = 1.0e5 - hp(world, tank);
-            left[k] = charges(world, tank).unwrap_or(0);
-        }
-        // Repair: a damaged Bastion with no charges left, an engineer next to it.
-        let (mut app, map) = world_with(&[]);
-        let world = app.world_mut();
-        let tank = spawn(world, &map, "bastion", 0, v2(130.0, 129.0), 0.0);
-        let full = defs.get(defs.id("bastion").unwrap()).reactive.map_or(0, |r| r.charges);
-        set_hp(world, tank, 1000.0);
-        for (u, mut r) in world.query::<(&Unit, &mut Reactive)>().iter_mut(world) {
-            if u.id == tank {
-                r.0 = 0;
-            }
-        }
-        let eng = spawn(world, &map, "engineer2", 0, v2(124.0, 129.0), 0.0);
-        order(world, 0, vec![eng], Order::Assist(tank));
-        for _ in 0..1500 {
-            world.run_schedule(SimTick);
-        }
-        let (hp_after, back) = (hp(world, tank), charges(world, tank).unwrap_or(0));
-        println!("== Reactive armor: 2 AT troopers on a Bastion for 60 s take {:.0} hp with its {full} charges ({} left), {:.0} without; repaired from 1000 to {hp_after:.0} hp, charges back to {back}", lost[0], left[0], lost[1]);
-        assert!(left[0] == 0 && lost[0] < lost[1], "reactive armor stops part of the missile damage");
-        assert!(hp_after >= defs.get(defs.id("bastion").unwrap()).hp && back == full, "a full repair replaces the reactive armor");
     }
 
     // 3. Troopers occupy a neutral house, fire from it, leave it, and are thrown out when it falls.

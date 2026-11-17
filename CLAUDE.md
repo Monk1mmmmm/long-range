@@ -318,14 +318,14 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
   dead-locked a base whose upkeep exceeded income.
 - **Engineering station** (`build.station`): immobile builder that assists anything in range by itself.
+- **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5): the weapon fires only while its unit has no movement goal
+  and is stopped, and each shot sets `Mover.hold`, during which `locomotion` keeps the land/hover unit in place
+  (a move order given meanwhile starts when the hold runs out).
 - **Reactive armor** (`reactive: {charges, block}` in the unit JSON; T3 Bastion: 4, 0.75): a missile that hits the
   unit directly (`projectiles`, `PROJ_MISSILE`) uses up a charge and loses `block` of its damage, with a small blast.
   Charges left are the `Reactive` component (in `unit_state!`); `build_progress` puts them all back when a repair
   brings the unit to full health. `--combattest` infantry "Reactive armor" line. The Bastion (requested T3 tank against
   AT infantry) is the Crony mesh at 1.3x, 1400 hp, MediumTank armor.
-- **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5): the weapon fires only while its unit has no movement goal
-  and is stopped, and each shot sets `Mover.hold`, during which `locomotion` keeps the land/hover unit in place
-  (a move order given meanwhile starts when the hold runs out).
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
 - **Lobby**: players on the left, observers under them (up to 8: "Watch instead" / "Take a slot", `C2S::Observe`; joiners
