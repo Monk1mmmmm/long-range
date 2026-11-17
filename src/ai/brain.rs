@@ -299,8 +299,10 @@ pub struct Brain {
     /// Zone of every deposit of the map.
     dep_zone: Vec<usize>,
     home: usize,
-    /// Direction from our start towards the nearest enemy start.
+    /// Direction from our start towards the nearest enemy start still in the game.
     fwd: V2,
+    /// Bit mask of the enemy players `front` and `fwd` were worked out for.
+    foes: u16,
     pub memory: BTreeMap<u32, Seen>,
     pub strategy: Strategy,
     strategy_tick: u32,
@@ -435,14 +437,11 @@ impl Brain {
             }
             y += step;
         }
-        let enemy_starts: Vec<V2> = game.players.iter().filter(|o| hostile(p.team, o.team)).map(|o| o.start).collect();
         for z in zs.iter_mut() {
             z.pos = free_at(z.pos);
             z.comp = flood(&mut comp, z.pos);
             z.reachable = z.comp != 0 && z.comp == home_comp;
             z.d_home = z.pos.dist(p.start);
-            let d_enemy = enemy_starts.iter().map(|s| s.dist(z.pos)).fold(f32::MAX, f32::min);
-            z.front = if d_enemy == f32::MAX { 0.5 } else { z.d_home / (z.d_home + d_enemy).max(1.0) };
             z.enemy_pos = z.pos;
         }
         // Neighbours: two zones with no third one between them (Gabriel graph).
@@ -459,7 +458,27 @@ impl Brain {
         self.zones = zs;
         self.dep_zone = map.deposits.iter().map(|d| self.zone_at(*d)).collect();
         self.home = self.zone_at(p.start);
-        let target = enemy_starts.iter().min_by(|a, b| a.dist(p.start).total_cmp(&b.dist(p.start))).copied().unwrap_or(map.center());
+        self.foes = u16::MAX;
+        self.set_front(cx, me);
+    }
+
+    /// Where the front runs: every zone's `front` and the direction to the nearest enemy start,
+    /// from the enemies still in the game. Redone when one is defeated, so that its half of the
+    /// map becomes ours to expand into instead of staying "near the enemy" for ever.
+    fn set_front(&mut self, cx: &Ctx, me: u8) {
+        let game = cx.game;
+        let p = &game.players[me as usize];
+        let foes = game.players.iter().enumerate().filter(|(_, o)| o.alive && hostile(p.team, o.team)).fold(0u16, |a, (k, _)| a | 1 << k);
+        if foes == self.foes {
+            return;
+        }
+        self.foes = foes;
+        let enemy_starts: Vec<V2> = game.players.iter().filter(|o| o.alive && hostile(p.team, o.team)).map(|o| o.start).collect();
+        for z in self.zones.iter_mut() {
+            let d_enemy = enemy_starts.iter().map(|s| s.dist(z.pos)).fold(f32::MAX, f32::min);
+            z.front = if d_enemy == f32::MAX { 0.5 } else { z.d_home / (z.d_home + d_enemy).max(1.0) };
+        }
+        let target = enemy_starts.iter().min_by(|a, b| a.dist(p.start).total_cmp(&b.dist(p.start))).copied().unwrap_or(cx.map.center());
         self.fwd = (target - p.start).norm();
         if self.fwd.len2() < 0.5 {
             self.fwd = v2(1.0, 0.0);
@@ -722,6 +741,7 @@ pub fn run(b: &mut Brain, rng: &mut Rng, kind: AiKind, reclaim: bool, me: u8, cx
     if b.zones.is_empty() || b.data_hash != cx.defs.hash || b.info.len() != cx.defs.units.len() {
         b.init(cx, me);
     }
+    b.set_front(cx, me);
     b.refresh(cx, me, team);
     if kind == AiKind::Overseer {
         b.pick_strategy(cx, me, team, mine);
