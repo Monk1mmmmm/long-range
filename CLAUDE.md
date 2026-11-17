@@ -239,7 +239,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   attack-move go for ground targets first when they carry bombs (fighter-bomber), else aircraft first.
   Missiles lead their target; `launch_pitch` (deg) makes a SAM launch near-vertically.
 - **Switches** (`rules.json`, the form's "Switches" section): `terraforming`, `craters`, `wrecks`,
-  `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `radar_blocked_by_terrain` (all default on),
+  `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `sight_blocked_by_buildings`, `radar_blocked_by_terrain` (all default on),
   `near_sight` (6: always seen within it). The lobby lists those switched off (`Rules::switched_off`).
   A new rule needs a `Field` in `preset_form.rs` too, or it only shows in the JSON view.
 - **Armor angle** (`rules.armor_front/side/rear`, 0.6 / 1.0 / 1.5): a projectile hitting an armored unit (category
@@ -269,8 +269,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   (infantry) never shows. T2 aircraft (Harrier, Hornet, Stork) and the T3 Swift are stealth 1, the Delivery Boy 2. Radar
   towers T1 160 / T2 250+160 / T3 360+250+150 (upgrade in place, U), mobile radars UC-01R/02R/03R; build cost
   rises ~4x and upkeep ~3x per tier. The Skyspear SAM's own radar is level 2. Rings are drawn per level
-  (blue, violet, orange); the fog shows the furthest reach. `--combattest` prints the radar-vs-stealth matrix. Vision needs it too and is also blocked by standing trees, rocks and wrecks
-  (`sim::sight_block`: per-cell blocker height, `map.los_blocked`; the end cells never block). Within 6
+  (blue, violet, orange); the fog shows the furthest reach. `--combattest` prints the radar-vs-stealth matrix. Vision needs it too and is also blocked by standing trees, rocks and wrecks and by finished buildings
+  (`sim::sight_block` -> `map::SightBlock`: per-cell blocker height plus the building standing there; `map.sight_line`;
+  the end cells never block, nor the building a viewer looks out of or the one it looks at, so garrisons see from the roof). Within 6
   units everything is seen. The fog view (`intel.rs`) uses the same blockers.
 - **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
   buildings once detected stay as ghosts until the spot is seen again and found empty. A ghost of a building

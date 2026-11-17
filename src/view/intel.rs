@@ -75,9 +75,11 @@ pub fn reveal(game: &Game, me: u8) -> bool {
 }
 
 /// Map cells within `radius` of `pos` that `eye` has a clear line to (everything within `near`
-/// counts regardless, like in the simulation's own visibility test). `block`: trees, rocks and
-/// wrecks that block the line too (sight; radar passes them, empty). `terrain`: hills block it.
-fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, block: &[f32], terrain: bool) -> Vec<u32> {
+/// counts regardless, like in the simulation's own visibility test). `block`: trees, rocks, wrecks
+/// and buildings that block the line too (sight; radar passes them, empty); `from` the building the
+/// viewer looks out of (it does not block). `terrain`: hills block it.
+#[allow(clippy::too_many_arguments)]
+fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, block: &SightBlock, terrain: bool, from: u32) -> Vec<u32> {
     let n = map.n as i32;
     let (cx, cy, rc) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32, (radius / CELL) as i32);
     let mut out = vec![];
@@ -88,7 +90,9 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, bloc
         while x <= (cx + rc).min(n - 1) {
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
             let dist = c.dist(pos);
-            if dist <= radius && (dist < near || map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain)) {
+            // The ground under a building counts as seen when the building is: it does not hide itself.
+            let at = block.building((y * n + x) as usize);
+            if dist <= radius && (dist < near || map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain, [from, at])) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     if x + dx < n && y + dy < n {
                         out.push(((y + dy) * n + x + dx) as u32);
@@ -104,7 +108,7 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, bloc
 
 /// The cells inside a binocular cone (direction `yaw`, full width `angle` radians) that `eye` can see.
 #[allow(clippy::too_many_arguments)]
-fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius: f32, block: &[f32], terrain: bool) -> Vec<u32> {
+fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius: f32, block: &SightBlock, terrain: bool, from: u32) -> Vec<u32> {
     let n = map.n as i32;
     let dir = V2::from_angle(yaw);
     let cos_half = (angle * 0.5).cos();
@@ -120,7 +124,8 @@ fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius:
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
             let off = c - pos;
             let dist = off.len();
-            if dist <= radius && dist > 0.0 && off.dot(dir) >= cos_half * dist && map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain) {
+            let at = block.building((y * n + x) as usize);
+            if dist <= radius && dist > 0.0 && off.dot(dir) >= cos_half * dist && map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain, [from, at]) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     if x + dx < n && y + dy < n {
                         out.push(((y + dy) * n + x + dx) as u32);
@@ -150,7 +155,8 @@ pub fn update_intel(
     if mem.tick == game.tick {
         return;
     }
-    let block = sight_block(&features, &wrecks, &defs, &map);
+    let standing = q.iter().filter(|(u, _, _, uc, hosted, _)| uc.is_none() && hosted.is_none() && defs.get(u.def).is_structure()).map(|(u, b, ..)| (u.id, u.def, b.pos));
+    let block = sight_block(&features, &wrecks, standing, &defs, &map);
     mem.tick = game.tick;
     let team = game.team_of(view.me);
     let bit = 1u16 << team;
@@ -182,6 +188,7 @@ pub fn update_intel(
             }
             let d = defs.get(u.def);
             let top = roof.map_or(d.height().max(1.0), |r| r.0);
+            let from = hosted.map_or(u.id, |h| h.0);
             // From a building's roof they see further (as in `sim::systems::visibility`).
             let gain = roof.map_or(1.0, |r| r.1);
             let vision = d.vision * gain;
@@ -194,7 +201,7 @@ pub fn update_intel(
                 if stale && (budget > 0 || !fog.radar.contains_key(&u.id)) {
                     budget -= 1;
                     let eye = b.pos.at(b.y + top + defs.rules.radar_los_height);
-                    fog.radar.insert(u.id, (b.pos, reach, covered_cells(&map, eye, b.pos, reach, 0.0, &[], defs.rules.radar_blocked_by_terrain)));
+                    fog.radar.insert(u.id, (b.pos, reach, covered_cells(&map, eye, b.pos, reach, 0.0, &SightBlock::default(), defs.rules.radar_blocked_by_terrain, 0)));
                 }
                 if let Some(c) = fog.radar.get(&u.id) {
                     for i in &c.2 {
@@ -210,7 +217,7 @@ pub fn update_intel(
                 if stale && (sight_budget > 0 || !fog.sight.contains_key(&u.id)) {
                     sight_budget -= 1;
                     let eye = b.pos.at(b.y + top + defs.rules.vision_los_height);
-                    fog.sight.insert(u.id, (b.pos, vision, covered_cells(&map, eye, b.pos, vision, defs.rules.near_sight, &block, defs.rules.sight_blocked_by_terrain)));
+                    fog.sight.insert(u.id, (b.pos, vision, covered_cells(&map, eye, b.pos, vision, defs.rules.near_sight, &block, defs.rules.sight_blocked_by_terrain, from)));
                 }
             }
             // Binoculars turn all the time: their cone is redone when it has turned a degree or so.
@@ -221,7 +228,7 @@ pub fn update_intel(
                 if stale && (cone_budget > 0 || !fog.cone.contains_key(&u.id)) {
                     cone_budget -= 1;
                     let eye = b.pos.at(b.y + top + defs.rules.vision_los_height);
-                    let cells = covered_cone(&map, eye, b.pos, intel.look, bd.angle.clamp(1.0, 170.0).to_radians(), range, &block, defs.rules.sight_blocked_by_terrain);
+                    let cells = covered_cone(&map, eye, b.pos, intel.look, bd.angle.clamp(1.0, 170.0).to_radians(), range, &block, defs.rules.sight_blocked_by_terrain, from);
                     fog.cone.insert(u.id, (b.pos, intel.look, range, cells));
                 }
             }

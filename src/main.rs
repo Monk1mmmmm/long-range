@@ -3279,7 +3279,7 @@ fn fieldwork_tests(defs: &Defs) {
     }
 }
 
-/// Binoculars (`--combattest`, or alone with `LR_TEST=binoculars`).
+/// Binoculars, spotting delay, buildings blocking sight (`--combattest`, or alone with `LR_TEST=binoculars`).
 fn binocular_tests(defs: &Defs) {
     if !defs.id("trooper").map_or(false, |t| defs.get(t).binoculars.is_some()) {
         println!("== Binoculars: the trooper has none in this data, skipped");
@@ -3388,6 +3388,61 @@ fn binocular_tests(defs: &Defs) {
             let (t, s, w) = (first[0].unwrap_or(999), first[1].unwrap_or(999), first[2].unwrap_or(999));
             assert!(t <= 2 && w > t && s > w && s as f32 <= td.spot_time * 10.0 + 3.0, "spotting delay");
         }
+    }
+    // Buildings block sight: a tank hides behind a residential tower (which itself stays in view),
+    // and a trooper that cannot see past it from the ground does from its roof once inside.
+    if defs.id("residential_tower").is_some() && defs.rules.sight_blocked_by_buildings {
+        let seen = |world: &mut World, id: u32| -> bool { world.query::<(&Unit, &Intel)>().iter(world).find(|(u, _)| u.id == id).map_or(false, |(_, i)| i.seen & 1 != 0) };
+        let (hidden, open, tower_seen) = {
+            let (mut app, map) = flat();
+            let world = app.world_mut();
+            let watcher = spawn(world, &map, "overtaker", 0, v2(110.0, 150.0), 0.0);
+            let tower = spawn(world, &map, "residential_tower", NEUTRAL, v2(126.0, 150.0), 0.0);
+            let behind = spawn(world, &map, "overtaker", 1, v2(138.0, 150.0), 3.14);
+            let beside = spawn(world, &map, "overtaker", 1, v2(130.0, 170.0), 3.14);
+            for id in [watcher, tower, behind, beside] {
+                set_hp(world, id, 1.0e6);
+            }
+            let mut n = [0; 3];
+            for _ in 0..30 {
+                world.run_schedule(SimTick);
+                for (k, id) in [behind, beside, tower].into_iter().enumerate() {
+                    n[k] += seen(world, id) as u32;
+                }
+            }
+            (n[0], n[1], n[2])
+        };
+        let (ground, roof, inside) = {
+            let (mut app, map) = flat();
+            let world = app.world_mut();
+            let t = spawn(world, &map, "trooper", 0, v2(106.0, 150.0), 0.0);
+            let tower = spawn(world, &map, "residential_tower", NEUTRAL, v2(126.0, 150.0), 0.0);
+            let tank = spawn(world, &map, "overtaker", 1, v2(146.0, 150.0), 3.14);
+            for id in [t, tower, tank] {
+                set_hp(world, id, 1.0e6);
+            }
+            let mut ground = 0;
+            for _ in 0..30 {
+                world.run_schedule(SimTick);
+                ground += seen(world, tank) as u32;
+            }
+            order(world, 0, vec![t], Order::Load(tower));
+            for _ in 0..250 {
+                world.run_schedule(SimTick);
+                if body(world, t).map_or(false, |b| b.1) {
+                    break;
+                }
+            }
+            let inside = body(world, t).map_or(false, |b| b.1);
+            let mut roof = 0;
+            for _ in 0..30 {
+                world.run_schedule(SimTick);
+                roof += seen(world, tank) as u32;
+            }
+            (ground, roof, inside)
+        };
+        println!("== Buildings block sight: a tank behind a residential tower seen {hidden} of 30 ticks, one beside it {open}, the tower {tower_seen}; a trooper sees a tank past the tower {ground} of 30 ticks from the ground, {roof} of 30 from its roof (inside: {inside})");
+        assert!(hidden == 0 && open > 25 && tower_seen > 25 && ground == 0 && inside && roof > 25, "buildings block sight");
     }
 }
 

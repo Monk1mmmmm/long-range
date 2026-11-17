@@ -334,6 +334,9 @@ pub struct Rules {
     /// Standing trees, rocks and wrecks block sight.
     #[serde(default = "yes")]
     pub sight_blocked_by_reclaimables: bool,
+    /// Finished buildings block sight (their footprint, up to their height).
+    #[serde(default = "yes")]
+    pub sight_blocked_by_buildings: bool,
     /// Hills block radar.
     #[serde(default = "yes")]
     pub radar_blocked_by_terrain: bool,
@@ -435,6 +438,7 @@ impl Rules {
             (self.wrecks, "wrecks"),
             (self.sight_blocked_by_terrain, "hills blocking sight"),
             (self.sight_blocked_by_reclaimables, "trees, rocks and wrecks blocking sight"),
+            (self.sight_blocked_by_buildings, "buildings blocking sight"),
             (self.radar_blocked_by_terrain, "hills blocking radar"),
             (self.ghosts_show_destroyed, "dimming remembered buildings destroyed out of sight"),
         ] {

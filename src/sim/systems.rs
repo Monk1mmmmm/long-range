@@ -427,8 +427,9 @@ fn apply_commands(
 /// up and reaches further, sight tells what the contact is.
 #[allow(clippy::too_many_arguments)]
 fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, mut q: Query<&mut Intel>) {
-    // Trees, rocks and wrecks block sight like hills do (not radar); the rules can switch either off.
-    let block = sight_block(&features, &wrecks, &defs, &map);
+    // Trees, rocks, wrecks and buildings block sight like hills do (not radar); the rules can switch each off.
+    let standing = census.list.iter().filter(|c| c.structure && c.done && !c.hosted).map(|c| (c.id, c.def, c.pos));
+    let block = sight_block(&features, &wrecks, standing, &defs, &map);
     let (hills_sight, hills_radar) = (defs.rules.sight_blocked_by_terrain, defs.rules.radar_blocked_by_terrain);
     let near2 = defs.rules.near_sight * defs.rules.near_sight;
     struct Viewer {
@@ -443,6 +444,8 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         bin2: f32,
         dir: V2,
         cos2: f32,
+        /// The building it looks out of (itself, or the garrison it sits in): it does not block its view.
+        from: u32,
     }
     let mut viewers = vec![];
     for c in &census.list {
@@ -489,6 +492,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             bin2,
             dir,
             cos2,
+            from: if c.hosted { c.host } else { c.id },
         });
     }
     // Who sees each unit depends only on the viewers and the terrain, so the units are worked out
@@ -519,7 +523,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             if in_view && d2 < near2 {
                 seen |= bit;
                 near |= bit;
-            } else if seen & bit == 0 && in_view && map.sight_line(v.look, head, &block, hills_sight) {
+            } else if seen & bit == 0 && in_view && map.sight_line(v.look, head, &block, hills_sight, [v.from, c.id]) {
                 seen |= bit;
             }
             if radar & bit == 0 && stealth < 3 && d2 < v.radar2[stealth] && (!hills_radar || map.los(v.eye, head)) {

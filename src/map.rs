@@ -286,6 +286,22 @@ pub struct MapData {
     pub blocked: Vec<u8>,
 }
 
+/// What stops sight besides the terrain (`MapData::sight_line`), per map cell: `h` how high above
+/// the ground (standing trees, rocks, wrecks and buildings; empty = nothing), `id` the building that
+/// stands there (0 = none; empty when there are none), so a line from or to that building passes it.
+#[derive(Default)]
+pub struct SightBlock<'a> {
+    pub h: std::borrow::Cow<'a, [f32]>,
+    pub id: Vec<u32>,
+}
+
+impl SightBlock<'_> {
+    /// The building standing in this cell (0 = none).
+    pub fn building(&self, cell: usize) -> u32 {
+        self.id.get(cell).copied().unwrap_or(0)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct MapFile {
     name: String,
@@ -571,17 +587,14 @@ impl MapData {
         true
     }
 
-    /// Like `los`, but `block[cell]` (trees, rocks, wrecks: height above the ground) is added to
-    /// the terrain. The two end cells never block, so a unit next to a tree still sees past its
-    /// own cover in other directions and is not hidden by the tree it stands beside.
-    pub fn los_blocked(&self, a: Vec3, b: Vec3, block: &[f32]) -> bool {
-        self.sight_line(a, b, block, true)
-    }
-
-    /// `los_blocked` with the terrain switched on or off (`terrain` false: only `block` stops the
-    /// line, standing on the ground wherever it is; an empty `block` then sees everything).
-    pub fn sight_line(&self, a: Vec3, b: Vec3, block: &[f32], terrain: bool) -> bool {
-        if !terrain && block.is_empty() {
+    /// Like `los`, but what stands on the ground (`SightBlock`: trees, rocks, wrecks, buildings) is
+    /// added to the terrain. The two end cells never block, so a unit next to a tree still sees past
+    /// its own cover in other directions and is not hidden by the tree it stands beside; neither do
+    /// the cells of the buildings in `skip` (the one a viewer looks out of, the one it looks at).
+    /// `terrain` false: only the blockers stop the line, standing on the ground wherever it is (an
+    /// empty `SightBlock` then sees everything).
+    pub fn sight_line(&self, a: Vec3, b: Vec3, block: &SightBlock, terrain: bool, skip: [u32; 2]) -> bool {
+        if !terrain && block.h.is_empty() {
             return true;
         }
         let d = b - a;
@@ -595,7 +608,14 @@ impl MapData {
             let (cx, cy) = ((p.x / CELL).floor() as i32, (p.z / CELL).floor() as i32);
             let mut extra = 0.0;
             if cx >= 0 && cy >= 0 && cx < n && cy < n && !ends.contains(&(cx, cy)) {
-                extra = block.get((cy * n + cx) as usize).copied().unwrap_or(0.0);
+                let c = (cy * n + cx) as usize;
+                extra = block.h.get(c).copied().unwrap_or(0.0);
+                if extra > 0.0 {
+                    let id = block.id.get(c).copied().unwrap_or(0);
+                    if id != 0 && skip.contains(&id) {
+                        extra = 0.0;
+                    }
+                }
             }
             let h = if terrain || extra > 0.0 { ground + extra } else { f32::NEG_INFINITY };
             if h > p.y {

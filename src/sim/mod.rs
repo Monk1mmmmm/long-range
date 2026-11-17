@@ -737,30 +737,60 @@ pub struct FeatureState {
     pub cell: u32,
 }
 
-/// Per map cell, how high above the ground sight is blocked: standing trees and rocks plus wrecks
-/// (a wreck blocks up to the height of its collapsed model). Radar is not blocked by these.
-/// Empty when the rules switch that off (`sight_blocked_by_reclaimables`).
-pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, defs: &Defs, map: &MapData) -> std::borrow::Cow<'a, [f32]> {
-    if !defs.rules.sight_blocked_by_reclaimables {
-        return std::borrow::Cow::Borrowed(&[]);
-    }
-    if wrecks.0.is_empty() || features.sight.len() != map.n * map.n {
-        return std::borrow::Cow::Borrowed(&features.sight[..]);
-    }
-    let mut v = features.sight.clone();
-    for w in &wrecks.0 {
-        // Small pieces of debris do not block sight.
-        if w.4 > 0.0 && w.4 < defs.rules.debris.sight_size {
-            continue;
+/// What blocks sight besides the terrain (radar passes all of it): standing trees and rocks plus
+/// wrecks (a wreck blocks up to the height of its collapsed model), each switched by
+/// `sight_blocked_by_reclaimables`, and finished buildings (`sight_blocked_by_buildings`): every
+/// cell of the footprint up to the building's height. `buildings`: (id, type, position) of the
+/// finished, standing structures, in id order. Sandbags and trenches do not block.
+pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, buildings: impl Iterator<Item = (u32, DefId, V2)>, defs: &Defs, map: &MapData) -> crate::map::SightBlock<'a> {
+    use std::borrow::Cow;
+    let mut h: Cow<'a, [f32]> = Cow::Borrowed(&[]);
+    if defs.rules.sight_blocked_by_reclaimables && features.sight.len() == map.n * map.n {
+        h = Cow::Borrowed(&features.sight[..]);
+        if !wrecks.0.is_empty() {
+            let mut v = features.sight.clone();
+            for w in &wrecks.0 {
+                // Small pieces of debris do not block sight.
+                if w.4 > 0.0 && w.4 < defs.rules.debris.sight_size {
+                    continue;
+                }
+                let wh = Wreck::shape(defs, w.3, w.4).1;
+                let (cx, cy) = map.cell_of(w.1);
+                if map.inside(cx, cy) {
+                    let c = cy as usize * map.n + cx as usize;
+                    v[c] = v[c].max(wh);
+                }
+            }
+            h = Cow::Owned(v);
         }
-        let h = Wreck::shape(defs, w.3, w.4).1;
-        let (cx, cy) = map.cell_of(w.1);
-        if map.inside(cx, cy) {
-            let c = cy as usize * map.n + cx as usize;
-            v[c] = v[c].max(h);
+    }
+    let mut id = vec![];
+    if defs.rules.sight_blocked_by_buildings {
+        for (uid, def, pos) in buildings {
+            let d = defs.get(def);
+            if d.footprint <= 0 || d.is_fieldwork() || d.height() <= 0.0 {
+                continue;
+            }
+            if id.is_empty() {
+                id = vec![0u32; map.n * map.n];
+                if h.is_empty() {
+                    h = Cow::Owned(vec![0.0; map.n * map.n]);
+                }
+            }
+            let hv = h.to_mut();
+            let (x0, y0) = foot_origin(pos, d.footprint);
+            for y in y0..y0 + d.footprint {
+                for x in x0..x0 + d.footprint {
+                    if map.inside(x, y) {
+                        let c = y as usize * map.n + x as usize;
+                        hv[c] = hv[c].max(d.height());
+                        id[c] = uid;
+                    }
+                }
+            }
         }
     }
-    std::borrow::Cow::Owned(v)
+    crate::map::SightBlock { h, id }
 }
 
 /// Size of a cell of the features' spatial grid, in world units.
