@@ -3594,6 +3594,103 @@ fn icon_sheet(path: &str) {
     }
 }
 
+/// Equal-cost fights of tanks against their counters on open, flat ground, and in a wood
+/// (`--combattest` with `LR_TEST=tanks`). Prints the mass each side has left.
+fn tank_tests(defs: &Defs) {
+    let faction = defs.playable_factions()[0] as u8;
+    let fights: &[(&str, usize, &str, usize)] = &[
+        ("crony", 1, "trooper", 8),
+        ("overtaker", 2, "trooper", 10),
+        ("crony", 2, "trooper", 17),
+        ("crony", 1, "at_trooper", 3),
+        ("crony", 1, "sniper_trooper", 4),
+        ("crony", 1, "robin", 1),
+        ("overtaker", 2, "dragoon", 2),
+        ("crony", 1, "mbfag", 3),
+        ("crony", 1, "pike", 3),
+    ];
+    for wood in [false, true] {
+        println!("== Tanks, equal mass, {}", if wood { "trees scattered around" } else { "open ground" });
+        for &(tank, nt, foe, nf) in fights {
+            for seed in [1u64, 2, 3] {
+                let mut app = headless(defs.clone());
+                let mut map = MapData::generate(128, 4242 + seed as u32, 2);
+                map.heights.iter_mut().for_each(|h| *h = 2.0);
+                map.feature_kinds = vec![];
+                map.features = vec![];
+                if wood {
+                    map.feature_kinds.push("oak".into());
+                    let mut r = seed.wrapping_mul(2654435761) as u32;
+                    let mut rnd = || {
+                        r ^= r << 13;
+                        r ^= r >> 17;
+                        r ^= r << 5;
+                        (r % 10000) as f32 / 10000.0
+                    };
+                    for _ in 0..120 {
+                        let p = v2(60.0 + rnd() * 140.0, 90.0 + rnd() * 80.0);
+                        map.features.push(Feature { kind: 0, pos: p, yaw: 0.0, scale: 1.0 });
+                    }
+                }
+                map.rebuild_blocked();
+                let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+                setup_game(app.world_mut(), map.clone(), &setup);
+                let world = app.world_mut();
+                let mut game = world.resource::<Game>().clone();
+                let mut tanks = vec![];
+                let mut foes = vec![];
+                {
+                    let mut commands = world.commands();
+                    for k in 0..nt {
+                        tanks.push(spawn_unit(&mut commands, defs, &mut game, &map, defs.id(tank).unwrap(), 0, v2(80.0, 126.0 + k as f32 * 4.0), 0.0, true, 0));
+                    }
+                    for k in 0..nf {
+                        let row = (k / 6) as f32;
+                        let col = (k % 6) as f32;
+                        foes.push(spawn_unit(&mut commands, defs, &mut game, &map, defs.id(foe).unwrap(), 1, v2(190.0 + row * 3.0, 118.0 + col * 3.0 + seed as f32), 3.14, true, 0));
+                    }
+                }
+                world.insert_resource(game);
+                world.flush();
+                world.resource_mut::<Nav>().dirty = true;
+                // Both sides attack-move into each other.
+                let mut q = world.resource_mut::<CommandQueue>();
+                q.0.push((0, Command::Orders { ids: tanks.clone(), orders: vec![Order::AttackMove(v2(200.0, 128.0))], queue: false }));
+                q.0.push((1, Command::Orders { ids: foes.clone(), orders: vec![Order::AttackMove(v2(70.0, 128.0))], queue: false }));
+                let mut end = 0;
+                let left = |world: &mut World, owner: u8| -> (usize, f32) {
+                    let mut n = 0;
+                    let mut m = 0.0;
+                    for (u, h) in world.query::<(&Unit, &Health)>().iter(world) {
+                        let d = &defs.units[u.def as usize];
+                        if u.owner == owner && d.weapons.len() > 0 && h.0 > 0.0 {
+                            n += 1;
+                            m += d.cost.mass * h.0 / d.hp;
+                        }
+                    }
+                    (n, m)
+                };
+                for t in 0..3000 {
+                    world.run_schedule(SimTick);
+                    end = t;
+                    if t % 10 == 0 && (left(world, 0).0 == 0 || left(world, 1).0 == 0) {
+                        break;
+                    }
+                }
+                let (a, am) = left(world, 0);
+                let (b, bm) = left(world, 1);
+                let cost = |n: &str, k: usize| defs.units[defs.id(n).unwrap() as usize].cost.mass * k as f32;
+                println!(
+                    "  {nt} {tank} ({:.0}) vs {nf} {foe} ({:.0}) seed {seed}: {a} tanks left ({am:.0} mass worth), {b} {foe} left ({bm:.0}), {:.0} s",
+                    cost(tank, nt),
+                    cost(foe, nf),
+                    end as f32 / 10.0
+                );
+            }
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--selftest") {
@@ -3611,6 +3708,9 @@ fn main() {
         }
         if std::env::var("LR_TEST").as_deref() == Ok("air") {
             return air_tests(&load_defs());
+        }
+        if std::env::var("LR_TEST").as_deref() == Ok("tanks") {
+            return tank_tests(&load_defs());
         }
         if std::env::var("LR_TEST").as_deref() == Ok("scavenger") {
             return scavenger_tests(&load_defs());
