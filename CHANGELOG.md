@@ -5,9 +5,15 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## v0.8.0
 
-Not compatible with v0.7.1 in multiplayer: everybody needs this version.
+Not compatible with v0.7.1 in multiplayer: everybody needs this version. The game list does not show games of
+older versions, and older versions do not see 0.8.0 games.
 
 New
+- Game browser: "Join game" lists the games on your network in a table with the map picture, players, preset,
+  host and ping. A game of another version shows as such. Joining by address is on the same screen.
+- After joining a game you keep the host's map and preset: the map goes to your maps, the preset to your presets
+  (with a number added when you already have a different one of that name). The lobby says whether the map and
+  data are already here or will be downloaded.
 - Ukrainian translation. Pick the language in Settings; it switches at once. Every text in the game and the
   map editor now comes from `assets/lang/en.json` / `uk.json`, so more languages can be added.
 - New units (thanks to Sadsaltan):
