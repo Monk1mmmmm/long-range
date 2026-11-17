@@ -43,21 +43,21 @@ pub struct Kind {
 }
 
 pub const KINDS: &[Kind] = &[
-    Kind { id: "grass", name: tx!("Grass"), scale: 10.0, color: [0.12, 0.22, 0.06], hard: false },
-    Kind { id: "meadow", name: tx!("Dry meadow"), scale: 12.0, color: [0.25, 0.25, 0.10], hard: false },
-    Kind { id: "forest_floor", name: tx!("Forest floor"), scale: 9.0, color: [0.13, 0.15, 0.07], hard: false },
-    Kind { id: "dirt", name: tx!("Dirt"), scale: 8.0, color: [0.27, 0.19, 0.12], hard: false },
-    Kind { id: "mud", name: tx!("Mud"), scale: 7.0, color: [0.14, 0.12, 0.08], hard: false },
-    Kind { id: "sand", name: tx!("Sand"), scale: 9.0, color: [0.52, 0.43, 0.27], hard: false },
-    Kind { id: "dunes", name: tx!("Desert sand"), scale: 16.0, color: [0.62, 0.45, 0.25], hard: false },
-    Kind { id: "cracked", name: tx!("Cracked earth"), scale: 15.0, color: [0.45, 0.32, 0.20], hard: false },
-    Kind { id: "snow", name: tx!("Snow"), scale: 14.0, color: [0.80, 0.83, 0.88], hard: false },
-    Kind { id: "ice", name: tx!("Ice"), scale: 16.0, color: [0.55, 0.66, 0.76], hard: false },
-    Kind { id: "stone", name: tx!("Stone"), scale: 12.0, color: [0.30, 0.28, 0.26], hard: false },
-    Kind { id: "gravel", name: tx!("Gravel"), scale: 6.0, color: [0.36, 0.34, 0.31], hard: false },
-    Kind { id: "paving", name: tx!("Paving"), scale: 6.0, color: [0.40, 0.39, 0.37], hard: true },
-    Kind { id: "asphalt", name: tx!("Asphalt"), scale: 6.0, color: [0.055, 0.055, 0.06], hard: true },
-    Kind { id: "dirt_road", name: tx!("Dirt track"), scale: 7.0, color: [0.32, 0.24, 0.15], hard: false },
+    Kind { id: "grass", name: "Grass", scale: 10.0, color: [0.12, 0.22, 0.06], hard: false },
+    Kind { id: "meadow", name: "Dry meadow", scale: 12.0, color: [0.25, 0.25, 0.10], hard: false },
+    Kind { id: "forest_floor", name: "Forest floor", scale: 9.0, color: [0.13, 0.15, 0.07], hard: false },
+    Kind { id: "dirt", name: "Dirt", scale: 8.0, color: [0.27, 0.19, 0.12], hard: false },
+    Kind { id: "mud", name: "Mud", scale: 7.0, color: [0.14, 0.12, 0.08], hard: false },
+    Kind { id: "sand", name: "Sand", scale: 9.0, color: [0.52, 0.43, 0.27], hard: false },
+    Kind { id: "dunes", name: "Desert sand", scale: 16.0, color: [0.62, 0.45, 0.25], hard: false },
+    Kind { id: "cracked", name: "Cracked earth", scale: 15.0, color: [0.45, 0.32, 0.20], hard: false },
+    Kind { id: "snow", name: "Snow", scale: 14.0, color: [0.80, 0.83, 0.88], hard: false },
+    Kind { id: "ice", name: "Ice", scale: 16.0, color: [0.55, 0.66, 0.76], hard: false },
+    Kind { id: "stone", name: "Stone", scale: 12.0, color: [0.30, 0.28, 0.26], hard: false },
+    Kind { id: "gravel", name: "Gravel", scale: 6.0, color: [0.36, 0.34, 0.31], hard: false },
+    Kind { id: "paving", name: "Paving", scale: 6.0, color: [0.40, 0.39, 0.37], hard: true },
+    Kind { id: "asphalt", name: "Asphalt", scale: 6.0, color: [0.055, 0.055, 0.06], hard: true },
+    Kind { id: "dirt_road", name: "Dirt track", scale: 7.0, color: [0.32, 0.24, 0.15], hard: false },
 ];
 
 pub fn kind(id: &str) -> Option<&'static Kind> {
@@ -78,10 +78,10 @@ pub const BIOMES: [Biome; 4] = [Biome::Temperate, Biome::Desert, Biome::Arctic, 
 impl Biome {
     pub fn name(self) -> &'static str {
         match self {
-            Biome::Temperate => tx!("Temperate"),
-            Biome::Desert => tx!("Desert"),
-            Biome::Arctic => tx!("Arctic"),
-            Biome::Rocky => tx!("Rocky highland"),
+            Biome::Temperate => "Temperate",
+            Biome::Desert => "Desert",
+            Biome::Arctic => "Arctic",
+            Biome::Rocky => "Rocky highland",
         }
     }
     /// The biome a random map of this seed gets when the lobby leaves it to chance.

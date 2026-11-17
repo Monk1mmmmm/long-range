@@ -1,32 +1,42 @@
-//! Localisation. The English text in the source is the key: `tr!("Settings")` shows the current
-//! language's text for "Settings", or "Settings" itself when there is none. Translations live in
-//! `assets/lang/<code>.json`: `{"English": "translation"}` pairs, grouped by purpose in nested
-//! objects (`"lobby": {...}`, `"hud_orders": {...}`; the groups are only for the reader, a text is
-//! found whatever group holds it, and a text shown in several places sits in `common`). Keys starting
-//! with `_` are not texts (`_language` is the name shown in the language list).
+//! Localisation. Texts are looked up by key: `tr!("lobby.watch_instead")` shows the current
+//! language's text, else the English one, else the key itself (so a missing text is easy to spot).
+//! Each language is one file `assets/lang/<code>.json` (`en.json` is English, the reference every
+//! other language follows); its texts are grouped by purpose in nested objects, and a key is the
+//! path to its text: `{"lobby": {"watch_instead": "..."}}` -> `lobby.watch_instead`. Texts shown in
+//! several screens sit in `common`. Keys starting with `_` are not texts (`_language` is the name
+//! shown in the language list).
 //!
-//! - `tr!("text")` -> `&str`; `tr!("{} of {}", a, b)` -> `String` (arguments are anything `Display`).
-//!   Placeholders: `{}` (next argument), `{0}` (by number, for another word order), with an optional
-//!   spec `{:.1}` / `{0:>4}` / `{:02}` (precision, width, alignment, zero padding).
+//! - `tr!("key")` -> `&str`; `tr!("key", a, b)` -> `String` (arguments are anything `Display`).
+//!   Placeholders in the texts: `{}` (next argument), `{0}` (by number, for another word order),
+//!   with an optional spec `{:.1}` / `{0:>4}` / `{:02}` (precision, width, alignment, zero padding).
 //!   Plural forms: `{0|one|few|many}` picks a word by the number in argument 0 (English uses
 //!   one/other, Ukrainian one/few/many: 1 / 2-4 / 5-20 ...); it does not print the number itself.
-//! - `tx!("text")` is just the literal: it marks texts in `const` tables, translated where shown
-//!   with `tr(TABLE[i])`.
-//! - `tr(s)` translates a text that is not a literal (names and descriptions from the game data).
+//! - `tx!("key")` is just the literal: it marks keys in `const` tables, shown with `tr(TABLE[i])`.
+//! - `tr(key)` translates a key that is not a literal.
+//! - Texts from the game data keep their English in the data (presets edit it). `unit_name`,
+//!   `unit_desc`, `weapon_name` look them up under `units.<id>.name` / `units.<id>.desc` /
+//!   `weapons.<name as a slug>`, but only while the data's text is still the one `en.json` has: a
+//!   preset that renamed a unit shows its own name. Terrain kinds, biomes and AI types work the same
+//!   (`terrain.<kind id>`, `terrain.biome_<biome>`, `ai.<name>` / `ai.<name>_desc`).
 //!
-//! The simulation never translates anything; only what is shown. `cargo test --lib i18n` checks
-//! that every `tr!`/`tx!` text and every built-in unit name and description has a translation in
-//! every language file (and no file holds texts nobody uses).
+//! The simulation never translates anything; only what is shown. `cargo test --lib i18n` checks that
+//! every `tr!`/`tx!` key and every data text is in `en.json` (data texts equal to the data), that every
+//! other language has every key with the same placeholders, and that no file holds unused keys.
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
+
+type Texts = HashMap<&'static str, &'static str>;
 
 struct Lang {
     code: String,
-    texts: HashMap<&'static str, &'static str>,
+    texts: Texts,
 }
 
+/// The chosen language (None: English).
 static LANG: RwLock<Option<Lang>> = RwLock::new(None);
+/// English, read on first use.
+static EN: OnceLock<Texts> = OnceLock::new();
 
 /// The language a fresh install starts in: Ukrainian when the system language says so, else English.
 pub fn system_language() -> &'static str {
@@ -47,17 +57,18 @@ fn lang_dir() -> std::path::PathBuf {
     crate::data::asset_root().join("lang")
 }
 
-/// Every (English, translation) pair of a language file, the groups flattened, in file order.
-/// Keys starting with `_` and values that are not text are left out.
-fn flatten(v: &serde_json::Value, out: &mut Vec<(String, String)>) {
+/// Every (key, text) pair of a language file in file order; groups make the dotted key.
+/// Keys starting with `_` and values that are neither text nor group are left out.
+fn flatten(v: &serde_json::Value, prefix: &str, out: &mut Vec<(String, String)>) {
     if let Some(m) = v.as_object() {
         for (k, v) in m {
             if k.starts_with('_') {
                 continue;
             }
+            let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
             match v {
-                serde_json::Value::String(t) => out.push((k.clone(), t.clone())),
-                serde_json::Value::Object(_) => flatten(v, out),
+                serde_json::Value::String(t) => out.push((key, t.clone())),
+                serde_json::Value::Object(_) => flatten(v, &key, out),
                 _ => {}
             }
         }
@@ -71,62 +82,113 @@ fn read(code: &str) -> Result<(String, Vec<(String, String)>), String> {
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     let name = v["_language"].as_str().map_or_else(|| code.to_string(), String::from);
     let mut texts = vec![];
-    flatten(&v, &mut texts);
+    flatten(&v, "", &mut texts);
     Ok((name, texts))
 }
 
-/// Switches the language ("en", "uk"...; "" = `system_language`). English, an unknown code or a
-/// file that does not read leave every text in English.
+fn load(code: &str) -> Texts {
+    match read(code) {
+        Ok((_, pairs)) => pairs.into_iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (&*Box::leak(k.into_boxed_str()), &*Box::leak(v.into_boxed_str()))).collect(),
+        Err(e) => {
+            eprintln!("language {code}: {e}");
+            Texts::new()
+        }
+    }
+}
+
+fn english() -> &'static Texts {
+    EN.get_or_init(|| load("en"))
+}
+
+/// Switches the language ("en", "uk"...; "" = `system_language`). An unknown code or a file that
+/// does not read leave every text in English.
 pub fn set_language(code: &str) {
     let code = if code.is_empty() { system_language() } else { code };
-    let lang = if code == "en" {
-        None
-    } else {
-        match read(code) {
-            Ok((_, map)) => {
-                let texts = map
-                    .into_iter()
-                    .filter(|(_, v)| !v.is_empty())
-                    .map(|(k, v)| (&*Box::leak(k.into_boxed_str()), &*Box::leak(v.into_boxed_str())))
-                    .collect();
-                Some(Lang { code: code.to_string(), texts })
-            }
-            Err(e) => {
-                eprintln!("language {code}: {e}");
-                None
-            }
-        }
-    };
+    let lang = (code != "en").then(|| Lang { code: code.to_string(), texts: load(code) });
     *LANG.write().unwrap() = lang;
 }
 
-/// The language in use ("en" when no translation is loaded).
+/// The language in use ("en" when no other is loaded).
 pub fn language() -> String {
     LANG.read().unwrap().as_ref().map_or("en".into(), |l| l.code.clone())
 }
 
 /// Every language there is a file for, English first: (code, name in that language).
 pub fn languages() -> Vec<(String, String)> {
-    let mut out = vec![("en".to_string(), "English".to_string())];
     let mut files: Vec<_> = std::fs::read_dir(lang_dir())
         .map(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect())
         .unwrap_or_default();
     files.sort();
+    let mut out = vec![];
     for p in files {
         let code = p.file_stem().unwrap_or_default().to_string_lossy().into_owned();
         if let Ok((name, _)) = read(&code) {
             out.push((code, name));
         }
     }
+    out.sort_by_key(|(c, _)| c != "en");
     out
 }
 
-/// The current language's text for `s`, or `s` itself.
-pub fn tr(s: &str) -> &str {
-    match LANG.read().unwrap().as_ref().and_then(|l| l.texts.get(s).copied()) {
-        Some(t) => t,
-        None => s,
+/// The text of `key` in the current language, else in English.
+fn lookup(key: &str) -> Option<&'static str> {
+    LANG.read().unwrap().as_ref().and_then(|l| l.texts.get(key).copied()).or_else(|| english().get(key).copied())
+}
+
+/// The current language's text for `key`, else the English one, else the key itself.
+pub fn tr(key: &str) -> &str {
+    lookup(key).unwrap_or(key)
+}
+
+/// A text from the game data (English, `text`): translated under `key` while `en.json` holds the
+/// same English for it, else shown as the data has it.
+pub fn data_text<'a>(key: &str, text: &'a str) -> &'a str {
+    if english().get(key).copied() == Some(text) {
+        lookup(key).unwrap_or(text)
+    } else {
+        text
     }
+}
+
+/// `weapons.<this>` key part of a weapon name: lower case, runs of other characters as one `_`.
+pub fn slug(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('_') && !out.is_empty() {
+            out.push('_');
+        }
+    }
+    out.trim_end_matches('_').to_string()
+}
+
+pub fn unit_name(d: &crate::data::UnitDef) -> &str {
+    data_text(&format!("units.{}.name", d.id), &d.name)
+}
+
+pub fn unit_desc(d: &crate::data::UnitDef) -> &str {
+    data_text(&format!("units.{}.desc", d.id), &d.desc)
+}
+
+pub fn weapon_name(w: &crate::data::WeaponDef) -> &str {
+    data_text(&format!("weapons.{}", slug(&w.name)), &w.name)
+}
+
+pub fn kind_name(k: &crate::surface::Kind) -> &'static str {
+    data_text(&format!("terrain.{}", k.id), k.name)
+}
+
+pub fn biome_name(b: crate::surface::Biome) -> &'static str {
+    data_text(&format!("terrain.biome_{}", slug(b.name())), b.name())
+}
+
+pub fn ai_name(k: crate::ai::AiKind) -> &'static str {
+    data_text(&format!("ai.{}", slug(k.name())), k.name())
+}
+
+pub fn ai_desc(k: crate::ai::AiKind) -> &'static str {
+    data_text(&format!("ai.{}_desc", slug(k.name())), k.desc())
 }
 
 /// Plural form index of `n`: 0 one, 1 few, 2 many (English: 0 one, 2 other).
@@ -152,8 +214,7 @@ fn plural(code: &str, n: f64) -> usize {
 
 /// Fills the placeholders of a (translated) template; see the module comment.
 pub fn fill(template: &str, args: &[&dyn Display]) -> String {
-    let code = LANG.read().unwrap().as_ref().map_or("en".to_string(), |l| l.code.clone());
-    fill_in(&code, template, args)
+    fill_in(&language(), template, args)
 }
 
 fn fill_in(code: &str, template: &str, args: &[&dyn Display]) -> String {
@@ -250,7 +311,7 @@ fn format_spec(a: &dyn Display, spec: &str) -> String {
     }
 }
 
-/// `tr!("text")` -> `&str`, `tr!("text {}", arg, ...)` -> `String`. See `crate::i18n`.
+/// `tr!("group.key")` -> `&str`, `tr!("group.key", arg, ...)` -> `String`. See `crate::i18n`.
 #[macro_export]
 macro_rules! tr {
     ($s:literal) => {
@@ -261,7 +322,7 @@ macro_rules! tr {
     };
 }
 
-/// Marks a text in a `const` table for translation; it is the literal itself. Show it with `tr(..)`.
+/// Marks a key in a `const` table; it is the literal itself. Show it with `tr(..)`.
 #[macro_export]
 macro_rules! tx {
     ($s:literal) => {
@@ -272,7 +333,7 @@ macro_rules! tx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn placeholders() {
@@ -345,9 +406,10 @@ mod tests {
         }
     }
 
-    /// Every text shown through `tr!` / `tx!`, plus the built-in game data's unit and weapon texts.
-    fn keys() -> BTreeSet<String> {
-        let mut keys = BTreeSet::new();
+    /// Every key used through `tr!` / `tx!` (text unknown: None), and every data key with the
+    /// English the built-in data has for it.
+    fn keys() -> BTreeMap<String, Option<String>> {
+        let mut keys = BTreeMap::new();
         let mut files = vec![];
         rust_files(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
         for f in files {
@@ -359,23 +421,43 @@ mod tests {
                 for (at, _) in src.match_indices(pat) {
                     let rest = src[at + pat.len()..].trim_start();
                     if let Some((k, _)) = literal(rest) {
-                        keys.insert(k);
+                        keys.insert(k, None);
                     }
                 }
             }
         }
         let defs = crate::data::Defs::load(&crate::data::asset_root()).unwrap();
+        let mut data = |k: String, t: &str| {
+            keys.insert(k, Some(t.to_string()));
+        };
         for d in &defs.units {
-            keys.insert(d.name.clone());
+            data(format!("units.{}.name", d.id), &d.name);
             if !d.desc.is_empty() {
-                keys.insert(d.desc.clone());
+                data(format!("units.{}.desc", d.id), &d.desc);
             }
             for w in &d.weapons {
-                keys.insert(w.name.clone());
+                data(format!("weapons.{}", slug(&w.name)), &w.name);
             }
         }
-        keys.retain(|k| !k.trim().is_empty());
+        for k in crate::surface::KINDS {
+            data(format!("terrain.{}", k.id), k.name);
+        }
+        for b in crate::surface::BIOMES {
+            data(format!("terrain.biome_{}", slug(b.name())), b.name());
+        }
+        for k in crate::ai::AI_KINDS {
+            data(format!("ai.{}", slug(k.name())), k.name());
+            data(format!("ai.{}_desc", slug(k.name())), k.desc());
+        }
         keys
+    }
+
+    fn pairs(path: &std::path::Path) -> Vec<(String, String)> {
+        let text = std::fs::read_to_string(path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let mut out = vec![];
+        flatten(&v, "", &mut out);
+        out
     }
 
     /// Placeholders of a text: numbered ones by number, `{}` in order, plurals by their number.
@@ -405,34 +487,41 @@ mod tests {
     fn translations_complete() {
         let keys = keys();
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/lang");
+        let q = |s: &str| serde_json::to_string(s).unwrap();
         let mut problems = vec![];
+        let en: BTreeMap<String, String> = pairs(&dir.join("en.json")).into_iter().collect();
+        for (k, want) in &keys {
+            match (en.get(k), want) {
+                (None, _) => problems.push(format!("en.json: missing {}", q(k))),
+                (Some(t), Some(want)) if t != want => problems.push(format!("en.json: {} is {} in the game data (change it here and in every language)", q(k), q(want))),
+                (Some(t), None) if t.is_empty() => problems.push(format!("en.json: empty {}", q(k))),
+                _ => {}
+            }
+        }
+        for k in en.keys().filter(|k| !keys.contains_key(*k)) {
+            problems.push(format!("en.json: no longer used (remove it from every language): {}", q(k)));
+        }
         for e in std::fs::read_dir(&dir).unwrap().flatten() {
             let path = e.path();
-            let text = std::fs::read_to_string(&path).unwrap();
-            let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let mut pairs = vec![];
-            flatten(&v, &mut pairs);
-            let mut map: HashMap<&str, &str> = HashMap::new();
-            for (k, t) in &pairs {
-                if map.insert(k, t).is_some() {
-                    problems.push(format!("{name}: in two groups (keep one; texts shown in several places go in \"common\"): {}", serde_json::to_string(k).unwrap()));
+            if name == "en.json" {
+                continue;
+            }
+            let map: BTreeMap<String, String> = pairs(&path).into_iter().collect();
+            for (k, t) in &en {
+                match map.get(k) {
+                    None => problems.push(format!("{name}: missing {} (English: {})", q(k), q(t))),
+                    Some(v) if v.is_empty() => problems.push(format!("{name}: empty {}", q(k))),
+                    Some(v) if holes(t) != holes(v) => problems.push(format!("{name}: placeholders differ from English: {} = {}", q(k), q(v))),
+                    _ => {}
                 }
             }
-            let missing: Vec<_> = keys.iter().filter(|k| map.get(k.as_str()).is_none_or(|v| v.is_empty())).collect();
-            if !missing.is_empty() {
-                problems.push(format!("{name}: {} texts without a translation (add them to the group they belong to):", missing.len()));
-                for k in missing {
-                    problems.push(format!("  {}: \"\",", serde_json::to_string(k).unwrap()));
-                }
+            for k in map.keys().filter(|k| !en.contains_key(*k)) {
+                problems.push(format!("{name}: not in en.json: {}", q(k)));
             }
-            for (k, t) in &pairs {
-                if !keys.contains(k) {
-                    problems.push(format!("{name}: no longer used (remove it): {}", serde_json::to_string(k).unwrap()));
-                } else if !t.is_empty() && holes(k) != holes(t) {
-                    problems.push(format!("{name}: placeholders differ: {} -> {}", serde_json::to_string(k).unwrap(), serde_json::to_string(t).unwrap()));
-                }
-            }
+        }
+        for k in keys.keys().filter(|k| !k.contains('.')) {
+            problems.push(format!("key without a group: {}", q(k)));
         }
         assert!(problems.is_empty(), "\n{}", problems.join("\n"));
     }

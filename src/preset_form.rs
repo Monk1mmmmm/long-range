@@ -66,94 +66,94 @@ const BIG: f64 = 1.0e7;
 // rules.json
 
 pub const RULE_SWITCHES: &[Field] = &[
-    yes("terraforming", tx!("Terraforming"), tx!("Engineers and commanders can level, raise and lower the ground (the Terraform button). Off: the button is gone and terraform orders are ignored.")),
-    yes("craters", tx!("Craters"), tx!("Heavy hits and death blasts dig shell holes into the ground (their size is set under Craters and terraforming). Off: shelling never changes the ground.")),
-    yes("wrecks", tx!("Wrecks (debris)"), tx!("Destroyed units leave wrecks: they hold mass to reclaim, give cover against shots and block sight. Off: destroyed units leave nothing behind. A unit's own 'Leaves a wreck' setting still applies when this is on.")),
-    yes("sight_blocked_by_terrain", tx!("Hills block sight"), tx!("A unit only sees what it has a clear line to over the terrain. Off: units see everything within their vision range, hills or not.")),
-    yes("sight_blocked_by_reclaimables", tx!("Trees, rocks and wrecks block sight"), tx!("Standing trees, rocks and wrecks block the view like small hills. Off: sight passes through them (they still soak up shots as cover).")),
-    yes("sight_blocked_by_buildings", tx!("Buildings block sight"), tx!("Finished buildings (yours, enemy and map buildings) block the view behind them up to their height. Infantry inside a building still look out from its roof, and a building never hides itself. Off: sight passes through buildings.")),
-    yes("radar_blocked_by_terrain", tx!("Hills block radar"), tx!("Radar needs a clear line over the terrain, looking from 'Radar eye height' above the unit. Off: radar sees through hills.")),
-    yes("ghosts_show_destroyed", tx!("Dim destroyed remembered buildings"), tx!("An enemy building you have seen and then lost sight of stays on your map as you last saw it. When it is destroyed while nobody of your team looks, its model turns dim (as in SupCom), so you know it is gone without scouting. Off: it looks intact until you see the empty spot.")),
-    yes("friendly_fire", tx!("Friendly fire"), tx!("Shots and blasts also hurt your own and allied units, not just enemies.")),
+    yes("terraforming", tx!("preset_rules.switch_terraforming"), tx!("preset_rules.switch_terraforming_tip")),
+    yes("craters", tx!("preset_rules.switch_craters"), tx!("preset_rules.switch_craters_tip")),
+    yes("wrecks", tx!("preset_rules.switch_wrecks"), tx!("preset_rules.switch_wrecks_tip")),
+    yes("sight_blocked_by_terrain", tx!("preset_rules.switch_sight_blocked_by_terrain"), tx!("preset_rules.switch_sight_blocked_by_terrain_tip")),
+    yes("sight_blocked_by_reclaimables", tx!("preset_rules.switch_sight_blocked_by_reclaimables"), tx!("preset_rules.switch_sight_blocked_by_reclaimables_tip")),
+    yes("sight_blocked_by_buildings", tx!("preset_rules.switch_sight_blocked_by_buildings"), tx!("preset_rules.switch_sight_blocked_by_buildings_tip")),
+    yes("radar_blocked_by_terrain", tx!("preset_rules.switch_radar_blocked_by_terrain"), tx!("preset_rules.switch_radar_blocked_by_terrain_tip")),
+    yes("ghosts_show_destroyed", tx!("preset_rules.switch_ghosts_show_destroyed"), tx!("preset_rules.switch_ghosts_show_destroyed_tip")),
+    yes("friendly_fire", tx!("preset_rules.switch_friendly_fire"), tx!("preset_rules.switch_friendly_fire_tip")),
 ];
 
 pub const RULE_ECONOMY: &[Field] = &[
-    num("start_mass", tx!("Starting mass"), 650.0, BIG, tx!("Mass every player has at the start.")),
-    num("start_energy", tx!("Starting energy"), 4000.0, BIG, tx!("Energy every player has at the start.")),
-    num("reclaim_rate", tx!("Reclaim speed"), 2.0, 1000.0, tx!("Mass reclaimed per second for every point of an engineer's build power.")),
-    num("reclaim_energy_factor", tx!("Reclaim energy speed-up"), 5.0, 1000.0, tx!("Reclaiming trees and rocks: energy comes this many times faster than mass.")),
-    num("repair_rate", tx!("Repair speed"), 3.0, 1000.0, tx!("Hit points repaired per second for every point of build power.")),
-    num("power_stall_pump_factor", tx!("Pump output when out of energy"), 0.25, 1.0, tx!("When energy runs out, mass pumps produce at least this share of their output.")),
-    num("capture_time", tx!("Capture time"), 1.0, 100.0, tx!("Capturing a unit takes its build time times this, at the engineer's build power.")),
-    num("capture_energy", tx!("Capture energy cost"), 0.3, 10.0, tx!("Share of the target's energy cost that capturing it uses up.")),
+    num("start_mass", tx!("preset_rules.eco_start_mass"), 650.0, BIG, tx!("preset_rules.eco_start_mass_tip")),
+    num("start_energy", tx!("preset_rules.eco_start_energy"), 4000.0, BIG, tx!("preset_rules.eco_start_energy_tip")),
+    num("reclaim_rate", tx!("preset_rules.eco_reclaim_rate"), 2.0, 1000.0, tx!("preset_rules.eco_reclaim_rate_tip")),
+    num("reclaim_energy_factor", tx!("preset_rules.eco_reclaim_energy_factor"), 5.0, 1000.0, tx!("preset_rules.eco_reclaim_energy_factor_tip")),
+    num("repair_rate", tx!("preset_rules.eco_repair_rate"), 3.0, 1000.0, tx!("preset_rules.eco_repair_rate_tip")),
+    num("power_stall_pump_factor", tx!("preset_rules.eco_power_stall_pump_factor"), 0.25, 1.0, tx!("preset_rules.eco_power_stall_pump_factor_tip")),
+    num("capture_time", tx!("preset_rules.eco_capture_time"), 1.0, 100.0, tx!("preset_rules.eco_capture_time_tip")),
+    num("capture_energy", tx!("preset_rules.eco_capture_energy"), 0.3, 10.0, tx!("preset_rules.eco_capture_energy_tip")),
 ];
 
 pub const RULE_COMBAT: &[Field] = &[
-    num("gravity", tx!("Gravity"), 4.9, 100.0, tx!("Pulls every shell and bomb down (units per second squared). Higher: shorter, steeper arcs and less reach for artillery.")),
-    num("commander_death.damage", tx!("Commander death blast: damage"), 1500.0, BIG, tx!("Damage of the explosion when a commander dies.")),
-    num("commander_death.radius", tx!("Commander death blast: radius"), 20.0, 1000.0, tx!("Radius of the explosion when a commander dies.")),
-    num("armor_front", tx!("Armor angle: front"), 0.6, 10.0, tx!("Armored units (category armored) take this share of a hit head on. Between front, side and rear it blends with the angle; shells falling steeply count the angle less, one falling straight down not at all.")),
-    num("armor_side", tx!("Armor angle: side"), 1.0, 10.0, tx!("Share of a hit an armored unit takes from the side.")),
-    num("armor_rear", tx!("Armor angle: rear"), 1.5, 10.0, tx!("Share of a hit an armored unit takes from behind.")),
+    num("gravity", tx!("preset_rules.combat_gravity"), 4.9, 100.0, tx!("preset_rules.combat_gravity_tip")),
+    num("commander_death.damage", tx!("preset_rules.combat_commander_death_damage"), 1500.0, BIG, tx!("preset_rules.combat_commander_death_damage_tip")),
+    num("commander_death.radius", tx!("preset_rules.combat_commander_death_radius"), 20.0, 1000.0, tx!("preset_rules.combat_commander_death_radius_tip")),
+    num("armor_front", tx!("preset_rules.combat_armor_front"), 0.6, 10.0, tx!("preset_rules.combat_armor_front_tip")),
+    num("armor_side", tx!("preset_rules.combat_armor_side"), 1.0, 10.0, tx!("preset_rules.combat_armor_side_tip")),
+    num("armor_rear", tx!("preset_rules.combat_armor_rear"), 1.5, 10.0, tx!("preset_rules.combat_armor_rear_tip")),
 ];
 
 pub const RULE_INTEL: &[Field] = &[
-    num("near_sight", tx!("Close-range sight"), 6.0, 100.0, tx!("Everything closer than this to a unit is seen at once, whatever stands in between.")),
-    num("spot_forget", tx!("Spotting progress lost after (s)"), 3.0, 600.0, tx!("Units with a time to spot: how long out of the enemy's view until he has to start spotting them from nothing again.")),
-    num("vision_los_height", tx!("Eye height"), 1.5, 100.0, tx!("Units look from this high above their top; a higher eye sees over more hills and trees.")),
-    num("radar_los_height", tx!("Radar eye height"), 4.0, 100.0, tx!("Radar looks from this high above the unit's top (when hills block radar).")),
-    num("radar_fade_secs", tx!("Radar blip memory (s)"), 10.0, 600.0, tx!("How long the blip of a moving unit stays on the map after radar has lost it.")),
+    num("near_sight", tx!("preset_rules.intel_near_sight"), 6.0, 100.0, tx!("preset_rules.intel_near_sight_tip")),
+    num("spot_forget", tx!("preset_rules.intel_spot_forget"), 3.0, 600.0, tx!("preset_rules.intel_spot_forget_tip")),
+    num("vision_los_height", tx!("preset_rules.intel_vision_los_height"), 1.5, 100.0, tx!("preset_rules.intel_vision_los_height_tip")),
+    num("radar_los_height", tx!("preset_rules.intel_radar_los_height"), 4.0, 100.0, tx!("preset_rules.intel_radar_los_height_tip")),
+    num("radar_fade_secs", tx!("preset_rules.intel_radar_fade_secs"), 10.0, 600.0, tx!("preset_rules.intel_radar_fade_secs_tip")),
 ];
 
 pub const RULE_WRECKS: &[Field] = &[
-    num("wreck_mass_fraction", tx!("Wreck mass"), 0.6, 10.0, tx!("A wreck holds this share of the unit's mass cost (a building taken apart gives the same).")),
-    f("max_wrecks", tx!("Most wrecks on the map"), Kind::Int(400, 0, 100000), tx!("At most this many wrecks lie on the map at once; the oldest disappear first.")),
-    num("wreck_hp", tx!("Wreck hit points"), 0.5, 100.0, tx!("A wreck's hit points as a share of the unit's. Shells and blasts wear wrecks down; the mass goes with the hit points.")),
-    num("wreck_cover", tx!("Wreck cover"), 0.5, 1.0, tx!("Share of a shot's damage a wreck soaks up when the shot passes through it.")),
+    num("wreck_mass_fraction", tx!("preset_rules.wrecks_wreck_mass_fraction"), 0.6, 10.0, tx!("preset_rules.wrecks_wreck_mass_fraction_tip")),
+    f("max_wrecks", tx!("preset_rules.wrecks_max_wrecks"), Kind::Int(400, 0, 100000), tx!("preset_rules.wrecks_max_wrecks_tip")),
+    num("wreck_hp", tx!("preset_rules.wrecks_wreck_hp"), 0.5, 100.0, tx!("preset_rules.wrecks_wreck_hp_tip")),
+    num("wreck_cover", tx!("preset_rules.wrecks_wreck_cover"), 0.5, 1.0, tx!("preset_rules.wrecks_wreck_cover_tip")),
 ];
 
 pub const RULE_COVER: &[Field] = &[
-    num("cover_grace", tx!("Cover grace distance"), 2.5, 100.0, tx!("Trees, rocks and wrecks closer than this to the shooter give no cover from its shots (units fire out from behind their own cover).")),
-    num("cover_search", tx!("Infantry cover search"), 10.0, 500.0, tx!("Infantry look for cover within this distance of where they were sent.")),
-    num("cover_threat_range", tx!("Infantry threat range"), 100.0, 2000.0, tx!("Infantry take cover from known armed enemies up to this far away.")),
-    num("garrison_eject_damage", tx!("Garrison eject damage"), 0.4, 1.0, tx!("Infantry thrown out of a destroyed building lose this share of their hit points.")),
-    num("garrison_damage", tx!("Garrison hit share"), 0.04, 1.0, tx!("Infantry inside a building take this share of every hit on it (their own armor applies).")),
-    num("garrison_vision", tx!("Roof vision"), 1.3, 10.0, tx!("Infantry inside a building look out from its roof: their vision and binocular range times this.")),
-    num("garrison_defense", tx!("Garrison defence bonus"), 1.25, 10.0, tx!("Infantry holding a building deal this many times their close-quarters (assault) damage to infantry storming it.")),
+    num("cover_grace", tx!("preset_rules.cover_grace"), 2.5, 100.0, tx!("preset_rules.cover_grace_tip")),
+    num("cover_search", tx!("preset_rules.cover_search"), 10.0, 500.0, tx!("preset_rules.cover_search_tip")),
+    num("cover_threat_range", tx!("preset_rules.cover_threat_range"), 100.0, 2000.0, tx!("preset_rules.cover_threat_range_tip")),
+    num("garrison_eject_damage", tx!("preset_rules.cover_garrison_eject_damage"), 0.4, 1.0, tx!("preset_rules.cover_garrison_eject_damage_tip")),
+    num("garrison_damage", tx!("preset_rules.cover_garrison_damage"), 0.04, 1.0, tx!("preset_rules.cover_garrison_damage_tip")),
+    num("garrison_vision", tx!("preset_rules.cover_garrison_vision"), 1.3, 10.0, tx!("preset_rules.cover_garrison_vision_tip")),
+    num("garrison_defense", tx!("preset_rules.cover_garrison_defense"), 1.25, 10.0, tx!("preset_rules.cover_garrison_defense_tip")),
 ];
 
 pub const RULE_TERRAIN: &[Field] = &[
-    num("crater_scale", tx!("Crater depth"), 0.025, 10.0, tx!("Crater depth = this x the square root of the damage. 0 = no craters.")),
-    num("crater_max_depth", tx!("Deepest crater"), 2.0, 100.0, tx!("Shelling never digs deeper than this below the original ground.")),
-    num("crater_min_damage", tx!("Least damage for a crater"), 35.0, BIG, tx!("Hits weaker than this leave no mark on the ground.")),
-    num("terraform_rate", tx!("Terraform speed"), 0.6, 100.0, tx!("Ground height moved per second for every point of build power.")),
-    num("terraform_energy", tx!("Terraform energy"), 15.0, 10000.0, tx!("Energy per unit of ground height moved.")),
-    num("terraform_max", tx!("Terraform limit"), 12.0, 500.0, tx!("Terraforming stays within this height of the original ground.")),
+    num("crater_scale", tx!("preset_rules.terrain_crater_scale"), 0.025, 10.0, tx!("preset_rules.terrain_crater_scale_tip")),
+    num("crater_max_depth", tx!("preset_rules.terrain_crater_max_depth"), 2.0, 100.0, tx!("preset_rules.terrain_crater_max_depth_tip")),
+    num("crater_min_damage", tx!("preset_rules.terrain_crater_min_damage"), 35.0, BIG, tx!("preset_rules.terrain_crater_min_damage_tip")),
+    num("terraform_rate", tx!("preset_rules.terrain_terraform_rate"), 0.6, 100.0, tx!("preset_rules.terrain_terraform_rate_tip")),
+    num("terraform_energy", tx!("preset_rules.terrain_terraform_energy"), 15.0, 10000.0, tx!("preset_rules.terrain_terraform_energy_tip")),
+    num("terraform_max", tx!("preset_rules.terrain_terraform_max"), 12.0, 500.0, tx!("preset_rules.terrain_terraform_max_tip")),
 ];
 
 pub const RULE_POINTS: &[Field] = &[
-    num("cp_radius", tx!("Capture radius"), 12.0, 500.0, tx!("Control points mode: units within this distance of a point take it.")),
-    num("cp_capture_secs", tx!("Capture time (s)"), 20.0, 3600.0, tx!("Seconds a team needs to take a control point.")),
-    num("cp_start_points", tx!("Starting points"), 1200.0, BIG, tx!("Points every team starts with (the host can pick another number in the lobby). A team at 0 is defeated.")),
-    num("cp_bleed", tx!("Bleed per second"), 1.0, 1000.0, tx!("A team holding fewer control points than its strongest opponent loses this many points per second for each point of difference.")),
+    num("cp_radius", tx!("preset_rules.points_cp_radius"), 12.0, 500.0, tx!("preset_rules.points_cp_radius_tip")),
+    num("cp_capture_secs", tx!("preset_rules.points_cp_capture_secs"), 20.0, 3600.0, tx!("preset_rules.points_cp_capture_secs_tip")),
+    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 1200.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
+    num("cp_bleed", tx!("preset_rules.points_cp_bleed"), 1.0, 1000.0, tx!("preset_rules.points_cp_bleed_tip")),
 ];
 
 const FEATURE_CLASSES: &[&str] = &["tree", "rock"];
 const FEATURE_SHAPES: &[&str] = &["pine", "broadleaf", "bush", "rock"];
 
 pub const FEATURE_FIELDS: &[Field] = &[
-    f("id", tx!("Id"), Kind::Text, tx!("Name maps use for this type. Changing it breaks maps that place it.")),
-    f("name", tx!("Name"), Kind::Text, tx!("Shown in the game.")),
-    f("class", tx!("Class"), Kind::Choice(FEATURE_CLASSES, "tree"), tx!("Where the map generator puts it: trees in woods, rocks in clusters.")),
-    f("shape", tx!("Shape"), Kind::Choice(FEATURE_SHAPES, "pine"), tx!("How it is drawn; also its height, footprint and default cover.")),
-    num("mass", tx!("Mass"), 0.0, BIG, tx!("Mass an engineer gets by reclaiming it.")),
-    num("energy", tx!("Energy"), 0.0, BIG, tx!("Energy an engineer gets by reclaiming it.")),
-    num("size", tx!("Size"), 1.0, 20.0, tx!("Scale of the model (1 = a pine about 3 units tall, a rock about 1 unit across).")),
-    num("hp", tx!("Hit points"), 0.0, BIG, tx!("Weapon damage that destroys it (times the map's scale for it). 0 = a default by shape and size.")),
-    f("cover", tx!("Cover"), Kind::OptNum(0.0, 1.0, 0.3), tx!("Share of a shot's damage it soaks up when the shot passes through it. Unticked: by shape (pine 0.3, broadleaf 0.35, bush 0.15, rock 0.65).")),
-    num("weight", tx!("Generator weight"), 1.0, 1000.0, tx!("How often the map generator picks it among the features of its class.")),
-    f("color", tx!("Colour"), Kind::Color([0.2, 0.4, 0.2]), tx!("Foliage or stone colour.")),
-    f("trunk", tx!("Trunk colour"), Kind::Color([0.33, 0.24, 0.16]), tx!("Colour of the trunk (trees).")),
+    f("id", tx!("preset_rules.feature_id"), Kind::Text, tx!("preset_rules.feature_id_tip")),
+    f("name", tx!("preset_rules.feature_name"), Kind::Text, tx!("preset_rules.feature_name_tip")),
+    f("class", tx!("preset_rules.feature_class"), Kind::Choice(FEATURE_CLASSES, "tree"), tx!("preset_rules.feature_class_tip")),
+    f("shape", tx!("preset_rules.feature_shape"), Kind::Choice(FEATURE_SHAPES, "pine"), tx!("preset_rules.feature_shape_tip")),
+    num("mass", tx!("preset_rules.feature_mass"), 0.0, BIG, tx!("preset_rules.feature_mass_tip")),
+    num("energy", tx!("preset_rules.feature_energy"), 0.0, BIG, tx!("preset_rules.feature_energy_tip")),
+    num("size", tx!("preset_rules.feature_size"), 1.0, 20.0, tx!("preset_rules.feature_size_tip")),
+    num("hp", tx!("preset_rules.feature_hp"), 0.0, BIG, tx!("preset_rules.feature_hp_tip")),
+    f("cover", tx!("preset_rules.feature_cover"), Kind::OptNum(0.0, 1.0, 0.3), tx!("preset_rules.feature_cover_tip")),
+    num("weight", tx!("preset_rules.feature_weight"), 1.0, 1000.0, tx!("preset_rules.feature_weight_tip")),
+    f("color", tx!("preset_rules.feature_color"), Kind::Color([0.2, 0.4, 0.2]), tx!("preset_rules.feature_color_tip")),
+    f("trunk", tx!("preset_rules.feature_trunk"), Kind::Color([0.33, 0.24, 0.16]), tx!("preset_rules.feature_trunk_tip")),
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -167,132 +167,132 @@ const TARGETS: &[&str] = &["land", "air"];
 const PRIORITIES: &[&str] = &["none", "armored", "infantry"];
 
 pub const UNIT_GENERAL: &[Field] = &[
-    f("id", tx!("Id"), Kind::Text, tx!("Unique name the data refers to the unit by (upgrades, commanders, map props). Rename it everywhere if you change it.")),
-    f("name", tx!("Name"), Kind::Text, tx!("Shown in the game.")),
-    f("desc", tx!("Description"), Kind::Text, tx!("Shown in the build menu tooltip.")),
-    f("tier", tx!("Tier"), Kind::Int(0, 0, 9), tx!("Tech level: a builder of tier N can build units up to tier N. Also the ticks under the strategic icon.")),
-    num("hp", tx!("Hit points"), 100.0, BIG, tx!("Damage the unit takes before it is destroyed.")),
-    f("armor", tx!("Armor"), Kind::Pick(Src::Armor, false), tx!("Armor class: decides how much each damage type hurts it (Armor table in rules.json).")),
-    f("categories", tx!("Categories"), Kind::TagsFrom(Src::Category), tx!("Special roles. infantry: takes cover behind trees, rocks and wrecks and can occupy buildings. armored: what cannons (target priority armored) shoot first.")),
-    f("built_by", tx!("Built by"), Kind::Pick(Src::BuildCat, true), tx!("Build category: builders and factories that build this category can make it. none = nobody builds it.")),
-    yes("buildable", tx!("Buildable"), tx!("Off: it never shows in a build menu (map buildings, units that only come from upgrades).")),
-    no("needs_deposit", tx!("Needs a mass deposit"), tx!("Can only be placed on a mass deposit (extractors).")),
-    f("upgrade", tx!("Upgrades to"), Kind::Pick(Src::Unit, true), tx!("The unit this one turns into when upgraded in place (factories, pumps).")),
-    yes("wreck", tx!("Leaves a wreck"), tx!("Leaves a wreck when destroyed (aircraft never do, and the Wrecks switch in rules.json turns all of them off).")),
-    f("cargo", tx!("Cargo slots"), Kind::Int(1, 0, 100), tx!("Slots it takes in a transport; 0 = cannot be carried.")),
-    num("assault", tx!("Close-quarters damage"), 0.0, 1000.0, tx!("Infantry: damage per second in the fight for an occupied building, storming it (ordered into an enemy-held building) or holding it. 0 = cannot storm buildings.")),
-    f("select_sound", tx!("Selection sound"), Kind::Pick(Src::UiSound, true), tx!("Sound played when it is selected; none = chosen by role.")),
+    f("id", tx!("preset_units.general_id"), Kind::Text, tx!("preset_units.general_id_tip")),
+    f("name", tx!("preset_units.general_name"), Kind::Text, tx!("preset_units.general_name_tip")),
+    f("desc", tx!("preset_units.general_desc"), Kind::Text, tx!("preset_units.general_desc_tip")),
+    f("tier", tx!("preset_units.general_tier"), Kind::Int(0, 0, 9), tx!("preset_units.general_tier_tip")),
+    num("hp", tx!("preset_units.general_hp"), 100.0, BIG, tx!("preset_units.general_hp_tip")),
+    f("armor", tx!("preset_units.general_armor"), Kind::Pick(Src::Armor, false), tx!("preset_units.general_armor_tip")),
+    f("categories", tx!("preset_units.general_categories"), Kind::TagsFrom(Src::Category), tx!("preset_units.general_categories_tip")),
+    f("built_by", tx!("preset_units.general_built_by"), Kind::Pick(Src::BuildCat, true), tx!("preset_units.general_built_by_tip")),
+    yes("buildable", tx!("preset_units.general_buildable"), tx!("preset_units.general_buildable_tip")),
+    no("needs_deposit", tx!("preset_units.general_needs_deposit"), tx!("preset_units.general_needs_deposit_tip")),
+    f("upgrade", tx!("preset_units.general_upgrade"), Kind::Pick(Src::Unit, true), tx!("preset_units.general_upgrade_tip")),
+    yes("wreck", tx!("preset_units.general_wreck"), tx!("preset_units.general_wreck_tip")),
+    f("cargo", tx!("preset_units.general_cargo"), Kind::Int(1, 0, 100), tx!("preset_units.general_cargo_tip")),
+    num("assault", tx!("preset_units.general_assault"), 0.0, 1000.0, tx!("preset_units.general_assault_tip")),
+    f("select_sound", tx!("preset_units.general_select_sound"), Kind::Pick(Src::UiSound, true), tx!("preset_units.general_select_sound_tip")),
 ];
 
 pub const UNIT_COST: &[Field] = &[
-    num("cost.mass", tx!("Mass"), 0.0, BIG, tx!("Mass it costs to build.")),
-    num("cost.energy", tx!("Energy"), 0.0, BIG, tx!("Energy it costs to build.")),
-    num("cost.time", tx!("Build time"), 1.0, BIG, tx!("Build work: seconds it takes at 1 build power (an engineer with build power 10 needs a tenth of it).")),
+    num("cost.mass", tx!("preset_units.cost_mass"), 0.0, BIG, tx!("preset_units.cost_mass_tip")),
+    num("cost.energy", tx!("preset_units.cost_energy"), 0.0, BIG, tx!("preset_units.cost_energy_tip")),
+    num("cost.time", tx!("preset_units.cost_time"), 1.0, BIG, tx!("preset_units.cost_time_tip")),
 ];
 
 pub const UNIT_BODY: &[Field] = &[
-    f("size", tx!("Size (width, height, length)"), Kind::Vec3, tx!("Collision box: shots hit it (unless a hit radius / height is set below) and units bump into it. Height also sets where it looks from.")),
-    f("hit_radius", tx!("Hit radius"), Kind::OptNum(0.05, 100.0, 0.5), tx!("Radius of what shots and blasts hit. Unset = half the size (structures: the footprint).")),
-    f("hit_height", tx!("Hit height"), Kind::OptNum(0.05, 100.0, 1.0), tx!("Height of what shots and blasts hit. Unset = the size's height.")),
-    f("footprint", tx!("Footprint (cells)"), Kind::Int(0, 0, 64), tx!("Structures: side length on the build grid (1 cell = 2 units). Mobile units: 0.")),
-    f("move.kind", tx!("Movement"), Kind::Choice(MOVE_KINDS, "none"), tx!("none = a structure; land drives, hover floats over water, plane flies.")),
-    num("move.speed", tx!("Speed"), 0.0, 1000.0, tx!("Top speed forward (units per second).")),
-    num("move.reverse", tx!("Reverse speed"), 0.0, 1000.0, tx!("Top speed backwards; 0 = it never reverses.")),
-    num("move.accel", tx!("Acceleration"), 1.0, 1000.0, tx!("Speed gained or lost per second.")),
-    num("move.turn", tx!("Turn rate (deg/s)"), 0.0, 3600.0, tx!("How fast it turns on the spot.")),
-    num("move.altitude", tx!("Flying height"), 0.0, 1000.0, tx!("Aircraft: height above the ground.")),
+    f("size", tx!("preset_units.body_size"), Kind::Vec3, tx!("preset_units.body_size_tip")),
+    f("hit_radius", tx!("preset_units.body_hit_radius"), Kind::OptNum(0.05, 100.0, 0.5), tx!("preset_units.body_hit_radius_tip")),
+    f("hit_height", tx!("preset_units.body_hit_height"), Kind::OptNum(0.05, 100.0, 1.0), tx!("preset_units.body_hit_height_tip")),
+    f("footprint", tx!("preset_units.body_footprint"), Kind::Int(0, 0, 64), tx!("preset_units.body_footprint_tip")),
+    f("move.kind", tx!("preset_units.body_move_kind"), Kind::Choice(MOVE_KINDS, "none"), tx!("preset_units.body_move_kind_tip")),
+    num("move.speed", tx!("preset_units.body_move_speed"), 0.0, 1000.0, tx!("preset_units.body_move_speed_tip")),
+    num("move.reverse", tx!("preset_units.body_move_reverse"), 0.0, 1000.0, tx!("preset_units.body_move_reverse_tip")),
+    num("move.accel", tx!("preset_units.body_move_accel"), 1.0, 1000.0, tx!("preset_units.body_move_accel_tip")),
+    num("move.turn", tx!("preset_units.body_move_turn"), 0.0, 3600.0, tx!("preset_units.body_move_turn_tip")),
+    num("move.altitude", tx!("preset_units.body_move_altitude"), 0.0, 1000.0, tx!("preset_units.body_move_altitude_tip")),
 ];
 
 pub const UNIT_INTEL: &[Field] = &[
-    num("vision", tx!("Vision range"), 0.0, 5000.0, tx!("How far it sees (hills, trees and rocks may block it, see the rules switches).")),
-    num("spot_time", tx!("Time to spot, hiding (s)"), 0.0, 600.0, tx!("How long an enemy must have it in view before it is seen, while it keeps still and holds its fire. 0 = at once (tanks, buildings).")),
-    num("spot_time_moving", tx!("Time to spot, moving (s)"), 0.0, 600.0, tx!("The same while it moves or has just fired. 0 = at once.")),
-    num("radar", tx!("Radar range"), 0.0, 5000.0, tx!("How far its radar reaches; radar shows contacts but not what they are. This level finds only units without stealth.")),
-    num("radar2", tx!("T2 radar range"), 0.0, 5000.0, tx!("How far its level 2 radar reaches: also finds stealth 1 units. A unit is found within the largest range of the levels above its stealth.")),
-    num("radar3", tx!("T3 radar range"), 0.0, 5000.0, tx!("How far its level 3 radar reaches: also finds stealth 2 units.")),
-    f("stealth", tx!("Radar stealth"), Kind::Int(0, 0, 3), tx!("0 = shows on any radar; 1 = only T2 or T3 radar finds it; 2 = only T3 radar; 3 = never on radar (it has to be seen).")),
+    num("vision", tx!("preset_units.intel_vision"), 0.0, 5000.0, tx!("preset_units.intel_vision_tip")),
+    num("spot_time", tx!("preset_units.intel_spot_time"), 0.0, 600.0, tx!("preset_units.intel_spot_time_tip")),
+    num("spot_time_moving", tx!("preset_units.intel_spot_time_moving"), 0.0, 600.0, tx!("preset_units.intel_spot_time_moving_tip")),
+    num("radar", tx!("preset_units.intel_radar"), 0.0, 5000.0, tx!("preset_units.intel_radar_tip")),
+    num("radar2", tx!("preset_units.intel_radar2"), 0.0, 5000.0, tx!("preset_units.intel_radar2_tip")),
+    num("radar3", tx!("preset_units.intel_radar3"), 0.0, 5000.0, tx!("preset_units.intel_radar3_tip")),
+    f("stealth", tx!("preset_units.intel_stealth"), Kind::Int(0, 0, 3), tx!("preset_units.intel_stealth_tip")),
 ];
 
 pub const UNIT_ECO: &[Field] = &[
-    num("eco.mass", tx!("Mass income"), 0.0, BIG, tx!("Mass it produces per second.")),
-    num("eco.energy", tx!("Energy income"), 0.0, BIG, tx!("Energy it produces per second.")),
-    num("eco.upkeep", tx!("Energy upkeep"), 0.0, BIG, tx!("Energy it uses per second while working (radars, pumps).")),
-    num("eco.store_mass", tx!("Mass storage"), 0.0, BIG, tx!("How much mass it adds to its owner's storage.")),
-    num("eco.store_energy", tx!("Energy storage"), 0.0, BIG, tx!("How much energy it adds to its owner's storage.")),
+    num("eco.mass", tx!("preset_units.eco_mass"), 0.0, BIG, tx!("preset_units.eco_mass_tip")),
+    num("eco.energy", tx!("preset_units.eco_energy"), 0.0, BIG, tx!("preset_units.eco_energy_tip")),
+    num("eco.upkeep", tx!("preset_units.eco_upkeep"), 0.0, BIG, tx!("preset_units.eco_upkeep_tip")),
+    num("eco.store_mass", tx!("preset_units.eco_store_mass"), 0.0, BIG, tx!("preset_units.eco_store_mass_tip")),
+    num("eco.store_energy", tx!("preset_units.eco_store_energy"), 0.0, BIG, tx!("preset_units.eco_store_energy_tip")),
 ];
 
 pub const UNIT_BUILD: &[Field] = &[
-    num("rate", tx!("Build power"), 10.0, 10000.0, tx!("Build work per second; also the speed of reclaim, repair, capture and terraforming.")),
-    num("range", tx!("Build range"), 0.0, 1000.0, tx!("How far away it can build, reclaim and repair.")),
-    f("categories", tx!("Builds"), Kind::TagsFrom(Src::BuildCat), tx!("Build categories it can make (units whose 'Built by' is one of these). None ticked: it only assists, reclaims and repairs.")),
-    f("tier", tx!("Highest tier"), Kind::Int(1, 0, 9), tx!("It builds units up to this tier.")),
-    no("station", tx!("Engineering station"), tx!("Immobile builder that assists anything in range on its own.")),
-    no("scavenger", tx!("Scavenger"), tx!("Cannot build or assist; reclaims wrecks and revives them as its owner's units.")),
+    num("rate", tx!("preset_units.build_rate"), 10.0, 10000.0, tx!("preset_units.build_rate_tip")),
+    num("range", tx!("preset_units.build_range"), 0.0, 1000.0, tx!("preset_units.build_range_tip")),
+    f("categories", tx!("preset_units.build_categories"), Kind::TagsFrom(Src::BuildCat), tx!("preset_units.build_categories_tip")),
+    f("tier", tx!("preset_units.build_tier"), Kind::Int(1, 0, 9), tx!("preset_units.build_tier_tip")),
+    no("station", tx!("preset_units.build_station"), tx!("preset_units.build_station_tip")),
+    no("scavenger", tx!("preset_units.build_scavenger"), tx!("preset_units.build_scavenger_tip")),
 ];
 
 pub const UNIT_BINOCULARS: &[Field] = &[
-    num("range", tx!("Range"), 140.0, 5000.0, tx!("How far it sees inside the cone (hills, trees and rocks still block it).")),
-    num("angle", tx!("Cone width (deg)"), 20.0, 170.0, tx!("Full width of the view cone.")),
-    num("turn", tx!("Turn rate (deg/s)"), 40.0, 3600.0, tx!("How fast the binoculars follow a target; scanning goes at half that.")),
-    num("scan", tx!("Scan arc (deg)"), 60.0, 180.0, tx!("With nothing to look at it scans this far to either side of where the unit faces; 180 = all round (always so from a building's roof).")),
+    num("range", tx!("preset_units.binoculars_range"), 140.0, 5000.0, tx!("preset_units.binoculars_range_tip")),
+    num("angle", tx!("preset_units.binoculars_angle"), 20.0, 170.0, tx!("preset_units.binoculars_angle_tip")),
+    num("turn", tx!("preset_units.binoculars_turn"), 40.0, 3600.0, tx!("preset_units.binoculars_turn_tip")),
+    num("scan", tx!("preset_units.binoculars_scan"), 60.0, 180.0, tx!("preset_units.binoculars_scan_tip")),
 ];
 
 pub const UNIT_TRANSPORT: &[Field] = &[
-    f("capacity", tx!("Capacity (slots)"), Kind::Int(4, 1, 255), tx!("Cargo slots it carries. On a structure: a building infantry can occupy and fire from.")),
-    num("vision", tx!("Roof vision"), 0.0, 10.0, tx!("A building infantry occupy: their vision and binocular range times this (a watch tower). 0 or absent: the rule 'Roof vision'.")),
+    f("capacity", tx!("preset_units.transport_capacity"), Kind::Int(4, 1, 255), tx!("preset_units.transport_capacity_tip")),
+    num("vision", tx!("preset_units.transport_vision"), 0.0, 10.0, tx!("preset_units.transport_vision_tip")),
 ];
 
 pub const UNIT_FIELDWORK: &[Field] = &[
-    num("cover", tx!("Cover"), 0.5, 1.0, tx!("Share of a shot's damage it takes instead of what it shelters (0 - 1).")),
-    num("dig", tx!("Trench depth"), 0.0, 1.4, tx!("Above 0 it is a trench: the ground of its cell is dug this deep (and stays so when the trench is destroyed) and it shelters the infantry standing in it from every side. 0: a wall (sandbags) that covers what enemy shots must fly through it to reach.")),
+    num("cover", tx!("preset_units.fieldwork_cover"), 0.5, 1.0, tx!("preset_units.fieldwork_cover_tip")),
+    num("dig", tx!("preset_units.fieldwork_dig"), 0.0, 1.4, tx!("preset_units.fieldwork_dig_tip")),
 ];
 
 pub const UNIT_REACTIVE: &[Field] = &[
-    num("charges", tx!("Charges"), 4.0, 50.0, tx!("Missile hits it can take the edge off. Each hit uses one; a full repair replaces them all.")),
-    num("block", tx!("Block"), 0.75, 1.0, tx!("Share of a missile hit's damage a charge stops (0 - 1).")),
+    num("charges", tx!("preset_units.reactive_charges"), 4.0, 50.0, tx!("preset_units.reactive_charges_tip")),
+    num("block", tx!("preset_units.reactive_block"), 0.75, 1.0, tx!("preset_units.reactive_block_tip")),
 ];
 
 pub const UNIT_DEATH: &[Field] = &[
-    num("damage", tx!("Damage"), 100.0, BIG, tx!("Damage of the explosion when it is destroyed.")),
-    num("radius", tx!("Radius"), 5.0, 1000.0, tx!("Radius of that explosion. Full damage at the centre, fading to nothing at the edge.")),
+    num("damage", tx!("preset_units.death_damage"), 100.0, BIG, tx!("preset_units.death_damage_tip")),
+    num("radius", tx!("preset_units.death_radius"), 5.0, 1000.0, tx!("preset_units.death_radius_tip")),
 ];
 
 pub const UNIT_ICON: &[Field] = &[
-    f("icon.shape", tx!("Shape"), Kind::Choice(SHAPES, "land"), tx!("Base shape of the strategic icon: land (diamond), bot, air (triangle), structure (square), factory, commander, civilian.")),
-    f("icon.glyphs", tx!("Glyphs"), Kind::Tags(GLYPHS, &[]), tx!("Symbols on the icon: plus = direct fire, dot = artillery, arc = anti-air, chevron = missile, ring = scout, wave = radar, eng = builder, mass, bolt = energy, store = storage, cargo = transport. Playable units need an icon (with the tier) no other unit has.")),
-    no("icon.no_tier", tx!("No tier ticks"), tx!("Leave the tier ticks off the icon (storages and the like).")),
-    num("model.scale", tx!("Model scale"), 1.0, 1000.0, tx!("Size of the 3D model (model files are set in the JSON view).")),
+    f("icon.shape", tx!("preset_units.icon_shape"), Kind::Choice(SHAPES, "land"), tx!("preset_units.icon_shape_tip")),
+    f("icon.glyphs", tx!("preset_units.icon_glyphs"), Kind::Tags(GLYPHS, &[]), tx!("preset_units.icon_glyphs_tip")),
+    no("icon.no_tier", tx!("preset_units.icon_no_tier"), tx!("preset_units.icon_no_tier_tip")),
+    num("model.scale", tx!("preset_units.icon_model_scale"), 1.0, 1000.0, tx!("preset_units.icon_model_scale_tip")),
 ];
 
 pub const WEAPON_FIELDS: &[Field] = &[
-    f("name", tx!("Name"), Kind::Text, tx!("Shown in the unit's info panel.")),
-    f("kind", tx!("Kind"), Kind::Choice(WEAPON_KINDS, "direct"), tx!("direct: flat shot, needs a clear line of fire and leads its target. arc / high_arc: ballistic, fires over hills. missile: homing. bomb: dropped from a plane.")),
-    num("damage", tx!("Damage"), 10.0, BIG, tx!("Damage of one shell.")),
-    f("damage_type", tx!("Damage type"), Kind::Pick(Src::DamageType, false), tx!("Decides the armor multiplier (Armor table in rules.json).")),
-    num("radius", tx!("Blast radius"), 0.0, 1000.0, tx!("0 = it only hurts what it hits directly. Otherwise full damage at the centre, fading to nothing at the edge.")),
-    num("range", tx!("Range"), 50.0, 10000.0, tx!("Furthest target distance. Units must see or radar their target to shoot it.")),
-    num("min_range", tx!("Least range"), 0.0, 10000.0, tx!("It cannot fire at targets closer than this.")),
-    num("reload", tx!("Reload (s)"), 1.0, 3600.0, tx!("Seconds between shots (or salvos).")),
-    num("speed", tx!("Muzzle velocity"), 50.0, 10000.0, tx!("Shell speed; slow shells are easier to dodge, artillery needs enough of it to reach.")),
-    f("salvo", tx!("Shots per salvo"), Kind::Int(1, 1, 255), tx!("Shells fired one after another each time it fires.")),
-    num("salvo_delay", tx!("Salvo delay (s)"), 0.1, 100.0, tx!("Seconds between the shells of a salvo.")),
-    num("spread", tx!("Spread (deg)"), 0.3, 90.0, tx!("Random dispersion of each shot.")),
-    num("aim_time", tx!("Aim time (s)"), 0.0, 100.0, tx!("Seconds the gun must stay on target before it fires.")),
-    num("hold", tx!("Hold after firing (s)"), 0.0, 100.0, tx!("Seconds the unit cannot move after each shot; it also fires only while standing still and starts its aim time only then (mortars). 0 = fires on the move.")),
-    num("ammo", tx!("Ammunition"), 0.0, 1000.0, tx!("Rounds the weapon carries (every shot of a salvo counts). When they are spent it stops firing until a round is rearmed. 0 = unlimited.")),
-    num("rearm", tx!("Rearm time (s)"), 0.0, 3600.0, tx!("Limited ammunition: seconds to rearm one spent round, one at a time (like SupCom tactical missiles). 0 = never rearmed.")),
-    num("rearm_mass", tx!("Rearm mass"), 0.0, 10000.0, tx!("Limited ammunition: mass one rearmed round costs, paid as a flow over the rearm time (a mass stall slows it).")),
-    f("targets", tx!("Targets"), Kind::Tags(TARGETS, &["land"]), tx!("What it can shoot at: land (ground units and buildings), air.")),
-    num("turn_rate", tx!("Missile turn rate (deg/s)"), 0.0, 3600.0, tx!("Missiles: how fast they steer toward their target.")),
-    num("launch_pitch", tx!("Missile launch angle (deg)"), 0.0, 90.0, tx!("Missiles: launch elevation (90 = straight up, like a SAM); 0 = a low 20 degrees.")),
-    f("prefer", tx!("Target priority"), Kind::Choice(PRIORITIES, "none"), tx!("Which enemies it shoots first when several are in range: armored (units of category armored: tanks) or infantry. none = the nearest.")),
-    no("snipe", tx!("Sniper rifle"), tx!("A hit on a building kills one enemy rider inside instead of damaging the building; it never shoots buildings without enemy riders.")),
-    f("sound", tx!("Sound"), Kind::Pick(Src::Sound, true), tx!("Shot sound; none = chosen by weapon kind.")),
+    f("name", tx!("preset_weapons.name"), Kind::Text, tx!("preset_weapons.name_tip")),
+    f("kind", tx!("preset_weapons.kind"), Kind::Choice(WEAPON_KINDS, "direct"), tx!("preset_weapons.kind_tip")),
+    num("damage", tx!("preset_weapons.damage"), 10.0, BIG, tx!("preset_weapons.damage_tip")),
+    f("damage_type", tx!("preset_weapons.damage_type"), Kind::Pick(Src::DamageType, false), tx!("preset_weapons.damage_type_tip")),
+    num("radius", tx!("preset_weapons.radius"), 0.0, 1000.0, tx!("preset_weapons.radius_tip")),
+    num("range", tx!("preset_weapons.range"), 50.0, 10000.0, tx!("preset_weapons.range_tip")),
+    num("min_range", tx!("preset_weapons.min_range"), 0.0, 10000.0, tx!("preset_weapons.min_range_tip")),
+    num("reload", tx!("preset_weapons.reload"), 1.0, 3600.0, tx!("preset_weapons.reload_tip")),
+    num("speed", tx!("preset_weapons.speed"), 50.0, 10000.0, tx!("preset_weapons.speed_tip")),
+    f("salvo", tx!("preset_weapons.salvo"), Kind::Int(1, 1, 255), tx!("preset_weapons.salvo_tip")),
+    num("salvo_delay", tx!("preset_weapons.salvo_delay"), 0.1, 100.0, tx!("preset_weapons.salvo_delay_tip")),
+    num("spread", tx!("preset_weapons.spread"), 0.3, 90.0, tx!("preset_weapons.spread_tip")),
+    num("aim_time", tx!("preset_weapons.aim_time"), 0.0, 100.0, tx!("preset_weapons.aim_time_tip")),
+    num("hold", tx!("preset_weapons.hold"), 0.0, 100.0, tx!("preset_weapons.hold_tip")),
+    num("ammo", tx!("preset_weapons.ammo"), 0.0, 1000.0, tx!("preset_weapons.ammo_tip")),
+    num("rearm", tx!("preset_weapons.rearm"), 0.0, 3600.0, tx!("preset_weapons.rearm_tip")),
+    num("rearm_mass", tx!("preset_weapons.rearm_mass"), 0.0, 10000.0, tx!("preset_weapons.rearm_mass_tip")),
+    f("targets", tx!("preset_weapons.targets"), Kind::Tags(TARGETS, &["land"]), tx!("preset_weapons.targets_tip")),
+    num("turn_rate", tx!("preset_weapons.turn_rate"), 0.0, 3600.0, tx!("preset_weapons.turn_rate_tip")),
+    num("launch_pitch", tx!("preset_weapons.launch_pitch"), 0.0, 90.0, tx!("preset_weapons.launch_pitch_tip")),
+    f("prefer", tx!("preset_weapons.prefer"), Kind::Choice(PRIORITIES, "none"), tx!("preset_weapons.prefer_tip")),
+    no("snipe", tx!("preset_weapons.snipe"), tx!("preset_weapons.snipe_tip")),
+    f("sound", tx!("preset_weapons.sound"), Kind::Pick(Src::Sound, true), tx!("preset_weapons.sound_tip")),
 ];
 
 pub const TURRET_FIELDS: &[Field] = &[
-    num("yaw_speed", tx!("Traverse (deg/s)"), 90.0, 3600.0, tx!("How fast the turret turns sideways.")),
-    num("pitch_speed", tx!("Elevation (deg/s)"), 90.0, 3600.0, tx!("How fast the barrel moves up and down.")),
+    num("yaw_speed", tx!("preset_weapons.turret_yaw_speed"), 90.0, 3600.0, tx!("preset_weapons.turret_yaw_speed_tip")),
+    num("pitch_speed", tx!("preset_weapons.turret_pitch_speed"), 90.0, 3600.0, tx!("preset_weapons.turret_pitch_speed_tip")),
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -425,14 +425,14 @@ fn widget(ui: &mut egui::Ui, v: &mut Value, fd: &Field, ctx: &FormCtx, salt: &st
             let mut on = cur.as_ref().map_or(false, |x| x.is_number());
             let mut x = cur.as_ref().and_then(|x| x.as_f64()).unwrap_or(d);
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut on, tr!("own value")).on_hover_text(tip).changed() {
+                if ui.checkbox(&mut on, tr!("preset_editor.own_value")).on_hover_text(tip).changed() {
                     out = Some(on.then(|| number(x)));
                 }
                 if on && ui.add(drag(&mut x, min, max)).on_hover_text(tip).changed() {
                     out = Some(Some(number(x)));
                 }
                 if !on {
-                    ui.label(egui::RichText::new(tr!("default")).weak());
+                    ui.label(egui::RichText::new(tr!("preset_editor.default")).weak());
                 }
             });
         }
@@ -466,9 +466,9 @@ fn widget(ui: &mut egui::Ui, v: &mut Value, fd: &Field, ctx: &FormCtx, salt: &st
             if !s.is_empty() && !opts.contains(&s) {
                 opts.insert(0, s.clone());
             }
-            let shown = if s.is_empty() { tr!("none").to_string() } else { s.clone() };
+            let shown = if s.is_empty() { tr!("preset_editor.none").to_string() } else { s.clone() };
             egui::ComboBox::from_id_salt(id).selected_text(shown).width(180.0).show_ui(ui, |ui| {
-                if optional && ui.selectable_label(s.is_empty(), tr!("none")).clicked() && !s.is_empty() {
+                if optional && ui.selectable_label(s.is_empty(), tr!("preset_editor.none")).clicked() && !s.is_empty() {
                     out = Some(None);
                 }
                 for o in &opts {
@@ -589,20 +589,20 @@ fn optional(ui: &mut egui::Ui, v: &mut Value, key: &str, label: &str, tip: &str,
 /// The rules.json form. Returns true when something changed.
 pub fn rules_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     let mut ch = false;
-    section(ui, tr!("Switches"), true, |ui| {
-        ui.label(egui::RichText::new(tr!("Turn whole game features on or off. Hover over a name for what it does.")).weak());
+    section(ui, tr!("preset_rules.switches"), true, |ui| {
+        ui.label(egui::RichText::new(tr!("preset_rules.switches_hint")).weak());
         ch |= grid(ui, v, RULE_SWITCHES, ctx, "sw");
     });
-    section(ui, tr!("Economy"), true, |ui| ch |= grid(ui, v, RULE_ECONOMY, ctx, "eco"));
-    section(ui, tr!("Combat"), false, |ui| ch |= grid(ui, v, RULE_COMBAT, ctx, "combat"));
-    section(ui, tr!("Sight and radar"), false, |ui| ch |= grid(ui, v, RULE_INTEL, ctx, "intel"));
-    section(ui, tr!("Wrecks"), false, |ui| ch |= grid(ui, v, RULE_WRECKS, ctx, "wrecks"));
-    section(ui, tr!("Cover and infantry"), false, |ui| ch |= grid(ui, v, RULE_COVER, ctx, "cover"));
-    section(ui, tr!("Craters and terraforming"), false, |ui| ch |= grid(ui, v, RULE_TERRAIN, ctx, "terrain"));
-    section(ui, tr!("Control points mode"), false, |ui| ch |= grid(ui, v, RULE_POINTS, ctx, "cp"));
-    section(ui, tr!("Armor table"), false, |ui| ch |= armor_table(ui, v));
-    section(ui, tr!("Trees and rocks"), false, |ui| ch |= features(ui, v, ctx));
-    section(ui, tr!("Colours"), false, |ui| ch |= colours(ui, v));
+    section(ui, tr!("common.economy"), true, |ui| ch |= grid(ui, v, RULE_ECONOMY, ctx, "eco"));
+    section(ui, tr!("preset_rules.combat"), false, |ui| ch |= grid(ui, v, RULE_COMBAT, ctx, "combat"));
+    section(ui, tr!("common.sight_and_radar"), false, |ui| ch |= grid(ui, v, RULE_INTEL, ctx, "intel"));
+    section(ui, tr!("preset_rules.wrecks"), false, |ui| ch |= grid(ui, v, RULE_WRECKS, ctx, "wrecks"));
+    section(ui, tr!("preset_rules.cover_and_infantry"), false, |ui| ch |= grid(ui, v, RULE_COVER, ctx, "cover"));
+    section(ui, tr!("preset_rules.craters_and_terraforming"), false, |ui| ch |= grid(ui, v, RULE_TERRAIN, ctx, "terrain"));
+    section(ui, tr!("preset_rules.control_points_mode"), false, |ui| ch |= grid(ui, v, RULE_POINTS, ctx, "cp"));
+    section(ui, tr!("preset_rules.armor_table"), false, |ui| ch |= armor_table(ui, v));
+    section(ui, tr!("common.trees_and_rocks"), false, |ui| ch |= features(ui, v, ctx));
+    section(ui, tr!("preset_rules.colours"), false, |ui| ch |= colours(ui, v));
     ch
 }
 
@@ -612,18 +612,18 @@ fn armor_table(ui: &mut egui::Ui, v: &mut Value) -> bool {
     let mut names: Vec<String> = v["armor"].as_object().map(|a| a.keys().cloned().collect()).unwrap_or_default();
     names.sort();
     let mut changed = false;
-    ui.label(egui::RichText::new(tr!("Damage a hit does = weapon damage x the number for the target's armor (row) and the weapon's damage type (column). Add or rename armor classes and damage types in the JSON view.")).weak());
+    ui.label(egui::RichText::new(tr!("preset_rules.armor_table_hint")).weak());
     egui::Grid::new("armor_table").striped(true).spacing([10.0, 4.0]).show(ui, |ui| {
         ui.label("");
         for t in &types {
-            ui.label(egui::RichText::new(t).strong()).on_hover_text(tr!("Weapons with damage type {}", t));
+            ui.label(egui::RichText::new(t).strong()).on_hover_text(tr!("preset_rules.armor_column_tip", t));
         }
         ui.end_row();
         for a in &names {
-            ui.label(egui::RichText::new(a).strong()).on_hover_text(tr!("Units with armor {}", a));
+            ui.label(egui::RichText::new(a).strong()).on_hover_text(tr!("preset_rules.armor_row_tip", a));
             for t in &types {
                 let mut x = v["armor"][a][t].as_f64().unwrap_or(1.0);
-                if ui.add(drag(&mut x, 0.0, 100.0)).on_hover_text(tr!("{} damage against {} armor is multiplied by this (1 = full damage, 0 = none).", t, a)).changed() {
+                if ui.add(drag(&mut x, 0.0, 100.0)).on_hover_text(tr!("preset_rules.armor_cell_tip", t, a)).changed() {
                     v["armor"][a][t] = number(x);
                     changed = true;
                 }
@@ -636,7 +636,7 @@ fn armor_table(ui: &mut egui::Ui, v: &mut Value) -> bool {
 
 fn features(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     let mut changed = false;
-    ui.label(egui::RichText::new(tr!("Reclaimable trees and rocks that maps place. Maps refer to them by id.")).weak());
+    ui.label(egui::RichText::new(tr!("preset_rules.features_hint")).weak());
     if !v["features"].is_array() {
         v["features"] = json!([]);
     }
@@ -648,10 +648,10 @@ fn features(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
         egui::CollapsingHeader::new(title).id_salt(("feature", k)).show(ui, |ui| {
             changed |= grid(ui, ft, FEATURE_FIELDS, ctx, &format!("feature{k}"));
             ui.horizontal(|ui| {
-                if ui.button(tr!("Copy")).on_hover_text(tr!("Add a copy of this type (give it its own id).")).clicked() {
+                if ui.button(tr!("preset_rules.feature_copy")).on_hover_text(tr!("preset_rules.feature_copy_tip")).clicked() {
                     copy = Some(k);
                 }
-                if ui.button(tr!("Remove")).on_hover_text(tr!("Remove this type. Maps that place it can then not be played with this preset.")).clicked() {
+                if ui.button(tr!("preset_rules.feature_remove")).on_hover_text(tr!("preset_rules.feature_remove_tip")).clicked() {
                     remove = Some(k);
                 }
             });
@@ -685,18 +685,18 @@ fn colours(ui: &mut egui::Ui, v: &mut Value) -> bool {
         }
     };
     egui::Grid::new("colours").spacing([16.0, 6.0]).show(ui, |ui| {
-        ui.label(tr!("Players")).on_hover_text(tr!("Team colours, in slot order (10 for 10 players)."));
+        ui.label(tr!("preset_rules.player_colours")).on_hover_text(tr!("preset_rules.players_tip"));
         ui.horizontal_wrapped(|ui| {
             for (k, c) in v["player_colors"].as_array_mut().into_iter().flatten().enumerate() {
-                rgb(ui, c, &tr!("Player {}", k + 1));
+                rgb(ui, c, &tr!("preset_rules.player_n", k + 1));
             }
         });
         ui.end_row();
-        ui.label(tr!("Neutral")).on_hover_text(tr!("Colour of neutral map buildings."));
-        rgb(ui, &mut v["neutral_color"], tr!("Colour of neutral map buildings."));
+        ui.label(tr!("preset_rules.neutral")).on_hover_text(tr!("preset_rules.neutral_tip"));
+        rgb(ui, &mut v["neutral_color"], tr!("preset_rules.neutral_tip"));
         ui.end_row();
-        ui.label(tr!("Hostile")).on_hover_text(tr!("Colour of the hostile side's units and buildings."));
-        rgb(ui, &mut v["hostile_color"], tr!("Colour of the hostile side's units and buildings."));
+        ui.label(tr!("preset_rules.hostile")).on_hover_text(tr!("preset_rules.hostile_tip"));
+        rgb(ui, &mut v["hostile_color"], tr!("preset_rules.hostile_tip"));
         ui.end_row();
     });
     changed
@@ -705,23 +705,23 @@ fn colours(ui: &mut egui::Ui, v: &mut Value) -> bool {
 /// One unit's form. Returns true when something changed.
 pub fn unit_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     let mut ch = false;
-    section(ui, tr!("General"), true, |ui| ch |= grid(ui, v, UNIT_GENERAL, ctx, "gen"));
-    section(ui, tr!("Cost"), true, |ui| ch |= grid(ui, v, UNIT_COST, ctx, "cost"));
-    section(ui, tr!("Body and movement"), false, |ui| ch |= grid(ui, v, UNIT_BODY, ctx, "body"));
-    section(ui, tr!("Sight and radar"), false, |ui| {
+    section(ui, tr!("preset_units.general"), true, |ui| ch |= grid(ui, v, UNIT_GENERAL, ctx, "gen"));
+    section(ui, tr!("preset_units.cost"), true, |ui| ch |= grid(ui, v, UNIT_COST, ctx, "cost"));
+    section(ui, tr!("preset_units.body_and_movement"), false, |ui| ch |= grid(ui, v, UNIT_BODY, ctx, "body"));
+    section(ui, tr!("common.sight_and_radar"), false, |ui| {
         ch |= grid(ui, v, UNIT_INTEL, ctx, "intel");
-        ch |= optional(ui, v, "binoculars", tr!("Binoculars"), tr!("A narrow view cone reaching much further than its vision: it scans around, locks onto an enemy it finds (or turns to a known contact in range) and follows it."), json!({ "range": 140, "angle": 20, "turn": 40, "scan": 60 }), UNIT_BINOCULARS, ctx, "binoculars");
+        ch |= optional(ui, v, "binoculars", tr!("preset_units.binoculars"), tr!("preset_units.binoculars_tip"), json!({ "range": 140, "angle": 20, "turn": 40, "scan": 60 }), UNIT_BINOCULARS, ctx, "binoculars");
     });
-    section(ui, tr!("Economy"), false, |ui| ch |= grid(ui, v, UNIT_ECO, ctx, "eco"));
-    section(ui, tr!("Weapons"), true, |ui| ch |= weapons(ui, v, ctx));
-    section(ui, tr!("Construction, transport, death blast"), false, |ui| {
-        ch |= optional(ui, v, "build", tr!("Can build"), tr!("Engineers, factories and stations: builds, assists, reclaims, repairs."), json!({ "rate": 10, "categories": [] }), UNIT_BUILD, ctx, "build");
-        ch |= optional(ui, v, "transport", tr!("Carries units"), tr!("A transport (aircraft, APC) or, on a structure, a building infantry can occupy."), json!({ "capacity": 4 }), UNIT_TRANSPORT, ctx, "transport");
-        ch |= optional(ui, v, "fieldwork", tr!("Field work (built cover)"), tr!("Sandbags or a trench piece: shots fly through it and lose its cover share to it, units cross it, nobody aims at it unless ordered to. Blasts and the shots it stops wear it down."), json!({ "cover": 0.5 }), UNIT_FIELDWORK, ctx, "fieldwork");
-        ch |= optional(ui, v, "reactive", tr!("Reactive armor"), tr!("Explosive tiles that go off when a missile hits (AT troopers, Robins) and stop most of its damage, one hit per charge."), json!({ "charges": 4, "block": 0.75 }), UNIT_REACTIVE, ctx, "reactive");
-        ch |= optional(ui, v, "death", tr!("Explodes when destroyed"), tr!("A blast that hurts everything around it."), json!({ "damage": 100, "radius": 5 }), UNIT_DEATH, ctx, "death");
+    section(ui, tr!("common.economy"), false, |ui| ch |= grid(ui, v, UNIT_ECO, ctx, "eco"));
+    section(ui, tr!("preset_units.weapons"), true, |ui| ch |= weapons(ui, v, ctx));
+    section(ui, tr!("preset_units.construction"), false, |ui| {
+        ch |= optional(ui, v, "build", tr!("preset_units.can_build"), tr!("preset_units.can_build_tip"), json!({ "rate": 10, "categories": [] }), UNIT_BUILD, ctx, "build");
+        ch |= optional(ui, v, "transport", tr!("preset_units.carries_units"), tr!("preset_units.carries_units_tip"), json!({ "capacity": 4 }), UNIT_TRANSPORT, ctx, "transport");
+        ch |= optional(ui, v, "fieldwork", tr!("preset_units.field_work"), tr!("preset_units.field_work_tip"), json!({ "cover": 0.5 }), UNIT_FIELDWORK, ctx, "fieldwork");
+        ch |= optional(ui, v, "reactive", tr!("preset_units.reactive_armor"), tr!("preset_units.reactive_armor_tip"), json!({ "charges": 4, "block": 0.75 }), UNIT_REACTIVE, ctx, "reactive");
+        ch |= optional(ui, v, "death", tr!("preset_units.explodes_when_destroyed"), tr!("preset_units.explodes_tip"), json!({ "damage": 100, "radius": 5 }), UNIT_DEATH, ctx, "death");
     });
-    section(ui, tr!("Icon and model"), false, |ui| ch |= grid(ui, v, UNIT_ICON, ctx, "icon"));
+    section(ui, tr!("preset_units.icon_and_model"), false, |ui| ch |= grid(ui, v, UNIT_ICON, ctx, "icon"));
     ch
 }
 
@@ -737,12 +737,12 @@ fn weapons(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
         egui::CollapsingHeader::new(title).id_salt(("weapon", k)).default_open(true).show(ui, |ui| {
             let salt = format!("weapon{k}");
             changed |= grid(ui, w, WEAPON_FIELDS, ctx, &salt);
-            changed |= optional(ui, w, "turret", tr!("Turret"), tr!("The gun turns on its own; without a turret the whole unit has to face the target. (Model bones are set in the JSON view.)"), json!({ "yaw_speed": 90, "pitch_speed": 90 }), TURRET_FIELDS, ctx, &salt);
+            changed |= optional(ui, w, "turret", tr!("preset_weapons.turret"), tr!("preset_weapons.turret_tip"), json!({ "yaw_speed": 90, "pitch_speed": 90 }), TURRET_FIELDS, ctx, &salt);
             ui.horizontal(|ui| {
-                if ui.button(tr!("Copy weapon")).clicked() {
+                if ui.button(tr!("preset_weapons.copy_weapon")).clicked() {
                     copy = Some(k);
                 }
-                if ui.button(tr!("Remove weapon")).clicked() {
+                if ui.button(tr!("preset_weapons.remove_weapon")).clicked() {
                     remove = Some(k);
                 }
             });
@@ -757,7 +757,7 @@ fn weapons(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
         list.remove(k);
         changed = true;
     }
-    if ui.button(tr!("Add weapon")).on_hover_text(tr!("A new cannon with middling numbers; change it to taste.")).clicked() {
+    if ui.button(tr!("preset_weapons.add_weapon")).on_hover_text(tr!("preset_weapons.add_weapon_tip")).clicked() {
         list.push(json!({ "name": "Cannon", "kind": "direct", "damage": 10, "range": 50, "reload": 1, "speed": 50, "turret": { "yaw_speed": 90, "pitch_speed": 90 } }));
         changed = true;
     }

@@ -38,22 +38,22 @@ impl AiKind {
     /// Short name: player names, `LR_AI`.
     pub fn name(self) -> &'static str {
         match self {
-            AiKind::Simple => tx!("Simple"),
-            AiKind::Overseer => tx!("Overseer"),
-            AiKind::Zones => tx!("Zones"),
-            AiKind::Adaptive => tx!("Adaptive"),
-            AiKind::Rusher => tx!("Rusher"),
-            AiKind::Turtle => tx!("Turtle"),
+            AiKind::Simple => "Simple",
+            AiKind::Overseer => "Overseer",
+            AiKind::Zones => "Zones",
+            AiKind::Adaptive => "Adaptive",
+            AiKind::Rusher => "Rusher",
+            AiKind::Turtle => "Turtle",
         }
     }
     pub fn desc(self) -> &'static str {
         match self {
-            AiKind::Simple => tx!("the old AI: builds up at home and attacks in growing waves"),
-            AiKind::Overseer => tx!("changes its strategy with the situation: rush, eco and tech, air, turtle, commander kill (after M27)"),
-            AiKind::Zones => tx!("takes and holds the map zone by zone, scouts everything, helps allies (after M28)"),
-            AiKind::Adaptive => tx!("expands wide, raids extractors, builds what counters your army (after RNG)"),
-            AiKind::Rusher => tx!("many factories, cheap units, early and constant attacks"),
-            AiKind::Turtle => tx!("turrets, radar and long range guns; techs up and attacks late"),
+            AiKind::Simple => "the old AI: builds up at home and attacks in growing waves",
+            AiKind::Overseer => "changes its strategy with the situation: rush, eco and tech, air, turtle, commander kill (after M27)",
+            AiKind::Zones => "takes and holds the map zone by zone, scouts everything, helps allies (after M28)",
+            AiKind::Adaptive => "expands wide, raids extractors, builds what counters your army (after RNG)",
+            AiKind::Rusher => "many factories, cheap units, early and constant attacks",
+            AiKind::Turtle => "turrets, radar and long range guns; techs up and attacks late",
         }
     }
     pub fn parse(s: &str) -> Option<AiKind> {

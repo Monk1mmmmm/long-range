@@ -483,19 +483,19 @@ pub fn restart() {
 }
 
 /// Names of the tree and rock detail levels (`Settings::flora_detail`).
-pub const FLORA_DETAIL: [&str; 3] = [tx!("Low (no shadows)"), tx!("Medium"), tx!("High")];
+pub const FLORA_DETAIL: [&str; 3] = [tx!("settings.detail_low"), tx!("settings.medium"), tx!("settings.high")];
 
 /// Names of the effect levels (`Settings::effects`).
-pub const EFFECTS: [&str; 3] = [tx!("Low (fewest animations)"), tx!("Medium"), tx!("High")];
+pub const EFFECTS: [&str; 3] = [tx!("settings.effects_low"), tx!("settings.medium"), tx!("settings.high")];
 
 /// Draws the settings widgets. Returns true when the window should close.
 pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings, adapter: &str, errors: &[String], in_game: bool) -> bool {
     let before = s.clone();
     let mut close = false;
-    ui.heading(tr!("Settings"));
+    ui.heading(tr!("common.settings"));
     ui.add_space(6.0);
     egui::Grid::new("settings_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-        ui.label(tr!("Language"));
+        ui.label(tr!("settings.language"));
         let langs = crate::i18n::languages();
         let current = crate::i18n::language();
         let shown = langs.iter().find(|(c, _)| *c == current).map_or(current.clone(), |(_, n)| n.clone());
@@ -508,12 +508,12 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
             }
         });
         ui.end_row();
-        ui.label(tr!("Graphics API"));
+        ui.label(tr!("settings.graphics_api"));
         let name = |b: &str| match b {
             "dx12" => "DirectX 12",
             "vulkan" => "Vulkan",
             "gl" => "OpenGL",
-            _ => tr!("Automatic"),
+            _ => tr!("settings.automatic"),
         };
         egui::ComboBox::from_id_salt("backend").selected_text(name(&s.backend)).show_ui(ui, |ui| {
             let mut options = vec!["auto", "vulkan", "gl"];
@@ -525,38 +525,38 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
             }
         });
         ui.end_row();
-        ui.label(tr!("Shadows"));
-        egui::ComboBox::from_id_salt("shadows").selected_text([tr!("Off"), tr!("Low"), tr!("High")][s.shadows.min(2) as usize]).show_ui(ui, |ui| {
-            for (k, l) in [tr!("Off"), tr!("Low"), tr!("High")].iter().enumerate() {
+        ui.label(tr!("settings.shadows"));
+        egui::ComboBox::from_id_salt("shadows").selected_text([tr!("settings.off"), tr!("settings.low"), tr!("settings.high")][s.shadows.min(2) as usize]).show_ui(ui, |ui| {
+            for (k, l) in [tr!("settings.off"), tr!("settings.low"), tr!("settings.high")].iter().enumerate() {
                 ui.selectable_value(&mut s.shadows, k as u8, *l);
             }
         });
         ui.end_row();
-        ui.label(tr!("Trees and rocks"));
+        ui.label(tr!("common.trees_and_rocks"));
         egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(2) as usize])).show_ui(ui, |ui| {
             for (k, l) in FLORA_DETAIL.iter().enumerate() {
                 ui.selectable_value(&mut s.flora_detail, k as u8, tr(l));
             }
         });
         ui.end_row();
-        ui.label(tr!("Effects")).on_hover_text(tr!("Low: debris appears where it lands instead of falling, explosions are smaller and give no light. For slow graphics cards."));
+        ui.label(tr!("settings.effects")).on_hover_text(tr!("settings.effects_tip"));
         egui::ComboBox::from_id_salt("effects").selected_text(tr(EFFECTS[s.effects.min(2) as usize])).show_ui(ui, |ui| {
             for (k, l) in EFFECTS.iter().enumerate() {
                 ui.selectable_value(&mut s.effects, k as u8, tr(l));
             }
         });
         ui.end_row();
-        ui.label(tr!("Remembered buildings")).on_hover_text(tr!("Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons."));
-        ui.checkbox(&mut s.ghost_models, tr!("Show models in the fog"));
+        ui.label(tr!("settings.remembered_buildings")).on_hover_text(tr!("settings.remembered_buildings_tip"));
+        ui.checkbox(&mut s.ghost_models, tr!("settings.show_models_in_the_fog"));
         ui.end_row();
-        ui.label(tr!("Neutral buildings")).on_hover_text(tr!("Strategic icons of neutral map buildings (houses, civic and industrial buildings). Off: only their models, at any zoom. A building someone garrisons shows that player's icon."));
-        ui.checkbox(&mut s.neutral_icons, tr!("Show icons"));
+        ui.label(tr!("settings.neutral_buildings")).on_hover_text(tr!("settings.neutral_buildings_tip"));
+        ui.checkbox(&mut s.neutral_icons, tr!("settings.show_icons"));
         ui.end_row();
-        ui.label(tr!("Anti-aliasing"));
+        ui.label(tr!("settings.anti_aliasing"));
         let aa = |a: &str| match a {
             "fxaa" => "FXAA",
             "msaa4" => "MSAA 4x",
-            _ => tr!("Off"),
+            _ => tr!("settings.off"),
         };
         egui::ComboBox::from_id_salt("aa").selected_text(aa(&s.antialiasing)).show_ui(ui, |ui| {
             for a in ["off", "fxaa", "msaa4"] {
@@ -567,57 +567,57 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.label("V-sync");
         ui.checkbox(&mut s.vsync, "");
         ui.end_row();
-        ui.label(tr!("Fullscreen"));
+        ui.label(tr!("settings.fullscreen"));
         ui.checkbox(&mut s.fullscreen, "(F11)");
         ui.end_row();
-        ui.label(tr!("Sound effects"));
+        ui.label(tr!("settings.sound_effects"));
         if crate::view::sound::AVAILABLE {
             ui.add(egui::Slider::new(&mut s.sfx_volume, 0.0..=1.0).show_value(false));
         } else {
-            ui.label(egui::RichText::new(tr!("this build has no sound")).weak());
+            ui.label(egui::RichText::new(tr!("settings.no_sound")).weak());
         }
         ui.end_row();
-        ui.label(tr!("Projectile size"));
-        ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!(" px")));
+        ui.label(tr!("settings.projectile_size"));
+        ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!("settings.suffix_px")));
         ui.end_row();
-        ui.label(tr!("Map icons from zoom"));
-        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(tr!(" camera distance")));
+        ui.label(tr!("settings.map_icons_from_zoom"));
+        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(tr!("settings.suffix_camera_distance")));
         ui.end_row();
-        ui.label(tr!("Units under icons")).on_hover_text(tr!("Where a unit shows as its strategic icon (zoomed out, or too small to make out), its model is not drawn. Faster with big armies. Off: models stay under the icons."));
-        ui.checkbox(&mut s.model_lod, tr!("Hide models"));
+        ui.label(tr!("settings.units_under_icons")).on_hover_text(tr!("settings.units_under_icons_tip"));
+        ui.checkbox(&mut s.model_lod, tr!("settings.hide_models"));
         ui.end_row();
-        ui.label(tr!("Map icon size"));
+        ui.label(tr!("settings.map_icon_size"));
         ui.add(egui::Slider::new(&mut s.icon_scale, 0.5..=3.0).step_by(0.05).suffix("x"));
         ui.end_row();
-        ui.label(tr!("Build menu icon size"));
-        ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(tr!(" pt")));
+        ui.label(tr!("settings.build_menu_icon_size"));
+        ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(tr!("settings.suffix_pt")));
         ui.end_row();
-        ui.label(tr!("Hotkeys"));
-        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { tr!("FAF alternative") } else { tr!("Default") }).show_ui(ui, |ui| {
-            ui.selectable_value(&mut s.hotkeys, "default".to_string(), tr!("Default"));
-            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), tr!("FAF alternative"));
+        ui.label(tr!("settings.hotkeys"));
+        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { tr!("settings.faf_alternative") } else { tr!("common.default") }).show_ui(ui, |ui| {
+            ui.selectable_value(&mut s.hotkeys, "default".to_string(), tr!("common.default"));
+            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), tr!("settings.faf_alternative"));
         });
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(egui::RichText::new(tr!("Running on: {}", adapter)).weak());
+    ui.label(egui::RichText::new(tr!("settings.running_on", adapter)).weak());
     let needs_restart = s.backend != started_with.backend;
     if needs_restart {
-        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), tr!("The graphics API changes after a restart."));
+        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), tr!("settings.restart_needed"));
     }
     if !errors.is_empty() {
         ui.add_space(4.0);
-        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), tr!("{} graphics error(s) so far - details in render-errors.log. First one:", errors.len()));
+        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), tr!("settings.graphics_errors", errors.len()));
         let first: String = errors[0].chars().take(260).collect();
         ui.label(egui::RichText::new(first).small());
-        ui.label(egui::RichText::new(tr!("If the 3D view is black or broken, try another graphics API above.")).small());
+        ui.label(egui::RichText::new(tr!("settings.black_view_hint")).small());
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        if ui.button(tr!("Close")).clicked() {
+        if ui.button(tr!("settings.close")).clicked() {
             close = true;
         }
-        if needs_restart && ui.button(if in_game { tr!("Restart now (ends this game)") } else { tr!("Restart now") }).clicked() {
+        if needs_restart && ui.button(if in_game { tr!("settings.restart_now_in_game") } else { tr!("settings.restart_now") }).clicked() {
             s.save();
             restart();
         }

@@ -15,7 +15,7 @@ use longrange::sim::*;
 use longrange::sim::Command;
 use longrange::view::{self, terrain::MainCamera, LocalCommands, ViewState};
 
-const SIZES: [(usize, &str); 3] = [(192, tx!("small")), (256, tx!("medium")), (384, tx!("large"))];
+const SIZES: [(usize, &str); 3] = [(192, tx!("lobby.size_small")), (256, tx!("lobby.size_medium")), (384, tx!("lobby.size_large"))];
 
 struct Slot {
     kind: u8,
@@ -87,9 +87,9 @@ const PREVIEW: usize = 256;
 impl HostLobby {
     fn mode_label(&self) -> &'static str {
         if self.mode == MODE_POINTS {
-            tr!("Control points (hold more positions to drain the enemy)")
+            tr!("lobby.mode_points")
         } else {
-            tr!("Annihilation (destroy the commanders)")
+            tr!("lobby.mode_annihilation")
         }
     }
     /// Starting points of a control points game: the lobby's choice or the game data's value.
@@ -98,13 +98,13 @@ impl HostLobby {
     }
     fn preset_label(&self) -> String {
         match self.preset {
-            0 => tr!("built-in").to_string(),
+            0 => tr!("lobby.built_in").to_string(),
             k => self.presets.get(k - 1).cloned().unwrap_or_default(),
         }
     }
     fn map_label(&self) -> String {
         match SIZES.get(self.map_choice) {
-            Some((n, name)) => tr!("Random, {} ({} x {})", tr(name), *n as f32 * CELL, *n as f32 * CELL),
+            Some((n, name)) => tr!("lobby.random_size", tr(name), *n as f32 * CELL, *n as f32 * CELL),
             None => self.maps.get(self.map_choice - SIZES.len()).cloned().unwrap_or_default(),
         }
     }
@@ -164,19 +164,19 @@ impl HostLobby {
         Ok(())
     }
     fn options_text(&self, defs: &Defs) -> String {
-        let mut t = tr!("Mode: {}", self.mode_label());
+        let mut t = tr!("lobby.mode_button", self.mode_label());
         if self.mode == MODE_POINTS {
-            t += &tr!("\nStarting points: {:.0}", self.cp_points(defs));
+            t += &tr!("lobby.summary_points", self.cp_points(defs));
         }
-        t += &tr!("\nGame data: {}\nAI reclaims trees and rocks: {}", self.preset_label(), if self.ai_reclaim { tr!("yes") } else { tr!("no") });
+        t += &tr!("lobby.summary_data", self.preset_label(), if self.ai_reclaim { tr!("lobby.yes") } else { tr!("lobby.no") });
         let off = defs.rules.switched_off();
         if !off.is_empty() {
-            t += &tr!("\nSwitched off: {}", off.join(", "));
+            t += &tr!("lobby.summary_switched_off", off.join(", "));
         }
-        t += &tr!("\nMap buildings known from the start: {}", if self.reveal_props { tr!("yes") } else { tr!("no") });
+        t += &tr!("lobby.summary_props", if self.reveal_props { tr!("lobby.yes") } else { tr!("lobby.no") });
         if self.map_choice < SIZES.len() {
             let b = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k).copied()).unwrap_or(longrange::surface::Biome::from_seed(self.seed));
-            t += &tr!("\nTerrain: {}", tr(b.name()));
+            t += &tr!("lobby.summary_terrain", longrange::i18n::biome_name(b));
         }
         t
     }
@@ -390,17 +390,17 @@ impl PresetUi {
         });
         match done {
             Ok(pack) => {
-                self.msg = tr!("Saved preset '{}'.", pack.name);
+                self.msg = tr!("preset_editor.saved", pack.name);
                 self.pack = Some(pack);
                 self.show();
             }
-            Err(e) => self.msg = tr!("Not saved: {}", e),
+            Err(e) => self.msg = tr!("preset_editor.not_saved", e),
         }
     }
     /// Adds a copy of the open unit behind it, or removes the open unit (kept in memory until saved).
     fn change_units(&mut self, copy: bool) {
         let Ok(mut pack) = self.edited() else {
-            self.msg = tr!("Fix the JSON in the text box first.").into();
+            self.msg = tr!("preset_editor.fix_json_text").into();
             return;
         };
         let Some(f) = pack.factions.get_mut(self.file.wrapping_sub(1)) else { return };
@@ -415,10 +415,10 @@ impl PresetUi {
             u["name"] = format!("{} copy", u["name"].as_str().unwrap_or("Unit")).into();
             list.insert(self.unit + 1, u);
             self.unit += 1;
-            self.msg = tr!("Copied. Give the copy its own id and icon (shape, glyphs or tier), then save.").into();
+            self.msg = tr!("preset_editor.unit_copied").into();
         } else {
             list.remove(self.unit);
-            self.msg = tr!("Removed (not saved yet). Saving fails if something still refers to the unit.").into();
+            self.msg = tr!("preset_editor.unit_removed").into();
         }
         f.1 = serde_json::to_string_pretty(&v).unwrap_or_default();
         self.pack = Some(pack);
@@ -672,10 +672,10 @@ fn session_update(world: &mut World) {
                                 }
                                 send_peers(host, remote, me, *ai_reclaim);
                             } else {
-                                host.send_msg(id, &S2C::Kicked(tx!("You are not part of this game any more.").into()));
+                                host.send_msg(id, &S2C::Kicked(tx!("connection.kicked_not_in_game").into()));
                             }
                         }
-                        HostEvent::Msg(id, C2S::Hello { .. }) => host.send_msg(id, &S2C::Kicked(tx!("The game has already started.").into())),
+                        HostEvent::Msg(id, C2S::Hello { .. }) => host.send_msg(id, &S2C::Kicked(tx!("connection.kicked_started").into())),
                         HostEvent::Left(id) => {
                             if let Some(k) = remote.iter().position(|r| r.0 == id) {
                                 if remote[k].1 != OBSERVER {
@@ -724,8 +724,8 @@ fn session_update(world: &mut World) {
                         s.acc = DT;
                     } else {
                         let game = world.resource::<Game>();
-                        let names: Vec<String> = waiting.iter().map(|&p| game.players.get(p as usize).map_or(tr!("player {}", p), |pl| pl.name.clone())).collect();
-                        note = Some(tr!("The host left - this machine is the host now. Waiting for {} ({:.0} s)", names.join(", "), wait_left.ceil()));
+                        let names: Vec<String> = waiting.iter().map(|&p| game.players.get(p as usize).map_or(tr!("connection.player_fallback", p), |pl| pl.name.clone())).collect();
+                        note = Some(tr!("connection.host_left_now_host", names.join(", "), wait_left.ceil()));
                     }
                 }
                 if let Some(mut v) = world.get_resource_mut::<ViewState>() {
@@ -760,7 +760,7 @@ fn session_update(world: &mut World) {
                 if let Some((to, rx)) = rejoin {
                     // The host left: connecting to the player who takes over.
                     let name = world.resource::<Game>().players.get(*to as usize).map_or(String::new(), |p| p.name.clone());
-                    note = Some(tr!("The host left - reconnecting to {}...", name));
+                    note = Some(tr!("connection.host_left_reconnecting_to", name));
                     match rx.try_recv() {
                         Ok(Ok(c)) => {
                             info!("connected to the new host (player {to})");
@@ -823,16 +823,16 @@ fn session_update(world: &mut World) {
                 // to already. Every client works it out from the same list, so they agree.
                 if lost && over.is_none() {
                     match sim.peers.iter().find(|p| !skip.contains(&p.0)).copied() {
-                        None => over = Some(tr!("Connection to the host was lost.").into()),
+                        None => over = Some(tr!("connection.host_lost").into()),
                         Some((p, _)) if p == me => match take_over(world, sim, me, &app.name) {
                             Ok(role) => promoted = Some(role),
-                            Err(e) => over = Some(tr!("The host left, and this machine could not take over: {}", e)),
+                            Err(e) => over = Some(tr!("connection.host_left_takeover_failed", e)),
                         },
                         Some((p, ip)) => {
                             let ip = ip.unwrap_or(client.addr.ip());
                             info!("the host left; reconnecting to player {p} at {ip}");
                             *rejoin = Some((p, Client::rejoin(ip, me, std::time::Duration::from_secs(15))));
-                            note = Some(tr!("The host left - reconnecting...").into());
+                            note = Some(tr!("connection.host_left_reconnecting").into());
                         }
                     }
                 }
@@ -875,20 +875,20 @@ fn observer_rows(ui: &mut egui::Ui, names: &[String], playing: bool, watching: b
     let mut clicked = None;
     ui.add_space(10.0);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(tr!("Observers ({}/{})", names.len(), MAX_OBSERVERS)).size(16.0));
-        if playing && names.len() < MAX_OBSERVERS && ui.button(tr!("Watch instead")).on_hover_text(tr!("Leave your slot and only watch the game")).clicked() {
+        ui.label(egui::RichText::new(tr!("lobby.observers", names.len(), MAX_OBSERVERS)).size(16.0));
+        if playing && names.len() < MAX_OBSERVERS && ui.button(tr!("lobby.watch_instead")).on_hover_text(tr!("lobby.watch_tip")).clicked() {
             clicked = Some(ObserverClick::Watch(true));
         }
-        if watching && ui.add_enabled(open, egui::Button::new(tr!("Take a slot"))).on_hover_text(tr!("Play in the first open slot")).on_disabled_hover_text(tr!("No slot is open")).clicked() {
+        if watching && ui.add_enabled(open, egui::Button::new(tr!("lobby.take_a_slot"))).on_hover_text(tr!("lobby.take_slot_tip")).on_disabled_hover_text(tr!("lobby.no_slot_is_open")).clicked() {
             clicked = Some(ObserverClick::Watch(false));
         }
     });
     if names.is_empty() {
-        ui.label(egui::RichText::new(tr!("nobody")).weak());
+        ui.label(egui::RichText::new(tr!("lobby.nobody")).weak());
     }
     for (k, n) in names.iter().enumerate() {
         let b = ui.add_sized([(width * 0.5).max(200.0), 26.0], egui::Button::new(n));
-        if host && b.on_hover_text(tr!("Click to remove from the game")).clicked() {
+        if host && b.on_hover_text(tr!("lobby.remove_tip")).clicked() {
             clicked = Some(ObserverClick::Remove(k));
         }
     }
@@ -904,19 +904,19 @@ fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editab
     egui::Grid::new("slots").num_columns(4).spacing([12.0, 8.0]).show(ui, |ui| {
         for (k, s) in slots.iter().enumerate() {
             let c = defs.rules.player_colors[k % defs.rules.player_colors.len()];
-            ui.colored_label(egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8), tr!("Start {}", k + 1));
+            ui.colored_label(egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8), tr!("lobby.start_n", k + 1));
             let label = match s.kind {
-                0 => tr!("Open").to_string(),
-                1 => tr!("Closed").to_string(),
-                2 => format!("{}{}", s.name, if k as i8 == you { tr!(" (you)") } else { "" }),
-                _ => tr!("AI: {}", tr(AiKind::from_id(s.ai).name())),
+                0 => tr!("lobby.open").to_string(),
+                1 => tr!("lobby.closed").to_string(),
+                2 => format!("{}{}", s.name, if k as i8 == you { tr!("lobby.you_suffix") } else { "" }),
+                _ => tr!("lobby.slot_ai", longrange::i18n::ai_name(AiKind::from_id(s.ai))),
             };
             let button = ui.add_sized([name_w, 30.0], egui::Button::new(label));
-            let button = if s.kind == 3 { button.on_hover_text(tr(AiKind::from_id(s.ai).desc())) } else { button };
+            let button = if s.kind == 3 { button.on_hover_text(longrange::i18n::ai_desc(AiKind::from_id(s.ai))) } else { button };
             if button.clicked() && editable {
                 clicked = Some((k, 0));
             }
-            if ui.add_sized([team_w, 30.0], egui::Button::new(tr!("Team {}", s.team + 1))).clicked() && editable {
+            if ui.add_sized([team_w, 30.0], egui::Button::new(tr!("lobby.team_button", s.team + 1))).clicked() && editable {
                 clicked = Some((k, 1));
             }
             let fname = defs.factions.get(s.faction as usize).map_or("?", |f| f.name.as_str());
@@ -939,7 +939,7 @@ fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(
         }
         None => {
             p.rect_filled(rect, 4.0, egui::Color32::from_rgb(30, 34, 40));
-            p.text(rect.center(), egui::Align2::CENTER_CENTER, tr!("no preview"), egui::FontId::proportional(16.0), egui::Color32::GRAY);
+            p.text(rect.center(), egui::Align2::CENTER_CENTER, tr!("lobby.no_preview"), egui::FontId::proportional(16.0), egui::Color32::GRAY);
         }
     }
     p.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0, egui::Color32::from_gray(90)), egui::StrokeKind::Inside);
@@ -1032,11 +1032,11 @@ fn menu_ui(world: &mut World) {
                 Screen::Menu => {
                     app.discovery.poll(dt);
                     ui.add_space(30.0);
-                    ui.label(egui::RichText::new(tr!("LONG RANGE")).size(56.0).color(egui::Color32::from_rgb(255, 215, 100)).strong());
-                    ui.label(egui::RichText::new(tr!("flow economy  -  long guns  -  scouts win wars")).size(16.0));
+                    ui.label(egui::RichText::new(tr!("main_menu.title")).size(56.0).color(egui::Color32::from_rgb(255, 215, 100)).strong());
+                    ui.label(egui::RichText::new(tr!("main_menu.tagline")).size(16.0));
                     ui.add_space(26.0);
                     ui.horizontal(|ui| {
-                        ui.label(tr!("Name"));
+                        ui.label(tr!("common.name"));
                         if ui.add(egui::TextEdit::singleline(&mut app.name).desired_width(300.0).char_limit(16)).changed() {
                             // Remembered for the next start.
                             let mut s = world.resource_mut::<longrange::settings::Settings>();
@@ -1045,7 +1045,7 @@ fn menu_ui(world: &mut World) {
                         }
                     });
                     ui.add_space(10.0);
-                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("Host game / Skirmish vs AI")).size(18.0))).clicked() {
+                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.host_game")).size(18.0))).clicked() {
                         match new_lobby(&app.name, &defs) {
                             Ok(l) => {
                                 next = Some(Screen::HostLobby(l));
@@ -1055,22 +1055,22 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(18.0);
-                    ui.label(egui::RichText::new(tr!("LAN games")).size(18.0));
+                    ui.label(egui::RichText::new(tr!("main_menu.lan_games")).size(18.0));
                     let mut join: Option<String> = None;
                     if app.discovery.found.is_empty() {
-                        ui.label(tr!("searching the local network..."));
+                        ui.label(tr!("main_menu.searching"));
                     }
                     for (addr, host_name) in app.discovery.found.iter().take(5) {
-                        if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("Join {}  ({})", host_name, addr))).clicked() {
+                        if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.join_host", host_name, addr))).clicked() {
                             join = Some(addr.to_string());
                         }
                     }
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        ui.label(tr!("Or by IP"));
+                        ui.label(tr!("main_menu.or_by_ip"));
                         let r = ui.add(egui::TextEdit::singleline(&mut app.ip).desired_width(200.0));
                         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if (ui.button(tr!("Join")).clicked() || enter) && !app.ip.trim().is_empty() {
+                        if (ui.button(tr!("main_menu.join")).clicked() || enter) && !app.ip.trim().is_empty() {
                             join = Some(app.ip.trim().to_string());
                         }
                     });
@@ -1084,20 +1084,20 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(14.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("Game data presets"))).clicked() {
+                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.game_data_presets"))).clicked() {
                         next = Some(Screen::Presets(PresetUi::new()));
                         app.message.clear();
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("Settings"))).clicked() {
+                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("common.settings"))).clicked() {
                         app.settings_open = true;
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("Quit"))).clicked() {
+                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.quit"))).clicked() {
                         world.write_message(AppExit::Success);
                     }
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(tr!("Map editor: run the lr-editor program.   F11 fullscreen.")).size(12.0).weak());
+                    ui.label(egui::RichText::new(tr!("main_menu.editor_hint")).size(12.0).weak());
                     if !app.message.is_empty() {
                         ui.add_space(10.0);
                         ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
@@ -1119,7 +1119,7 @@ fn menu_ui(world: &mut World) {
                                 } else if l.observers.len() < MAX_OBSERVERS {
                                     l.observers.push(Observer { name, conn: id, hash: data_hash });
                                 } else {
-                                    l.host.send_msg(id, &S2C::Kicked(tx!("The game is full.").into()));
+                                    l.host.send_msg(id, &S2C::Kicked(tx!("connection.kicked_full").into()));
                                     l.host.kick(id);
                                 }
                                 l.dirty = true;
@@ -1147,8 +1147,8 @@ fn menu_ui(world: &mut World) {
                             _ => {}
                         }
                     }
-                    ui.label(egui::RichText::new(tr!("GAME LOBBY")).size(34.0).color(egui::Color32::from_rgb(255, 215, 100)));
-                    ui.label(tr!("Other players on your LAN can join at {}  (port {})", l.lan_ip, TCP_PORT));
+                    ui.label(egui::RichText::new(tr!("lobby.game_lobby")).size(34.0).color(egui::Color32::from_rgb(255, 215, 100)));
+                    ui.label(tr!("lobby.lan_address", l.lan_ip, TCP_PORT));
                     ui.add_space(12.0);
                     let cur = world.resource::<Defs>().clone();
                     if let Err(e) = l.ensure_map(&cur) {
@@ -1167,7 +1167,7 @@ fn menu_ui(world: &mut World) {
                                     _ if Some(k) != me => {
                                         let s = &mut l.slots[k];
                                         if s.kind == 2 {
-                                            l.host.send_msg(s.conn, &S2C::Kicked(tx!("You were removed by the host.").into()));
+                                            l.host.send_msg(s.conn, &S2C::Kicked(tx!("connection.kicked_removed").into()));
                                             l.host.kick(s.conn);
                                             s.kind = 0;
                                             s.name.clear();
@@ -1186,8 +1186,8 @@ fn menu_ui(world: &mut World) {
                                 }
                                 l.dirty = true;
                             }
-                            ui.label(egui::RichText::new(tr!("Click a slot to switch Open / the AI types / Closed (hover an AI for what it does). Same team number = allies.")).size(12.0).weak());
-                            let names: Vec<String> = l.observers.iter().map(|o| if o.conn == 0 { tr!("{} (you)", o.name) } else { o.name.clone() }).collect();
+                            ui.label(egui::RichText::new(tr!("lobby.slots_hint")).size(12.0).weak());
+                            let names: Vec<String> = l.observers.iter().map(|o| if o.conn == 0 { tr!("lobby.observer_you", o.name) } else { o.name.clone() }).collect();
                             match observer_rows(ui, &names, me.is_some(), l.observers.iter().any(|o| o.conn == 0), l.slots.iter().any(|s| s.kind == 0), true, left_w) {
                                 Some(ObserverClick::Watch(w)) => {
                                     l.observe(0, w, first_faction);
@@ -1195,7 +1195,7 @@ fn menu_ui(world: &mut World) {
                                 Some(ObserverClick::Remove(k)) => {
                                     let o = &l.observers[k];
                                     if o.conn != 0 {
-                                        l.host.send_msg(o.conn, &S2C::Kicked(tx!("You were removed by the host.").into()));
+                                        l.host.send_msg(o.conn, &S2C::Kicked(tx!("connection.kicked_removed").into()));
                                         l.host.kick(o.conn);
                                         l.observers.remove(k);
                                         l.dirty = true;
@@ -1207,8 +1207,8 @@ fn menu_ui(world: &mut World) {
                                 ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
                             }
                             ui.add_space(14.0);
-                            start = ui.add_sized([left_w - 20.0, 50.0], egui::Button::new(egui::RichText::new(tr!("START")).size(22.0))).clicked();
-                            back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("Back"))).clicked();
+                            start = ui.add_sized([left_w - 20.0, 50.0], egui::Button::new(egui::RichText::new(tr!("lobby.start_button")).size(22.0))).clicked();
+                            back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("common.back"))).clicked();
                         });
                         ui.add_space(20.0);
                         // Right: the map and the tabs with the game settings.
@@ -1221,36 +1221,36 @@ fn menu_ui(world: &mut World) {
                             ui.label(egui::RichText::new(l.map_label()).strong());
                             ui.add_space(6.0);
                             ui.horizontal(|ui| {
-                                ui.selectable_value(&mut l.tab, 0, egui::RichText::new(tr!("Game options")).size(16.0));
-                                ui.selectable_value(&mut l.tab, 1, egui::RichText::new(tr!("Map")).size(16.0));
+                                ui.selectable_value(&mut l.tab, 0, egui::RichText::new(tr!("lobby.game_options")).size(16.0));
+                                ui.selectable_value(&mut l.tab, 1, egui::RichText::new(tr!("lobby.map")).size(16.0));
                             });
                             ui.separator();
                             if l.tab == 0 {
-                                if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("Mode: {}", l.mode_label()))).clicked() {
+                                if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("lobby.mode_button", l.mode_label()))).clicked() {
                                     l.mode = if l.mode == MODE_POINTS { MODE_ANNIHILATION } else { MODE_POINTS };
                                     l.dirty = true;
                                 }
                                 if l.mode == MODE_POINTS {
                                     // Typed in by hand; 0 = the game data's value until the host changes it.
                                     ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(tr!("Starting points")).size(15.0));
+                                        ui.label(egui::RichText::new(tr!("lobby.starting_points")).size(15.0));
                                         let mut v = l.cp_points(&cur).round().max(1.0) as u32;
                                         if ui.add(egui::DragValue::new(&mut v).range(1..=1_000_000).speed(10.0)).changed() {
                                             l.cp_start = v;
                                             l.dirty = true;
                                         }
                                         if l.cp_start == 0 {
-                                            ui.label(egui::RichText::new(tr!("(game data default)")).weak());
-                                        } else if ui.button(tr!("Default")).on_hover_text(tr!("Use the game data's value ({:.0})", cur.rules.cp_start_points)).clicked() {
+                                            ui.label(egui::RichText::new(tr!("lobby.points_default")).weak());
+                                        } else if ui.button(tr!("common.default")).on_hover_text(tr!("lobby.default_points_tip", cur.rules.cp_start_points)).clicked() {
                                             l.cp_start = 0;
                                             l.dirty = true;
                                         }
                                     });
                                     let own = l.map.as_ref().map_or(false, |m| !m.1.points.is_empty());
-                                    ui.label(egui::RichText::new(tr!("{} control points{}", l.points.len(), if own { tr!(", placed by the map") } else { tr!(", placed automatically (the map has none of its own)") })).weak());
+                                    ui.label(egui::RichText::new(tr!("lobby.points_count", l.points.len(), if own { tr!("lobby.points_by_map") } else { tr!("lobby.points_auto") })).weak());
                                 }
                                 // Game data: the built-in values or one of the presets (main menu -> Game data presets).
-                                if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("Game data: {}", l.preset_label()))).clicked() && !l.presets.is_empty() {
+                                if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("lobby.game_data_button", l.preset_label()))).clicked() && !l.presets.is_empty() {
                                     let k = (l.preset + 1) % (l.presets.len() + 1);
                                     let name = if k == 0 { String::new() } else { l.presets[k - 1].clone() };
                                     match Defs::load_preset(&asset_root(), &name) {
@@ -1264,31 +1264,31 @@ fn menu_ui(world: &mut World) {
                                             l.dirty = true;
                                             app.message.clear();
                                         }
-                                        Err(e) => app.message = tr!("Preset '{}' cannot be used: {}", name, e),
+                                        Err(e) => app.message = tr!("lobby.preset_unusable", name, e),
                                     }
                                 }
                                 if l.map_choice < SIZES.len() {
                                     ui.horizontal(|ui| {
-                                        if ui.add_sized([(right_w - 28.0) / 2.0, 30.0], egui::Button::new(tr!("Players: {}", l.players))).clicked() {
+                                        if ui.add_sized([(right_w - 28.0) / 2.0, 30.0], egui::Button::new(tr!("lobby.players_button", l.players))).clicked() {
                                             l.players = if l.players >= MAX_PLAYERS { 2 } else { l.players + 1 };
                                             l.resize_slots(first_faction);
                                         }
-                                        if ui.add_sized([(right_w - 28.0) / 2.0, 30.0], egui::Button::new(tr!("New random map"))).clicked() {
+                                        if ui.add_sized([(right_w - 28.0) / 2.0, 30.0], egui::Button::new(tr!("lobby.new_random_map"))).clicked() {
                                             l.seed = l.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) | 1;
                                         }
                                     });
                                     let biome_label = |k: usize| match k.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k)) {
-                                        Some(b) => tr(b.name()).to_string(),
-                                        None => tr!("Random ({})", tr(longrange::surface::Biome::from_seed(l.seed).name())),
+                                        Some(b) => longrange::i18n::biome_name(*b).to_string(),
+                                        None => tr!("lobby.random_biome", longrange::i18n::biome_name(longrange::surface::Biome::from_seed(l.seed))),
                                     };
-                                    if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("Terrain: {}", biome_label(l.biome)))).on_hover_text(tr!("Ground of the random map; Random picks one from the map's seed")).clicked() {
+                                    if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("lobby.terrain_button", biome_label(l.biome)))).on_hover_text(tr!("lobby.terrain_tip")).clicked() {
                                         l.biome = (l.biome + 1) % (longrange::surface::BIOMES.len() + 1);
                                     }
                                 }
-                                if ui.checkbox(&mut l.ai_reclaim, tr!("AI reclaims trees and rocks")).changed() {
+                                if ui.checkbox(&mut l.ai_reclaim, tr!("lobby.ai_reclaim")).changed() {
                                     l.dirty = true;
                                 }
-                                if ui.checkbox(&mut l.reveal_props, tr!("Neutral and hostile buildings known from the start")).changed() {
+                                if ui.checkbox(&mut l.reveal_props, tr!("lobby.reveal_props")).changed() {
                                     l.dirty = true;
                                 }
                             } else {
@@ -1312,11 +1312,11 @@ fn menu_ui(world: &mut World) {
                                                 }
                                             }
                                             let label = match SIZES.get(c) {
-                                                Some((n, name)) => tr!("Random, {} ({} x {})", tr(name), *n as f32 * CELL, *n as f32 * CELL),
+                                                Some((n, name)) => tr!("lobby.random_size", tr(name), *n as f32 * CELL, *n as f32 * CELL),
                                                 None => {
                                                     let k = c - SIZES.len();
                                                     let starts = l.counts.get(k).copied().unwrap_or(0);
-                                                    tr!("{}  ({} players)", l.maps[k], starts)
+                                                    tr!("lobby.map_players", l.maps[k], starts)
                                                 }
                                             };
                                             if ui.add_sized([right_w - 80.0, 48.0], egui::Button::selectable(l.map_choice == c, label)).clicked() {
@@ -1335,7 +1335,7 @@ fn menu_ui(world: &mut World) {
                         });
                     });
                     if start && !l.slots.iter().any(|s| s.kind >= 2) {
-                        app.message = tr!("Nobody would play: put a player or an AI in a slot.").into();
+                        app.message = tr!("lobby.nobody_plays").into();
                         start = false;
                     }
                     if l.dirty {
@@ -1371,14 +1371,14 @@ fn menu_ui(world: &mut World) {
                                                 pack.store_assets(&asset_root());
                                                 world.insert_resource(d);
                                             }
-                                            Err(e) => lost = Some(tr!("The host's game data could not be used: {}", e)),
+                                            Err(e) => lost = Some(tr!("connection.host_data_unusable", e)),
                                         }
                                     }
                                     l.pending = Some((map, you));
                                 }
                                 Ok(S2C::Kicked(why)) => lost = Some(tr(&why).to_string()),
                                 Ok(_) => {}
-                                Err(_) => lost = Some(tr!("Protocol mismatch - are both players on the same version?").into()),
+                                Err(_) => lost = Some(tr!("connection.protocol_mismatch").into()),
                             },
                             Ok(Some((_, data))) => {
                                 if let (Some((map, you)), Ok(snap)) = (l.pending.take(), bincode::deserialize::<Snapshot>(&data)) {
@@ -1389,13 +1389,13 @@ fn menu_ui(world: &mut World) {
                                 }
                             }
                             Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                lost.get_or_insert(tr!("Disconnected from the host.").into());
+                                lost.get_or_insert(tr!("connection.disconnected").into());
                                 break;
                             }
                             Err(_) => break,
                         }
                     }
-                    ui.label(egui::RichText::new(tr!("GAME LOBBY")).size(34.0).color(egui::Color32::from_rgb(255, 215, 100)));
+                    ui.label(egui::RichText::new(tr!("lobby.game_lobby")).size(34.0).color(egui::Color32::from_rgb(255, 215, 100)));
                     ui.add_space(12.0);
                     let mut back = false;
                     match l.info.clone() {
@@ -1415,9 +1415,9 @@ fn menu_ui(world: &mut World) {
                                         l.client.send(&C2S::Observe(w));
                                     }
                                     ui.add_space(8.0);
-                                    ui.label(tr!("Waiting for the host to start..."));
+                                    ui.label(tr!("lobby.waiting_for_host"));
                                     ui.add_space(14.0);
-                                    back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("Leave"))).clicked();
+                                    back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("lobby.leave"))).clicked();
                                 });
                                 ui.add_space(20.0);
                                 ui.vertical(|ui| {
@@ -1425,16 +1425,16 @@ fn menu_ui(world: &mut World) {
                                     map_picture(ui, l.tex.as_ref().map(|t| &t.1), &i.starts, &i.points, &defs, pic);
                                     ui.label(egui::RichText::new(&i.map_name).strong());
                                     ui.add_space(6.0);
-                                    ui.label(egui::RichText::new(tr!("Game options")).size(16.0));
+                                    ui.label(egui::RichText::new(tr!("lobby.game_options")).size(16.0));
                                     ui.separator();
                                     ui.label(&i.extra);
                                 });
                             });
                         }
                         None => {
-                            ui.label(tr!("Connecting..."));
+                            ui.label(tr!("lobby.connecting"));
                             ui.add_space(10.0);
-                            back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("Leave"))).clicked();
+                            back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("lobby.leave"))).clicked();
                         }
                     }
                     if let Some(sim) = started {
@@ -1495,14 +1495,14 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
     let text_w = total_w - 230.0 - list_w - 2.0 * 8.0;
     egui::Area::new(egui::Id::new("presets")).anchor(egui::Align2::CENTER_TOP, [0.0, 16.0]).show(ctx, |ui| {
         ui.set_width(total_w);
-        ui.label(egui::RichText::new(tr!("GAME DATA PRESETS")).size(30.0).color(egui::Color32::from_rgb(255, 215, 100)));
-        ui.label(tr!("A preset is a named copy of the game data (unit stats, costs, rules) that you can change. The host picks one in the lobby; the other players receive it when the game starts. Hover over a setting to see what it does."));
+        ui.label(egui::RichText::new(tr!("preset_editor.title")).size(30.0).color(egui::Color32::from_rgb(255, 215, 100)));
+        ui.label(tr!("preset_editor.intro"));
         ui.add_space(8.0);
         ui.horizontal_top(|ui| {
             // --- the presets
             ui.vertical(|ui| {
                 ui.set_width(230.0);
-                ui.label(egui::RichText::new(tr!("Presets")).strong());
+                ui.label(egui::RichText::new(tr!("preset_editor.presets")).strong());
                 let mut open: Option<String> = None;
                 for n in &p.names {
                     if ui.add_sized([220.0, 26.0], egui::Button::selectable(open_name.as_deref() == Some(n.as_str()), n.as_str())).clicked() {
@@ -1510,21 +1510,21 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                     }
                 }
                 if p.names.is_empty() {
-                    ui.label(egui::RichText::new(tr!("none yet")).weak());
+                    ui.label(egui::RichText::new(tr!("preset_editor.none_yet")).weak());
                 }
                 if let Some(n) = open {
                     p.open(&n);
                 }
                 ui.add_space(10.0);
-                ui.label(tr!("New preset:"));
+                ui.label(tr!("preset_editor.new_preset"));
                 ui.add(egui::TextEdit::singleline(&mut p.new_name).desired_width(214.0).char_limit(32).hint_text("name"));
                 let from = open_name.clone().unwrap_or_default();
-                if ui.add_sized([220.0, 26.0], egui::Button::new(if from.is_empty() { tr!("Create from the built-in data").to_string() } else { tr!("Create as a copy of '{}'", from) })).clicked() {
+                if ui.add_sized([220.0, 26.0], egui::Button::new(if from.is_empty() { tr!("preset_editor.create_from_the_built_in_data").to_string() } else { tr!("preset_editor.create_as_a_copy_of", from) })).clicked() {
                     let name = longrange::data::clean_name(&p.new_name);
                     let made = if name.is_empty() {
-                        Err(tr!("Type a name first (letters, digits, spaces, - and _).").to_string())
+                        Err(tr!("preset_editor.name_needed").to_string())
                     } else if p.names.contains(&name) {
-                        Err(tr!("There already is a preset '{}'.", name))
+                        Err(tr!("preset_editor.name_taken", name))
                     } else {
                         // Unsaved edits of the open preset are part of the copy.
                         p.edited().or_else(|_| DataPack::preset(&asset_root(), &from)).and_then(|mut pack| {
@@ -1537,17 +1537,17 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                             p.names = DataPack::list(&asset_root());
                             p.new_name.clear();
                             p.open(&name);
-                            p.msg = tr!("Created '{}'.", name);
+                            p.msg = tr!("preset_editor.created", name);
                         }
                         Err(e) => p.msg = e,
                     }
                 }
                 if let Some(n) = open_name.clone() {
                     ui.add_space(10.0);
-                    if ui.add_sized([220.0, 26.0], egui::Button::new(if p.confirm_delete { tr!("Really delete '{}'?", n) } else { tr!("Delete '{}'", n) })).clicked() {
+                    if ui.add_sized([220.0, 26.0], egui::Button::new(if p.confirm_delete { tr!("preset_editor.really_delete", n) } else { tr!("preset_editor.delete", n) })).clicked() {
                         if p.confirm_delete {
                             p.msg = match DataPack::delete(&asset_root(), &n) {
-                                Ok(()) => tr!("Deleted '{}'.", n),
+                                Ok(()) => tr!("preset_editor.deleted", n),
                                 Err(e) => e,
                             };
                             p.names = DataPack::list(&asset_root());
@@ -1559,18 +1559,18 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                     }
                 }
                 ui.add_space(14.0);
-                if ui.add_sized([220.0, 32.0], egui::Button::new(tr!("Back"))).clicked() {
+                if ui.add_sized([220.0, 32.0], egui::Button::new(tr!("common.back"))).clicked() {
                     back = true;
                 }
             });
             let Some(pack) = p.pack.clone() else {
-                ui.label(tr!("Pick a preset on the left, or create one."));
+                ui.label(tr!("preset_editor.pick_preset"));
                 return;
             };
             // --- its files and units
             ui.vertical(|ui| {
                 ui.set_width(list_w);
-                ui.label(egui::RichText::new(tr!("Files")).strong());
+                ui.label(egui::RichText::new(tr!("preset_editor.files")).strong());
                 let mut pick: Option<usize> = None;
                 if ui.add_sized([list_w - 10.0, 24.0], egui::Button::selectable(p.file == 0, "rules.json")).clicked() {
                     pick = Some(0);
@@ -1583,7 +1583,7 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                 let mut pick_unit: Option<usize> = None;
                 if p.file > 0 {
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new(tr!("Units")).strong());
+                    ui.label(egui::RichText::new(tr!("preset_editor.units")).strong());
                     let units_h = (body_h - 60.0 - 28.0 * (pack.factions.len() + 1) as f32).max(150.0);
                     egui::ScrollArea::vertical()
                         .id_salt("preset_units")
@@ -1609,7 +1609,7 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                             p.msg.clear();
                             p.show();
                         }
-                        Err(e) => p.msg = tr!("{}  (fix it before switching)", e),
+                        Err(e) => p.msg = tr!("preset_editor.fix_before_switching", e),
                     }
                 }
             });
@@ -1617,11 +1617,11 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
             ui.vertical(|ui| {
                 ui.set_width(text_w);
                 ui.horizontal(|ui| {
-                    if ui.add_sized([150.0, 28.0], egui::Button::new(tr!("Check and save"))).on_hover_text(tr!("Checks the data the way the game loads it and writes the preset if it is sound.")).clicked() {
+                    if ui.add_sized([150.0, 28.0], egui::Button::new(tr!("preset_editor.check_and_save"))).on_hover_text(tr!("preset_editor.check_and_save_tip")).clicked() {
                         p.save();
                     }
-                    let label = if p.raw { tr!("Form view") } else { tr!("JSON view") };
-                    let tip = if p.raw { tr!("Edit with checkboxes, number fields and lists.") } else { tr!("Edit the raw JSON: every setting, including model files and turret bones.") };
+                    let label = if p.raw { tr!("preset_editor.form_view") } else { tr!("preset_editor.json_view") };
+                    let tip = if p.raw { tr!("preset_editor.form_view_tip") } else { tr!("preset_editor.json_view_tip") };
                     if ui.add_sized([110.0, 28.0], egui::Button::new(label)).on_hover_text(tip).clicked() {
                         if p.raw {
                             match serde_json::from_str(&p.text) {
@@ -1630,17 +1630,17 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                                     p.raw = false;
                                     p.msg.clear();
                                 }
-                                Err(e) => p.msg = tr!("Fix the JSON first: {}", e),
+                                Err(e) => p.msg = tr!("preset_editor.fix_the_json_first", e),
                             }
                         } else {
                             p.raw = true;
                         }
                     }
                     if p.file > 0 {
-                        if ui.add_sized([110.0, 28.0], egui::Button::new(tr!("Copy unit"))).clicked() {
+                        if ui.add_sized([110.0, 28.0], egui::Button::new(tr!("preset_editor.copy_unit"))).clicked() {
                             p.change_units(true);
                         }
-                        if ui.add_sized([110.0, 28.0], egui::Button::new(tr!("Remove unit"))).clicked() {
+                        if ui.add_sized([110.0, 28.0], egui::Button::new(tr!("preset_editor.remove_unit"))).clicked() {
                             p.change_units(false);
                         }
                     }
@@ -1658,7 +1658,7 @@ fn presets_ui(ctx: &egui::Context, p: &mut PresetUi) -> bool {
                         if p.raw {
                             ui.add(egui::TextEdit::multiline(&mut p.text).code_editor().desired_width(text_w - 14.0).min_size(egui::vec2(text_w - 14.0, text_h - 4.0)));
                         } else if !p.value.is_object() {
-                            ui.label(tr!("This does not read as JSON; switch to the JSON view to fix it."));
+                            ui.label(tr!("preset_editor.not_json"));
                         } else {
                             ui.set_width(text_w - 14.0);
                             let changed = if p.file == 0 {

@@ -1,0 +1,1213 @@
+{
+  "_language": "English",
+  "common": {
+    "name": "Name",
+    "settings": "Settings",
+    "back": "Back",
+    "default": "Default",
+    "trees_and_rocks": "Trees and rocks",
+    "paused": "PAUSED",
+    "resume": "Resume",
+    "pause": "Pause",
+    "economy": "Economy",
+    "sight_and_radar": "Sight and radar"
+  },
+  "main_menu": {
+    "title": "LONG RANGE",
+    "tagline": "flow economy  -  long guns  -  scouts win wars",
+    "host_game": "Host game / Skirmish vs AI",
+    "lan_games": "LAN games",
+    "searching": "searching the local network...",
+    "join_host": "Join {}  ({})",
+    "or_by_ip": "Or by IP",
+    "join": "Join",
+    "game_data_presets": "Game data presets",
+    "quit": "Quit",
+    "editor_hint": "Map editor: run the lr-editor program.   F11 fullscreen."
+  },
+  "connection": {
+    "kicked_not_in_game": "You are not part of this game any more.",
+    "kicked_started": "The game has already started.",
+    "player_fallback": "player {}",
+    "host_left_now_host": "The host left - this machine is the host now. Waiting for {} ({:.0} s)",
+    "host_left_reconnecting_to": "The host left - reconnecting to {}...",
+    "host_lost": "Connection to the host was lost.",
+    "host_left_takeover_failed": "The host left, and this machine could not take over: {}",
+    "host_left_reconnecting": "The host left - reconnecting...",
+    "kicked_full": "The game is full.",
+    "kicked_removed": "You were removed by the host.",
+    "host_data_unusable": "The host's game data could not be used: {}",
+    "protocol_mismatch": "Protocol mismatch - are both players on the same version?",
+    "disconnected": "Disconnected from the host."
+  },
+  "lobby": {
+    "size_small": "small",
+    "size_medium": "medium",
+    "size_large": "large",
+    "mode_points": "Control points (hold more positions to drain the enemy)",
+    "mode_annihilation": "Annihilation (destroy the commanders)",
+    "built_in": "built-in",
+    "random_size": "Random, {} ({} x {})",
+    "mode_button": "Mode: {}",
+    "summary_points": "\nStarting points: {:.0}",
+    "summary_data": "\nGame data: {}\nAI reclaims trees and rocks: {}",
+    "yes": "yes",
+    "no": "no",
+    "summary_switched_off": "\nSwitched off: {}",
+    "summary_props": "\nMap buildings known from the start: {}",
+    "summary_terrain": "\nTerrain: {}",
+    "observers": "Observers ({}/{})",
+    "watch_instead": "Watch instead",
+    "watch_tip": "Leave your slot and only watch the game",
+    "take_a_slot": "Take a slot",
+    "take_slot_tip": "Play in the first open slot",
+    "no_slot_is_open": "No slot is open",
+    "nobody": "nobody",
+    "remove_tip": "Click to remove from the game",
+    "start_n": "Start {}",
+    "open": "Open",
+    "closed": "Closed",
+    "you_suffix": " (you)",
+    "slot_ai": "AI: {}",
+    "team_button": "Team {}",
+    "no_preview": "no preview",
+    "game_lobby": "GAME LOBBY",
+    "lan_address": "Other players on your LAN can join at {}  (port {})",
+    "slots_hint": "Click a slot to switch Open / the AI types / Closed (hover an AI for what it does). Same team number = allies.",
+    "observer_you": "{} (you)",
+    "start_button": "START",
+    "game_options": "Game options",
+    "map": "Map",
+    "starting_points": "Starting points",
+    "points_default": "(game data default)",
+    "default_points_tip": "Use the game data's value ({:.0})",
+    "points_count": "{} control points{}",
+    "points_by_map": ", placed by the map",
+    "points_auto": ", placed automatically (the map has none of its own)",
+    "game_data_button": "Game data: {}",
+    "preset_unusable": "Preset '{}' cannot be used: {}",
+    "players_button": "Players: {}",
+    "new_random_map": "New random map",
+    "random_biome": "Random ({})",
+    "terrain_button": "Terrain: {}",
+    "terrain_tip": "Ground of the random map; Random picks one from the map's seed",
+    "ai_reclaim": "AI reclaims trees and rocks",
+    "reveal_props": "Neutral and hostile buildings known from the start",
+    "map_players": "{}  ({} players)",
+    "nobody_plays": "Nobody would play: put a player or an AI in a slot.",
+    "waiting_for_host": "Waiting for the host to start...",
+    "leave": "Leave",
+    "connecting": "Connecting..."
+  },
+  "settings": {
+    "detail_low": "Low (no shadows)",
+    "medium": "Medium",
+    "high": "High",
+    "effects_low": "Low (fewest animations)",
+    "language": "Language",
+    "graphics_api": "Graphics API",
+    "automatic": "Automatic",
+    "shadows": "Shadows",
+    "off": "Off",
+    "low": "Low",
+    "effects": "Effects",
+    "effects_tip": "Low: debris appears where it lands instead of falling, explosions are smaller and give no light. For slow graphics cards.",
+    "remembered_buildings": "Remembered buildings",
+    "remembered_buildings_tip": "Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons.",
+    "show_models_in_the_fog": "Show models in the fog",
+    "neutral_buildings": "Neutral buildings",
+    "neutral_buildings_tip": "Strategic icons of neutral map buildings (houses, civic and industrial buildings). Off: only their models, at any zoom. A building someone garrisons shows that player's icon.",
+    "show_icons": "Show icons",
+    "anti_aliasing": "Anti-aliasing",
+    "fullscreen": "Fullscreen",
+    "sound_effects": "Sound effects",
+    "no_sound": "this build has no sound",
+    "projectile_size": "Projectile size",
+    "suffix_px": " px",
+    "map_icons_from_zoom": "Map icons from zoom",
+    "suffix_camera_distance": " camera distance",
+    "units_under_icons": "Units under icons",
+    "units_under_icons_tip": "Where a unit shows as its strategic icon (zoomed out, or too small to make out), its model is not drawn. Faster with big armies. Off: models stay under the icons.",
+    "hide_models": "Hide models",
+    "map_icon_size": "Map icon size",
+    "build_menu_icon_size": "Build menu icon size",
+    "suffix_pt": " pt",
+    "hotkeys": "Hotkeys",
+    "faf_alternative": "FAF alternative",
+    "running_on": "Running on: {}",
+    "restart_needed": "The graphics API changes after a restart.",
+    "graphics_errors": "{} graphics error(s) so far - details in render-errors.log. First one:",
+    "black_view_hint": "If the 3D view is black or broken, try another graphics API above.",
+    "close": "Close",
+    "restart_now_in_game": "Restart now (ends this game)",
+    "restart_now": "Restart now"
+  },
+  "hud_top_bar": {
+    "observing": "OBSERVING",
+    "power_stall": "POWER STALL",
+    "clock": "{:02}:{:02}   F1 help",
+    "your_team": "Your team",
+    "team": "Team",
+    "team_defeated": "defeated",
+    "holds_bleed": "holds {:.0} of {}   -{:.1}/s",
+    "holds": "holds {:.0} of {}",
+    "points_short_bleed": "{:.0}  -{:.1}/s",
+    "points_left": "   {:.0} pts",
+    "player_line": "{}{} (team {}){}",
+    "player_defeated": " - defeated"
+  },
+  "hud_map": {
+    "not_in_sight": "{} (not in sight)",
+    "unknown_contact": "Unknown contact",
+    "revive_one": "Revive {}:",
+    "revive_many": "Revive {} {0|wreck|wrecks|wrecks}:",
+    "reclaim": "Reclaim:"
+  },
+  "hud_unit_info": {
+    "radar_range": "Radar {:.0}",
+    "radar_level": "T{} radar {:.0} (finds stealth {})",
+    "stealth_1": "   Stealth 1: only T2+ radar finds it",
+    "stealth_2": "   Stealth 2: only T3 radar finds it",
+    "stealth_3": "   Invisible to radar",
+    "idle_engineers_hint": "Idle engineers: click selects all, right-click goes to the next one",
+    "tier": "Tier {}",
+    "rearming": "no ammo {:.0}s",
+    "no_ammo": "no ammo",
+    "reload_left": "{:.1}s",
+    "aiming": "aiming",
+    "ready": "ready",
+    "rounds_left": "  {}/{} left",
+    "weapon_line": "{}  {:.0} dmg  r{:.0}{}",
+    "reactive_charges": "Reactive armor: {}/{} charges (each stops {:.0}% of a missile)",
+    "upkeep": "-{:.0} upkeep",
+    "infantry_inside": "Infantry inside",
+    "cargo": "Cargo",
+    "cargo_count": "{}: {} / {}",
+    "upgrading_progress": "Upgrading: {:.0}%",
+    "building_progress": "Building {}: {:.0}%",
+    "tooltip_title": "{}   (tier {})",
+    "tooltip_hp_armor_stealth": "HP {:.0}   Armor {}{}",
+    "tooltip_hp_armor": "HP {:.0}   Armor {}",
+    "tooltip_reactive": "Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them",
+    "tooltip_weapon": "{}: {:.0} {} dmg",
+    "tooltip_salvo": " x{}",
+    "tooltip_reload": " every {:.1}s, range {:.0}",
+    "tooltip_rounds": ", {} rounds",
+    "tooltip_rearm": " (+1 every {:.0}s for {:.0} mass)",
+    "tooltip_min_range": " (min {:.0})",
+    "tooltip_blast": ", blast {:.1}",
+    "tooltip_traverse": ", traverse {:.0} deg/s",
+    "tooltip_aim": ", aim {:.1}s",
+    "tooltip_hold": ", fires standing, holds {:.0}s",
+    "tooltip_anti_air": ", anti-air",
+    "tooltip_binoculars": "   Binoculars {:.0} ({:.0}°)",
+    "tooltip_speed": "Speed {:.1} (reverse {:.1})   Sight {:.0}{}",
+    "factory_queue_hint": "Left-click: queue (+Shift x5).  Right-click: remove.  Drag the queue strip to reorder.",
+    "build_time": "{:.0}s"
+  },
+  "hud_orders": {
+    "move": "Move",
+    "attack_move": "Attack-move",
+    "patrol": "Patrol",
+    "attack_ground_fire": "Attack / ground fire",
+    "ground_fire": "Ground fire",
+    "capture": "Capture a neutral or enemy unit",
+    "reclaim": "Reclaim wrecks, trees and rocks (drag = area); click a building to take it apart",
+    "revive": "Revive wrecks as your own units (drag = area)",
+    "terraform": "Terraform: level, raise or lower the ground",
+    "load": "Load units (drag = area)",
+    "board": "Board a transport",
+    "unload": "Unload (drag = area)",
+    "assist": "Assist / repair (scavengers: help revive and reclaim)",
+    "stop": "Stop",
+    "repeat_build_on": "Repeat build: on",
+    "repeat_build_off": "Repeat build: off",
+    "upgrade": "Upgrade",
+    "controls_line": "LMB select    RMB order    RMB-drag line: spread units    wheel zoom    arrows / MMB pan    F1 help    Esc menu",
+    "hint_attack_move": "ATTACK-MOVE: left-click, or drag a line to spread out   (right-click cancels)",
+    "hint_patrol": "PATROL: left-click a point",
+    "hint_ground_fire": "GROUND FIRE: click a spot or a unit, or drag a circle to shell an area",
+    "hint_reclaim": "RECLAIM: click a wreck, tree, rock or building, or drag a circle to collect every wreck, tree and rock inside",
+    "hint_move": "MOVE: left-click, or drag a line to spread out",
+    "hint_assist": "ASSIST / REPAIR: left-click a friendly unit or building",
+    "hint_capture": "CAPTURE: left-click a neutral or enemy unit (not commanders or aircraft)",
+    "hint_revive": "REVIVE: click a wreck, or drag a circle to bring back everything inside",
+    "hint_terraform_level": "TERRAFORM: drag a circle to level it to the height at its centre.  Mouse wheel: raise or lower instead",
+    "hint_terraform_amount": "TERRAFORM: drag a circle to {} it by {:.0}.  Mouse wheel changes the amount (0 = level)",
+    "terraform_raise": "raise",
+    "terraform_lower": "lower",
+    "hint_load_units": "LOAD: click a unit, or drag a circle to pick up everything inside",
+    "hint_board": "LOAD: click the transport to board (infantry: or a building to occupy)",
+    "hint_unload": "UNLOAD: click or drag a circle; the cargo is set down spread over it",
+    "hint_build_deposit": "BUILD {}: click a deposit, or drag a circle to queue every deposit inside",
+    "hint_build": "BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing."
+  },
+  "hud_screens": {
+    "paused_by_you": " by you",
+    "paused_by": " by {}",
+    "paused_hint": "Paused{}.  Pause, Ctrl+P or the button at the top resumes.",
+    "game_over": "GAME OVER",
+    "won_by": "Won by {}.  Press Esc for the menu",
+    "victory": "VICTORY",
+    "defeat": "DEFEAT",
+    "press_esc_for_the_menu": "Press Esc for the menu",
+    "commander_lost": "Your commander was destroyed - spectating",
+    "menu": "MENU",
+    "resume_game": "Resume game",
+    "pause_game": "Pause game",
+    "back_to_game": "Back to game",
+    "resign": "Resign",
+    "quit_to_main_menu": "Quit to main menu"
+  },
+  "hud_help": {
+    "title": "CONTROLS",
+    "left_click_drag_select_box_select": "Left click / drag: select, box select.  Double-click: all of that type on screen.  Shift: add.",
+    "right_click_move_attack_enemy_assist": "Right click: move / attack enemy / assist or repair friend / reclaim wreck (engineers alone: also trees and rocks).  Shift: queue.",
+    "right_drag_a_line_spread_the": "Right-drag a line: spread the selected units along it (Alt: attack-move).",
+    "faf_alternative_keys_w_move_alt": "FAF alternative keys:  W move   Alt+W patrol   R attack / ground fire (drag = area)   Q reclaim (drag = area)",
+    "a_attack_move_p_patrol_s": "A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)",
+    "i_t_assist_repair_esc_stop": "I / T assist, repair   Esc stop   O upgrade   ` factory repeat   F10 menu   Alt+right-click attack-move",
+    "u_upgrade_pumps_factories_r_factory": "U upgrade (pumps, factories)    R factory repeat    . idle builder    , commander",
+    "hotbuild_press_again_to_cycle_z": "Hotbuild (press again to cycle): Z builders/factories  X mass  C power  V radar/scouts  G direct fire",
+    "hotkey_preset_can_be_switched_to": "Hotkey preset can be switched to FAF alternative in the Esc menu.",
+    "s_artillery_d_anti_air_y": "                                 S artillery  D anti-air  Y missiles  M engineering station",
+    "ctrl_k_self_destruct_shift_0": "Ctrl+K self-destruct.  Shift+0-9 adds a group to the selection.",
+    "select_ctrl_a_air_ctrl_d": "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
+    "ctrl_shift_d_a_nearest_land": "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
+    "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
+    "factory_menu_left_click_queues": "Factory menu: left-click queues (Shift x5), right-click removes.",
+    "ctrl_0_9_set_group_0": "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
+    "tab_pauses_resumes_the_selection": "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
+    "wheel_zoom_arrows_or_middle_drag": "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.  Pause / Ctrl+P pauses the game.",
+    "radar_is_blocked_by_hills_seen": "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
+    "l_load_board_a_transport_k": "L load / board a transport   K unload (drag = area)   J revive wrecks (scavengers, drag = area)",
+    "reclaim_click_a_wreck_tree_rock": "Reclaim: click a wreck, tree, rock or building, drag = every wreck, tree and rock in the circle.  Terraform button: drag a circle, wheel = raise / lower.",
+    "a_box_selects_the_army_engineers": "A box selects the army; engineers and the commander only when no fighting unit is inside (or use Ctrl+B / ,)."
+  },
+  "units": {
+    "commander": {
+      "name": "Commander",
+      "desc": "Command mech. Builds the base. Lose it and you lose the battle."
+    },
+    "engineer": {
+      "name": "Engineer",
+      "desc": "Builds tier 1 structures, assists, repairs and reclaims."
+    },
+    "scavenger": {
+      "name": "Scavenger",
+      "desc": "Cannot build. Reclaims wrecks, debris, trees and rocks, or revives wrecks as working units for your side (right-click a wreck, or J and drag a circle)."
+    },
+    "apc": {
+      "name": "Mule",
+      "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed."
+    },
+    "buggy": {
+      "name": "Buggy",
+      "desc": "Land scout. Fast, fragile, long sight - the eyes of your guns."
+    },
+    "trooper": {
+      "name": "Trooper",
+      "desc": "Armored assault bot. Cheap plasma gun that also hurts armor."
+    },
+    "at_trooper": {
+      "name": "AT Trooper",
+      "desc": "Infantry with a guided anti-tank missile and three rounds of it; spent rounds come back one a minute for mass. Slow to reload; best fired from cover or from a building."
+    },
+    "sniper_trooper": {
+      "name": "Sniper Trooper",
+      "desc": "Marksman with a long rifle. Slow, accurate shots; also picks off infantry inside buildings from afar without harming the building."
+    },
+    "sam_trooper": {
+      "name": "SAM Trooper",
+      "desc": "Infantry with a shoulder-fired homing anti-air missile and four rounds of it; spent rounds come back one a minute for mass. Aircraft only."
+    },
+    "overtaker": {
+      "name": "Overtaker M1",
+      "desc": "Light tank. Quick flanker with a 75 mm gauss cannon."
+    },
+    "pike": {
+      "name": "Pike Mortar",
+      "desc": "Mobile mortar. High-arc fire over hills, range 25-100. Slow traverse. Fires only standing and stays put 3 s after each shot."
+    },
+    "mbfag": {
+      "name": "MBFAG-113",
+      "desc": "Mobile anti-air system. Rotary cannon bursts, long reach against aircraft."
+    },
+    "flak_carrier": {
+      "name": "Hailstorm",
+      "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells at aircraft out to 100; cannot shoot at the ground."
+    },
+    "mobile_sam": {
+      "name": "Skylance",
+      "desc": "Mobile SAM on the Robin chassis. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides a heavy homing missile at aircraft out to 130, then it reloads for 10 s."
+    },
+    "radar_car": {
+      "name": "UC-01R Radar",
+      "desc": "Mobile T1 radar: finds unstealthed units within 120. Hills block it. Needs energy."
+    },
+    "radar_car2": {
+      "name": "UC-02R Radar",
+      "desc": "Mobile T2 radar: finds unstealthed units within 180 and stealth 1 units (T2 aircraft) within 110. Hills block it. Costly to run."
+    },
+    "radar_car3": {
+      "name": "UC-03R Radar",
+      "desc": "Mobile T3 radar: finds unstealthed units within 260, stealth 1 units within 180 and stealth 2 units (T3 aircraft) within 100. Infantry never show on radar. Hills block it. Very costly to run."
+    },
+    "crony": {
+      "name": "Crony M1",
+      "desc": "Main battle tank. Slow turret, heavy armor, 200 damage at range 80."
+    },
+    "dragoon": {
+      "name": "Dragoon ARV",
+      "desc": "Armored recon vehicle. Very fast, long sight, 7-round autocannon bursts."
+    },
+    "robin": {
+      "name": "Robin",
+      "desc": "Mobile anti-tank. One guided missile every 30 seconds; it kills most tanks."
+    },
+    "sparky": {
+      "name": "Sparky",
+      "desc": "Field engineer. Builds up to tier 2 and, alone, field works: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar."
+    },
+    "engineer2": {
+      "name": "Engineer Mk2",
+      "desc": "Builds tier 1-2 structures."
+    },
+    "bohdana": {
+      "name": "Bohdana",
+      "desc": "Self-propelled howitzer. Range 60-300. Slow to aim, useless without spotters. Fires only standing and stays put 5 s after each shot."
+    },
+    "bastion": {
+      "name": "Bastion",
+      "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 320 damage at range 90, slow turret."
+    },
+    "engineer3": {
+      "name": "Engineer Mk3",
+      "desc": "Builds every structure."
+    },
+    "air_scout": {
+      "name": "Kestrel",
+      "desc": "Air scout. Huge sight radius, unarmed."
+    },
+    "interceptor": {
+      "name": "Cyclone-L",
+      "desc": "Interceptor. Fixed forward railguns, air targets only."
+    },
+    "interceptor3": {
+      "name": "Cyclone-H",
+      "desc": "Heavy air superiority fighter. Railguns for aircraft only. Stealth 2, and its own T3 fire-control radar finds stealthed aircraft within 80 (needs energy)."
+    },
+    "bomber": {
+      "name": "Firebrand",
+      "desc": "Attack bomber. Runs over its target, drops a stick of five bombs across it, flies on and comes round for the next pass."
+    },
+    "fighter_bomber": {
+      "name": "Harrier FB",
+      "desc": "Fighter-bomber. Fast; railguns for aircraft and a pair of bombs for ground targets."
+    },
+    "gunship": {
+      "name": "Hornet",
+      "desc": "Gunship. Hovers and rakes ground units with riot gun bursts, infantry first."
+    },
+    "air_transport": {
+      "name": "Stork",
+      "desc": "Transport aircraft. Lifts eight land units over cliffs and water (L load, K unload). Unarmed."
+    },
+    "fast_transport": {
+      "name": "Swift",
+      "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries eight land units like it (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed."
+    },
+    "delivery_boy": {
+      "name": "Delivery Boy",
+      "desc": "Prototype heavy bomber. One enormous bomb, armored airframe."
+    },
+    "pump": {
+      "name": "Mass Pump",
+      "desc": "Extracts mass from a deposit. Upgradeable (U)."
+    },
+    "pump2": {
+      "name": "Mass Pump Mk2",
+      "desc": "Triple output, more upkeep. Built by tier 2+ engineers or upgraded from a Mass Pump (U)."
+    },
+    "pump3": {
+      "name": "Mass Pump Mk3",
+      "desc": "Maximum extraction, heavy energy upkeep. Built by tier 3 engineers or upgraded from a Mk2 pump."
+    },
+    "windmill": {
+      "name": "Windmill",
+      "desc": "Cheap power: +20 energy."
+    },
+    "power_plant": {
+      "name": "Power Plant",
+      "desc": "Reliable power: +120 energy. Explodes when destroyed."
+    },
+    "solar": {
+      "name": "Solar Field",
+      "desc": "Massive power: +400 energy."
+    },
+    "energy_storage": {
+      "name": "Energy Storage",
+      "desc": "Stores 5000 energy. Explodes violently."
+    },
+    "mass_storage": {
+      "name": "Mass Storage",
+      "desc": "Stores 500 mass."
+    },
+    "land_factory": {
+      "name": "Land Factory",
+      "desc": "Builds tier 1 land units. Upgrade (U) for higher tiers."
+    },
+    "land_factory2": {
+      "name": "Land Factory Mk2",
+      "desc": "Builds tier 1-2 land units. Right-click sets the rally point."
+    },
+    "land_factory3": {
+      "name": "Land Factory Mk3",
+      "desc": "Builds tier 1-3 land units. Right-click sets the rally point."
+    },
+    "air_factory": {
+      "name": "Air Factory",
+      "desc": "Builds tier 1 air units. Upgrade (U) for higher tiers."
+    },
+    "air_factory2": {
+      "name": "Air Factory Mk2",
+      "desc": "Builds tier 1-2 air units. Right-click sets the rally point."
+    },
+    "air_factory3": {
+      "name": "Air Factory Mk3",
+      "desc": "Builds tier 1-3 air units. Right-click sets the rally point."
+    },
+    "hmg_turret": {
+      "name": "HMG Turret",
+      "desc": "Point defense. Shreds bots and scouts, bounces off armor."
+    },
+    "gauss_turret": {
+      "name": "Gauss Turret",
+      "desc": "Anti-armor emplacement. High-arc fire, range 30-90, very slow traverse."
+    },
+    "aa_turret": {
+      "name": "DA1 Railgun",
+      "desc": "Anti-air turret."
+    },
+    "sam": {
+      "name": "Skyspear SAM",
+      "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 25 s."
+    },
+    "aa_turret3": {
+      "name": "DA3 Railgun Battery",
+      "desc": "Heavy anti-air battery: twin long railguns guided by its own T3 radar (finds stealth 2 aircraft within 120; needs energy)."
+    },
+    "radar_tower": {
+      "name": "Radar Tower",
+      "desc": "T1 radar: finds unstealthed units within 160. Blocked by terrain - build it on high ground. Needs energy. Upgradeable (U)."
+    },
+    "radar_tower2": {
+      "name": "Radar Tower Mk2",
+      "desc": "T2 radar: finds unstealthed units within 250 and stealth 1 units (T2 aircraft) within 160. Blocked by terrain. Costly to run. Built by tier 2+ engineers or upgraded from a Radar Tower (U)."
+    },
+    "radar_tower3": {
+      "name": "Radar Tower Mk3",
+      "desc": "T3 radar: finds unstealthed units within 360, stealth 1 units within 250 and stealth 2 units (T3 aircraft) within 150. Infantry never show on radar. Blocked by terrain. Very costly to run. Built by tier 3 engineers or upgraded from a Radar Tower Mk2 (U)."
+    },
+    "eng_station": {
+      "name": "Engineering Station",
+      "desc": "Automatically assists every construction, upgrade and repair within its radius."
+    },
+    "heavy_battery": {
+      "name": "M1 Heavy Battery",
+      "desc": "Fortified 120 mm gun. Range 40-200, big blast, traverses at a crawl."
+    },
+    "sandbags": {
+      "name": "Sandbags",
+      "desc": "A stretch of sandbag wall; drag to build a line. Enemy shots that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry take cover behind it. Units can cross it."
+    },
+    "trench": {
+      "name": "Trench",
+      "desc": "A piece of trench; drag to build a line. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time."
+    },
+    "field_bunker": {
+      "name": "Field Bunker",
+      "desc": "Concrete bunker for up to 4 infantry, who fire from it and take only a small share of the hits on it."
+    },
+    "watch_tower": {
+      "name": "Watch Tower",
+      "desc": "Tall lookout for up to 2 infantry: from its platform they see and use their binoculars 1.6 times as far, over trees and low hills, and fire from up there."
+    },
+    "house": {
+      "name": "House",
+      "desc": "Residential building."
+    },
+    "row_house": {
+      "name": "Row House",
+      "desc": "Residential building."
+    },
+    "apartment": {
+      "name": "Apartment Block",
+      "desc": "Residential high-rise."
+    },
+    "warehouse": {
+      "name": "Warehouse",
+      "desc": "Industrial storage. Leaves plenty of scrap."
+    },
+    "refinery": {
+      "name": "Refinery",
+      "desc": "Industrial plant. Burns fiercely when destroyed."
+    },
+    "fuel_tank": {
+      "name": "Fuel Tank",
+      "desc": "Industrial. Explodes when hit hard enough."
+    },
+    "pylon": {
+      "name": "Power Pylon",
+      "desc": "Infrastructure."
+    },
+    "comm_tower": {
+      "name": "Comm Tower",
+      "desc": "Infrastructure."
+    },
+    "water_tower": {
+      "name": "Water Tower",
+      "desc": "Infrastructure."
+    },
+    "house2": {
+      "name": "Modern House 1",
+      "desc": "Residential building."
+    },
+    "house3": {
+      "name": "Modern House 2",
+      "desc": "Residential building."
+    },
+    "house4": {
+      "name": "Modern House 3",
+      "desc": "Residential building."
+    },
+    "house5": {
+      "name": "Modern House 4",
+      "desc": "Residential building."
+    },
+    "house6": {
+      "name": "Modern House 5",
+      "desc": "Residential building."
+    },
+    "house7": {
+      "name": "Modern House 6",
+      "desc": "Residential building."
+    },
+    "house8": {
+      "name": "Modern House 7",
+      "desc": "Residential building."
+    },
+    "house9": {
+      "name": "Modern House 8",
+      "desc": "Residential building."
+    },
+    "old_house2": {
+      "name": "Old House 1",
+      "desc": "Residential building."
+    },
+    "old_house3": {
+      "name": "Old House 2",
+      "desc": "Residential building."
+    },
+    "old_house4": {
+      "name": "Old House 3",
+      "desc": "Residential building."
+    },
+    "corner_house1": {
+      "name": "Corner House 1",
+      "desc": "Residential building."
+    },
+    "corner_house2": {
+      "name": "Corner House 2",
+      "desc": "Residential building."
+    },
+    "corner_house3": {
+      "name": "Corner House 3",
+      "desc": "Residential building."
+    },
+    "corner_house4": {
+      "name": "Corner House 4",
+      "desc": "Residential building."
+    },
+    "apartment2": {
+      "name": "Apartment Building",
+      "desc": "Residential building."
+    },
+    "church": {
+      "name": "Church",
+      "desc": "Public building."
+    },
+    "grocery": {
+      "name": "Grocery Store",
+      "desc": "Public building."
+    },
+    "containers": {
+      "name": "Container Stack 1",
+      "desc": "Industrial building. Leaves scrap to reclaim."
+    },
+    "containers2": {
+      "name": "Container Stack 2",
+      "desc": "Industrial building. Leaves scrap to reclaim."
+    },
+    "residential_tower": {
+      "name": "Residential Tower",
+      "desc": "Residential building."
+    },
+    "science_lab": {
+      "name": "Science Lab",
+      "desc": "Public building."
+    },
+    "admin_building": {
+      "name": "Administrative Building",
+      "desc": "Public building."
+    },
+    "admin_hall": {
+      "name": "Administration Hall",
+      "desc": "Public building."
+    },
+    "high_command": {
+      "name": "High Command",
+      "desc": "Public building."
+    },
+    "farm": {
+      "name": "Agricultural Center",
+      "desc": "Industrial building. Leaves scrap to reclaim."
+    },
+    "plant": {
+      "name": "Manufacturing Plant",
+      "desc": "Industrial building. Leaves scrap to reclaim."
+    },
+    "bunker": {
+      "name": "Bunker",
+      "desc": "Fortified position. Hostile garrisons shoot at anything in range."
+    }
+  },
+  "weapons": {
+    "arm_cannon": "Arm Cannon",
+    "tom_cat_machinegun": "Tom Cat Machinegun",
+    "plasma_gun": "Plasma Gun",
+    "guided_at_missile": "Guided AT Missile",
+    "sniper_rifle": "Sniper Rifle",
+    "homing_aa_missile": "Homing AA Missile",
+    "gauss_cannon": "Gauss Cannon",
+    "heavy_machinegun": "Heavy Machinegun",
+    "mortar": "Mortar",
+    "rotary_cannon_air": "Rotary Cannon (Air)",
+    "rotary_cannon_ground": "Rotary Cannon (Ground)",
+    "twin_flak_cannon": "Twin Flak Cannon",
+    "skylance_missile": "Skylance Missile",
+    "autocannon": "Autocannon",
+    "guided_missile": "Guided Missile",
+    "riot_gun": "Riot Gun",
+    "155_mm_howitzer": "155 mm Howitzer",
+    "heavy_gauss_cannon": "Heavy Gauss Cannon",
+    "linked_railgun": "Linked Railgun",
+    "heavy_linked_railgun": "Heavy Linked Railgun",
+    "bomb_stick": "Bomb Stick",
+    "bomb_pair": "Bomb Pair",
+    "heavy_bomb": "Heavy Bomb",
+    "heavy_machine_gun": "Heavy Machine Gun",
+    "gauss_mortar": "Gauss Mortar",
+    "sam_missile": "SAM Missile",
+    "twin_heavy_railgun": "Twin Heavy Railgun",
+    "120_mm_gun": "120 mm Gun",
+    "garrison_mg": "Garrison MG"
+  },
+  "terrain": {
+    "grass": "Grass",
+    "meadow": "Dry meadow",
+    "forest_floor": "Forest floor",
+    "dirt": "Dirt",
+    "mud": "Mud",
+    "sand": "Sand",
+    "dunes": "Desert sand",
+    "cracked": "Cracked earth",
+    "snow": "Snow",
+    "ice": "Ice",
+    "stone": "Stone",
+    "gravel": "Gravel",
+    "paving": "Paving",
+    "asphalt": "Asphalt",
+    "dirt_road": "Dirt track",
+    "biome_temperate": "Temperate",
+    "biome_desert": "Desert",
+    "biome_arctic": "Arctic",
+    "biome_rocky_highland": "Rocky highland"
+  },
+  "ai": {
+    "simple": "Simple",
+    "simple_desc": "the old AI: builds up at home and attacks in growing waves",
+    "overseer": "Overseer",
+    "overseer_desc": "changes its strategy with the situation: rush, eco and tech, air, turtle, commander kill (after M27)",
+    "zones": "Zones",
+    "zones_desc": "takes and holds the map zone by zone, scouts everything, helps allies (after M28)",
+    "adaptive": "Adaptive",
+    "adaptive_desc": "expands wide, raids extractors, builds what counters your army (after RNG)",
+    "rusher": "Rusher",
+    "rusher_desc": "many factories, cheap units, early and constant attacks",
+    "turtle": "Turtle",
+    "turtle_desc": "turrets, radar and long range guns; techs up and attacks late"
+  },
+  "preset_editor": {
+    "saved": "Saved preset '{}'.",
+    "not_saved": "Not saved: {}",
+    "fix_json_text": "Fix the JSON in the text box first.",
+    "unit_copied": "Copied. Give the copy its own id and icon (shape, glyphs or tier), then save.",
+    "unit_removed": "Removed (not saved yet). Saving fails if something still refers to the unit.",
+    "title": "GAME DATA PRESETS",
+    "intro": "A preset is a named copy of the game data (unit stats, costs, rules) that you can change. The host picks one in the lobby; the other players receive it when the game starts. Hover over a setting to see what it does.",
+    "presets": "Presets",
+    "none_yet": "none yet",
+    "new_preset": "New preset:",
+    "create_from_the_built_in_data": "Create from the built-in data",
+    "create_as_a_copy_of": "Create as a copy of '{}'",
+    "name_needed": "Type a name first (letters, digits, spaces, - and _).",
+    "name_taken": "There already is a preset '{}'.",
+    "created": "Created '{}'.",
+    "really_delete": "Really delete '{}'?",
+    "delete": "Delete '{}'",
+    "deleted": "Deleted '{}'.",
+    "pick_preset": "Pick a preset on the left, or create one.",
+    "files": "Files",
+    "units": "Units",
+    "fix_before_switching": "{}  (fix it before switching)",
+    "check_and_save": "Check and save",
+    "check_and_save_tip": "Checks the data the way the game loads it and writes the preset if it is sound.",
+    "form_view": "Form view",
+    "json_view": "JSON view",
+    "form_view_tip": "Edit with checkboxes, number fields and lists.",
+    "json_view_tip": "Edit the raw JSON: every setting, including model files and turret bones.",
+    "fix_the_json_first": "Fix the JSON first: {}",
+    "copy_unit": "Copy unit",
+    "remove_unit": "Remove unit",
+    "not_json": "This does not read as JSON; switch to the JSON view to fix it.",
+    "own_value": "own value",
+    "default": "default",
+    "none": "none"
+  },
+  "preset_rules": {
+    "switch_terraforming": "Terraforming",
+    "switch_terraforming_tip": "Engineers and commanders can level, raise and lower the ground (the Terraform button). Off: the button is gone and terraform orders are ignored.",
+    "switch_craters": "Craters",
+    "switch_craters_tip": "Heavy hits and death blasts dig shell holes into the ground (their size is set under Craters and terraforming). Off: shelling never changes the ground.",
+    "switch_wrecks": "Wrecks (debris)",
+    "switch_wrecks_tip": "Destroyed units leave wrecks: they hold mass to reclaim, give cover against shots and block sight. Off: destroyed units leave nothing behind. A unit's own 'Leaves a wreck' setting still applies when this is on.",
+    "switch_sight_blocked_by_terrain": "Hills block sight",
+    "switch_sight_blocked_by_terrain_tip": "A unit only sees what it has a clear line to over the terrain. Off: units see everything within their vision range, hills or not.",
+    "switch_sight_blocked_by_reclaimables": "Trees, rocks and wrecks block sight",
+    "switch_sight_blocked_by_reclaimables_tip": "Standing trees, rocks and wrecks block the view like small hills. Off: sight passes through them (they still soak up shots as cover).",
+    "switch_sight_blocked_by_buildings": "Buildings block sight",
+    "switch_sight_blocked_by_buildings_tip": "Finished buildings (yours, enemy and map buildings) block the view behind them up to their height. Infantry inside a building still look out from its roof, and a building never hides itself. Off: sight passes through buildings.",
+    "switch_radar_blocked_by_terrain": "Hills block radar",
+    "switch_radar_blocked_by_terrain_tip": "Radar needs a clear line over the terrain, looking from 'Radar eye height' above the unit. Off: radar sees through hills.",
+    "switch_ghosts_show_destroyed": "Dim destroyed remembered buildings",
+    "switch_ghosts_show_destroyed_tip": "An enemy building you have seen and then lost sight of stays on your map as you last saw it. When it is destroyed while nobody of your team looks, its model turns dim (as in SupCom), so you know it is gone without scouting. Off: it looks intact until you see the empty spot.",
+    "switch_friendly_fire": "Friendly fire",
+    "switch_friendly_fire_tip": "Shots and blasts also hurt your own and allied units, not just enemies.",
+    "eco_start_mass": "Starting mass",
+    "eco_start_mass_tip": "Mass every player has at the start.",
+    "eco_start_energy": "Starting energy",
+    "eco_start_energy_tip": "Energy every player has at the start.",
+    "eco_reclaim_rate": "Reclaim speed",
+    "eco_reclaim_rate_tip": "Mass reclaimed per second for every point of an engineer's build power.",
+    "eco_reclaim_energy_factor": "Reclaim energy speed-up",
+    "eco_reclaim_energy_factor_tip": "Reclaiming trees and rocks: energy comes this many times faster than mass.",
+    "eco_repair_rate": "Repair speed",
+    "eco_repair_rate_tip": "Hit points repaired per second for every point of build power.",
+    "eco_power_stall_pump_factor": "Pump output when out of energy",
+    "eco_power_stall_pump_factor_tip": "When energy runs out, mass pumps produce at least this share of their output.",
+    "eco_capture_time": "Capture time",
+    "eco_capture_time_tip": "Capturing a unit takes its build time times this, at the engineer's build power.",
+    "eco_capture_energy": "Capture energy cost",
+    "eco_capture_energy_tip": "Share of the target's energy cost that capturing it uses up.",
+    "combat_gravity": "Gravity",
+    "combat_gravity_tip": "Pulls every shell and bomb down (units per second squared). Higher: shorter, steeper arcs and less reach for artillery.",
+    "combat_commander_death_damage": "Commander death blast: damage",
+    "combat_commander_death_damage_tip": "Damage of the explosion when a commander dies.",
+    "combat_commander_death_radius": "Commander death blast: radius",
+    "combat_commander_death_radius_tip": "Radius of the explosion when a commander dies.",
+    "combat_armor_front": "Armor angle: front",
+    "combat_armor_front_tip": "Armored units (category armored) take this share of a hit head on. Between front, side and rear it blends with the angle; shells falling steeply count the angle less, one falling straight down not at all.",
+    "combat_armor_side": "Armor angle: side",
+    "combat_armor_side_tip": "Share of a hit an armored unit takes from the side.",
+    "combat_armor_rear": "Armor angle: rear",
+    "combat_armor_rear_tip": "Share of a hit an armored unit takes from behind.",
+    "intel_near_sight": "Close-range sight",
+    "intel_near_sight_tip": "Everything closer than this to a unit is seen at once, whatever stands in between.",
+    "intel_spot_forget": "Spotting progress lost after (s)",
+    "intel_spot_forget_tip": "Units with a time to spot: how long out of the enemy's view until he has to start spotting them from nothing again.",
+    "intel_vision_los_height": "Eye height",
+    "intel_vision_los_height_tip": "Units look from this high above their top; a higher eye sees over more hills and trees.",
+    "intel_radar_los_height": "Radar eye height",
+    "intel_radar_los_height_tip": "Radar looks from this high above the unit's top (when hills block radar).",
+    "intel_radar_fade_secs": "Radar blip memory (s)",
+    "intel_radar_fade_secs_tip": "How long the blip of a moving unit stays on the map after radar has lost it.",
+    "wrecks_wreck_mass_fraction": "Wreck mass",
+    "wrecks_wreck_mass_fraction_tip": "A wreck holds this share of the unit's mass cost (a building taken apart gives the same).",
+    "wrecks_max_wrecks": "Most wrecks on the map",
+    "wrecks_max_wrecks_tip": "At most this many wrecks lie on the map at once; the oldest disappear first.",
+    "wrecks_wreck_hp": "Wreck hit points",
+    "wrecks_wreck_hp_tip": "A wreck's hit points as a share of the unit's. Shells and blasts wear wrecks down; the mass goes with the hit points.",
+    "wrecks_wreck_cover": "Wreck cover",
+    "wrecks_wreck_cover_tip": "Share of a shot's damage a wreck soaks up when the shot passes through it.",
+    "cover_grace": "Cover grace distance",
+    "cover_grace_tip": "Trees, rocks and wrecks closer than this to the shooter give no cover from its shots (units fire out from behind their own cover).",
+    "cover_search": "Infantry cover search",
+    "cover_search_tip": "Infantry look for cover within this distance of where they were sent.",
+    "cover_threat_range": "Infantry threat range",
+    "cover_threat_range_tip": "Infantry take cover from known armed enemies up to this far away.",
+    "cover_garrison_eject_damage": "Garrison eject damage",
+    "cover_garrison_eject_damage_tip": "Infantry thrown out of a destroyed building lose this share of their hit points.",
+    "cover_garrison_damage": "Garrison hit share",
+    "cover_garrison_damage_tip": "Infantry inside a building take this share of every hit on it (their own armor applies).",
+    "cover_garrison_vision": "Roof vision",
+    "cover_garrison_vision_tip": "Infantry inside a building look out from its roof: their vision and binocular range times this.",
+    "cover_garrison_defense": "Garrison defence bonus",
+    "cover_garrison_defense_tip": "Infantry holding a building deal this many times their close-quarters (assault) damage to infantry storming it.",
+    "terrain_crater_scale": "Crater depth",
+    "terrain_crater_scale_tip": "Crater depth = this x the square root of the damage. 0 = no craters.",
+    "terrain_crater_max_depth": "Deepest crater",
+    "terrain_crater_max_depth_tip": "Shelling never digs deeper than this below the original ground.",
+    "terrain_crater_min_damage": "Least damage for a crater",
+    "terrain_crater_min_damage_tip": "Hits weaker than this leave no mark on the ground.",
+    "terrain_terraform_rate": "Terraform speed",
+    "terrain_terraform_rate_tip": "Ground height moved per second for every point of build power.",
+    "terrain_terraform_energy": "Terraform energy",
+    "terrain_terraform_energy_tip": "Energy per unit of ground height moved.",
+    "terrain_terraform_max": "Terraform limit",
+    "terrain_terraform_max_tip": "Terraforming stays within this height of the original ground.",
+    "points_cp_radius": "Capture radius",
+    "points_cp_radius_tip": "Control points mode: units within this distance of a point take it.",
+    "points_cp_capture_secs": "Capture time (s)",
+    "points_cp_capture_secs_tip": "Seconds a team needs to take a control point.",
+    "points_cp_start_points": "Starting points",
+    "points_cp_start_points_tip": "Points every team starts with (the host can pick another number in the lobby). A team at 0 is defeated.",
+    "points_cp_bleed": "Bleed per second",
+    "points_cp_bleed_tip": "A team holding fewer control points than its strongest opponent loses this many points per second for each point of difference.",
+    "feature_id": "Id",
+    "feature_id_tip": "Name maps use for this type. Changing it breaks maps that place it.",
+    "feature_name": "Name",
+    "feature_name_tip": "Shown in the game.",
+    "feature_class": "Class",
+    "feature_class_tip": "Where the map generator puts it: trees in woods, rocks in clusters.",
+    "feature_shape": "Shape",
+    "feature_shape_tip": "How it is drawn; also its height, footprint and default cover.",
+    "feature_mass": "Mass",
+    "feature_mass_tip": "Mass an engineer gets by reclaiming it.",
+    "feature_energy": "Energy",
+    "feature_energy_tip": "Energy an engineer gets by reclaiming it.",
+    "feature_size": "Size",
+    "feature_size_tip": "Scale of the model (1 = a pine about 3 units tall, a rock about 1 unit across).",
+    "feature_hp": "Hit points",
+    "feature_hp_tip": "Weapon damage that destroys it (times the map's scale for it). 0 = a default by shape and size.",
+    "feature_cover": "Cover",
+    "feature_cover_tip": "Share of a shot's damage it soaks up when the shot passes through it. Unticked: by shape (pine 0.3, broadleaf 0.35, bush 0.15, rock 0.65).",
+    "feature_weight": "Generator weight",
+    "feature_weight_tip": "How often the map generator picks it among the features of its class.",
+    "feature_color": "Colour",
+    "feature_color_tip": "Foliage or stone colour.",
+    "feature_trunk": "Trunk colour",
+    "feature_trunk_tip": "Colour of the trunk (trees).",
+    "switches": "Switches",
+    "switches_hint": "Turn whole game features on or off. Hover over a name for what it does.",
+    "combat": "Combat",
+    "wrecks": "Wrecks",
+    "cover_and_infantry": "Cover and infantry",
+    "craters_and_terraforming": "Craters and terraforming",
+    "control_points_mode": "Control points mode",
+    "armor_table": "Armor table",
+    "colours": "Colours",
+    "armor_table_hint": "Damage a hit does = weapon damage x the number for the target's armor (row) and the weapon's damage type (column). Add or rename armor classes and damage types in the JSON view.",
+    "armor_column_tip": "Weapons with damage type {}",
+    "armor_row_tip": "Units with armor {}",
+    "armor_cell_tip": "{} damage against {} armor is multiplied by this (1 = full damage, 0 = none).",
+    "features_hint": "Reclaimable trees and rocks that maps place. Maps refer to them by id.",
+    "feature_copy": "Copy",
+    "feature_copy_tip": "Add a copy of this type (give it its own id).",
+    "feature_remove": "Remove",
+    "feature_remove_tip": "Remove this type. Maps that place it can then not be played with this preset.",
+    "player_colours": "Players",
+    "players_tip": "Team colours, in slot order (10 for 10 players).",
+    "player_n": "Player {}",
+    "neutral": "Neutral",
+    "neutral_tip": "Colour of neutral map buildings.",
+    "hostile": "Hostile",
+    "hostile_tip": "Colour of the hostile side's units and buildings."
+  },
+  "preset_units": {
+    "general_id": "Id",
+    "general_id_tip": "Unique name the data refers to the unit by (upgrades, commanders, map props). Rename it everywhere if you change it.",
+    "general_name": "Name",
+    "general_name_tip": "Shown in the game.",
+    "general_desc": "Description",
+    "general_desc_tip": "Shown in the build menu tooltip.",
+    "general_tier": "Tier",
+    "general_tier_tip": "Tech level: a builder of tier N can build units up to tier N. Also the ticks under the strategic icon.",
+    "general_hp": "Hit points",
+    "general_hp_tip": "Damage the unit takes before it is destroyed.",
+    "general_armor": "Armor",
+    "general_armor_tip": "Armor class: decides how much each damage type hurts it (Armor table in rules.json).",
+    "general_categories": "Categories",
+    "general_categories_tip": "Special roles. infantry: takes cover behind trees, rocks and wrecks and can occupy buildings. armored: what cannons (target priority armored) shoot first.",
+    "general_built_by": "Built by",
+    "general_built_by_tip": "Build category: builders and factories that build this category can make it. none = nobody builds it.",
+    "general_buildable": "Buildable",
+    "general_buildable_tip": "Off: it never shows in a build menu (map buildings, units that only come from upgrades).",
+    "general_needs_deposit": "Needs a mass deposit",
+    "general_needs_deposit_tip": "Can only be placed on a mass deposit (extractors).",
+    "general_upgrade": "Upgrades to",
+    "general_upgrade_tip": "The unit this one turns into when upgraded in place (factories, pumps).",
+    "general_wreck": "Leaves a wreck",
+    "general_wreck_tip": "Leaves a wreck when destroyed (aircraft never do, and the Wrecks switch in rules.json turns all of them off).",
+    "general_cargo": "Cargo slots",
+    "general_cargo_tip": "Slots it takes in a transport; 0 = cannot be carried.",
+    "general_assault": "Close-quarters damage",
+    "general_assault_tip": "Infantry: damage per second in the fight for an occupied building, storming it (ordered into an enemy-held building) or holding it. 0 = cannot storm buildings.",
+    "general_select_sound": "Selection sound",
+    "general_select_sound_tip": "Sound played when it is selected; none = chosen by role.",
+    "cost_mass": "Mass",
+    "cost_mass_tip": "Mass it costs to build.",
+    "cost_energy": "Energy",
+    "cost_energy_tip": "Energy it costs to build.",
+    "cost_time": "Build time",
+    "cost_time_tip": "Build work: seconds it takes at 1 build power (an engineer with build power 10 needs a tenth of it).",
+    "body_size": "Size (width, height, length)",
+    "body_size_tip": "Collision box: shots hit it (unless a hit radius / height is set below) and units bump into it. Height also sets where it looks from.",
+    "body_hit_radius": "Hit radius",
+    "body_hit_radius_tip": "Radius of what shots and blasts hit. Unset = half the size (structures: the footprint).",
+    "body_hit_height": "Hit height",
+    "body_hit_height_tip": "Height of what shots and blasts hit. Unset = the size's height.",
+    "body_footprint": "Footprint (cells)",
+    "body_footprint_tip": "Structures: side length on the build grid (1 cell = 2 units). Mobile units: 0.",
+    "body_move_kind": "Movement",
+    "body_move_kind_tip": "none = a structure; land drives, hover floats over water, plane flies.",
+    "body_move_speed": "Speed",
+    "body_move_speed_tip": "Top speed forward (units per second).",
+    "body_move_reverse": "Reverse speed",
+    "body_move_reverse_tip": "Top speed backwards; 0 = it never reverses.",
+    "body_move_accel": "Acceleration",
+    "body_move_accel_tip": "Speed gained or lost per second.",
+    "body_move_turn": "Turn rate (deg/s)",
+    "body_move_turn_tip": "How fast it turns on the spot.",
+    "body_move_altitude": "Flying height",
+    "body_move_altitude_tip": "Aircraft: height above the ground.",
+    "intel_vision": "Vision range",
+    "intel_vision_tip": "How far it sees (hills, trees and rocks may block it, see the rules switches).",
+    "intel_spot_time": "Time to spot, hiding (s)",
+    "intel_spot_time_tip": "How long an enemy must have it in view before it is seen, while it keeps still and holds its fire. 0 = at once (tanks, buildings).",
+    "intel_spot_time_moving": "Time to spot, moving (s)",
+    "intel_spot_time_moving_tip": "The same while it moves or has just fired. 0 = at once.",
+    "intel_radar": "Radar range",
+    "intel_radar_tip": "How far its radar reaches; radar shows contacts but not what they are. This level finds only units without stealth.",
+    "intel_radar2": "T2 radar range",
+    "intel_radar2_tip": "How far its level 2 radar reaches: also finds stealth 1 units. A unit is found within the largest range of the levels above its stealth.",
+    "intel_radar3": "T3 radar range",
+    "intel_radar3_tip": "How far its level 3 radar reaches: also finds stealth 2 units.",
+    "intel_stealth": "Radar stealth",
+    "intel_stealth_tip": "0 = shows on any radar; 1 = only T2 or T3 radar finds it; 2 = only T3 radar; 3 = never on radar (it has to be seen).",
+    "eco_mass": "Mass income",
+    "eco_mass_tip": "Mass it produces per second.",
+    "eco_energy": "Energy income",
+    "eco_energy_tip": "Energy it produces per second.",
+    "eco_upkeep": "Energy upkeep",
+    "eco_upkeep_tip": "Energy it uses per second while working (radars, pumps).",
+    "eco_store_mass": "Mass storage",
+    "eco_store_mass_tip": "How much mass it adds to its owner's storage.",
+    "eco_store_energy": "Energy storage",
+    "eco_store_energy_tip": "How much energy it adds to its owner's storage.",
+    "build_rate": "Build power",
+    "build_rate_tip": "Build work per second; also the speed of reclaim, repair, capture and terraforming.",
+    "build_range": "Build range",
+    "build_range_tip": "How far away it can build, reclaim and repair.",
+    "build_categories": "Builds",
+    "build_categories_tip": "Build categories it can make (units whose 'Built by' is one of these). None ticked: it only assists, reclaims and repairs.",
+    "build_tier": "Highest tier",
+    "build_tier_tip": "It builds units up to this tier.",
+    "build_station": "Engineering station",
+    "build_station_tip": "Immobile builder that assists anything in range on its own.",
+    "build_scavenger": "Scavenger",
+    "build_scavenger_tip": "Cannot build or assist; reclaims wrecks and revives them as its owner's units.",
+    "binoculars_range": "Range",
+    "binoculars_range_tip": "How far it sees inside the cone (hills, trees and rocks still block it).",
+    "binoculars_angle": "Cone width (deg)",
+    "binoculars_angle_tip": "Full width of the view cone.",
+    "binoculars_turn": "Turn rate (deg/s)",
+    "binoculars_turn_tip": "How fast the binoculars follow a target; scanning goes at half that.",
+    "binoculars_scan": "Scan arc (deg)",
+    "binoculars_scan_tip": "With nothing to look at it scans this far to either side of where the unit faces; 180 = all round (always so from a building's roof).",
+    "transport_capacity": "Capacity (slots)",
+    "transport_capacity_tip": "Cargo slots it carries. On a structure: a building infantry can occupy and fire from.",
+    "transport_vision": "Roof vision",
+    "transport_vision_tip": "A building infantry occupy: their vision and binocular range times this (a watch tower). 0 or absent: the rule 'Roof vision'.",
+    "fieldwork_cover": "Cover",
+    "fieldwork_cover_tip": "Share of a shot's damage it takes instead of what it shelters (0 - 1).",
+    "fieldwork_dig": "Trench depth",
+    "fieldwork_dig_tip": "Above 0 it is a trench: the ground of its cell is dug this deep (and stays so when the trench is destroyed) and it shelters the infantry standing in it from every side. 0: a wall (sandbags) that covers what enemy shots must fly through it to reach.",
+    "reactive_charges": "Charges",
+    "reactive_charges_tip": "Missile hits it can take the edge off. Each hit uses one; a full repair replaces them all.",
+    "reactive_block": "Block",
+    "reactive_block_tip": "Share of a missile hit's damage a charge stops (0 - 1).",
+    "death_damage": "Damage",
+    "death_damage_tip": "Damage of the explosion when it is destroyed.",
+    "death_radius": "Radius",
+    "death_radius_tip": "Radius of that explosion. Full damage at the centre, fading to nothing at the edge.",
+    "icon_shape": "Shape",
+    "icon_shape_tip": "Base shape of the strategic icon: land (diamond), bot, air (triangle), structure (square), factory, commander, civilian.",
+    "icon_glyphs": "Glyphs",
+    "icon_glyphs_tip": "Symbols on the icon: plus = direct fire, dot = artillery, arc = anti-air, chevron = missile, ring = scout, wave = radar, eng = builder, mass, bolt = energy, store = storage, cargo = transport. Playable units need an icon (with the tier) no other unit has.",
+    "icon_no_tier": "No tier ticks",
+    "icon_no_tier_tip": "Leave the tier ticks off the icon (storages and the like).",
+    "icon_model_scale": "Model scale",
+    "icon_model_scale_tip": "Size of the 3D model (model files are set in the JSON view).",
+    "general": "General",
+    "cost": "Cost",
+    "body_and_movement": "Body and movement",
+    "binoculars": "Binoculars",
+    "binoculars_tip": "A narrow view cone reaching much further than its vision: it scans around, locks onto an enemy it finds (or turns to a known contact in range) and follows it.",
+    "weapons": "Weapons",
+    "construction": "Construction, transport, death blast",
+    "can_build": "Can build",
+    "can_build_tip": "Engineers, factories and stations: builds, assists, reclaims, repairs.",
+    "carries_units": "Carries units",
+    "carries_units_tip": "A transport (aircraft, APC) or, on a structure, a building infantry can occupy.",
+    "field_work": "Field work (built cover)",
+    "field_work_tip": "Sandbags or a trench piece: shots fly through it and lose its cover share to it, units cross it, nobody aims at it unless ordered to. Blasts and the shots it stops wear it down.",
+    "reactive_armor": "Reactive armor",
+    "reactive_armor_tip": "Explosive tiles that go off when a missile hits (AT troopers, Robins) and stop most of its damage, one hit per charge.",
+    "explodes_when_destroyed": "Explodes when destroyed",
+    "explodes_tip": "A blast that hurts everything around it.",
+    "icon_and_model": "Icon and model"
+  },
+  "preset_weapons": {
+    "name": "Name",
+    "name_tip": "Shown in the unit's info panel.",
+    "kind": "Kind",
+    "kind_tip": "direct: flat shot, needs a clear line of fire and leads its target. arc / high_arc: ballistic, fires over hills. missile: homing. bomb: dropped from a plane.",
+    "damage": "Damage",
+    "damage_tip": "Damage of one shell.",
+    "damage_type": "Damage type",
+    "damage_type_tip": "Decides the armor multiplier (Armor table in rules.json).",
+    "radius": "Blast radius",
+    "radius_tip": "0 = it only hurts what it hits directly. Otherwise full damage at the centre, fading to nothing at the edge.",
+    "range": "Range",
+    "range_tip": "Furthest target distance. Units must see or radar their target to shoot it.",
+    "min_range": "Least range",
+    "min_range_tip": "It cannot fire at targets closer than this.",
+    "reload": "Reload (s)",
+    "reload_tip": "Seconds between shots (or salvos).",
+    "speed": "Muzzle velocity",
+    "speed_tip": "Shell speed; slow shells are easier to dodge, artillery needs enough of it to reach.",
+    "salvo": "Shots per salvo",
+    "salvo_tip": "Shells fired one after another each time it fires.",
+    "salvo_delay": "Salvo delay (s)",
+    "salvo_delay_tip": "Seconds between the shells of a salvo.",
+    "spread": "Spread (deg)",
+    "spread_tip": "Random dispersion of each shot.",
+    "aim_time": "Aim time (s)",
+    "aim_time_tip": "Seconds the gun must stay on target before it fires.",
+    "hold": "Hold after firing (s)",
+    "hold_tip": "Seconds the unit cannot move after each shot; it also fires only while standing still and starts its aim time only then (mortars). 0 = fires on the move.",
+    "ammo": "Ammunition",
+    "ammo_tip": "Rounds the weapon carries (every shot of a salvo counts). When they are spent it stops firing until a round is rearmed. 0 = unlimited.",
+    "rearm": "Rearm time (s)",
+    "rearm_tip": "Limited ammunition: seconds to rearm one spent round, one at a time (like SupCom tactical missiles). 0 = never rearmed.",
+    "rearm_mass": "Rearm mass",
+    "rearm_mass_tip": "Limited ammunition: mass one rearmed round costs, paid as a flow over the rearm time (a mass stall slows it).",
+    "targets": "Targets",
+    "targets_tip": "What it can shoot at: land (ground units and buildings), air.",
+    "turn_rate": "Missile turn rate (deg/s)",
+    "turn_rate_tip": "Missiles: how fast they steer toward their target.",
+    "launch_pitch": "Missile launch angle (deg)",
+    "launch_pitch_tip": "Missiles: launch elevation (90 = straight up, like a SAM); 0 = a low 20 degrees.",
+    "prefer": "Target priority",
+    "prefer_tip": "Which enemies it shoots first when several are in range: armored (units of category armored: tanks) or infantry. none = the nearest.",
+    "snipe": "Sniper rifle",
+    "snipe_tip": "A hit on a building kills one enemy rider inside instead of damaging the building; it never shoots buildings without enemy riders.",
+    "sound": "Sound",
+    "sound_tip": "Shot sound; none = chosen by weapon kind.",
+    "turret_yaw_speed": "Traverse (deg/s)",
+    "turret_yaw_speed_tip": "How fast the turret turns sideways.",
+    "turret_pitch_speed": "Elevation (deg/s)",
+    "turret_pitch_speed_tip": "How fast the barrel moves up and down.",
+    "turret": "Turret",
+    "turret_tip": "The gun turns on its own; without a turret the whole unit has to face the target. (Model bones are set in the JSON view.)",
+    "copy_weapon": "Copy weapon",
+    "remove_weapon": "Remove weapon",
+    "add_weapon": "Add weapon",
+    "add_weapon_tip": "A new cannon with middling numbers; change it to taste."
+  },
+  "map_editor": {
+    "map_editor": "Map editor",
+    "save": "Save",
+    "saved_to": "saved to {}",
+    "save_failed": "save failed: {}",
+    "loaded": "loaded {}",
+    "new": "New:",
+    "new_size": "{} cells ({} units)",
+    "players": "players",
+    "seed": "Seed",
+    "generate": "Generate",
+    "flat": "Flat",
+    "add_towns": "+ Towns",
+    "terrain": "Terrain",
+    "raise": "Raise",
+    "lower": "Lower",
+    "smooth": "Smooth",
+    "flatten": "Flatten",
+    "radius": "radius",
+    "strength": "strength",
+    "water_level": "water level",
+    "lake": "Lake",
+    "lake_tip": "Left click: fill the hollow under the pointer with water, as deep at that spot as the slider says. Right click: drain the lake there. Click a lake again after reshaping its shore.",
+    "lakes_count": "{} on the map",
+    "drain_all": "Drain all",
+    "lake_depth": "lake depth",
+    "brush": "Brush",
+    "scatter": "Scatter",
+    "scatter_tip": "Adds forests and rock fields with the map's symmetry (uses the seed above)",
+    "clear_all": "Clear all",
+    "trees_mixed": "Trees (mixed)",
+    "rocks_mixed": "Rocks (mixed)",
+    "feature_mass": "{} mass",
+    "feature_energy": "{} energy",
+    "spacing": "spacing",
+    "flora_detail": "Detail: {}",
+    "flora_brush_hint": "Radius and strength above set the brush. Left mouse paints, right mouse removes this kind (trees or rocks).",
+    "objects": "Objects",
+    "deposit": "Deposit",
+    "start": "Start",
+    "control_point": "Control point",
+    "building_unit": "Building/unit",
+    "erase": "Erase",
+    "start_number": "start number (0 = first)",
+    "starts_hint": "{} start positions. Click the map to place or move one; a new number adds it.",
+    "remove_last_start": "Remove last start",
+    "no_points_hint": "No control points: games on this map place them automatically.",
+    "points_count": "{} control points.",
+    "points_hint": "Left mouse places one, right mouse removes the one under the pointer.",
+    "auto_place": "Auto place",
+    "auto_place_tip": "Replace them with the ones a game would place by itself",
+    "clear": "Clear",
+    "prop_hostile": "hostile (otherwise neutral)",
+    "facing": "facing",
+    "map_stats": "{} cells, {} deposits, {} starts, {} control points, {} objects, {} trees and rocks",
+    "controls_hint": "Left mouse: use tool.  Arrows/WASD pan, wheel zoom.",
+    "lake_made": "Lake at level {:.1}: {} cells",
+    "no_lake": "No lake: {}",
+    "lake_drained": "Lake drained",
+    "ground": "Ground",
+    "paint": "Paint",
+    "road": "Road",
+    "auto_paint": "Auto paint",
+    "auto_paint_tip": "Replaces all layers with the biome's, painted from heights and slopes (also used by Generate and Flat)",
+    "tile_size_tip": "Tile size in world units",
+    "move_up": "Move up",
+    "move_down": "Move down",
+    "remove_layer": "Remove layer",
+    "add_layer": "+ Layer",
+    "ground_brush_hint": "Radius and strength above set the brush. Left mouse paints the selected layer, right mouse takes it away. On layer 0 it takes away every layer above.",
+    "width": "width",
+    "road_hint": "Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.",
+    "remove_all_roads": "Remove all roads"
+  }
+}

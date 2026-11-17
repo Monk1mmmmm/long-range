@@ -163,19 +163,22 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   children) to the same entities; they are not part of the state.
 - Systems read other units through the per-tick `Census` resource (plain copies + spatial grid) and queue
   cross-entity effects in `Effects` (damage, reclaim) instead of holding conflicting mutable queries.
-- **Localisation** (`src/i18n.rs`): every text a player sees goes through `tr!("English text")` (`&str`) or
-  `tr!("{} of {:.0}", a, b)` (`String`; `{}`, `{0}`, specs like `{:.1}` / `{:02}`, plural forms `{0|one|few|many}`;
-  no inline captures, no `{:?}`). Texts in `const` tables are marked `tx!("...")` and shown with `tr(TABLE[i])`;
-  unit/weapon names and descriptions from the data with `tr(&d.name)`. The English text is the key of
-  `assets/lang/<code>.json` (only `uk.json` so far; `_language` is the name in the Settings list). The file is
-  grouped by purpose in nested objects (`main_menu`, `lobby`, `connection`, `settings`, `hud_*`, `units_*`,
-  `weapons`, `preset_*`, `map_editor`...; a text shown in several groups' places goes in `common`): put a new
-  text in the group of the screen that shows it. The loader flattens the groups; one text in two groups fails the test.
-  `cargo test --lib i18n` fails when a `tr!`/`tx!` text or a built-in unit name/description/weapon name has no
-  translation, when a translation is no longer used, or when placeholders differ: a new or changed English text
-  (also a unit description in the faction JSON) needs its Ukrainian line in `uk.json` in the same commit. Never
-  translate inside the simulation, in ids, or in what is sent over the network (the host sends English, e.g.
-  `S2C::Kicked`, and the receiver translates). Language: `Settings.language` (empty = from `LANG`), switched live.
+- **Localisation** (`src/i18n.rs`): every text a player sees is looked up by key: `tr!("lobby.watch_instead")`
+  (`&str`) or `tr!("lobby.observers", a, b)` (`String`; the texts use `{}`, `{0}`, specs like `{:.1}` / `{:02}`, plural
+  forms `{0|one|few|many}`). Keys in `const` tables are marked `tx!("group.key")` and shown with `tr(TABLE[i])`.
+  The texts are in `assets/lang/<code>.json`: `en.json` (English, the reference) and `uk.json`, grouped by purpose in
+  nested objects (the key is the path: `{"lobby": {"watch_instead": ..}}`); groups `common` (shown in several
+  screens), `main_menu`, `connection`, `lobby`, `settings`, `hud_*`, `units`, `weapons`, `terrain`, `ai`, `preset_*`,
+  `map_editor`. A missing text falls back to English, then to the key. Texts from the game data keep their English in
+  the data: `unit_name` / `unit_desc` / `weapon_name` (and `kind_name`, `biome_name`, `ai_name`) look up
+  `units.<id>.name|desc`, `weapons.<slug of the name>`... only while the data still says what `en.json` says, so a
+  preset's own names show as written. `cargo test --lib i18n` fails when a key used in the code or a data text is
+  missing from `en.json` (or differs from the data), when another language lacks a key or has other placeholders, or
+  when a file holds unused keys: a new or changed text (also a unit name/description in the faction JSON) needs its
+  `en.json` and `uk.json` lines in the same commit. Ukrainian unit nicknames are translated and in «» (type or
+  designation outside: «Обганяч» M1, БРМ «Драгун», ЗРК «Небесний спис»). Never translate inside the simulation, in ids,
+  or in what is sent over the network (the host sends keys, e.g. `S2C::Kicked`, the receiver translates). Language:
+  `Settings.language` (empty = from `LANG`), switched live.
 - All content lives in JSON under `assets/data`. Never hard-code unit stats or unit names in Rust; the AI finds
   units by role (extractor, generator, factory...).
 - The `Defs` resource is whatever data set the current game uses: the built-in data, a preset the host chose,
