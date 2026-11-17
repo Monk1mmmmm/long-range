@@ -80,8 +80,10 @@ scripts already build sequentially. Compiling the crate itself takes about a min
 `settings::render_plugin(&Settings)` / `tolerate_render_errors()` / `apply_settings` (in `src/settings.rs`, which
 also holds the `Settings` resource saved to `settings.json` and the shared settings window) are used by both binaries:
 Windows defaults to DX12 (the Intel Vulkan driver `igvk64.dll` crashes at start-up on HD 520/530),
-`INDIRECT_FIRST_INSTANCE` is disabled so Bevy skips GPU occlusion culling and its depth-pyramid compute passes,
 MSAA is off, and validation errors are logged instead of quitting (Bevy 0.20's default handler exits the app).
+The renderer is always Bevy's full one (GPU occlusion culling on). A "Compatible" renderer that disabled
+`INDIRECT_FIRST_INSTANCE` (no occlusion culling or depth-pyramid compute passes) was removed on request;
+if an old GPU fails in those passes again, that was the switch.
 Do NOT zero the compute limits to force CPU preprocessing: the atmosphere plugin then fails validation at start.
 Windows needs the DXC shader compiler: MSVC builds link it statically (`statically-linked-dxc`, which wgpu only
 supports with MSVC - a MinGW build with that feature panics at start-up), the MinGW cross build made by
@@ -96,7 +98,7 @@ Render errors go to `render-errors.log` and the settings window. Everything logg
 read those first when the user reports a crash.
 Alt+Tab minimises the window; Bevy then resized the swap chain to 1x1 and DX12's `ResizeBuffers` failed ("window is in
 use", "Invalid surface"), losing the surface. `settings::keep_surface` (render world, before `create_surfaces`) keeps the
-old size while minimised and retries configuring about once a second after a failed configure. Overrides: `LR_BACKEND`, `LR_RENDERER=full`.
+old size while minimised and retries configuring about once a second after a failed configure. Override: `LR_BACKEND`.
 Wine's DX12 (vkd3d) panics inside wgpu's format query (`wgpu-hal dx12/adapter.rs`, CheckFeatureSupport) no matter
 what we do; test Windows builds under Wine with `LR_BACKEND=vulkan`.
 Linux OpenGL (`settings::linux_gl`): Bevy 0.20 makes the wgpu instance without a display handle, so EGL is
