@@ -44,6 +44,10 @@ pub struct LobbyInfo {
     pub starts: Vec<(f32, f32)>,
     /// Control points (0..1 across); empty unless the mode is control points.
     pub points: Vec<(f32, f32)>,
+    /// Names of those who only watch the game.
+    pub observers: Vec<String>,
+    /// This player is one of the observers (`you` is then -1).
+    pub observing: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -53,6 +57,8 @@ pub enum C2S {
     Hello { name: String, data_hash: u64 },
     /// Lobby: the client asks for another faction.
     Faction(u8),
+    /// Lobby: the client wants to watch (`true`) or to take an open slot (`false`).
+    Observe(bool),
     /// A command the client applied (in its prediction) at `tick`. `seq` counts up per client.
     Cmd { tick: u32, seq: u32, cmd: Command },
     /// State fingerprint after a confirmed tick, so the host can spot a diverged client.

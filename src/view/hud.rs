@@ -643,7 +643,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let (defs, game, map, features) = (&*p.defs, &*p.game, &*p.map, &*p.features);
     let view = &mut *p.view;
     let me = view.me;
-    let Some(player) = game.players.get(me as usize) else { return Ok(()) };
+    // An observer has no player of its own: a blank one stands in (no economy bar, no commands).
+    let observer = game.players.get(me as usize).is_none();
+    let blank;
+    let player = match game.players.get(me as usize) {
+        Some(pl) => pl,
+        None => {
+            blank = crate::sim::Player { team: game.team_of(me), alive: true, ..Default::default() };
+            &blank
+        }
+    };
     let team = player.team;
     let reveal = super::intel::reveal(game, me);
     let screen = ctx.content_rect();
@@ -1804,8 +1813,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
         text(bx + 158.0, 7.0, &format!("+{:.1}", inc), 14.0, rgba(110, 255, 130, 255));
         text(bx + 220.0, 7.0, &format!("-{:.1}", exp), 14.0, if exp > inc + 0.01 { rgba(255, 105, 90, 255) } else { rgba(215, 215, 215, 255) });
     };
-    res(12.0, "mass", player.mass, player.max_mass, player.income_m, player.spend_m, rgba(190, 215, 240, 255));
-    res(360.0, "energy", player.energy, player.max_energy, player.income_e, player.spend_e, rgba(255, 215, 65, 255));
+    if observer {
+        text(12.0, 7.0, "OBSERVING", 14.0, rgba(205, 205, 205, 255));
+    } else {
+        res(12.0, "mass", player.mass, player.max_mass, player.income_m, player.spend_m, rgba(190, 215, 240, 255));
+        res(360.0, "energy", player.energy, player.max_energy, player.income_e, player.spend_e, rgba(255, 215, 65, 255));
+    }
     if player.power_out {
         text(700.0, 7.0, "POWER STALL", 14.0, rgba(255, 80, 80, 255));
     }
@@ -2453,7 +2466,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if let Some(note) = &view.net_note {
         text_c(sw * 0.5, sh * 0.22 + 80.0, note, 20.0, rgba(255, 200, 120, 255));
     }
-    if let Some(w) = game.winner {
+    if let (Some(w), true) = (game.winner, observer) {
+        let name = game.players.iter().filter(|pl| pl.team == w).map(|pl| pl.name.as_str()).collect::<Vec<_>>().join(", ");
+        text_c(sw * 0.5, sh * 0.3, "GAME OVER", 72.0, Color32::WHITE);
+        text_c(sw * 0.5, sh * 0.3 + 50.0, &format!("Won by {name}.  Press Esc for the menu"), 18.0, Color32::WHITE);
+    } else if let Some(w) = game.winner {
         let (t, c) = if w == team { ("VICTORY", rgba(110, 255, 130, 255)) } else { ("DEFEAT", rgba(255, 95, 80, 255)) };
         text_c(sw * 0.5, sh * 0.3, t, 72.0, c);
         text_c(sw * 0.5, sh * 0.3 + 50.0, "Press Esc for the menu", 18.0, Color32::WHITE);
