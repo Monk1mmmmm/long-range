@@ -3614,7 +3614,7 @@ fn tank_tests(defs: &Defs) {
         for &(tank, nt, foe, nf) in fights {
             for seed in [1u64, 2, 3] {
                 let mut app = headless(defs.clone());
-                let mut map = MapData::generate(128, 4242 + seed as u32, 2);
+                let mut map = MapData::generate(128, 4242 + seed, 2);
                 map.heights.iter_mut().for_each(|h| *h = 2.0);
                 map.feature_kinds = vec![];
                 map.features = vec![];
@@ -3652,6 +3652,13 @@ fn tank_tests(defs: &Defs) {
                 }
                 world.insert_resource(game);
                 world.flush();
+                // The commanders wait in far corners, out of the fight.
+                let fighters: Vec<u32> = tanks.iter().chain(foes.iter()).copied().collect();
+                for (u, mut b) in world.query::<(&Unit, &mut Body)>().iter_mut(world) {
+                    if !fighters.contains(&u.id) {
+                        b.pos = if u.owner == 0 { v2(12.0, 12.0) } else { v2(244.0, 244.0) };
+                    }
+                }
                 world.resource_mut::<Nav>().dirty = true;
                 // Both sides attack-move into each other.
                 let mut q = world.resource_mut::<CommandQueue>();
@@ -3659,11 +3666,12 @@ fn tank_tests(defs: &Defs) {
                 q.0.push((1, Command::Orders { ids: foes.clone(), orders: vec![Order::AttackMove(v2(70.0, 128.0))], queue: false }));
                 let mut end = 0;
                 let left = |world: &mut World, owner: u8| -> (usize, f32) {
+                    let ids = if owner == 0 { &tanks } else { &foes };
                     let mut n = 0;
                     let mut m = 0.0;
                     for (u, h) in world.query::<(&Unit, &Health)>().iter(world) {
                         let d = &defs.units[u.def as usize];
-                        if u.owner == owner && d.weapons.len() > 0 && h.0 > 0.0 {
+                        if ids.contains(&u.id) && h.0 > 0.0 {
                             n += 1;
                             m += d.cost.mass * h.0 / d.hp;
                         }
