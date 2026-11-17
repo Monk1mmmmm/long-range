@@ -625,6 +625,21 @@ impl Census {
     pub fn valid_target(&self, c: &Cen, team: u8, land: bool, air: bool) -> bool {
         c.hp > 0.0 && !c.hosted && !c.fieldwork && hostile(team, c.team) && c.known_to(team) && if c.air { air } else { land }
     }
+    /// Like `nearest_enemy`, but an enemy for which `preferred` holds beats any other, however far.
+    pub fn pick_enemy(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool, preferred: impl Fn(&Cen) -> bool) -> Option<&Cen> {
+        let mut best: Option<(bool, f32, usize)> = None;
+        let m2 = min_range * min_range;
+        self.near(pos, range, |c| {
+            let d2 = (c.pos - pos).len2();
+            if d2 >= m2 && self.valid_target(c, team, land, air) {
+                let p = preferred(c);
+                if best.map_or(true, |b| (p && !b.0) || (p == b.0 && d2 < b.1)) {
+                    best = Some((p, d2, self.index[&c.id]));
+                }
+            }
+        });
+        best.map(|b| &self.list[b.2])
+    }
     pub fn nearest_enemy(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool) -> Option<&Cen> {
         let mut best: Option<(f32, usize)> = None;
         let m2 = min_range * min_range;

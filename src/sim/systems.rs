@@ -1995,6 +1995,15 @@ fn weapons(
             };
             let mut target: Option<&Cen> = None;
             let mut gpoint: Option<Vec3> = None;
+            // Target priority (weapon `prefer`): the class this weapon goes for first.
+            let preferred = |c: &Cen| -> bool {
+                match w.prefer.as_str() {
+                    "armored" => defs.get(c.def).is_armored(),
+                    "infantry" => defs.get(c.def).is_infantry(),
+                    _ => false,
+                }
+            };
+            let prioritised = matches!(w.prefer.as_str(), "armored" | "infantry");
             if let Some((gp, radius)) = ground.filter(|_| w.hits_land) {
                 let d = gp.dist(body.pos);
                 if d <= w.range + radius && d >= w.min_range {
@@ -2011,7 +2020,8 @@ fn weapons(
                 if let Some(c) = census.get(focus).filter(|c| in_envelope(c) && c.team != team && c.known_to(team)) {
                     target = Some(c);
                 } else if let Some(c) = census.get(st.target).filter(|c| in_envelope(c) && census.valid_target(c, team, w.hits_land, w.hits_air)) {
-                    if (tick + u.id) % 20 != 0 {
+                    // A weapon with a priority drops a target of another class to look for a preferred one.
+                    if (tick + u.id) % 20 != 0 && !(prioritised && !preferred(c)) {
                         target = Some(c);
                     }
                 }
@@ -2033,7 +2043,11 @@ fn weapons(
                     });
                     target = census.get(best.1);
                 } else if target.is_none() && (st.target != 0 || (tick + u.id) % 3 == 0) {
-                    target = census.nearest_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air);
+                    target = if prioritised {
+                        census.pick_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air, preferred)
+                    } else {
+                        census.nearest_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air)
+                    };
                 }
             }
             // A sniper rifle ignores buildings with nobody of the enemy inside.

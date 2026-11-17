@@ -628,6 +628,10 @@ pub struct WeaponDef {
     /// the building alone; the weapon never shoots at buildings without enemy riders.
     #[serde(default)]
     pub snipe: bool,
+    /// Target priority: "armored" shoots units of category `armored` (tanks) first, "infantry" shoots
+    /// infantry first; otherwise (or when none is in range) the nearest enemy.
+    #[serde(default)]
+    pub prefer: String,
     #[serde(skip)]
     pub dtype: usize,
     #[serde(skip)]
@@ -876,6 +880,10 @@ impl UnitDef {
     /// Foot soldiers (category "infantry"): they take cover and can occupy buildings.
     pub fn is_infantry(&self) -> bool {
         self.has_category("infantry")
+    }
+    /// Tanks and other heavy vehicles (category "armored"): what cannons go for first.
+    pub fn is_armored(&self) -> bool {
+        self.has_category("armored")
     }
     /// A building infantry can occupy and fire from (a structure with a `transport` block).
     pub fn is_garrison(&self) -> bool {
