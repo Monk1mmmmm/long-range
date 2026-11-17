@@ -3,6 +3,47 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.8.0
+
+Not compatible with v0.7.1 in multiplayer: everybody needs this version.
+
+New
+- Ukrainian translation. Pick the language in Settings; it switches at once. Every text in the game and the
+  map editor now comes from `assets/lang/en.json` / `uk.json`, so more languages can be added.
+- New units (thanks to Sadsaltan):
+  - T3 Bastion heavy tank with explosive reactive armor: its first four missile hits lose three quarters of
+    their damage, and a full repair replaces the tiles.
+  - T2 Hailstorm (flak, aircraft only) and T3 Skylance (SAM with its own radar, aircraft only): mobile
+    anti-air beyond the T1 MBFAG.
+- Armor depends on the angle a shot hits from (thanks to Sadsaltan). Armored units take 0.6x damage head on,
+  1x from the side and 1.5x from behind. The steeper a shell falls, the less the angle counts.
+- Limited ammunition (thanks to Sadsaltan): the AT Trooper carries 3 missiles, the SAM Trooper 4. Spent rounds
+  come back one a minute and cost mass (25 / 20 per round). The selection panel shows the rounds left.
+- Storming (thanks to Sadsaltan): an attack order on a building held by enemy infantry storms it, like a
+  right-click does. Trenches held by enemy infantry can be stormed the same way.
+- Buildings block sight (new switch "Buildings block sight", on by default). Infantry inside a building still
+  look out from its roof.
+- Holding Shift shows the order queues of all your units.
+- Right-click the ground with an occupied building selected: its infantry leave and move there.
+- Mass overflow makes the mass bar blink, with a warning sound.
+- Graphics setting "Units under icons": where a unit shows as its strategic icon, its model is not drawn.
+  Faster with big armies. Trees and rocks now switch to a simpler model in the distance.
+- Ivano-Frankivsk maps, ported from the Forged Alliance adaptive map: 8 and 10 players, and the city map for
+  4 and 6 players.
+
+Changed
+- Longer tank guns: Overtaker 60 (was 45), Crony 80 (was 60), Bastion 90 (was 70). AT Trooper 95 (was 70).
+- The AT Trooper sets up before firing (3 s) and holds still after each shot.
+- Swift assault transport moves to T3 and carries 8, like the Stork (thanks to Sadsaltan).
+- The Hornet gunship shoots infantry first (thanks to Sadsaltan).
+- The "Compatible" renderer option is gone; the full renderer is always used (thanks to Sadsaltan).
+
+Bug fixes
+- A building can no longer be placed on a queued build site.
+
+Under the hood
+- `tools/scmap_map.py` ports Supreme Commander maps (`.scmap` + `_save.lua`).
+
 ## v0.7.1
 
 Not compatible with v0.7.0 in multiplayer: everybody needs this version.
