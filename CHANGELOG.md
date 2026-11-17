@@ -3,6 +3,37 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.7.1
+
+Not compatible with v0.7.0 in multiplayer: everybody needs this version.
+
+New
+- Weapon target priority. Cannons and anti-tank missiles shoot armored units (tanks and other heavy vehicles)
+  first. Machine guns, rifles and riot guns shoot infantry first. If nothing of that kind is in range, they
+  take the nearest enemy as before. Presets can set this per weapon ("Target priority") and give units the
+  new `armored` category.
+- Lobby observer slots (up to 8). Use "Watch instead" to watch, and "Take a slot" to play again. A player who
+  loses their slot when the host picks a smaller map now becomes an observer instead of being kicked.
+- Graphics setting "Neutral buildings: Show icons". Off, neutral map buildings show only their models at any
+  zoom. A building someone garrisons still shows that player's icon.
+
+Changed
+- AT Trooper and SAM Trooper no longer have binoculars (the Trooper and Sniper Trooper keep theirs).
+- Infantry hitbox is back to the size of the model (0.625 x 1.5 instead of 0.3 x 1.3), so infantry is
+  easier to hit.
+
+Bug fixes
+- Shots and blasts never hurt the unit that fired them or its garrison. With friendly fire on, every tank
+  shell used to hit its own tank, because the muzzle sits inside the tank's hitbox. Shots also pass
+  through your own units close to the muzzle.
+- AI: attacks no longer turn back at the rally point when a long-range battery covers it. Units stuck on
+  attack-move far from the rally point are called back.
+- AI: when an enemy is defeated, the AI now expands into that enemy's half of the map.
+
+Under the hood
+- `--combattest LR_TEST=tanks`: equal-mass duels of tanks against their counters, in the open and in woods.
+- Log files are no longer tracked by git (thanks to Sadsaltan).
+
 ## v0.6.1
 
 Bug fixes:
