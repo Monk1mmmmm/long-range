@@ -103,3 +103,143 @@ Caused by:
 0:83(52): warning: `depths' used uninitialized
 0:83(62): warning: `depths' used uninitialized
 
+[Internal] Validation Error
+
+Caused by:
+  In Device::create_compute_pipeline, label = 'ssao_preprocess_depth_pipeline'
+    Internal error: 0:78(16): error: no matching function for call to `textureGatherOffset(sampler2DShadow, vec2, ivec2, int)'; candidates are:
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DShadow, vec2, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArrayShadow, vec3, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRectShadow, vec2, float, ivec2)
+0:79(62): warning: `depths' used uninitialized
+0:80(62): warning: `depths' used uninitialized
+0:81(62): warning: `depths' used uninitialized
+0:82(62): warning: `depths' used uninitialized
+0:83(32): warning: `depths' used uninitialized
+0:83(42): warning: `depths' used uninitialized
+0:83(52): warning: `depths' used uninitialized
+0:83(62): warning: `depths' used uninitialized
+
+[Internal] Validation Error
+
+Caused by:
+  In Device::create_compute_pipeline, label = 'ssao_preprocess_depth_pipeline'
+    Internal error: 0:78(16): error: no matching function for call to `textureGatherOffset(sampler2DShadow, vec2, ivec2, int)'; candidates are:
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DShadow, vec2, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArrayShadow, vec3, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRectShadow, vec2, float, ivec2)
+0:79(62): warning: `depths' used uninitialized
+0:80(62): warning: `depths' used uninitialized
+0:81(62): warning: `depths' used uninitialized
+0:82(62): warning: `depths' used uninitialized
+0:83(32): warning: `depths' used uninitialized
+0:83(42): warning: `depths' used uninitialized
+0:83(52): warning: `depths' used uninitialized
+0:83(62): warning: `depths' used uninitialized
+
+[Internal] Validation Error
+
+Caused by:
+  In Device::create_compute_pipeline, label = 'ssao_preprocess_depth_pipeline'
+    Internal error: 0:78(16): error: no matching function for call to `textureGatherOffset(sampler2DShadow, vec2, ivec2, int)'; candidates are:
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DShadow, vec2, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArrayShadow, vec3, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRectShadow, vec2, float, ivec2)
+0:79(62): warning: `depths' used uninitialized
+0:80(62): warning: `depths' used uninitialized
+0:81(62): warning: `depths' used uninitialized
+0:82(62): warning: `depths' used uninitialized
+0:83(32): warning: `depths' used uninitialized
+0:83(42): warning: `depths' used uninitialized
+0:83(52): warning: `depths' used uninitialized
+0:83(62): warning: `depths' used uninitialized
+
+[Internal] Validation Error
+
+Caused by:
+  In Device::create_compute_pipeline, label = 'ssao_preprocess_depth_pipeline'
+    Internal error: 0:78(16): error: no matching function for call to `textureGatherOffset(sampler2DShadow, vec2, ivec2, int)'; candidates are:
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2D, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2D, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2D, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArray, vec3, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DArray, vec3, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DArray, vec3, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRect, vec2, ivec2, int)
+0:78(16): error:    ivec4 textureGatherOffset(isampler2DRect, vec2, ivec2, int)
+0:78(16): error:    uvec4 textureGatherOffset(usampler2DRect, vec2, ivec2, int)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DShadow, vec2, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DArrayShadow, vec3, float, ivec2)
+0:78(16): error:    vec4 textureGatherOffset(sampler2DRectShadow, vec2, float, ivec2)
+0:79(62): warning: `depths' used uninitialized
+0:80(62): warning: `depths' used uninitialized
+0:81(62): warning: `depths' used uninitialized
+0:82(62): warning: `depths' used uninitialized
+0:83(32): warning: `depths' used uninitialized
+0:83(42): warning: `depths' used uninitialized
+0:83(52): warning: `depths' used uninitialized
+0:83(62): warning: `depths' used uninitialized
+
