@@ -308,6 +308,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   whose riders all died counts as empty before `garrisons` makes it neutral); an emptied enemy bunker (playable
   faction) or `HOSTILE` building keeps its owner and cannot be entered. Riders now die inside at hp <= 0 (no wreck);
   death blasts skip hosted units. Results: `--combattest` "Storm" lines (1 trooper beats 1 AT inside, an even trooper fight goes to the defender).
+  **Trenches are stormed the same way**: an attack order by such infantry on enemy infantry standing in a trench piece, or on
+  the piece they hold, becomes `Load(piece)` (`systems::trench_to_storm`); `think` runs them to its edge and queues them in
+  `Effects.assault`, `assaults` takes the piece's holders (`trench_holders`) as the defenders (the trench's cover does not
+  soften close-quarters damage), the holders do not fire out while stormed, and once it is clear one attacker steps in.
+  Before this a trench could only be shot out: 6 riflemen on attack-move lost to 4 in a trench. `--combattest` fieldworks
+  "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Overtaker/Pike/MBFAG/

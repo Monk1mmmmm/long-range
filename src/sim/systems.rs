@@ -196,9 +196,14 @@ fn apply_commands(
                     let mut o = if orders.len() == ids.len() { orders[k] } else { orders[0] };
                     // Infantry told to attack a building enemy infantry hold storm it, like a right-click
                     // does: shooting at its walls would only wear the building down.
+                    // The same for a trench piece enemy infantry hold, or the enemy infantry in it: they
+                    // charge it and fight it out at close quarters, where the trench gives no cover.
                     if let Order::Attack(t) = o {
-                        if census.get(t).is_some_and(|t| storms(&defs, &census, df, t, game.team_of(pl))) {
+                        let team = game.team_of(pl);
+                        if census.get(t).is_some_and(|t| storms(&defs, &census, df, t, team)) {
                             o = Order::Load(t);
+                        } else if let Some(piece) = census.get(t).and_then(|t| trench_to_storm(&defs, &census, df, t, team)) {
+                            o = Order::Load(piece);
                         }
                     }
                     match &mut o {
@@ -1044,6 +1049,28 @@ fn think(
                             effects.loaded.push((tid, id));
                         }
                     }
+                } else if let Some(t) = census.get(tid).filter(|t| df.is_infantry() && df.assault > 0.0 && carriable(df) && is_trench(&defs, t)) {
+                    // A trench piece: storm the enemy infantry in it (`assaults` fights it out at close
+                    // quarters), then step into it unless one of ours already stands there.
+                    if !trench_holders(&census, &defs, t, team).is_empty() {
+                        pop = false;
+                        if near(t) {
+                            effects.assault.push((id, tid));
+                        } else {
+                            goal = Some(t.pos);
+                        }
+                    } else if !in_cell(pos, t.pos) {
+                        let mut taken = false;
+                        census.near(t.pos, CELL, |o| {
+                            if o.id != id && o.team == team && !o.air && !o.hosted && !o.structure && in_cell(o.pos, t.pos) {
+                                taken = true;
+                            }
+                        });
+                        if !taken {
+                            pop = false;
+                            goal = Some(t.pos);
+                        }
+                    }
                 } else if let Some(t) = census.get(tid).filter(|t| t.done && !t.hosted && t.hp > 0.0 && carriable(df) && df.assault > 0.0 && defs.get(t.def).is_garrison() && census.list.iter().any(|r| r.host == t.id && r.done && r.hp > 0.0 && hostile(team, r.team))) {
                     // An enemy-held building: storm it (`assaults` fights it out at the door), then walk in.
                     pop = false;
@@ -1235,6 +1262,39 @@ fn storms(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, team
     df.is_infantry() && df.assault > 0.0 && carriable(df) && td.is_garrison() && t.done && t.hp > 0.0 && hostile(team, t.team) && census.list.iter().any(|r| r.host == t.id && r.done && r.hp > 0.0 && hostile(team, r.team))
 }
 
+/// A finished, standing trench piece (a field work dug into the ground).
+fn is_trench(defs: &Defs, t: &Cen) -> bool {
+    t.fieldwork && t.done && t.hp > 0.0 && defs.get(t.def).work().is_some_and(|w| w.1 > 0.0)
+}
+
+/// Ids of the infantry of teams hostile to `team` standing in trench piece `piece`, in id order.
+fn trench_holders(census: &Census, defs: &Defs, piece: &Cen, team: u8) -> Vec<u32> {
+    let mut ids = vec![];
+    census.near(piece.pos, CELL, |c| {
+        if c.hp > 0.0 && hostile(team, c.team) && trench_of(census, defs, c).is_some_and(|t| t.0 == piece.id) {
+            ids.push(c.id);
+        }
+    });
+    ids.sort_unstable();
+    ids
+}
+
+/// The trench piece a unit of type `df` (on `team`) told to attack `t` storms instead: `t` itself if
+/// it is a piece enemy infantry hold, or the piece the enemy infantry `t` stands in. Only infantry
+/// with an `assault` value storm.
+fn trench_to_storm(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, team: u8) -> Option<u32> {
+    if !df.is_infantry() || df.assault <= 0.0 || !carriable(df) {
+        return None;
+    }
+    if is_trench(defs, t) {
+        return (!trench_holders(census, defs, t, team).is_empty()).then_some(t.id);
+    }
+    if !hostile(team, t.team) {
+        return None;
+    }
+    trench_of(census, defs, t).map(|p| p.0)
+}
+
 /// The nearest spot a land unit can stand on (off buildings and cliffs).
 fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
     let p = map.clamp(p);
@@ -1360,8 +1420,9 @@ fn trench_of(census: &Census, defs: &Defs, c: &Cen) -> Option<(u32, f32, V2)> {
     best
 }
 
-/// The fight for an occupied building: infantry at its door (queued by `think` in `Effects.assault`)
-/// and the enemy infantry inside trade close-quarters damage, `assault` per second each (the
+/// The fight for an occupied building or trench piece: infantry at its door or edge (queued by
+/// `think` in `Effects.assault`) and the enemy infantry inside trade close-quarters damage (a
+/// trench's cover does not soften it), `assault` per second each (the
 /// defenders `rules.garrison_defense` times theirs). Each side's damage goes to the other side's
 /// lowest-id unit, so it falls one at a time. When nobody is left inside the attackers walk in
 /// (`may_board`). Attackers of several teams at one building each fight the defenders on their own.
@@ -1378,7 +1439,11 @@ fn assaults(census: Res<Census>, defs: Res<Defs>, mut effects: ResMut<Effects>) 
         }
     }
     for ((bid, team), attackers) in fights {
-        let inside: Vec<&Cen> = census.list.iter().filter(|r| r.host == bid && r.done && r.hp > 0.0 && hostile(team, r.team)).collect();
+        // Defenders: the enemy infantry inside a building, or standing in a trench piece.
+        let inside: Vec<&Cen> = match census.get(bid).filter(|t| is_trench(&defs, t)) {
+            Some(piece) => trench_holders(&census, &defs, piece, team).into_iter().filter_map(|id| census.get(id)).collect(),
+            None => census.list.iter().filter(|r| r.host == bid && r.done && r.hp > 0.0 && hostile(team, r.team)).collect(),
+        };
         let (Some(a0), Some(d0)) = (attackers.first(), inside.first()) else { continue };
         let hit: f32 = attackers.iter().map(|c| defs.get(c.def).assault).sum::<f32>() * DT;
         let back: f32 = inside.iter().map(|c| defs.get(c.def).assault).sum::<f32>() * DT * defs.rules.garrison_defense;
@@ -1980,6 +2045,9 @@ fn weapons(
     for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         // Infantry fighting off a storm of their building are too busy to shoot out of it.
         if hosted.is_some_and(|h| effects.stormed.contains(&h.0)) {
+            continue;
+        }
+        if !effects.stormed.is_empty() && hosted.is_none() && census.get(u.id).and_then(|c| trench_of(&census, &defs, c)).is_some_and(|t| effects.stormed.contains(&t.0)) {
             continue;
         }
         let df = defs.get(u.def);

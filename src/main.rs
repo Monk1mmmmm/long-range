@@ -3060,6 +3060,44 @@ fn fieldwork_tests(defs: &Defs) {
     assert!(lost[2] > 0.0 && lost[2] < lost[0] * 0.7 && work_left[2] > 0.0, "sandbag cover");
     assert!(fired[1] > fired[0] * 0.7 && fired[2] > fired[0] * 0.7, "troopers fire out of their cover");
 
+    // 3b. Fighting for a trench: 4 troopers hold a line of 4 trench pieces (or the same spot in the
+    // open), riflemen attack-move onto them from 50 away. Prints who is left after 60 s.
+    // `trench_fight(n, dug)` -> (defenders left, attackers left, attackers standing in the trench).
+    let trench_fight = |n: usize, dug: bool, storm: bool| -> (usize, usize, usize) {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let line: Vec<V2> = (0..4).map(|k| v2(131.0, 97.0 + k as f32 * 2.0)).collect();
+        if dug {
+            for p in &line {
+                spawn(world, &map, "trench", 1, *p, 0.0);
+            }
+        }
+        let held: Vec<u32> = line.iter().map(|p| spawn(world, &map, "trooper", 1, *p, 3.14)).collect();
+        let men: Vec<u32> = (0..n).map(|k| spawn(world, &map, "trooper", 0, v2(81.0, 92.0 + k as f32 * 2.5), 0.0)).collect();
+        // Storming: every attacker gets an attack order on one of the defenders, in turn (in the
+        // open that is just an attack order).
+        let orders: Vec<Order> = if storm { (0..n).map(|k| Order::Attack(held[k % held.len()])).collect() } else { vec![Order::AttackMove(v2(150.0, 101.0))] };
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: men.clone(), orders, queue: false }));
+        run(world, 600);
+        let alive = |world: &mut World, ids: &[u32]| ids.iter().filter(|id| body(world, **id).is_some()).count();
+        let (d, a) = (alive(world, &held), alive(world, &men));
+        let inside = men.iter().filter_map(|id| body(world, *id)).filter(|b| line.iter().any(|p| (b.0.x - p.x).abs() <= 1.0 && (b.0.y - p.y).abs() <= 1.0)).count();
+        (d, a, inside)
+    };
+    for n in [4, 6, 8] {
+        let open = trench_fight(n, false, false);
+        let dug = trench_fight(n, true, false);
+        let stormed = trench_fight(n, true, true);
+        println!(
+            "== Trench fight: {n} riflemen attack 4 riflemen, defenders/attackers left: in the open {}/{}; in a trench on attack-move {}/{}, storming it {}/{} ({} attackers then hold the trench)",
+            open.0, open.1, dug.0, dug.1, stormed.0, stormed.1, stormed.2
+        );
+        if n == 6 {
+            assert!(open.0 == 0 && dug.0 > 0, "a trench holds against 6 on attack-move");
+            assert!(stormed.0 == 0 && stormed.2 > 0, "6 riflemen storm a trench 4 hold and take it");
+        }
+    }
+
     // 4. Idle infantry walk into a trench near by, one per piece, enemy or not.
     {
         let (mut app, map) = new_world();
