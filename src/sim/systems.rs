@@ -2205,6 +2205,7 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
         hits_air: w.hits_air,
         from: flat(origin),
         snipe: w.snipe,
+        shooter: u.id,
     };
     spawn_projectile(commands, shot);
 }
@@ -2226,6 +2227,7 @@ fn projectiles(
     let mut wreck_hits: Vec<(u32, f32)> = vec![];
     let g = defs.rules.gravity;
     let ff = defs.rules.friendly_fire;
+    let grace = defs.rules.cover_grace;
     for (e, mut p) in q.iter_mut().sort_by_key::<&Projectile, _>(|p| p.id) {
         let team = game.team_of(p.owner);
         p.life -= DT;
@@ -2258,7 +2260,11 @@ fn projectiles(
             let mut best: Option<(f32, u32)> = None;
             let mid = flat((a + b) * 0.5);
             census.near(mid, seg2.length() * 0.5 + 8.0, |c| {
-                if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) {
+                if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || c.id == p.shooter {
+                    return;
+                }
+                // Friendly fire: shots fly out past own units right beside the shooter, as past cover.
+                if c.team == team && c.pos.dist(p.from) - c.hit_r < grace {
                     return;
                 }
                 // Sandbags and trenches stop nothing (they soak, below), unless they are what was aimed at.
@@ -2320,7 +2326,7 @@ fn projectiles(
         }
         if p.radius > 0.0 {
             census.near(flat(at), p.radius + 6.0, |c| {
-                if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) {
+                if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || c.id == p.shooter || (c.air && !p.hits_air) {
                     return;
                 }
                 let horiz = (c.pos.dist(flat(at)) - c.hit_r * 0.7).max(0.0);

@@ -284,6 +284,10 @@ pub struct Projectile {
     /// Sniper round: kills a rider of the garrison it hits instead of damaging the building.
     #[serde(default)]
     pub snipe: bool,
+    /// Id of the unit that fired it: its own shots never hurt it, even with friendly fire (the
+    /// muzzle sits inside its own hit cylinder).
+    #[serde(default)]
+    pub shooter: u32,
 }
 
 // ---------------------------------------------------------------------------- resources
