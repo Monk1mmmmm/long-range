@@ -457,7 +457,14 @@ and the APC are JSON box models. The Stork uses the mod's hooked stock UEF trans
     enemy), attack the zone with the best worth / distance / defence that the force at the rally can take
     (`pick_target`), travel zone by zone as one body with reinforcements following in groups, retreat when
     outmatched (`Phase`). Waiting makes impatient (`nerve`), a stand-off without progress ends in a push or in
-    leaving the zone alone (`avoid`);
+    leaving the zone alone (`avoid`), so do three fall-backs in a row from the same zone (`lost`), and after a
+    fall-back the next attack waits 20 s (`calm`). The local fight (`enemy_near`) counts turrets only within the
+    radius looked at, not every battery whose range reaches (a heavy battery covers half the map: attacks used to
+    turn back at the rally point for hours). Units far from the rally standing still without firing get a plain
+    Move back (attack-move would wait for ever at a target they have no line of fire to); units shelling something
+    far off do not hold the next attack up;
+  - zone `front` and `fwd` are worked out from the enemies still alive (`set_front`), so a defeated player's half
+    of the map becomes ground to expand into;
   - it only knows what its team sees or has on radar plus `Brain::memory` (buildings until destroyed, units for
     30 s); an unscouted enemy start is assumed to hold a base with an army that grows with time (`Zone::guess`);
   - mass discipline: factories and upgrades only add spending while `spend_m` stays below a multiple of the
