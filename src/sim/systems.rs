@@ -2241,6 +2241,7 @@ fn projectiles(
     let mut wreck_hits: Vec<(u32, f32)> = vec![];
     let g = defs.rules.gravity;
     let ff = defs.rules.friendly_fire;
+    let grace = defs.rules.cover_grace;
     for (e, mut p) in q.iter_mut().sort_by_key::<&Projectile, _>(|p| p.id) {
         let team = game.team_of(p.owner);
         // With friendly fire a shot never hits the unit that fired it, nor the garrison it fires from
@@ -2279,6 +2280,10 @@ fn projectiles(
             let mid = flat((a + b) * 0.5);
             census.near(mid, seg2.length() * 0.5 + 8.0, |c| {
                 if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || own(c.id) {
+                    return;
+                }
+                // Friendly fire: shots fly out past own units right beside the shooter, as past cover.
+                if c.team == team && c.pos.dist(p.from) - c.hit_r < grace {
                     return;
                 }
                 // Sandbags and trenches stop nothing (they soak, below), unless they are what was aimed at.
