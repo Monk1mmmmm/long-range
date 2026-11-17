@@ -1793,7 +1793,7 @@
   {
    "id": "gunship",
    "name": "Hornet",
-   "desc": "Gunship. Hovers and rakes ground units with riot gun bursts.",
+   "desc": "Gunship. Hovers and rakes ground units with riot gun bursts, infantry first.",
    "tier": 2,
    "hp": 450,
    "armor": "Air",
@@ -1834,6 +1834,7 @@
    "weapons": [
     {
      "name": "Riot Gun",
+     "prefer": "infantry",
      "damage": 15,
      "range": 30,
      "reload": 3.3,
