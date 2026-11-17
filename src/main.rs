@@ -2918,7 +2918,7 @@ fn fieldwork_tests(defs: &Defs) {
         }
         let t = spawn(world, &map, "trooper", 0, at, 0.0);
         set_hp(world, t, 1.0e6);
-        let foes: Vec<u32> = (0..3).map(|i| spawn(world, &map, "trooper", 1, v2(159.0, 97.0 + i as f32 * 4.0), 3.14)).collect();
+        let foes: Vec<u32> = (0..3).map(|i| spawn(world, &map, "trooper", 1, v2(142.0, 97.0 + i as f32 * 4.0), 3.14)).collect();
         for f in &foes {
             set_hp(world, *f, 1.0e6);
         }
