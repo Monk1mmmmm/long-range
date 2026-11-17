@@ -3313,6 +3313,12 @@ fn air_tests(defs: &Defs) {
     let e = 0.0;
     let w = std::f32::consts::PI;
     run(
+        "Hornet flies over 2 tanks with 4 troopers just behind them, all in range (target priority: infantry first)",
+        &[Side { name: "gunship", owner: 0, n: 1, at: v2(110.0, 190.0), yaw: e }, Side { name: "crony", owner: 1, n: 2, at: v2(150.0, 190.0), yaw: w }, Side { name: "trooper", owner: 1, n: 4, at: v2(158.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "gunship"), Order::Move(v2(146.0, 190.0)))],
+        300,
+    );
+    run(
         "3 Firebrands, attack order on the middle one of 5 parked mortars",
         &[Side { name: "bomber", owner: 0, n: 3, at: v2(40.0, 190.0), yaw: e }, Side { name: "pike", owner: 1, n: 5, at: v2(190.0, 190.0), yaw: w }, Side { name: "radar_tower", owner: 0, n: 1, at: v2(130.0, 150.0), yaw: e }],
         &|ids| vec![(0, every(ids, "bomber"), Order::Attack(ids["pike"][2]))],
