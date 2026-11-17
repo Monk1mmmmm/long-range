@@ -14,7 +14,7 @@ const PER_FRAME: usize = 6;
 
 /// Interface sounds. A unit picks its selection sound with `"select_sound"` in its JSON;
 /// without it the kind of unit decides (`select_sound`).
-pub const UI_SOUNDS: [&str; 9] = ["select_tank", "select_vehicle", "select_infantry", "select_air", "select_radar", "select_building", "select_engineer", "select_commander", "ack"];
+pub const UI_SOUNDS: [&str; 10] = ["select_tank", "select_vehicle", "select_infantry", "select_air", "select_radar", "select_building", "select_engineer", "select_commander", "ack", "mass_overflow"];
 
 /// Interface sounds asked for this frame: (name, volume 0..1).
 #[derive(Resource, Default)]
@@ -101,6 +101,7 @@ mod real {
             "select_building" => 0.40,
             "select_engineer" => 0.34,
             "select_commander" => 0.50,
+            "mass_overflow" => 0.62,
             _ => 0.07,
         };
         let n = (len * RATE as f32) as usize;
@@ -168,6 +169,11 @@ mod real {
                     // Heavy hydraulics and a two-tone acknowledgement.
                     low += (white - low) * 0.05;
                     low * 1.6 * (-t * 7.0).exp() + (TAU * 60.0 * t).sin() * 0.4 * (-t * 9.0).exp() + beep(t, 0.16, 0.1, 660.0) * 0.35 + beep(t, 0.29, 0.16, 880.0) * 0.35
+                }
+                "mass_overflow" => {
+                    // Warning: three falling two-tone chirps, slightly buzzy.
+                    let chirp = |at: f32, hz: f32| beep(t, at, 0.15, hz) + beep(t, at, 0.15, hz * 2.0) * 0.25;
+                    (chirp(0.0, 880.0) + chirp(0.2, 740.0) + chirp(0.4, 620.0)) * 0.4
                 }
                 _ => beep(t, 0.0, 0.06, 980.0) * 0.45,
             };

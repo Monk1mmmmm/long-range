@@ -92,6 +92,9 @@ pub struct ViewState {
     pub pause_toggle: bool,
     /// Network notice shown in the middle of the screen (the host left, a new host is taking over...).
     pub net_note: Option<String>,
+    /// Mass overflow warning: storage full while income exceeds spending
+    /// (overflowing now, `Time::elapsed` of the last warning sound).
+    pub mass_overflow: (bool, f64),
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -137,6 +140,7 @@ impl ViewState {
             paused: None,
             pause_toggle: false,
             net_note: None,
+            mass_overflow: (false, -100.0),
         }
     }
 }
