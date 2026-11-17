@@ -1,4 +1,6 @@
 //! Long Range: a 3D RTS built on Bevy. See CLAUDE.md for the architecture overview.
+#[macro_use]
+pub mod i18n;
 pub mod ai;
 pub mod data;
 pub mod map;

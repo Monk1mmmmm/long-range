@@ -7,6 +7,7 @@ use super::terrain::{minimap_pixels, MainCamera};
 use super::{Interp, LocalCommands, Mode, ViewState};
 use crate::ai::assign;
 use crate::data::{DefId, Defs, UnitDef};
+use crate::i18n::tr;
 use crate::map::*;
 use crate::sim::*;
 use crate::sim::Command;
@@ -630,11 +631,11 @@ fn radar_rings(g: &mut Gizmos, map: &MapData, c: V2, d: &UnitDef, alpha: f32) {
 fn radar_text(d: &UnitDef) -> String {
     let mut parts = vec![];
     if d.radar > 0.0 {
-        parts.push(format!("Radar {:.0}", d.radar));
+        parts.push(tr!("Radar {:.0}", d.radar));
     }
     for (lvl, r) in [(2, d.radar2), (3, d.radar3)] {
         if r > 0.0 {
-            parts.push(format!("T{lvl} radar {r:.0} (finds stealth {})", lvl - 1));
+            parts.push(tr!("T{} radar {:.0} (finds stealth {})", lvl, r, lvl - 1));
         }
     }
     parts.join("   ")
@@ -643,9 +644,9 @@ fn radar_text(d: &UnitDef) -> String {
 fn stealth_text(stealth: u8) -> &'static str {
     match stealth {
         0 => "",
-        1 => "   Stealth 1: only T2+ radar finds it",
-        2 => "   Stealth 2: only T3 radar finds it",
-        _ => "   Invisible to radar",
+        1 => tr!("   Stealth 1: only T2+ radar finds it"),
+        2 => tr!("   Stealth 2: only T3 radar finds it"),
+        _ => tr!("   Invisible to radar"),
     }
 }
 
@@ -1631,9 +1632,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             // Other players' units: say what it is, and how much of it is left if we can see it.
             if !s.mine {
                 let text = match (d, infos.get(&s.id).filter(|_| s.contact == Contact::Visible)) {
-                    (Some(d), Some(u)) => format!("{}  {:.0} / {:.0}", d.name, u.hp.max(0.0), d.hp),
-                    (Some(d), None) => format!("{} (not in sight)", d.name),
-                    (None, _) => "Unknown contact".to_string(),
+                    (Some(d), Some(u)) => format!("{}  {:.0} / {:.0}", tr(&d.name), u.hp.max(0.0), d.hp),
+                    (Some(d), None) => tr!("{} (not in sight)", tr(&d.name)),
+                    (None, _) => tr!("Unknown contact").to_string(),
                 };
                 let at = Pos2::new(s.sp.x, s.sp.y + s.rpx.max(11.0) + 6.0);
                 let galley = ctx.fonts_mut(|f| f.layout_no_wrap(text, FontId::proportional(13.0), Color32::WHITE));
@@ -1673,7 +1674,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
         }
         if u.paused && s.mine {
-            bg.text(Pos2::new(s.sp.x, s.sp.y + s.rpx.max(9.0) + 4.0), Align2::CENTER_TOP, "PAUSED", FontId::proportional(11.0), rgba(255, 210, 90, 255));
+            bg.text(Pos2::new(s.sp.x, s.sp.y + s.rpx.max(9.0) + 4.0), Align2::CENTER_TOP, tr!("PAUSED"), FontId::proportional(11.0), rgba(255, 210, 90, 255));
         }
         let prog = u.built.or(u.upg).or_else(|| u.factory.as_ref().and_then(|f| infos.get(&f.building)).and_then(|b| b.built));
         if let Some(pr) = prog {
@@ -1754,14 +1755,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
             };
             let (m, e) = picked.iter().map(|w| cost(w)).fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
             let what = match picked.as_slice() {
-                [w] => format!("Revive {}:", fr.d(w.def).name),
-                l => format!("Revive {} wreck{}:", l.len(), if l.len() == 1 { "" } else { "s" }),
+                [w] => tr!("Revive {}:", tr(&fr.d(w.def).name)),
+                l => tr!("Revive {} {0|wreck|wrecks|wrecks}:", l.len()),
             };
             (m, e, what)
         } else {
             let m = picked.iter().map(|w| w.mass).sum::<f32>() + trees.iter().map(|t| t.0).sum::<f32>();
             let e = trees.iter().map(|t| t.1).sum::<f32>();
-            (m, e, "Reclaim:".to_string())
+            (m, e, tr!("Reclaim:").to_string())
         };
         if r > 0.0 || !picked.is_empty() || !trees.is_empty() {
             let tex = p.assets.order_icons(&ctx);
@@ -1869,16 +1870,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
         bold(bx + 220.0, 6.0, Align2::LEFT_TOP, &format!("-{:.1}", exp), 15.0, if exp > inc + 0.01 { rgba(255, 105, 90, 255) } else { rgba(215, 215, 215, 255) });
     };
     if observer {
-        text(12.0, 7.0, "OBSERVING", 14.0, rgba(205, 205, 205, 255));
+        text(12.0, 7.0, tr!("OBSERVING"), 14.0, rgba(205, 205, 205, 255));
     } else {
         res(12.0, "mass", player.mass, player.max_mass, player.income_m, player.spend_m, rgba(190, 215, 240, 255), blink);
         res(360.0, "energy", player.energy, player.max_energy, player.income_e, player.spend_e, rgba(255, 215, 65, 255), false);
     }
     if player.power_out {
-        text(700.0, 7.0, "POWER STALL", 14.0, rgba(255, 80, 80, 255));
+        text(700.0, 7.0, tr!("POWER STALL"), 14.0, rgba(255, 80, 80, 255));
     }
     let secs = game.tick / 10;
-    let clock = hud.text(Pos2::new(sw - 10.0, 7.0), Align2::RIGHT_TOP, format!("{:02}:{:02}   F1 help", secs / 60, secs % 60), font(14.0), rgba(205, 205, 205, 255));
+    let clock = hud.text(Pos2::new(sw - 10.0, 7.0), Align2::RIGHT_TOP, tr!("{:02}:{:02}   F1 help", secs / 60, secs % 60), font(14.0), rgba(205, 205, 205, 255));
     {
         let r = rect(clock.min.x - 100.0, 4.0, 86.0, TOP - 8.0);
         let hov = r.contains(mouse) && !view.menu_open && !view.settings_open;
@@ -1894,7 +1895,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             hud.rect_filled(rect(ix - 5.0, iy - 6.0, 3.5, 12.0), 0.0, Color32::WHITE);
             hud.rect_filled(rect(ix + 1.5, iy - 6.0, 3.5, 12.0), 0.0, Color32::WHITE);
         }
-        hud.text(Pos2::new(ix + 12.0, iy), Align2::LEFT_CENTER, if on { "Resume" } else { "Pause" }, font(14.0), Color32::WHITE);
+        hud.text(Pos2::new(ix + 12.0, iy), Align2::LEFT_CENTER, if on { tr!("Resume") } else { tr!("Pause") }, font(14.0), Color32::WHITE);
         if hov && lmb_down {
             view.pause_toggle = true;
         }
@@ -1923,29 +1924,29 @@ pub fn ui_system(mut p: UiParams) -> Result {
             hud.rect_filled(r.expand(2.0), 2.0, rgba(0, 0, 0, 215));
             hud.rect_filled(rect(x, y, w * (score / start).clamp(0.0, 1.0), 18.0), 1.0, col.gamma_multiply(0.75));
             hud.rect_stroke(r.expand(2.0), 2.0, Stroke::new(if t == team { 2.0 } else { 1.0 }, if t == team { Color32::WHITE } else { line_c }), StrokeKind::Outside);
-            let label = if w >= 120.0 { format!("{} {}:  {:.0}", if t == team { "Your team" } else { "Team" }, t + 1, score.ceil()) } else { format!("{:.0}", score.ceil()) };
+            let label = if w >= 120.0 { format!("{} {}:  {:.0}", if t == team { tr!("Your team") } else { tr!("Team") }, t + 1, score.ceil()) } else { format!("{:.0}", score.ceil()) };
             hud.text(Pos2::new(x + w * 0.5 + 1.0, y + 10.0), Align2::CENTER_CENTER, &label, font(13.0), rgba(0, 0, 0, 255));
             hud.text(Pos2::new(x + w * 0.5, y + 9.0), Align2::CENTER_CENTER, &label, font(13.0), Color32::WHITE);
             if !live {
-                hud.text(Pos2::new(x + w * 0.5, y + 30.0), Align2::CENTER_CENTER, "defeated", font(12.0), rgba(150, 150, 150, 255));
+                hud.text(Pos2::new(x + w * 0.5, y + 30.0), Align2::CENTER_CENTER, tr!("defeated"), font(12.0), rgba(150, 150, 150, 255));
                 continue;
             }
             let lead = teams.iter().filter(|&&o| o != t && alive(o)).map(|&o| held(o)).fold(0.0, f32::max);
             let loss = (lead - held(t)).max(0.0) * defs.rules.cp_bleed.max(0.0);
             let (line, c) = if loss > 0.0 {
-                (format!("holds {:.0} of {}   -{:.1}/s", held(t), game.points.len(), loss), rgba(255, 105, 90, 255))
+                (tr!("holds {:.0} of {}   -{:.1}/s", held(t), game.points.len(), loss), rgba(255, 105, 90, 255))
             } else {
-                (format!("holds {:.0} of {}", held(t), game.points.len()), rgba(215, 215, 215, 255))
+                (tr!("holds {:.0} of {}", held(t), game.points.len()), rgba(215, 215, 215, 255))
             };
-            let line = if w >= 120.0 { line } else if loss > 0.0 { format!("{:.0}  -{:.1}/s", held(t), loss) } else { format!("{:.0}", held(t)) };
+            let line = if w >= 120.0 { line } else if loss > 0.0 { tr!("{:.0}  -{:.1}/s", held(t), loss) } else { format!("{:.0}", held(t)) };
             hud.text(Pos2::new(x + w * 0.5 + 1.0, y + 31.0), Align2::CENTER_CENTER, &line, font(12.0), rgba(0, 0, 0, 255));
             hud.text(Pos2::new(x + w * 0.5, y + 30.0), Align2::CENTER_CENTER, &line, font(12.0), c);
         }
     }
     for (k, pl) in game.players.iter().enumerate() {
         let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
-        let score = if game.mode == MODE_POINTS { format!("   {:.0} pts", game.scores.get(pl.team as usize).copied().unwrap_or(0.0)) } else { String::new() };
-        let t = format!("{}{} (team {}){score}", pl.name, if pl.alive { "" } else { " - defeated" }, pl.team + 1);
+        let score = if game.mode == MODE_POINTS { tr!("   {:.0} pts", game.scores.get(pl.team as usize).copied().unwrap_or(0.0)) } else { String::new() };
+        let t = tr!("{}{} (team {}){}", pl.name, if pl.alive { "" } else { tr!(" - defeated") }, pl.team + 1, score);
         hud.text(Pos2::new(sw - 10.0, TOP + 6.0 + k as f32 * 16.0), Align2::RIGHT_TOP, t, font(13.0), if pl.alive { c } else { rgba(130, 130, 130, 255) });
     }
 
@@ -2018,7 +2019,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         hud.text(Pos2::new(idle_r.max.x - 4.0, idle_r.max.y - 2.0), Align2::RIGHT_BOTTOM, idle.len().to_string(), font(15.0), rgba(255, 230, 90, 255));
         if hov {
-            hud.text(Pos2::new(idle_r.min.x - 6.0, idle_r.center().y), Align2::RIGHT_CENTER, "Idle engineers: click selects all, right-click goes to the next one", font(12.0), Color32::WHITE);
+            hud.text(Pos2::new(idle_r.min.x - 6.0, idle_r.center().y), Align2::RIGHT_CENTER, tr!("Idle engineers: click selects all, right-click goes to the next one"), font(12.0), Color32::WHITE);
             if lmb_down {
                 new_sel = Some(idle.iter().map(|x| x.0).collect());
             } else if rmb_down {
@@ -2066,8 +2067,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     hud.image(ic.id(), r.shrink(6.0), UV, my_col);
                 }
             };
-            text(ix + 60.0, py + 6.0, &ld.name, 17.0, Color32::WHITE);
-            text(ix + 60.0, py + 27.0, &format!("Tier {}", ld.tier.max(1)), 12.0, rgba(170, 180, 195, 255));
+            text(ix + 60.0, py + 6.0, tr(&ld.name), 17.0, Color32::WHITE);
+            text(ix + 60.0, py + 27.0, &tr!("Tier {}", ld.tier.max(1)), 12.0, rgba(170, 180, 195, 255));
             // Health bar with numbers.
             let hb = rect(ix + 60.0, py + 44.0, 220.0, 14.0);
             let hp = (u.hp / ld.hp).clamp(0.0, 1.0);
@@ -2082,14 +2083,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 hud.rect_filled(rb, 2.0, rgba(0, 0, 0, 230));
                 hud.rect_filled(rect(rb.min.x, rb.min.y, rb.width() * frac, rb.height()), 2.0, if frac >= 1.0 { rgba(55, 130, 175, 255) } else { rgba(190, 120, 30, 255) });
                 let left = ws.ammo_left(wd);
-                let state = if left == Some(0) { if wd.rearm > 0.0 { format!("no ammo {:.0}s", (1.0 - ws.rearm) * wd.rearm) } else { "no ammo".into() } } else if ws.cd > 0.0 { format!("{:.1}s", ws.cd) } else if ws.target != 0 && ws.aim < wd.aim_time { "aiming".into() } else { "ready".into() };
-                let rounds = left.map_or(String::new(), |l| format!("  {l}/{} left", wd.ammo));
-                text(rb.min.x + 4.0, rb.min.y, &format!("{}  {:.0} dmg  r{:.0}{rounds}", wd.name, wd.damage * wd.salvo as f32, wd.range), 10.5, Color32::WHITE);
+                let state = if left == Some(0) { if wd.rearm > 0.0 { tr!("no ammo {:.0}s", (1.0 - ws.rearm) * wd.rearm) } else { tr!("no ammo").into() } } else if ws.cd > 0.0 { tr!("{:.1}s", ws.cd) } else if ws.target != 0 && ws.aim < wd.aim_time { tr!("aiming").into() } else { tr!("ready").into() };
+                let rounds = left.map_or(String::new(), |l| tr!("  {}/{} left", l, wd.ammo));
+                text(rb.min.x + 4.0, rb.min.y, &tr!("{}  {:.0} dmg  r{:.0}{}", tr(&wd.name), wd.damage * wd.salvo as f32, wd.range, rounds), 10.5, Color32::WHITE);
                 hud.text(Pos2::new(rb.max.x - 4.0, rb.min.y), Align2::RIGHT_TOP, state, font(10.5), Color32::WHITE);
                 y += 16.0;
             }
             if let (Some(left), Some(era)) = (u.reactive, ld.reactive) {
-                text(ix, y, &format!("Reactive armor: {left}/{} charges (each stops {:.0}% of a missile)", era.charges, era.block * 100.0), 10.5, if left > 0 { Color32::WHITE } else { rgba(255, 170, 40, 255) });
+                text(ix, y, &tr!("Reactive armor: {}/{} charges (each stops {:.0}% of a missile)", left, era.charges, era.block * 100.0), 10.5, if left > 0 { Color32::WHITE } else { rgba(255, 170, 40, 255) });
                 y += 16.0;
             }
             let e = &ld.eco;
@@ -2103,7 +2104,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     x = stat(&hud, x, y, 12.0, "energy", &format!("+{:.0}", e.energy), c);
                 }
                 if e.upkeep > 0.0 {
-                    x = stat(&hud, x, y, 12.0, "energy", &format!("-{:.0} upkeep", e.upkeep), rgba(255, 190, 150, 255));
+                    x = stat(&hud, x, y, 12.0, "energy", &tr!("-{:.0} upkeep", e.upkeep), rgba(255, 190, 150, 255));
                 }
                 if ld.build_rate() > 0.0 {
                     stat(&hud, x, y, 12.0, "power", &format!("{:.0}", ld.build_rate()), c);
@@ -2113,14 +2114,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if let Some(tr) = &ld.transport {
                 let aboard: Vec<&Info> = infos.values().filter(|c| c.host == u.id).collect();
                 let used: u32 = aboard.iter().map(|c| fr.d(c.def).cargo as u32).sum();
-                let label = if ld.is_garrison() { "Infantry inside" } else { "Cargo" };
-                text(ix, y, &format!("{label}: {} / {}", used, tr.capacity), 12.0, rgba(180, 225, 255, 255));
+                let label = if ld.is_garrison() { tr!("Infantry inside") } else { tr!("Cargo") };
+                text(ix, y, &tr!("{}: {} / {}", label, used, tr.capacity), 12.0, rgba(180, 225, 255, 255));
                 y += 17.0;
             }
             if let Some(pr) = u.upg {
-                text(ix, y, &format!("Upgrading: {:.0}%", pr * 100.0), 12.0, rgba(130, 225, 255, 255));
+                text(ix, y, &tr!("Upgrading: {:.0}%", pr * 100.0), 12.0, rgba(130, 225, 255, 255));
             } else if let Some(b) = u.factory.as_ref().and_then(|f| infos.get(&f.building)) {
-                text(ix, y, &format!("Building {}: {:.0}%", fr.d(b.def).name, b.built.unwrap_or(1.0) * 100.0), 12.0, rgba(130, 225, 255, 255));
+                text(ix, y, &tr!("Building {}: {:.0}%", tr(&fr.d(b.def).name), b.built.unwrap_or(1.0) * 100.0), 12.0, rgba(130, 225, 255, 255));
             }
         } else {
             // Selection by type: one icon per unit type with a count, like SupCom.
@@ -2292,44 +2293,44 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let can_reclaim = can_assist || units.iter().any(|u| fr.d(u.def).is_scavenger());
         let can_capture = units.iter().any(|u| fr.d(u.def).is_engineer());
         if any_mobile {
-            if faf && action("move", "Move", "W", view.mode == Mode::Move) {
+            if faf && action("move", tr!("Move"), "W", view.mode == Mode::Move) {
                 new_mode = Some(Mode::Move);
             }
-            if action("attack_move", "Attack-move", if faf { "Alt+RMB" } else { "A" }, view.mode == Mode::AttackMove) {
+            if action("attack_move", tr!("Attack-move"), if faf { "Alt+RMB" } else { "A" }, view.mode == Mode::AttackMove) {
                 new_mode = Some(Mode::AttackMove);
             }
-            if action("patrol", "Patrol", if faf { "Alt+W" } else { "P" }, view.mode == Mode::Patrol) {
+            if action("patrol", tr!("Patrol"), if faf { "Alt+W" } else { "P" }, view.mode == Mode::Patrol) {
                 new_mode = Some(Mode::Patrol);
             }
         }
-        if any_armed && action("ground", if faf { "Attack / ground fire" } else { "Ground fire" }, if faf { "R" } else { "G" }, view.mode == Mode::GroundAttack) {
+        if any_armed && action("ground", if faf { tr!("Attack / ground fire") } else { tr!("Ground fire") }, if faf { "R" } else { "G" }, view.mode == Mode::GroundAttack) {
             new_mode = Some(Mode::GroundAttack);
         }
-        if can_capture && action("capture", "Capture a neutral or enemy unit", "", view.mode == Mode::Capture) {
+        if can_capture && action("capture", tr!("Capture a neutral or enemy unit"), "", view.mode == Mode::Capture) {
             new_mode = Some(Mode::Capture);
         }
-        if can_reclaim && action("reclaim", "Reclaim wrecks, trees and rocks (drag = area); click a building to take it apart", if faf { "Q" } else { "E" }, view.mode == Mode::Reclaim) {
+        if can_reclaim && action("reclaim", tr!("Reclaim wrecks, trees and rocks (drag = area); click a building to take it apart"), if faf { "Q" } else { "E" }, view.mode == Mode::Reclaim) {
             new_mode = Some(Mode::Reclaim);
         }
-        if units.iter().any(|u| fr.d(u.def).is_scavenger()) && action("revive", "Revive wrecks as your own units (drag = area)", "J", view.mode == Mode::Revive) {
+        if units.iter().any(|u| fr.d(u.def).is_scavenger()) && action("revive", tr!("Revive wrecks as your own units (drag = area)"), "J", view.mode == Mode::Revive) {
             new_mode = Some(Mode::Revive);
         }
-        if can_capture && fr.defs.rules.terraforming && action("terraform", "Terraform: level, raise or lower the ground", "", view.mode == Mode::Terraform) {
+        if can_capture && fr.defs.rules.terraforming && action("terraform", tr!("Terraform: level, raise or lower the ground"), "", view.mode == Mode::Terraform) {
             new_mode = Some(Mode::Terraform);
         }
         // Occupied buildings only let their infantry out.
         let any_transport = units.iter().any(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure());
         let any_holder = units.iter().any(|u| fr.d(u.def).transport.is_some());
-        if (any_transport || units.iter().any(|u| carriable(fr.d(u.def)))) && action("load", if any_transport { "Load units (drag = area)" } else { "Board a transport" }, "L", view.mode == Mode::Load) {
+        if (any_transport || units.iter().any(|u| carriable(fr.d(u.def)))) && action("load", if any_transport { tr!("Load units (drag = area)") } else { tr!("Board a transport") }, "L", view.mode == Mode::Load) {
             new_mode = Some(Mode::Load);
         }
-        if any_holder && action("unload", "Unload (drag = area)", "K", view.mode == Mode::Unload) {
+        if any_holder && action("unload", tr!("Unload (drag = area)"), "K", view.mode == Mode::Unload) {
             new_mode = Some(Mode::Unload);
         }
-        if can_reclaim && faf && action("assist", "Assist / repair (scavengers: help revive and reclaim)", "I", view.mode == Mode::Assist) {
+        if can_reclaim && faf && action("assist", tr!("Assist / repair (scavengers: help revive and reclaim)"), "I", view.mode == Mode::Assist) {
             new_mode = Some(Mode::Assist);
         }
-        if action("stop", "Stop", if faf { "Esc" } else { "S" }, false) {
+        if action("stop", tr!("Stop"), if faf { "Esc" } else { "S" }, false) {
             do_stop = true;
         }
         // Pause: builders and factories stop working, pumps and radars switch off and cost no energy.
@@ -2338,20 +2339,20 @@ pub fn ui_system(mut p: UiParams) -> Result {
             d.build.is_some() || d.eco.upkeep > 0.0 || d.has_radar()
         });
         let all_paused = units.iter().all(|u| u.paused);
-        if pausable && action(if all_paused { "resume" } else { "pause" }, if all_paused { "Resume" } else { "Pause" }, "Tab", all_paused) {
+        if pausable && action(if all_paused { "resume" } else { "pause" }, if all_paused { tr!("Resume") } else { tr!("Pause") }, "Tab", all_paused) {
             do_pause = true;
         }
         if is_factory {
             let on = lead.factory.as_ref().map_or(false, |f| f.repeat);
-            if action("repeat", if on { "Repeat build: on" } else { "Repeat build: off" }, if faf { "`" } else { "R" }, on) {
+            if action("repeat", if on { tr!("Repeat build: on") } else { tr!("Repeat build: off") }, if faf { "`" } else { "R" }, on) {
                 do_repeat = true;
             }
         }
-        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("upgrade", "Upgrade", if faf { "O" } else { "U" }, false) {
+        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("upgrade", tr!("Upgrade"), if faf { "O" } else { "U" }, false) {
             do_upgrade = true;
         }
     } else {
-        text(MM + 22.0, sh - 22.0, "LMB select    RMB order    RMB-drag line: spread units    wheel zoom    arrows / MMB pan    F1 help    Esc menu", 12.0, rgba(200, 200, 200, 230));
+        text(MM + 22.0, sh - 22.0, tr!("LMB select    RMB order    RMB-drag line: spread units    wheel zoom    arrows / MMB pan    F1 help    Esc menu"), 12.0, rgba(200, 200, 200, 230));
     }
     if do_stop {
         out.push(Command::Stop { ids: view.sel.clone() });
@@ -2374,59 +2375,59 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // Tooltip above the panel.
     if let Some((d, rate)) = tip {
         let bd = fr.d(d);
-        let mut lines = vec![format!("{}   (tier {})", bd.name, bd.tier.max(1))];
+        let mut lines = vec![tr!("{}   (tier {})", tr(&bd.name), bd.tier.max(1))];
         if rate > 0.0 {
             // Drawn as a row of icons below (the marker keeps its place in the list).
             lines.push(COST_ROW.into());
-            lines.push(format!("HP {:.0}   Armor {}{}", bd.hp, bd.armor, stealth_text(bd.stealth)));
+            lines.push(tr!("HP {:.0}   Armor {}{}", bd.hp, bd.armor, stealth_text(bd.stealth)));
         } else {
-            lines.push(format!("HP {:.0}   Armor {}", bd.hp, bd.armor));
+            lines.push(tr!("HP {:.0}   Armor {}", bd.hp, bd.armor));
         }
-        lines.push(bd.desc.clone());
+        lines.push(tr(&bd.desc).to_string());
         if let Some(era) = bd.reactive {
-            lines.push(format!("Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them", era.charges, era.block * 100.0));
+            lines.push(tr!("Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them", era.charges, era.block * 100.0));
         }
         for w in &bd.weapons {
-            let mut t = format!("{}: {:.0} {} dmg", w.name, w.damage, w.damage_type);
+            let mut t = tr!("{}: {:.0} {} dmg", tr(&w.name), w.damage, w.damage_type);
             if w.salvo > 1 {
-                t += &format!(" x{}", w.salvo);
+                t += &tr!(" x{}", w.salvo);
             }
-            t += &format!(" every {:.1}s, range {:.0}", w.reload, w.range);
+            t += &tr!(" every {:.1}s, range {:.0}", w.reload, w.range);
             if w.ammo > 0 {
-                t += &format!(", {} rounds", w.ammo);
+                t += &tr!(", {} rounds", w.ammo);
                 if w.rearm > 0.0 {
-                    t += &format!(" (+1 every {:.0}s for {:.0} mass)", w.rearm, w.rearm_mass);
+                    t += &tr!(" (+1 every {:.0}s for {:.0} mass)", w.rearm, w.rearm_mass);
                 }
             }
             if w.min_range > 0.0 {
-                t += &format!(" (min {:.0})", w.min_range);
+                t += &tr!(" (min {:.0})", w.min_range);
             }
             if w.radius > 0.0 {
-                t += &format!(", blast {:.1}", w.radius);
+                t += &tr!(", blast {:.1}", w.radius);
             }
             if let Some(tu) = &w.turret {
-                t += &format!(", traverse {:.0} deg/s", tu.yaw_speed);
+                t += &tr!(", traverse {:.0} deg/s", tu.yaw_speed);
             }
             if w.aim_time > 0.0 {
-                t += &format!(", aim {:.1}s", w.aim_time);
+                t += &tr!(", aim {:.1}s", w.aim_time);
             }
             if w.hold > 0.0 {
-                t += &format!(", fires standing, holds {:.0}s", w.hold);
+                t += &tr!(", fires standing, holds {:.0}s", w.hold);
             }
             if w.hits_air && !w.hits_land {
-                t += ", anti-air";
+                t += tr!(", anti-air");
             }
             lines.push(t);
         }
         if bd.mv.speed > 0.0 {
-            let bino = bd.binoculars.as_ref().filter(|b| b.range > 0.0).map_or(String::new(), |b| format!("   Binoculars {:.0} ({:.0}°)", b.range, b.angle));
-            lines.push(format!("Speed {:.1} (reverse {:.1})   Sight {:.0}{bino}", bd.mv.speed, bd.mv.reverse, bd.vision));
+            let bino = bd.binoculars.as_ref().filter(|b| b.range > 0.0).map_or(String::new(), |b| tr!("   Binoculars {:.0} ({:.0}°)", b.range, b.angle));
+            lines.push(tr!("Speed {:.1} (reverse {:.1})   Sight {:.0}{}", bd.mv.speed, bd.mv.reverse, bd.vision, bino));
         }
         if bd.has_radar() {
             lines.push(radar_text(bd));
         }
         if rate > 0.0 && ld_is_factory(&units, &fr) {
-            lines.push("Left-click: queue (+Shift x5).  Right-click: remove.  Drag the queue strip to reorder.".into());
+            lines.push(tr!("Left-click: queue (+Shift x5).  Right-click: remove.  Drag the queue strip to reorder.").into());
         }
         let w = lines.iter().map(|l| l.len() as f32 * 6.4).fold(330.0, f32::max) + 24.0;
         let h = lines.len() as f32 * 17.0 + 12.0;
@@ -2439,7 +2440,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if l == COST_ROW {
                 let mut x = stat(&top, x, y, 12.5, "mass", &format!("{:.0}", bd.cost.mass), Color32::WHITE);
                 x = stat(&top, x, y, 12.5, "energy", &format!("{:.0}", bd.cost.energy), Color32::WHITE);
-                x = stat(&top, x, y, 12.5, "time", &format!("{:.0}s", bd.cost.time / rate), Color32::WHITE);
+                x = stat(&top, x, y, 12.5, "time", &tr!("{:.0}s", bd.cost.time / rate), Color32::WHITE);
                 if bd.build_rate() > 0.0 {
                     stat(&top, x, y, 12.5, "power", &format!("{:.0}", bd.build_rate()), Color32::WHITE);
                 }
@@ -2508,68 +2509,68 @@ pub fn ui_system(mut p: UiParams) -> Result {
 
     // --- mode hint, banners
     let label = match view.mode {
-        Mode::AttackMove => "ATTACK-MOVE: left-click, or drag a line to spread out   (right-click cancels)".to_string(),
-        Mode::Patrol => "PATROL: left-click a point".to_string(),
-        Mode::GroundAttack => "GROUND FIRE: click a spot or a unit, or drag a circle to shell an area".to_string(),
-        Mode::Reclaim => "RECLAIM: click a wreck, tree, rock or building, or drag a circle to collect every wreck, tree and rock inside".to_string(),
-        Mode::Move => "MOVE: left-click, or drag a line to spread out".to_string(),
-        Mode::Assist => "ASSIST / REPAIR: left-click a friendly unit or building".to_string(),
-        Mode::Capture => "CAPTURE: left-click a neutral or enemy unit (not commanders or aircraft)".to_string(),
-        Mode::Revive => "REVIVE: click a wreck, or drag a circle to bring back everything inside".to_string(),
-        Mode::Terraform if view.terra_delta == 0.0 => "TERRAFORM: drag a circle to level it to the height at its centre.  Mouse wheel: raise or lower instead".to_string(),
-        Mode::Terraform => format!("TERRAFORM: drag a circle to {} it by {:.0}.  Mouse wheel changes the amount (0 = level)", if view.terra_delta > 0.0 { "raise" } else { "lower" }, view.terra_delta.abs()),
-        Mode::Load if selected.iter().any(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure()) => "LOAD: click a unit, or drag a circle to pick up everything inside".to_string(),
-        Mode::Load => "LOAD: click the transport to board (infantry: or a building to occupy)".to_string(),
-        Mode::Unload => "UNLOAD: click or drag a circle; the cargo is set down spread over it".to_string(),
-        Mode::Place(d) if fr.d(d).needs_deposit => format!("BUILD {}: click a deposit, or drag a circle to queue every deposit inside", fr.d(d).name),
-        Mode::Place(d) => format!("BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.", fr.d(d).name),
+        Mode::AttackMove => tr!("ATTACK-MOVE: left-click, or drag a line to spread out   (right-click cancels)").to_string(),
+        Mode::Patrol => tr!("PATROL: left-click a point").to_string(),
+        Mode::GroundAttack => tr!("GROUND FIRE: click a spot or a unit, or drag a circle to shell an area").to_string(),
+        Mode::Reclaim => tr!("RECLAIM: click a wreck, tree, rock or building, or drag a circle to collect every wreck, tree and rock inside").to_string(),
+        Mode::Move => tr!("MOVE: left-click, or drag a line to spread out").to_string(),
+        Mode::Assist => tr!("ASSIST / REPAIR: left-click a friendly unit or building").to_string(),
+        Mode::Capture => tr!("CAPTURE: left-click a neutral or enemy unit (not commanders or aircraft)").to_string(),
+        Mode::Revive => tr!("REVIVE: click a wreck, or drag a circle to bring back everything inside").to_string(),
+        Mode::Terraform if view.terra_delta == 0.0 => tr!("TERRAFORM: drag a circle to level it to the height at its centre.  Mouse wheel: raise or lower instead").to_string(),
+        Mode::Terraform => tr!("TERRAFORM: drag a circle to {} it by {:.0}.  Mouse wheel changes the amount (0 = level)", if view.terra_delta > 0.0 { tr!("raise") } else { tr!("lower") }, view.terra_delta.abs()),
+        Mode::Load if selected.iter().any(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure()) => tr!("LOAD: click a unit, or drag a circle to pick up everything inside").to_string(),
+        Mode::Load => tr!("LOAD: click the transport to board (infantry: or a building to occupy)").to_string(),
+        Mode::Unload => tr!("UNLOAD: click or drag a circle; the cargo is set down spread over it").to_string(),
+        Mode::Place(d) if fr.d(d).needs_deposit => tr!("BUILD {}: click a deposit, or drag a circle to queue every deposit inside", tr(&fr.d(d).name)),
+        Mode::Place(d) => tr!("BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.", tr(&fr.d(d).name)),
         Mode::None => String::new(),
     };
     if !label.is_empty() {
         text_c(sw * 0.5, TOP + 20.0, &label, 15.0, rgba(255, 230, 130, 255));
     }
     if let Some(by) = view.paused {
-        let who = game.players.get(by as usize).map_or(String::new(), |pl| if by == view.me { " by you".to_string() } else { format!(" by {}", pl.name) });
-        text_c(sw * 0.5, sh * 0.22, "PAUSED", 56.0, rgba(255, 215, 90, 255));
-        text_c(sw * 0.5, sh * 0.22 + 40.0, &format!("Paused{who}.  Pause, Ctrl+P or the button at the top resumes."), 16.0, Color32::WHITE);
+        let who = game.players.get(by as usize).map_or(String::new(), |pl| if by == view.me { tr!(" by you").to_string() } else { tr!(" by {}", pl.name) });
+        text_c(sw * 0.5, sh * 0.22, tr!("PAUSED"), 56.0, rgba(255, 215, 90, 255));
+        text_c(sw * 0.5, sh * 0.22 + 40.0, &tr!("Paused{}.  Pause, Ctrl+P or the button at the top resumes.", who), 16.0, Color32::WHITE);
     }
     if let Some(note) = &view.net_note {
         text_c(sw * 0.5, sh * 0.22 + 80.0, note, 20.0, rgba(255, 200, 120, 255));
     }
     if let (Some(w), true) = (game.winner, observer) {
         let name = game.players.iter().filter(|pl| pl.team == w).map(|pl| pl.name.as_str()).collect::<Vec<_>>().join(", ");
-        text_c(sw * 0.5, sh * 0.3, "GAME OVER", 72.0, Color32::WHITE);
-        text_c(sw * 0.5, sh * 0.3 + 50.0, &format!("Won by {name}.  Press Esc for the menu"), 18.0, Color32::WHITE);
+        text_c(sw * 0.5, sh * 0.3, tr!("GAME OVER"), 72.0, Color32::WHITE);
+        text_c(sw * 0.5, sh * 0.3 + 50.0, &tr!("Won by {}.  Press Esc for the menu", name), 18.0, Color32::WHITE);
     } else if let Some(w) = game.winner {
-        let (t, c) = if w == team { ("VICTORY", rgba(110, 255, 130, 255)) } else { ("DEFEAT", rgba(255, 95, 80, 255)) };
+        let (t, c) = if w == team { (tr!("VICTORY"), rgba(110, 255, 130, 255)) } else { (tr!("DEFEAT"), rgba(255, 95, 80, 255)) };
         text_c(sw * 0.5, sh * 0.3, t, 72.0, c);
-        text_c(sw * 0.5, sh * 0.3 + 50.0, "Press Esc for the menu", 18.0, Color32::WHITE);
+        text_c(sw * 0.5, sh * 0.3 + 50.0, tr!("Press Esc for the menu"), 18.0, Color32::WHITE);
     } else if !player.alive {
-        text_c(sw * 0.5, TOP + 44.0, "Your commander was destroyed - spectating", 20.0, rgba(255, 130, 105, 255));
+        text_c(sw * 0.5, TOP + 44.0, tr!("Your commander was destroyed - spectating"), 20.0, rgba(255, 130, 105, 255));
     }
 
     let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("top")));
     if view.show_help {
         let lines = [
-            "CONTROLS",
-            "Left click / drag: select, box select.  Double-click: all of that type on screen.  Shift: add.",
-            "Right click: move / attack enemy / assist or repair friend / reclaim wreck (engineers alone: also trees and rocks).  Shift: queue.",
-            "Right-drag a line: spread the selected units along it (Alt: attack-move).",
-            if faf { "FAF alternative keys:  W move   Alt+W patrol   R attack / ground fire (drag = area)   Q reclaim (drag = area)" } else { "A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)" },
-            if faf { "I / T assist, repair   Esc stop   O upgrade   ` factory repeat   F10 menu   Alt+right-click attack-move" } else { "U upgrade (pumps, factories)    R factory repeat    . idle builder    , commander" },
-            if faf { "Hotbuild (press again to cycle): Z builders/factories  X mass  C power  V radar/scouts  G direct fire" } else { "Hotkey preset can be switched to FAF alternative in the Esc menu." },
-            if faf { "                                 S artillery  D anti-air  Y missiles  M engineering station" } else { "Ctrl+K self-destruct.  Shift+0-9 adds a group to the selection." },
-            "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
-            "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
-            "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
-            "Factory menu: left-click queues (Shift x5), right-click removes.",
-            "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
-            "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
-            "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.  Pause / Ctrl+P pauses the game.",
-            "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
-            "L load / board a transport   K unload (drag = area)   J revive wrecks (scavengers, drag = area)",
-            "Reclaim: click a wreck, tree, rock or building, drag = every wreck, tree and rock in the circle.  Terraform button: drag a circle, wheel = raise / lower.",
-            "A box selects the army; engineers and the commander only when no fighting unit is inside (or use Ctrl+B / ,).",
+            tr!("CONTROLS"),
+            tr!("Left click / drag: select, box select.  Double-click: all of that type on screen.  Shift: add."),
+            tr!("Right click: move / attack enemy / assist or repair friend / reclaim wreck (engineers alone: also trees and rocks).  Shift: queue."),
+            tr!("Right-drag a line: spread the selected units along it (Alt: attack-move)."),
+            if faf { tr!("FAF alternative keys:  W move   Alt+W patrol   R attack / ground fire (drag = area)   Q reclaim (drag = area)") } else { tr!("A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)") },
+            if faf { tr!("I / T assist, repair   Esc stop   O upgrade   ` factory repeat   F10 menu   Alt+right-click attack-move") } else { tr!("U upgrade (pumps, factories)    R factory repeat    . idle builder    , commander") },
+            if faf { tr!("Hotbuild (press again to cycle): Z builders/factories  X mass  C power  V radar/scouts  G direct fire") } else { tr!("Hotkey preset can be switched to FAF alternative in the Esc menu.") },
+            if faf { tr!("                                 S artillery  D anti-air  Y missiles  M engineering station") } else { tr!("Ctrl+K self-destruct.  Shift+0-9 adds a group to the selection.") },
+            tr!("Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories"),
+            tr!("        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct"),
+            tr!("Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle."),
+            tr!("Factory menu: left-click queues (Shift x5), right-click removes."),
+            tr!("Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it."),
+            tr!("Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep)."),
+            tr!("Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.  Pause / Ctrl+P pauses the game."),
+            tr!("Radar is blocked by hills.  Seen buildings stay marked until you look again."),
+            tr!("L load / board a transport   K unload (drag = area)   J revive wrecks (scavengers, drag = area)"),
+            tr!("Reclaim: click a wreck, tree, rock or building, drag = every wreck, tree and rock in the circle.  Terraform button: drag a circle, wheel = raise / lower."),
+            tr!("A box selects the army; engineers and the commander only when no fighting unit is inside (or use Ctrl+B / ,)."),
         ];
         let (w, h) = (820.0, lines.len() as f32 * 20.0 + 20.0);
         let r = rect(sw * 0.5 - w * 0.5, TOP + 50.0, w, h);
@@ -2584,9 +2585,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let (x, y) = (sw * 0.5 - w * 0.5, sh * 0.5 - h * 0.5);
         top.rect_filled(rect(x, y, w, h), 5.0, rgba(20, 24, 31, 252));
         top.rect_stroke(rect(x, y, w, h), 5.0, Stroke::new(1.5, line_c), StrokeKind::Inside);
-        top.text(Pos2::new(sw * 0.5, y + 26.0), Align2::CENTER_CENTER, "MENU", font(22.0), Color32::WHITE);
-        let pause_l = if view.paused.is_some() { "Resume game" } else { "Pause game" };
-        for (k, l) in ["Back to game", pause_l, "Settings", "Resign", "Quit to main menu"].iter().enumerate() {
+        top.text(Pos2::new(sw * 0.5, y + 26.0), Align2::CENTER_CENTER, tr!("MENU"), font(22.0), Color32::WHITE);
+        let pause_l = if view.paused.is_some() { tr!("Resume game") } else { tr!("Pause game") };
+        for (k, l) in [tr!("Back to game"), pause_l, tr!("Settings"), tr!("Resign"), tr!("Quit to main menu")].iter().enumerate() {
             let r = rect(x + 30.0, y + 52.0 + k as f32 * 46.0, w - 60.0, 36.0);
             let hov = r.contains(mouse);
             top.rect_filled(r, 3.0, if hov { rgba(64, 76, 94, 255) } else { rgba(34, 40, 50, 255) });

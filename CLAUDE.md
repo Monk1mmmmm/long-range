@@ -163,6 +163,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   children) to the same entities; they are not part of the state.
 - Systems read other units through the per-tick `Census` resource (plain copies + spatial grid) and queue
   cross-entity effects in `Effects` (damage, reclaim) instead of holding conflicting mutable queries.
+- **Localisation** (`src/i18n.rs`): every text a player sees goes through `tr!("English text")` (`&str`) or
+  `tr!("{} of {:.0}", a, b)` (`String`; `{}`, `{0}`, specs like `{:.1}` / `{:02}`, plural forms `{0|one|few|many}`;
+  no inline captures, no `{:?}`). Texts in `const` tables are marked `tx!("...")` and shown with `tr(TABLE[i])`;
+  unit/weapon names and descriptions from the data with `tr(&d.name)`. The English text is the key of
+  `assets/lang/<code>.json` (only `uk.json` so far; `_language` is the name in the Settings list).
+  `cargo test --lib i18n` fails when a `tr!`/`tx!` text or a built-in unit name/description/weapon name has no
+  translation, when a translation is no longer used, or when placeholders differ: a new or changed English text
+  (also a unit description in the faction JSON) needs its Ukrainian line in `uk.json` in the same commit. Never
+  translate inside the simulation, in ids, or in what is sent over the network (the host sends English, e.g.
+  `S2C::Kicked`, and the receiver translates). Language: `Settings.language` (empty = from `LANG`), switched live.
 - All content lives in JSON under `assets/data`. Never hard-code unit stats or unit names in Rust; the AI finds
   units by role (extractor, generator, factory...).
 - The `Defs` resource is whatever data set the current game uses: the built-in data, a preset the host chose,
@@ -208,6 +218,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
+| `src/i18n.rs`, `assets/lang/` | localisation: `tr!` / `tx!` / `tr`, language files, completeness test |
 | `src/preset_form.rs` | the preset editor's form view: one `Field` (JSON path, label, kind + default, tooltip) per setting of rules.json, units and weapons; edits a `serde_json::Value`, keys it does not know stay |
 | `src/bin/lr-editor.rs` | map editor and map generation CLI |
 | `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource`; `settings::add_window_icon` puts it on the running window (winit sets none) |

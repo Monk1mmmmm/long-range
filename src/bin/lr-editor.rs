@@ -12,6 +12,8 @@ use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use longrange::data::{asset_root, DefId, Defs};
+use longrange::i18n::tr;
+use longrange::tr;
 use longrange::map::*;
 use longrange::view::models::{spawn_model, ModelCache};
 use longrange::data::FeatureClass;
@@ -386,18 +388,18 @@ fn editor_ui(
     let mouse = ctx.pointer_latest_pos().unwrap_or(egui::Pos2::new(sw * 0.5, sh * 0.5));
     let mut full_rebuild = false;
 
-    egui::Window::new("Map editor").default_pos([10.0, 10.0]).default_width(250.0).show(&ctx, |ui| {
+    egui::Window::new(tr!("Map editor")).default_pos([10.0, 10.0]).default_width(250.0).show(&ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.label("Name");
+            ui.label(tr!("Name"));
             ui.text_edit_singleline(&mut ed.name);
         });
         ui.horizontal(|ui| {
-            if ui.button("Save").clicked() {
+            if ui.button(tr!("Save")).clicked() {
                 let dir = asset_root().join("maps").join(ed.name.trim());
                 map.name = ed.name.trim().to_string();
                 ed.status = match map.save(&dir) {
-                    Ok(()) => format!("saved to {}", dir.display()),
-                    Err(e) => format!("save failed: {e}"),
+                    Ok(()) => tr!("saved to {}", dir.display()),
+                    Err(e) => tr!("save failed: {}", e),
                 };
                 ed.maps = MapData::list(&asset_root());
             }
@@ -409,7 +411,7 @@ fn editor_ui(
                                 *map = loaded;
                                 ed.name = m.clone();
                                 ed.cam_target = map.center();
-                                ed.status = format!("loaded {m}");
+                                ed.status = tr!("loaded {}", m);
                                 full_rebuild = true;
                             }
                             Err(e) => ed.status = e,
@@ -420,27 +422,27 @@ fn editor_ui(
         });
         ui.separator();
         ui.horizontal(|ui| {
-            ui.label("New:");
+            ui.label(tr!("New:"));
             egui::ComboBox::from_id_salt("size").selected_text(format!("{} cells", ed.new_cells)).show_ui(ui, |ui| {
                 for s in SIZES {
-                    ui.selectable_value(&mut ed.new_cells, s, format!("{s} cells ({} units)", s as f32 * CELL));
+                    ui.selectable_value(&mut ed.new_cells, s, tr!("{} cells ({} units)", s, s as f32 * CELL));
                 }
             });
         });
-        ui.add(egui::Slider::new(&mut ed.players, 2..=longrange::sim::MAX_PLAYERS).text("players"));
+        ui.add(egui::Slider::new(&mut ed.players, 2..=longrange::sim::MAX_PLAYERS).text(tr!("players")));
         ui.horizontal(|ui| {
-            ui.label("Seed");
+            ui.label(tr!("Seed"));
             ui.add(egui::DragValue::new(&mut ed.seed));
         });
         ui.horizontal(|ui| {
-            if ui.button("Generate").clicked() {
+            if ui.button(tr!("Generate")).clicked() {
                 *map = MapData::generate(ed.new_cells, ed.seed, ed.players);
                 map.paint_ground(ed.biome);
                 map.scatter_features(&defs.rules.features, ed.seed, 1.0);
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
-            if ui.button("Flat").clicked() {
+            if ui.button(tr!("Flat")).clicked() {
                 let n = ed.new_cells;
                 let w = n as f32 * CELL;
                 *map = MapData { name: ed.name.clone(), n, heights: vec![3.0; (n + 1) * (n + 1)], water: 0.0, starts: (0..ed.players).map(|k| v2(w * 0.5, w * 0.5) + V2::from_angle(k as f32 / ed.players as f32 * 6.2832 - 2.356) * (w * 0.38)).collect(), ..Default::default() };
@@ -448,22 +450,22 @@ fn editor_ui(
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
-            if ui.button("+ Towns").clicked() {
+            if ui.button(tr!("+ Towns")).clicked() {
                 map.rebuild_blocked();
                 add_settlements(map, &defs, ed.seed);
                 full_rebuild = true;
             }
         });
         ui.separator();
-        ui.label("Terrain");
+        ui.label(tr!("Terrain"));
         ui.horizontal_wrapped(|ui| {
-            for (t, l) in [(Tool::Raise, "Raise"), (Tool::Lower, "Lower"), (Tool::Smooth, "Smooth"), (Tool::Flatten, "Flatten")] {
+            for (t, l) in [(Tool::Raise, tr!("Raise")), (Tool::Lower, tr!("Lower")), (Tool::Smooth, tr!("Smooth")), (Tool::Flatten, tr!("Flatten"))] {
                 ui.selectable_value(&mut ed.tool, t, l);
             }
         });
-        ui.add(egui::Slider::new(&mut ed.radius, 2.0..=60.0).text("radius"));
-        ui.add(egui::Slider::new(&mut ed.strength, 0.5..=20.0).text("strength"));
-        if ui.add(egui::Slider::new(&mut map.water, -5.0..=10.0).text("water level")).changed() {
+        ui.add(egui::Slider::new(&mut ed.radius, 2.0..=60.0).text(tr!("radius")));
+        ui.add(egui::Slider::new(&mut ed.strength, 0.5..=20.0).text(tr!("strength")));
+        if ui.add(egui::Slider::new(&mut map.water, -5.0..=10.0).text(tr!("water level"))).changed() {
             // Move the existing water plane instead of rebuilding the scene.
             for mut t in &mut water {
                 t.translation.y = map.water;
@@ -471,28 +473,28 @@ fn editor_ui(
         }
         // Lakes above that level (real places: a lake up in the hills).
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut ed.tool, Tool::Lake, "Lake").on_hover_text("Left click: fill the hollow under the pointer with water, as deep at that spot as the slider says. Right click: drain the lake there. Click a lake again after reshaping its shore.");
-            ui.label(format!("{} on the map", map.lakes.len()));
-            if !map.lakes.is_empty() && ui.button("Drain all").clicked() {
+            ui.selectable_value(&mut ed.tool, Tool::Lake, tr!("Lake")).on_hover_text(tr!("Left click: fill the hollow under the pointer with water, as deep at that spot as the slider says. Right click: drain the lake there. Click a lake again after reshaping its shore."));
+            ui.label(tr!("{} on the map", map.lakes.len()));
+            if !map.lakes.is_empty() && ui.button(tr!("Drain all")).clicked() {
                 map.clear_lakes();
                 full_rebuild = true;
             }
         });
         if ed.tool == Tool::Lake {
-            ui.add(egui::Slider::new(&mut ed.lake_depth, 0.3..=30.0).logarithmic(true).text("lake depth"));
+            ui.add(egui::Slider::new(&mut ed.lake_depth, 0.3..=30.0).logarithmic(true).text(tr!("lake depth")));
         }
         ui.separator();
         ground_ui(ui, ed, map, &mut surface, &mut full_rebuild);
         ui.separator();
-        ui.label("Trees and rocks");
+        ui.label(tr!("Trees and rocks"));
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut ed.tool, Tool::Flora, "Brush");
-            if ui.button("Scatter").on_hover_text("Adds forests and rock fields with the map's symmetry (uses the seed above)").clicked() {
+            ui.selectable_value(&mut ed.tool, Tool::Flora, tr!("Brush"));
+            if ui.button(tr!("Scatter")).on_hover_text(tr!("Adds forests and rock fields with the map's symmetry (uses the seed above)")).clicked() {
                 map.rebuild_blocked();
                 map.scatter_features(&defs.rules.features, ed.seed, 1.0);
                 full_rebuild = true;
             }
-            if ui.button("Clear all").clicked() {
+            if ui.button(tr!("Clear all")).clicked() {
                 map.features.clear();
                 map.feature_kinds.clear();
                 full_rebuild = true;
@@ -500,15 +502,15 @@ fn editor_ui(
         });
         if ed.tool == Tool::Flora {
             let label = |p: Paint| match p {
-                Paint::Mixed(FeatureClass::Tree) => "Trees (mixed)".to_string(),
-                Paint::Mixed(FeatureClass::Rock) => "Rocks (mixed)".to_string(),
+                Paint::Mixed(FeatureClass::Tree) => tr!("Trees (mixed)").to_string(),
+                Paint::Mixed(FeatureClass::Rock) => tr!("Rocks (mixed)").to_string(),
                 Paint::One(k) => defs.rules.features.get(k).map_or("?".into(), |f| {
                     let mut v = vec![];
                     if f.mass > 0.0 {
-                        v.push(format!("{} mass", f.mass));
+                        v.push(tr!("{} mass", f.mass));
                     }
                     if f.energy > 0.0 {
-                        v.push(format!("{} energy", f.energy));
+                        v.push(tr!("{} energy", f.energy));
                     }
                     format!("{} ({})", f.name, v.join(", "))
                 }),
@@ -518,11 +520,11 @@ fn editor_ui(
                     ui.selectable_value(&mut ed.paint, p, label(p));
                 }
             });
-            ui.add(egui::Slider::new(&mut ed.spacing, 0.6..=4.0).text("spacing"));
+            ui.add(egui::Slider::new(&mut ed.spacing, 0.6..=4.0).text(tr!("spacing")));
             let mut detail = flora.detail;
-            egui::ComboBox::from_id_salt("flora_detail").selected_text(format!("Detail: {}", longrange::settings::FLORA_DETAIL[detail as usize])).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("flora_detail").selected_text(tr!("Detail: {}", tr(longrange::settings::FLORA_DETAIL[detail as usize]))).show_ui(ui, |ui| {
                 for (k, l) in longrange::settings::FLORA_DETAIL.iter().enumerate() {
-                    ui.selectable_value(&mut detail, k as u8, *l);
+                    ui.selectable_value(&mut detail, k as u8, tr(l));
                 }
             });
             if detail != flora.detail {
@@ -532,55 +534,55 @@ fn editor_ui(
                 st.flora_detail = detail;
                 st.save();
             }
-            ui.label(egui::RichText::new("Radius and strength above set the brush. Left mouse paints, right mouse removes this kind (trees or rocks).").weak());
+            ui.label(egui::RichText::new(tr!("Radius and strength above set the brush. Left mouse paints, right mouse removes this kind (trees or rocks).")).weak());
         }
         ui.separator();
-        ui.label("Objects");
+        ui.label(tr!("Objects"));
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut ed.tool, Tool::Deposit, "Deposit");
-            ui.selectable_value(&mut ed.tool, Tool::Start, "Start");
-            ui.selectable_value(&mut ed.tool, Tool::Point, "Control point");
-            ui.selectable_value(&mut ed.tool, Tool::Prop, "Building/unit");
-            ui.selectable_value(&mut ed.tool, Tool::Erase, "Erase");
+            ui.selectable_value(&mut ed.tool, Tool::Deposit, tr!("Deposit"));
+            ui.selectable_value(&mut ed.tool, Tool::Start, tr!("Start"));
+            ui.selectable_value(&mut ed.tool, Tool::Point, tr!("Control point"));
+            ui.selectable_value(&mut ed.tool, Tool::Prop, tr!("Building/unit"));
+            ui.selectable_value(&mut ed.tool, Tool::Erase, tr!("Erase"));
         });
         if ed.tool == Tool::Start {
-            ui.add(egui::Slider::new(&mut ed.start_index, 0..=longrange::sim::MAX_PLAYERS - 1).text("start number (0 = first)"));
-            ui.label(format!("{} start positions. Click the map to place or move one; a new number adds it.", map.starts.len()));
-            if map.starts.len() > 2 && ui.button("Remove last start").clicked() {
+            ui.add(egui::Slider::new(&mut ed.start_index, 0..=longrange::sim::MAX_PLAYERS - 1).text(tr!("start number (0 = first)")));
+            ui.label(tr!("{} start positions. Click the map to place or move one; a new number adds it.", map.starts.len()));
+            if map.starts.len() > 2 && ui.button(tr!("Remove last start")).clicked() {
                 map.starts.pop();
             }
         }
         if ed.tool == Tool::Point {
             if map.points.is_empty() {
-                ui.label("No control points: games on this map place them automatically.");
+                ui.label(tr!("No control points: games on this map place them automatically."));
             } else {
-                ui.label(format!("{} control points.", map.points.len()));
+                ui.label(tr!("{} control points.", map.points.len()));
             }
-            ui.label(egui::RichText::new("Left mouse places one, right mouse removes the one under the pointer.").weak());
+            ui.label(egui::RichText::new(tr!("Left mouse places one, right mouse removes the one under the pointer.")).weak());
             ui.horizontal(|ui| {
-                if ui.button("Auto place").on_hover_text("Replace them with the ones a game would place by itself").clicked() {
+                if ui.button(tr!("Auto place")).on_hover_text(tr!("Replace them with the ones a game would place by itself")).clicked() {
                     map.points = auto_points(map, &defs);
                 }
-                if ui.button("Clear").clicked() {
+                if ui.button(tr!("Clear")).clicked() {
                     map.points.clear();
                 }
             });
         }
         if ed.tool == Tool::Prop {
-            egui::ComboBox::from_id_salt("prop").selected_text(defs.get(ed.prop).name.clone()).height(360.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("prop").selected_text(tr(&defs.get(ed.prop).name).to_string()).height(360.0).show_ui(ui, |ui| {
                 for f in &defs.factions {
                     ui.label(egui::RichText::new(&f.name).strong());
                     for d in &f.units {
-                        ui.selectable_value(&mut ed.prop, *d, &defs.get(*d).name);
+                        ui.selectable_value(&mut ed.prop, *d, tr(&defs.get(*d).name));
                     }
                 }
             });
-            ui.checkbox(&mut ed.prop_hostile, "hostile (otherwise neutral)");
-            ui.add(egui::Slider::new(&mut ed.prop_yaw, 0.0..=6.28).text("facing"));
+            ui.checkbox(&mut ed.prop_hostile, tr!("hostile (otherwise neutral)"));
+            ui.add(egui::Slider::new(&mut ed.prop_yaw, 0.0..=6.28).text(tr!("facing")));
         }
         ui.separator();
-        ui.label(format!("{} cells, {} deposits, {} starts, {} control points, {} objects, {} trees and rocks", map.n, map.deposits.len(), map.starts.len(), map.points.len(), map.props.len(), map.features.len()));
-        ui.label(egui::RichText::new("Left mouse: use tool.  Arrows/WASD pan, wheel zoom.").weak());
+        ui.label(tr!("{} cells, {} deposits, {} starts, {} control points, {} objects, {} trees and rocks", map.n, map.deposits.len(), map.starts.len(), map.points.len(), map.props.len(), map.features.len()));
+        ui.label(egui::RichText::new(tr!("Left mouse: use tool.  Arrows/WASD pan, wheel zoom.")).weak());
         if !ed.status.is_empty() {
             ui.label(&ed.status);
         }
@@ -667,13 +669,13 @@ fn editor_ui(
                 // Under an existing lake the pointer is on its surface: measure from the bed.
                 let level = map.h(p) + ed.lake_depth;
                 ed.status = match map.flood_lake(p, level) {
-                    Ok(cells) => format!("Lake at level {level:.1}: {cells} cells"),
-                    Err(e) => format!("No lake: {e}"),
+                    Ok(cells) => tr!("Lake at level {:.1}: {} cells", level, cells),
+                    Err(e) => tr!("No lake: {}", e),
                 };
                 full_rebuild = true;
             }
             if buttons.just_pressed(MouseButton::Right) && map.remove_lake(p) {
-                ed.status = "Lake drained".into();
+                ed.status = tr!("Lake drained").into();
                 full_rebuild = true;
             }
         }
@@ -845,20 +847,20 @@ fn editor_ui(
 
 /// The Ground section of the editor window: layers, automatic painting, the paint and road tools.
 fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mut Option<ResMut<SurfaceView>>, full_rebuild: &mut bool) {
-    let kind_name = |id: &str| KINDS.iter().find(|k| k.id == id).map_or(id.to_string(), |k| k.name.to_string());
+    let kind_name = |id: &str| KINDS.iter().find(|k| k.id == id).map_or(id.to_string(), |k| tr(k.name).to_string());
     let (mut layers_changed, mut masks_changed, mut roads_changed) = (false, false, false);
-    ui.label("Ground");
+    ui.label(tr!("Ground"));
     ui.horizontal_wrapped(|ui| {
-        ui.selectable_value(&mut ed.tool, Tool::Ground, "Paint");
-        ui.selectable_value(&mut ed.tool, Tool::Road, "Road");
+        ui.selectable_value(&mut ed.tool, Tool::Ground, tr!("Paint"));
+        ui.selectable_value(&mut ed.tool, Tool::Road, tr!("Road"));
     });
     ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt("biome").selected_text(ed.biome.name()).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("biome").selected_text(tr(ed.biome.name())).show_ui(ui, |ui| {
             for b in BIOMES {
-                ui.selectable_value(&mut ed.biome, b, b.name());
+                ui.selectable_value(&mut ed.biome, b, tr(b.name()));
             }
         });
-        if ui.button("Auto paint").on_hover_text("Replaces all layers with the biome's, painted from heights and slopes (also used by Generate and Flat)").clicked() {
+        if ui.button(tr!("Auto paint")).on_hover_text(tr!("Replaces all layers with the biome's, painted from heights and slopes (also used by Generate and Flat)")).clicked() {
             map.paint_ground(ed.biome);
             ed.layer = ed.layer.min(map.layers.len().saturating_sub(1));
             layers_changed = true;
@@ -874,25 +876,25 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
             let cur = map.layers[i].kind.clone();
             egui::ComboBox::from_id_salt(("layer_kind", i)).width(110.0).selected_text(kind_name(&cur)).show_ui(ui, |ui| {
                 for k in KINDS {
-                    if ui.selectable_label(cur == k.id, k.name).clicked() && cur != k.id {
+                    if ui.selectable_label(cur == k.id, tr(k.name)).clicked() && cur != k.id {
                         map.layers[i].kind = k.id.into();
                         layers_changed = true;
                     }
                 }
             });
             let mut sc = if map.layers[i].scale > 0.0 { map.layers[i].scale } else { KINDS.iter().find(|k| k.id == cur).map_or(8.0, |k| k.scale) };
-            if ui.add(egui::DragValue::new(&mut sc).range(1.0..=64.0).speed(0.2)).on_hover_text("Tile size in world units").changed() {
+            if ui.add(egui::DragValue::new(&mut sc).range(1.0..=64.0).speed(0.2)).on_hover_text(tr!("Tile size in world units")).changed() {
                 map.layers[i].scale = sc;
                 layers_changed = true;
             }
             if i > 0 {
-                if i + 1 < count && ui.small_button("^").on_hover_text("Move up").clicked() {
+                if i + 1 < count && ui.small_button("^").on_hover_text(tr!("Move up")).clicked() {
                     action = Some((i, 0));
                 }
-                if i > 1 && ui.small_button("v").on_hover_text("Move down").clicked() {
+                if i > 1 && ui.small_button("v").on_hover_text(tr!("Move down")).clicked() {
                     action = Some((i - 1, 0));
                 }
-                if ui.small_button("x").on_hover_text("Remove layer").clicked() {
+                if ui.small_button("x").on_hover_text(tr!("Remove layer")).clicked() {
                     action = Some((i, 1));
                 }
             }
@@ -917,7 +919,7 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
         }
         None => {}
     }
-    if map.layers.len() < longrange::surface::MAX_LAYERS && ui.button("+ Layer").clicked() {
+    if map.layers.len() < longrange::surface::MAX_LAYERS && ui.button(tr!("+ Layer")).clicked() {
         if let Some(i) = map.add_layer("dirt") {
             ed.layer = i;
         }
@@ -925,17 +927,17 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
         masks_changed = true;
     }
     if ed.tool == Tool::Ground {
-        ui.label(egui::RichText::new("Radius and strength above set the brush. Left mouse paints the selected layer, right mouse takes it away. On layer 0 it takes away every layer above.").weak());
+        ui.label(egui::RichText::new(tr!("Radius and strength above set the brush. Left mouse paints the selected layer, right mouse takes it away. On layer 0 it takes away every layer above.")).weak());
     }
     if ed.tool == Tool::Road {
         egui::ComboBox::from_id_salt("road_kind").selected_text(kind_name(ed.road_kind)).show_ui(ui, |ui| {
             for k in KINDS {
-                ui.selectable_value(&mut ed.road_kind, k.id, k.name);
+                ui.selectable_value(&mut ed.road_kind, k.id, tr(k.name));
             }
         });
-        ui.add(egui::Slider::new(&mut ed.road_width, 1.0..=12.0).text("width"));
-        ui.label(egui::RichText::new(format!("Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.", map.roads.len())).weak());
-        if !map.roads.is_empty() && ui.button("Remove all roads").clicked() {
+        ui.add(egui::Slider::new(&mut ed.road_width, 1.0..=12.0).text(tr!("width")));
+        ui.label(egui::RichText::new(tr!("Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.", map.roads.len())).weak());
+        if !map.roads.is_empty() && ui.button(tr!("Remove all roads")).clicked() {
             map.roads.clear();
             roads_changed = true;
         }
@@ -957,6 +959,7 @@ fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<A
 }
 
 fn main() {
+    longrange::i18n::set_language(&longrange::settings::Settings::load().language);
     let defs = match Defs::load(&asset_root()) {
         Ok(d) => d,
         Err(e) => {

@@ -3,6 +3,7 @@
 use crate::view::terrain::MainCamera;
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, WindowMode};
+use crate::i18n::tr;
 use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 
@@ -46,11 +47,13 @@ pub struct Settings {
     /// Draw strategic icons of neutral map buildings (houses, civic, industrial). Off: their
     /// models only, at any zoom; a building a player garrisons takes that player's icon again.
     pub neutral_icons: bool,
+    /// Interface language (`assets/lang/<code>.json`, "en" = English); empty = from the system (`i18n::system_language`).
+    pub language: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, language: String::new() }
     }
 }
 
@@ -480,24 +483,37 @@ pub fn restart() {
 }
 
 /// Names of the tree and rock detail levels (`Settings::flora_detail`).
-pub const FLORA_DETAIL: [&str; 3] = ["Low (no shadows)", "Medium", "High"];
+pub const FLORA_DETAIL: [&str; 3] = [tx!("Low (no shadows)"), tx!("Medium"), tx!("High")];
 
 /// Names of the effect levels (`Settings::effects`).
-pub const EFFECTS: [&str; 3] = ["Low (fewest animations)", "Medium", "High"];
+pub const EFFECTS: [&str; 3] = [tx!("Low (fewest animations)"), tx!("Medium"), tx!("High")];
 
 /// Draws the settings widgets. Returns true when the window should close.
 pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings, adapter: &str, errors: &[String], in_game: bool) -> bool {
     let before = s.clone();
     let mut close = false;
-    ui.heading("Settings");
+    ui.heading(tr!("Settings"));
     ui.add_space(6.0);
     egui::Grid::new("settings_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-        ui.label("Graphics API");
+        ui.label(tr!("Language"));
+        let langs = crate::i18n::languages();
+        let current = crate::i18n::language();
+        let shown = langs.iter().find(|(c, _)| *c == current).map_or(current.clone(), |(_, n)| n.clone());
+        egui::ComboBox::from_id_salt("language").selected_text(shown).show_ui(ui, |ui| {
+            for (code, name) in &langs {
+                if ui.selectable_label(*code == current, name).clicked() {
+                    s.language = code.clone();
+                    crate::i18n::set_language(code);
+                }
+            }
+        });
+        ui.end_row();
+        ui.label(tr!("Graphics API"));
         let name = |b: &str| match b {
             "dx12" => "DirectX 12",
             "vulkan" => "Vulkan",
             "gl" => "OpenGL",
-            _ => "Automatic",
+            _ => tr!("Automatic"),
         };
         egui::ComboBox::from_id_salt("backend").selected_text(name(&s.backend)).show_ui(ui, |ui| {
             let mut options = vec!["auto", "vulkan", "gl"];
@@ -509,38 +525,38 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
             }
         });
         ui.end_row();
-        ui.label("Shadows");
-        egui::ComboBox::from_id_salt("shadows").selected_text(["Off", "Low", "High"][s.shadows.min(2) as usize]).show_ui(ui, |ui| {
-            for (k, l) in ["Off", "Low", "High"].iter().enumerate() {
+        ui.label(tr!("Shadows"));
+        egui::ComboBox::from_id_salt("shadows").selected_text([tr!("Off"), tr!("Low"), tr!("High")][s.shadows.min(2) as usize]).show_ui(ui, |ui| {
+            for (k, l) in [tr!("Off"), tr!("Low"), tr!("High")].iter().enumerate() {
                 ui.selectable_value(&mut s.shadows, k as u8, *l);
             }
         });
         ui.end_row();
-        ui.label("Trees and rocks");
-        egui::ComboBox::from_id_salt("flora").selected_text(FLORA_DETAIL[s.flora_detail.min(2) as usize]).show_ui(ui, |ui| {
+        ui.label(tr!("Trees and rocks"));
+        egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(2) as usize])).show_ui(ui, |ui| {
             for (k, l) in FLORA_DETAIL.iter().enumerate() {
-                ui.selectable_value(&mut s.flora_detail, k as u8, *l);
+                ui.selectable_value(&mut s.flora_detail, k as u8, tr(l));
             }
         });
         ui.end_row();
-        ui.label("Effects").on_hover_text("Low: debris appears where it lands instead of falling, explosions are smaller and give no light. For slow graphics cards.");
-        egui::ComboBox::from_id_salt("effects").selected_text(EFFECTS[s.effects.min(2) as usize]).show_ui(ui, |ui| {
+        ui.label(tr!("Effects")).on_hover_text(tr!("Low: debris appears where it lands instead of falling, explosions are smaller and give no light. For slow graphics cards."));
+        egui::ComboBox::from_id_salt("effects").selected_text(tr(EFFECTS[s.effects.min(2) as usize])).show_ui(ui, |ui| {
             for (k, l) in EFFECTS.iter().enumerate() {
-                ui.selectable_value(&mut s.effects, k as u8, *l);
+                ui.selectable_value(&mut s.effects, k as u8, tr(l));
             }
         });
         ui.end_row();
-        ui.label("Remembered buildings").on_hover_text("Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons.");
-        ui.checkbox(&mut s.ghost_models, "Show models in the fog");
+        ui.label(tr!("Remembered buildings")).on_hover_text(tr!("Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons."));
+        ui.checkbox(&mut s.ghost_models, tr!("Show models in the fog"));
         ui.end_row();
-        ui.label("Neutral buildings").on_hover_text("Strategic icons of neutral map buildings (houses, civic and industrial buildings). Off: only their models, at any zoom. A building someone garrisons shows that player's icon.");
-        ui.checkbox(&mut s.neutral_icons, "Show icons");
+        ui.label(tr!("Neutral buildings")).on_hover_text(tr!("Strategic icons of neutral map buildings (houses, civic and industrial buildings). Off: only their models, at any zoom. A building someone garrisons shows that player's icon."));
+        ui.checkbox(&mut s.neutral_icons, tr!("Show icons"));
         ui.end_row();
-        ui.label("Anti-aliasing");
+        ui.label(tr!("Anti-aliasing"));
         let aa = |a: &str| match a {
             "fxaa" => "FXAA",
             "msaa4" => "MSAA 4x",
-            _ => "Off",
+            _ => tr!("Off"),
         };
         egui::ComboBox::from_id_salt("aa").selected_text(aa(&s.antialiasing)).show_ui(ui, |ui| {
             for a in ["off", "fxaa", "msaa4"] {
@@ -551,57 +567,57 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.label("V-sync");
         ui.checkbox(&mut s.vsync, "");
         ui.end_row();
-        ui.label("Fullscreen");
+        ui.label(tr!("Fullscreen"));
         ui.checkbox(&mut s.fullscreen, "(F11)");
         ui.end_row();
-        ui.label("Sound effects");
+        ui.label(tr!("Sound effects"));
         if crate::view::sound::AVAILABLE {
             ui.add(egui::Slider::new(&mut s.sfx_volume, 0.0..=1.0).show_value(false));
         } else {
-            ui.label(egui::RichText::new("this build has no sound").weak());
+            ui.label(egui::RichText::new(tr!("this build has no sound")).weak());
         }
         ui.end_row();
-        ui.label("Projectile size");
-        ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(" px"));
+        ui.label(tr!("Projectile size"));
+        ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!(" px")));
         ui.end_row();
-        ui.label("Map icons from zoom");
-        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(" camera distance"));
+        ui.label(tr!("Map icons from zoom"));
+        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(tr!(" camera distance")));
         ui.end_row();
-        ui.label("Units under icons").on_hover_text("Where a unit shows as its strategic icon (zoomed out, or too small to make out), its model is not drawn. Faster with big armies. Off: models stay under the icons.");
-        ui.checkbox(&mut s.model_lod, "Hide models");
+        ui.label(tr!("Units under icons")).on_hover_text(tr!("Where a unit shows as its strategic icon (zoomed out, or too small to make out), its model is not drawn. Faster with big armies. Off: models stay under the icons."));
+        ui.checkbox(&mut s.model_lod, tr!("Hide models"));
         ui.end_row();
-        ui.label("Map icon size");
+        ui.label(tr!("Map icon size"));
         ui.add(egui::Slider::new(&mut s.icon_scale, 0.5..=3.0).step_by(0.05).suffix("x"));
         ui.end_row();
-        ui.label("Build menu icon size");
-        ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(" pt"));
+        ui.label(tr!("Build menu icon size"));
+        ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(tr!(" pt")));
         ui.end_row();
-        ui.label("Hotkeys");
-        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { "FAF alternative" } else { "Default" }).show_ui(ui, |ui| {
-            ui.selectable_value(&mut s.hotkeys, "default".to_string(), "Default");
-            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), "FAF alternative");
+        ui.label(tr!("Hotkeys"));
+        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { tr!("FAF alternative") } else { tr!("Default") }).show_ui(ui, |ui| {
+            ui.selectable_value(&mut s.hotkeys, "default".to_string(), tr!("Default"));
+            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), tr!("FAF alternative"));
         });
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(egui::RichText::new(format!("Running on: {adapter}")).weak());
+    ui.label(egui::RichText::new(tr!("Running on: {}", adapter)).weak());
     let needs_restart = s.backend != started_with.backend;
     if needs_restart {
-        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), "The graphics API changes after a restart.");
+        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), tr!("The graphics API changes after a restart."));
     }
     if !errors.is_empty() {
         ui.add_space(4.0);
-        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), format!("{} graphics error(s) so far - details in render-errors.log. First one:", errors.len()));
+        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), tr!("{} graphics error(s) so far - details in render-errors.log. First one:", errors.len()));
         let first: String = errors[0].chars().take(260).collect();
         ui.label(egui::RichText::new(first).small());
-        ui.label(egui::RichText::new("If the 3D view is black or broken, try another graphics API above.").small());
+        ui.label(egui::RichText::new(tr!("If the 3D view is black or broken, try another graphics API above.")).small());
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        if ui.button("Close").clicked() {
+        if ui.button(tr!("Close")).clicked() {
             close = true;
         }
-        if needs_restart && ui.button(if in_game { "Restart now (ends this game)" } else { "Restart now" }).clicked() {
+        if needs_restart && ui.button(if in_game { tr!("Restart now (ends this game)") } else { tr!("Restart now") }).clicked() {
             s.save();
             restart();
         }
