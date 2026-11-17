@@ -1553,7 +1553,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let col = rgb(col);
         let selected_here = s.mine && view.sel.contains(&s.id);
         let d = s.def.map(|d| defs.get(d));
+        // Settings: no strategic icons for neutral map buildings.
+        let no_icon = !p.settings.neutral_icons && s.owner == NEUTRAL && d.map_or(false, |d| d.is_structure());
         match (s.contact, d) {
+            _ if no_icon => {}
             (Contact::Visible, Some(d)) => {
                 let size = icons::icon_size(d) * p.settings.icon_scale.clamp(0.5, 3.0);
                 // Strategic icon once the camera is far enough out, or the model is a speck.

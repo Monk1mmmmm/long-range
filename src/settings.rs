@@ -42,11 +42,14 @@ pub struct Settings {
     /// Buildings seen earlier and now out of sight keep their last-seen models (`view::ghost_visuals`);
     /// off: only their icons.
     pub ghost_models: bool,
+    /// Draw strategic icons of neutral map buildings (houses, civic, industrial). Off: their
+    /// models only, at any zoom; a building a player garrisons takes that player's icon again.
+    pub neutral_icons: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true }
+        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true }
     }
 }
 
@@ -545,6 +548,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label("Remembered buildings").on_hover_text("Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons.");
         ui.checkbox(&mut s.ghost_models, "Show models in the fog");
+        ui.end_row();
+        ui.label("Neutral buildings").on_hover_text("Strategic icons of neutral map buildings (houses, civic and industrial buildings). Off: only their models, at any zoom. A building someone garrisons shows that player's icon.");
+        ui.checkbox(&mut s.neutral_icons, "Show icons");
         ui.end_row();
         ui.label("Anti-aliasing");
         let aa = |a: &str| match a {
