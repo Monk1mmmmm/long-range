@@ -2233,16 +2233,15 @@ fn weapons(
                 }
                 ok
             };
-            if aligned {
+            // Weapons with a hold fire only from a standstill, when the unit is not trying to go anywhere,
+            // and only start aiming there: the aim time is the set-up after it stops.
+            let unsettled = w.hold > 0.0 && mover.as_ref().map_or(false, |m| m.goal.is_some() || m.speed > 0.05);
+            if aligned && !unsettled {
                 st.aim += DT;
             } else {
                 st.aim = 0.0;
             }
-            if st.cd > 0.0 || st.burst > 0 || !aligned || st.aim < w.aim_time {
-                continue;
-            }
-            // Weapons with a hold fire only from a standstill, when the unit is not trying to go anywhere.
-            if w.hold > 0.0 && mover.as_ref().map_or(false, |m| m.goal.is_some() || m.speed > 0.05) {
+            if st.cd > 0.0 || st.burst > 0 || !aligned || unsettled || st.aim < w.aim_time {
                 continue;
             }
             // Direct fire needs a clear line; otherwise hold fire rather than shoot the hill.

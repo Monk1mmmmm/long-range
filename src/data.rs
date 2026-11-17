@@ -633,7 +633,8 @@ pub struct WeaponDef {
     #[serde(default)]
     pub aim_time: f32,
     /// Seconds the unit stays put after each shot (mortars). A weapon with a hold also fires
-    /// only while its unit stands still, so a moving order is never frozen by a passing target.
+    /// only while its unit stands still, so a moving order is never frozen by a passing target,
+    /// and its `aim_time` only counts from the moment the unit stands still.
     #[serde(default)]
     pub hold: f32,
     /// Rounds the weapon carries (each projectile counts, a salvo of 4 uses 4); it falls silent

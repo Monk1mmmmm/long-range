@@ -276,7 +276,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("salvo_delay", "Salvo delay (s)", 0.1, 100.0, "Seconds between the shells of a salvo."),
     num("spread", "Spread (deg)", 0.3, 90.0, "Random dispersion of each shot."),
     num("aim_time", "Aim time (s)", 0.0, 100.0, "Seconds the gun must stay on target before it fires."),
-    num("hold", "Hold after firing (s)", 0.0, 100.0, "Seconds the unit cannot move after each shot; it also fires only while standing still (mortars). 0 = fires on the move."),
+    num("hold", "Hold after firing (s)", 0.0, 100.0, "Seconds the unit cannot move after each shot; it also fires only while standing still and starts its aim time only then (mortars). 0 = fires on the move."),
     num("ammo", "Ammunition", 0.0, 1000.0, "Rounds the weapon carries (every shot of a salvo counts). When they are spent it stops firing until a round is rearmed. 0 = unlimited."),
     num("rearm", "Rearm time (s)", 0.0, 3600.0, "Limited ammunition: seconds to rearm one spent round, one at a time (like SupCom tactical missiles). 0 = never rearmed."),
     num("rearm_mass", "Rearm mass", 0.0, 10000.0, "Limited ammunition: mass one rearmed round costs, paid as a flow over the rearm time (a mass stall slows it)."),

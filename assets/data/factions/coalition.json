@@ -434,7 +434,8 @@
      "kind": "missile",
      "damage_type": "AP",
      "turn_rate": 60,
-     "aim_time": 1.5,
+     "aim_time": 3.0,
+     "hold": 3.0,
      "turret": {
       "yaw_speed": 150,
       "pitch_speed": 150,

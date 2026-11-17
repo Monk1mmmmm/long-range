@@ -340,8 +340,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Rearming, SupCom tactical missile style (`rearm` s per round, `rearm_mass` per round; troopers 60 s, 25 / 20 mass):
   one round at a time (`WeaponState.rearm` progress), paid as a mass flow at the top of `weapons` in id order, slowed
   by a mass stall, stopped while paused. The HUD shows rounds left; `--combattest` infantry has an "Ammunition" line.
-- **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5): the weapon fires only while its unit has no movement goal
-  and is stopped, and each shot sets `Mover.hold`, during which `locomotion` keeps the land/hover unit in place
+- **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5, AT Trooper 3): the weapon fires only while its unit has no movement goal
+  and is stopped, its `aim_time` counts only from then (set-up time; AT Trooper 3 s), and each shot sets `Mover.hold`, during which `locomotion` keeps the land/hover unit in place
   (a move order given meanwhile starts when the hold runs out).
 - **Reactive armor** (`reactive: {charges, block}` in the unit JSON; T3 Bastion: 4, 0.75): a missile that hits the
   unit directly (`projectiles`, `PROJ_MISSILE`) uses up a charge and loses `block` of its damage, with a small blast.
