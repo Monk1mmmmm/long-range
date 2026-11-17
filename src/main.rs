@@ -27,9 +27,20 @@ struct Slot {
     hash: u64,
 }
 
+/// Someone in the lobby who only watches the game (`conn` 0: the host).
+struct Observer {
+    name: String,
+    conn: u32,
+    hash: u64,
+}
+
+/// Most observers a lobby takes.
+const MAX_OBSERVERS: usize = 8;
+
 struct HostLobby {
     host: Host,
     slots: Vec<Slot>,
+    observers: Vec<Observer>,
     /// 0..SIZES.len() are random maps, the rest index into `maps`.
     map_choice: usize,
     maps: Vec<String>,
@@ -103,14 +114,14 @@ impl HostLobby {
         }
         .clamp(2, MAX_PLAYERS)
     }
-    /// Makes the slot list match the map: one slot per start position.
+    /// Makes the slot list match the map: one slot per start position. Players whose slot is
+    /// removed become observers.
     fn resize_slots(&mut self, faction: u8) {
         let n = self.start_count();
         while self.slots.len() > n {
             if let Some(s) = self.slots.pop() {
-                if s.conn != 0 {
-                    self.host.send_msg(s.conn, &S2C::Kicked("The map changed and your slot was removed.".into()));
-                    self.host.kick(s.conn);
+                if s.kind == 2 {
+                    self.observers.push(Observer { name: s.name, conn: s.conn, hash: s.hash });
                 }
             }
         }
@@ -167,7 +178,35 @@ impl HostLobby {
         }
         t
     }
-    fn info(&self, you: i8, defs: &Defs) -> LobbyInfo {
+    /// The slot of that connection's player (`conn` 0: the host), if it has one.
+    fn slot_of(&self, conn: u32) -> Option<usize> {
+        self.slots.iter().position(|s| s.kind == 2 && s.conn == conn)
+    }
+    /// Moves that connection's player (`conn` 0: the host) to the observers, or from them to the
+    /// first open slot. Returns false when that is not possible.
+    fn observe(&mut self, conn: u32, watch: bool, faction: u8) -> bool {
+        if watch {
+            let Some(k) = self.slot_of(conn) else { return false };
+            if self.observers.len() >= MAX_OBSERVERS {
+                return false;
+            }
+            let s = &mut self.slots[k];
+            self.observers.push(Observer { name: std::mem::take(&mut s.name), conn, hash: s.hash });
+            s.kind = 0;
+            s.conn = 0;
+            s.faction = faction;
+        } else {
+            let Some(o) = self.observers.iter().position(|o| o.conn == conn) else { return false };
+            let Some(s) = self.slots.iter_mut().find(|s| s.kind == 0) else { return false };
+            let o = self.observers.remove(o);
+            (s.kind, s.name, s.conn, s.hash) = (2, o.name, o.conn, o.hash);
+        }
+        self.dirty = true;
+        true
+    }
+    /// Lobby state as that connection (`conn` 0: the host) sees it.
+    fn info(&self, conn: u32, defs: &Defs) -> LobbyInfo {
+        let you = self.slot_of(conn).map_or(-1, |k| k as i8);
         LobbyInfo {
             slots: self.slots.iter().map(|s| SlotInfo { kind: s.kind, name: s.name.clone(), team: s.team, faction: s.faction, ai: s.ai.id() }).collect(),
             map_name: self.map_label(),
@@ -177,6 +216,8 @@ impl HostLobby {
             preview_side: PREVIEW as u16,
             starts: self.starts.clone(),
             points: if self.mode == MODE_POINTS { self.points.clone() } else { vec![] },
+            observers: self.observers.iter().map(|o| o.name.clone()).collect(),
+            observing: self.observers.iter().any(|o| o.conn == conn),
         }
     }
 }
@@ -235,7 +276,8 @@ fn take_over(world: &mut World, sim: &mut ClientSim, me: u8, name: &str) -> Resu
 
 /// Tells every client who would take over if this host left.
 fn send_peers(host: &Host, remote: &[(u32, u8)], me: u8, ai_reclaim: bool) {
-    let peers: Vec<(u8, Option<std::net::IpAddr>)> = remote.iter().map(|&(conn, p)| (p, host.peer_ip(conn))).collect();
+    // Observers never take over: they are not in the list (they still get it).
+    let peers: Vec<(u8, Option<std::net::IpAddr>)> = remote.iter().filter(|r| r.1 != OBSERVER).map(|&(conn, p)| (p, host.peer_ip(conn))).collect();
     for (conn, _) in remote {
         host.send_msg(*conn, &S2C::Peers { host: me, peers: peers.clone(), ai_reclaim });
     }
@@ -434,6 +476,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     let mut l = HostLobby {
         host,
         slots,
+        observers: vec![],
         map_choice: 1,
         maps,
         players: 4,
@@ -486,6 +529,12 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         }
         let name = if s.kind == 3 { format!("AI {} ({})", k + 1, s.ai.name()) } else { s.name.clone() };
         setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, faction: s.faction });
+    }
+    // The host's own player, or `OBSERVER` when the host only watches.
+    let me = l.slots.iter().enumerate().filter(|(k, s)| s.kind >= 2 && *k < map.starts.len()).position(|(_, s)| s.kind == 2 && s.conn == 0).map_or(OBSERVER, |k| k as u8);
+    for o in l.observers.iter().filter(|o| o.conn != 0) {
+        remote.push((o.conn, OBSERVER));
+        hashes.push((o.conn, o.hash));
     }
     let sent_map = map.clone();
     setup_game(world, map, &setup);
@@ -545,10 +594,10 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
             l.host.send(*conn, &state);
         }
     }
-    send_peers(&l.host, &remote, 0, l.ai_reclaim);
+    send_peers(&l.host, &remote, me, l.ai_reclaim);
     let sim = HostSim::new(world);
     *l.host.info.lock().unwrap() = "(game in progress)".into();
-    view::start_view(world, 0, true);
+    view::start_view(world, me, true);
     Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None, held: vec![] })
 }
 
@@ -572,7 +621,9 @@ fn session_update(world: &mut World) {
         match &mut s.role {
             Role::Host { host, remote, sim, waiting, wait_left, ai_reclaim } => {
                 let mut cmds: Vec<(u8, Command)> = std::mem::take(&mut s.held);
-                cmds.extend(local.into_iter().map(|c| (me, c)));
+                if me != OBSERVER {
+                    cmds.extend(local.into_iter().map(|c| (me, c)));
+                }
                 // Pause requests: (player, pause or resume).
                 let mut pause: Vec<(u8, bool)> = vec![];
                 if toggle {
@@ -581,13 +632,13 @@ fn session_update(world: &mut World) {
                 while let Ok(ev) = host.events.try_recv() {
                     match ev {
                         HostEvent::Msg(id, C2S::Cmd { tick, seq, cmd }) => {
-                            if let Some((_, p)) = remote.iter().find(|r| r.0 == id) {
+                            if let Some((_, p)) = remote.iter().find(|r| r.0 == id && r.1 != OBSERVER) {
                                 sim.command(world, *p, tick, seq, cmd);
                             }
                         }
                         HostEvent::Msg(id, C2S::Ping(t)) => host.send_msg(id, &S2C::Pong(t)),
                         HostEvent::Msg(id, C2S::Pause(on)) => {
-                            if let Some((_, p)) = remote.iter().find(|r| r.0 == id) {
+                            if let Some((_, p)) = remote.iter().find(|r| r.0 == id && r.1 != OBSERVER) {
                                 pause.push((*p, on));
                             }
                         }
@@ -604,8 +655,11 @@ fn session_update(world: &mut World) {
                         }
                         HostEvent::Msg(id, C2S::Rejoin { player }) => {
                             // A player of this game, after its host left and this machine took over.
-                            if let Some(k) = waiting.iter().position(|&w| w == player) {
-                                waiting.remove(k);
+                            // Observers are not waited for, but welcome back.
+                            if let Some(k) = waiting.iter().position(|&w| w == player).or((player == OBSERVER).then_some(usize::MAX)) {
+                                if k != usize::MAX {
+                                    waiting.remove(k);
+                                }
                                 info!("player {player} reconnected");
                                 remote.push((id, player));
                                 if let Ok(data) = bincode::serialize(&make_snapshot(world)) {
@@ -622,8 +676,10 @@ fn session_update(world: &mut World) {
                         HostEvent::Msg(id, C2S::Hello { .. }) => host.send_msg(id, &S2C::Kicked("The game has already started.".into())),
                         HostEvent::Left(id) => {
                             if let Some(k) = remote.iter().position(|r| r.0 == id) {
-                                info!("player {} left; the game goes on without them", remote[k].1);
-                                cmds.push((remote[k].1, Command::Resign));
+                                if remote[k].1 != OBSERVER {
+                                    info!("player {} left; the game goes on without them", remote[k].1);
+                                    cmds.push((remote[k].1, Command::Resign));
+                                }
                                 remote.remove(k);
                                 send_peers(host, remote, me, *ai_reclaim);
                             }
@@ -719,9 +775,10 @@ fn session_update(world: &mut World) {
                         Err(std::sync::mpsc::TryRecvError::Empty) => {}
                     }
                 } else {
-                    if toggle {
+                    if toggle && me != OBSERVER {
                         client.send(&C2S::Pause(sim.paused.is_none()));
                     }
+                    let local = if me == OBSERVER { vec![] } else { local };
                     for m in sim.issue(world, local) {
                         client.send(&m);
                     }
@@ -801,6 +858,39 @@ fn session_update(world: &mut World) {
         app.discovery = Discovery::new();
     }
     world.insert_non_send(app);
+}
+
+enum ObserverClick {
+    /// Move yourself to the observers (`true`) or into an open slot.
+    Watch(bool),
+    /// The host removes that observer.
+    Remove(usize),
+}
+
+/// The observers under the slots, with the button that moves you between a slot and them.
+/// `playing` / `watching`: where you are now; `open`: a slot is free.
+fn observer_rows(ui: &mut egui::Ui, names: &[String], playing: bool, watching: bool, open: bool, host: bool, width: f32) -> Option<ObserverClick> {
+    let mut clicked = None;
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(format!("Observers ({}/{MAX_OBSERVERS})", names.len())).size(16.0));
+        if playing && names.len() < MAX_OBSERVERS && ui.button("Watch instead").on_hover_text("Leave your slot and only watch the game").clicked() {
+            clicked = Some(ObserverClick::Watch(true));
+        }
+        if watching && ui.add_enabled(open, egui::Button::new("Take a slot")).on_hover_text("Play in the first open slot").on_disabled_hover_text("No slot is open").clicked() {
+            clicked = Some(ObserverClick::Watch(false));
+        }
+    });
+    if names.is_empty() {
+        ui.label(egui::RichText::new("nobody").weak());
+    }
+    for (k, n) in names.iter().enumerate() {
+        let b = ui.add_sized([(width * 0.5).max(200.0), 26.0], egui::Button::new(n));
+        if host && b.on_hover_text("Click to remove from the game").clicked() {
+            clicked = Some(ObserverClick::Remove(k));
+        }
+    }
+    clicked
 }
 
 fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editable: bool, width: f32) -> Option<(usize, u8)> {
@@ -1012,15 +1102,20 @@ fn menu_ui(world: &mut World) {
                     }
                 }
                 Screen::HostLobby(l) => {
+                    let first_faction = playable.first().copied().unwrap_or(0) as u8;
                     while let Ok(ev) = l.host.events.try_recv() {
                         match ev {
                             HostEvent::Msg(id, C2S::Hello { name, data_hash }) => {
                                 // Different game data is fine: that player gets ours when the game starts.
+                                // No open slot: they watch.
+                                let name: String = name.chars().take(16).collect();
                                 if let Some(s) = l.slots.iter_mut().find(|s| s.kind == 0) {
                                     s.kind = 2;
-                                    s.name = name.chars().take(16).collect();
+                                    s.name = name;
                                     s.conn = id;
                                     s.hash = data_hash;
+                                } else if l.observers.len() < MAX_OBSERVERS {
+                                    l.observers.push(Observer { name, conn: id, hash: data_hash });
                                 } else {
                                     l.host.send_msg(id, &S2C::Kicked("The game is full.".into()));
                                     l.host.kick(id);
@@ -1035,7 +1130,11 @@ fn menu_ui(world: &mut World) {
                                 }
                                 l.dirty = true;
                             }
+                            HostEvent::Msg(id, C2S::Observe(watch)) => {
+                                l.observe(id, watch, first_faction);
+                            }
                             HostEvent::Left(id) => {
+                                l.observers.retain(|o| o.conn != id);
                                 for s in l.slots.iter_mut().filter(|s| s.conn == id) {
                                     s.kind = 0;
                                     s.name.clear();
@@ -1053,17 +1152,17 @@ fn menu_ui(world: &mut World) {
                     if let Err(e) = l.ensure_map(&cur) {
                         app.message = e;
                     }
-                    let first_faction = playable.first().copied().unwrap_or(0) as u8;
                     let (mut start, mut back) = (false, false);
                     ui.horizontal_top(|ui| {
                         // Left: the players.
                         ui.vertical(|ui| {
                             ui.set_width(left_w);
-                            if let Some((k, col)) = slot_rows(ui, &cur, &l.info(0, &cur).slots, 0, true, left_w) {
+                            let me = l.slot_of(0);
+                            if let Some((k, col)) = slot_rows(ui, &cur, &l.info(0, &cur).slots, me.map_or(-1, |k| k as i8), true, left_w) {
                                 match col {
                                     1 => l.slots[k].team = (l.slots[k].team + 1) % l.slots.len() as u8,
                                     2 => l.slots[k].faction = next_faction(l.slots[k].faction),
-                                    _ if k != 0 => {
+                                    _ if Some(k) != me => {
                                         let s = &mut l.slots[k];
                                         if s.kind == 2 {
                                             l.host.send_msg(s.conn, &S2C::Kicked("You were removed by the host.".into()));
@@ -1086,6 +1185,22 @@ fn menu_ui(world: &mut World) {
                                 l.dirty = true;
                             }
                             ui.label(egui::RichText::new("Click a slot to switch Open / the AI types / Closed (hover an AI for what it does). Same team number = allies.").size(12.0).weak());
+                            let names: Vec<String> = l.observers.iter().map(|o| if o.conn == 0 { format!("{} (you)", o.name) } else { o.name.clone() }).collect();
+                            match observer_rows(ui, &names, me.is_some(), l.observers.iter().any(|o| o.conn == 0), l.slots.iter().any(|s| s.kind == 0), true, left_w) {
+                                Some(ObserverClick::Watch(w)) => {
+                                    l.observe(0, w, first_faction);
+                                }
+                                Some(ObserverClick::Remove(k)) => {
+                                    let o = &l.observers[k];
+                                    if o.conn != 0 {
+                                        l.host.send_msg(o.conn, &S2C::Kicked("You were removed by the host.".into()));
+                                        l.host.kick(o.conn);
+                                        l.observers.remove(k);
+                                        l.dirty = true;
+                                    }
+                                }
+                                None => {}
+                            }
                             if !app.message.is_empty() {
                                 ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
                             }
@@ -1217,12 +1332,15 @@ fn menu_ui(world: &mut World) {
                             }
                         });
                     });
+                    if start && !l.slots.iter().any(|s| s.kind >= 2) {
+                        app.message = "Nobody would play: put a player or an AI in a slot.".into();
+                        start = false;
+                    }
                     if l.dirty {
                         l.dirty = false;
-                        for (k, s) in l.slots.iter().enumerate() {
-                            if s.conn != 0 {
-                                l.host.send_msg(s.conn, &S2C::Lobby(l.info(k as i8, world.resource::<Defs>())));
-                            }
+                        let conns: Vec<u32> = l.slots.iter().map(|s| s.conn).chain(l.observers.iter().map(|o| o.conn)).filter(|c| *c != 0).collect();
+                        for c in conns {
+                            l.host.send_msg(c, &S2C::Lobby(l.info(c, world.resource::<Defs>())));
                         }
                     }
                     if start {
@@ -1290,6 +1408,9 @@ fn menu_ui(world: &mut World) {
                                     ui.set_width(left_w);
                                     if let Some((k, 2)) = slot_rows(ui, &defs, &i.slots, i.you, false, left_w) {
                                         l.client.send(&C2S::Faction(next_faction(i.slots[k].faction)));
+                                    }
+                                    if let Some(ObserverClick::Watch(w)) = observer_rows(ui, &i.observers, i.you >= 0, i.observing, i.slots.iter().any(|s| s.kind == 0), false, left_w) {
+                                        l.client.send(&C2S::Observe(w));
                                     }
                                     ui.add_space(8.0);
                                     ui.label("Waiting for the host to start...");

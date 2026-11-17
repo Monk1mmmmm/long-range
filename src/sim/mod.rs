@@ -17,6 +17,9 @@ pub const DT: f32 = 0.1;
 /// Owner ids of the two non-player sides.
 pub const NEUTRAL: u8 = 250;
 pub const HOSTILE: u8 = 251;
+/// The "player" of someone who only watches (lobby observer slots): owns nothing, gives no
+/// commands, sees everything.
+pub const OBSERVER: u8 = 249;
 /// Most players a game can have.
 pub const MAX_PLAYERS: usize = 10;
 pub const TEAM_NEUTRAL: u8 = 14;

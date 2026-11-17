@@ -323,7 +323,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   (a move order given meanwhile starts when the hold runs out).
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
-- **Lobby**: players on the left; on the right the map preview (`terrain::map_preview`, start numbers drawn
+- **Lobby**: players on the left, observers under them (up to 8: "Watch instead" / "Take a slot", `C2S::Observe`; joiners
+  find no open slot and players whose slot a smaller map removes become observers). An observer plays as `sim::OBSERVER`
+  (no player: sees everything, gives no commands, not in `S2C::Peers`, so never takes over as host); on the right the map preview (`terrain::map_preview`, start numbers drawn
   on top) and the tabs Game options (mode, points, data preset, players / re-roll for random maps, "AI
   reclaims trees and rocks" -> `Ai.reclaim`, "Neutral and hostile buildings known from the start" -> `Game.reveal_props`: `intel.rs` puts
   them into the contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). The random map is made when
