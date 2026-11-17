@@ -2229,10 +2229,11 @@ fn projectiles(
     let ff = defs.rules.friendly_fire;
     for (e, mut p) in q.iter_mut().sort_by_key::<&Projectile, _>(|p| p.id) {
         let team = game.team_of(p.owner);
-        // A shot never hits the unit that fired it, nor the garrison it fires from.
-        let shooter = p.shooter;
-        let host = census.get(shooter).map_or(0, |s| s.host);
-        let own = move |id: u32| id != 0 && (id == shooter || id == host);
+        // With friendly fire a shot never hits the unit that fired it, nor the garrison it fires from
+        // (without, the own team is skipped anyway).
+        let shooter = if ff { p.shooter } else { 0 };
+        let host = if shooter != 0 { census.get(shooter).map_or(0, |s| s.host) } else { 0 };
+        let own = move |id: u32| shooter != 0 && (id == shooter || id == host);
         p.life -= DT;
         let a = p.pos.v();
         let mut vel = p.vel.v();
