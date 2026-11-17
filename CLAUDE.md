@@ -372,6 +372,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   AT infantry) is the Crony mesh at 1.3x, 1400 hp, MediumTank armor.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
+- **Game browser** (main menu "Join game" -> `Screen::Browse`, `main.rs::browser_ui`): a table of the games found by UDP
+  discovery (`net::Discovery`, broadcast + localhost once a second, Refresh/F5 asks again, hosts silent 4 s drop off).
+  A host answers with its version and a `net::GameAd` (host name, map folder or random size, 48x48 RGB picture + starts,
+  players/AIs/slots/observers, mode, preset, data hash, started), set by `Host::advertise` whenever the lobby is dirty
+  (`HostLobby::ad`); another version shows as such and cannot be joined. Joining by address is on the same screen.
+  **Downloads**: the host's map and data already travel in `S2C::Start`; the client then keeps them
+  (`keep_downloads`, background thread): a premade map goes to `assets/maps/<folder>` (or `<folder>_2`... when a
+  different map has that name, `same_map`), a named preset to the presets (`name 2`... likewise), model/icon files via
+  `store_assets` as before. The client lobby says whether the map and data are here or will be downloaded
+  (`LobbyInfo.map_file/preset/data_hash`).
 - **Lobby**: players on the left, observers under them (up to 8: "Watch instead" / "Take a slot", `C2S::Observe`; joiners
   find no open slot and players whose slot a smaller map removes become observers). An observer plays as `sim::OBSERVER`
   (no player: sees everything, gives no commands, not in `S2C::Peers`, so never takes over as host); on the right the map preview (`terrain::map_preview`, start numbers drawn

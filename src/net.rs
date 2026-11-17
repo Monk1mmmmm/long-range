@@ -8,12 +8,18 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const TCP_PORT: u16 = 47800;
 pub const UDP_PORT: u16 = 47801;
-const MAGIC_Q: &[u8] = b"LRT4?";
-const MAGIC_A: &[u8] = b"LRT4!";
+/// Discovery query: magic + a 4-byte sequence number. Reply: magic + that number + the length and
+/// text of the game version + the `GameAd` (bincode), so another version still shows up, as such.
+const MAGIC_Q: &[u8] = b"LRT5?";
+const MAGIC_A: &[u8] = b"LRT5!";
+/// Side of the map picture in a `GameAd` (RGB).
+pub const AD_PREVIEW: usize = 48;
+/// A host that has not answered for this long drops off the list of games.
+const AD_STALE_SECS: f32 = 4.0;
 /// Frame tags.
 pub const TAG_MSG: u8 = 0;
 pub const TAG_SNAP: u8 = 1;
@@ -48,6 +54,70 @@ pub struct LobbyInfo {
     pub observers: Vec<String>,
     /// This player is one of the observers (`you` is then -1).
     pub observing: bool,
+    /// Folder name of a premade map (empty: random), so a client can tell whether it has it.
+    pub map_file: String,
+    /// Data preset (empty: built-in) and the hash of the data the game will use.
+    pub preset: String,
+    pub data_hash: u64,
+}
+
+/// What a host tells the game browser about its game (UDP discovery reply). Texts that need
+/// translating travel as data (map size, mode, preset name), the browser words them.
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct GameAd {
+    /// The host player's name.
+    pub host: String,
+    /// Folder name of a premade map; empty for a random map (`cells` across).
+    pub map: String,
+    pub cells: u16,
+    /// Map picture, RGB, `AD_PREVIEW` squared (empty: none), and the start positions (0..255 across).
+    pub preview: Vec<u8>,
+    pub starts: Vec<(u8, u8)>,
+    pub humans: u8,
+    pub ais: u8,
+    /// Slots that are not closed.
+    pub slots: u8,
+    pub observers: u8,
+    /// Room for another observer.
+    pub can_watch: bool,
+    /// `sim::MODE_*`.
+    pub mode: u8,
+    /// Data preset; empty = the built-in data.
+    pub preset: String,
+    pub data_hash: u64,
+    pub started: bool,
+}
+
+/// The game version a host advertises.
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// RGB picture of `AD_PREVIEW` squared from an RGBA picture of `side` squared (box average).
+pub fn ad_preview(rgba: &[u8], side: usize) -> Vec<u8> {
+    if side == 0 || rgba.len() != side * side * 4 {
+        return vec![];
+    }
+    let n = AD_PREVIEW;
+    let mut out = Vec::with_capacity(n * n * 3);
+    for y in 0..n {
+        for x in 0..n {
+            let (x0, x1) = (x * side / n, ((x + 1) * side / n).max(x * side / n + 1));
+            let (y0, y1) = (y * side / n, ((y + 1) * side / n).max(y * side / n + 1));
+            let mut sum = [0u32; 3];
+            for yy in y0..y1 {
+                for xx in x0..x1 {
+                    let i = (yy * side + xx) * 4;
+                    for c in 0..3 {
+                        sum[c] += rgba[i + c] as u32;
+                    }
+                }
+            }
+            let k = ((x1 - x0) * (y1 - y0)) as u32;
+            out.extend(sum.iter().map(|v| (v / k) as u8));
+        }
+    }
+    out
 }
 
 #[derive(Serialize, Deserialize)]
@@ -134,7 +204,7 @@ pub struct Host {
     conns: Arc<Mutex<Vec<Conn>>>,
     stop: Arc<AtomicBool>,
     /// Shown in LAN discovery replies.
-    pub info: Arc<Mutex<String>>,
+    ad: Arc<Mutex<GameAd>>,
 }
 
 impl Host {
@@ -144,7 +214,7 @@ impl Host {
         let (etx, erx) = channel::<HostEvent>();
         let conns: Arc<Mutex<Vec<Conn>>> = Arc::new(Mutex::new(vec![]));
         let stop = Arc::new(AtomicBool::new(false));
-        let info = Arc::new(Mutex::new(name.to_string()));
+        let ad = Arc::new(Mutex::new(GameAd { host: name.to_string(), ..Default::default() }));
 
         // Accept loop.
         {
@@ -198,23 +268,44 @@ impl Host {
         }
         // Discovery responder.
         {
-            let (stop, info) = (stop.clone(), info.clone());
+            let (stop, ad) = (stop.clone(), ad.clone());
             std::thread::spawn(move || {
                 let Ok(sock) = UdpSocket::bind(("0.0.0.0", UDP_PORT)) else { return };
                 sock.set_read_timeout(Some(Duration::from_millis(200))).ok();
                 let mut buf = [0u8; 64];
                 while !stop.load(Ordering::Relaxed) {
                     if let Ok((n, from)) = sock.recv_from(&mut buf) {
-                        if &buf[..n] == MAGIC_Q {
+                        let q = MAGIC_Q.len();
+                        if n == q + 4 && &buf[..q] == MAGIC_Q {
                             let mut reply = MAGIC_A.to_vec();
-                            reply.extend_from_slice(info.lock().unwrap().as_bytes());
+                            reply.extend_from_slice(&buf[q..q + 4]);
+                            let v = version().as_bytes();
+                            reply.push(v.len().min(255) as u8);
+                            reply.extend_from_slice(&v[..v.len().min(255)]);
+                            reply.extend(bincode::serialize(&*ad.lock().unwrap()).unwrap_or_default());
                             sock.send_to(&reply, from).ok();
                         }
                     }
                 }
             });
         }
-        Ok(Host { events: erx, conns, stop, info })
+        Ok(Host { events: erx, conns, stop, ad })
+    }
+
+    /// What the game browser shows of this game from now on (the host's name is kept).
+    pub fn advertise(&self, mut ad: GameAd) {
+        let mut cur = self.ad.lock().unwrap();
+        ad.host = std::mem::take(&mut cur.host);
+        *cur = ad;
+    }
+
+    /// The game has begun: the browser shows it as in progress.
+    pub fn set_started(&self, map: &str) {
+        let mut ad = self.ad.lock().unwrap();
+        ad.started = true;
+        if ad.map.is_empty() && ad.cells == 0 {
+            ad.map = map.to_string();
+        }
     }
 
     /// Queues a frame for one client. Every frame matters (a client that misses a turn cannot
@@ -338,10 +429,25 @@ impl Drop for Client {
 
 // ------------------------------------------------------------------ discovery
 
+/// A game a host on the network answered with.
+pub struct Found {
+    pub ip: IpAddr,
+    /// The host's game version; the ad is only read when it matches ours.
+    pub version: String,
+    pub ad: GameAd,
+    pub ping_ms: u32,
+    seen: Instant,
+}
+
+/// Finds games: asks the local network (broadcast) and this machine once a second; hosts that
+/// stop answering drop off the list.
 pub struct Discovery {
     sock: Option<UdpSocket>,
-    pub found: Vec<(IpAddr, String)>,
+    pub found: Vec<Found>,
     timer: f32,
+    seq: u32,
+    /// Recent queries: (sequence number, when sent), for the ping.
+    sent: Vec<(u32, Instant)>,
 }
 
 impl Discovery {
@@ -351,7 +457,13 @@ impl Discovery {
             s.set_broadcast(true).ok();
             s.set_nonblocking(true).ok();
         }
-        Discovery { sock, found: vec![], timer: 0.0 }
+        Discovery { sock, found: vec![], timer: 0.0, seq: 0, sent: vec![] }
+    }
+
+    /// Forgets the games found and asks again at once.
+    pub fn refresh(&mut self) {
+        self.found.clear();
+        self.timer = 0.0;
     }
 
     pub fn poll(&mut self, dt: f32) {
@@ -359,19 +471,35 @@ impl Discovery {
         self.timer -= dt;
         if self.timer <= 0.0 {
             self.timer = 1.0;
-            s.send_to(MAGIC_Q, (Ipv4Addr::BROADCAST, UDP_PORT)).ok();
-            s.send_to(MAGIC_Q, (Ipv4Addr::LOCALHOST, UDP_PORT)).ok();
-        }
-        let mut buf = [0u8; 256];
-        while let Ok((n, from)) = s.recv_from(&mut buf) {
-            if n >= MAGIC_A.len() && &buf[..MAGIC_A.len()] == MAGIC_A {
-                let name = String::from_utf8_lossy(&buf[MAGIC_A.len()..n]).to_string();
-                if let Some(e) = self.found.iter_mut().find(|e| e.0 == from.ip()) {
-                    e.1 = name;
-                } else {
-                    self.found.push((from.ip(), name));
-                }
+            self.seq = self.seq.wrapping_add(1);
+            let mut q = MAGIC_Q.to_vec();
+            q.extend_from_slice(&self.seq.to_le_bytes());
+            s.send_to(&q, (Ipv4Addr::BROADCAST, UDP_PORT)).ok();
+            s.send_to(&q, (Ipv4Addr::LOCALHOST, UDP_PORT)).ok();
+            self.sent.push((self.seq, Instant::now()));
+            if self.sent.len() > 8 {
+                self.sent.remove(0);
             }
         }
+        let now = Instant::now();
+        let mut buf = vec![0u8; 65536];
+        while let Ok((n, from)) = s.recv_from(&mut buf) {
+            let a = MAGIC_A.len();
+            if n < a + 5 || &buf[..a] != MAGIC_A {
+                continue;
+            }
+            let seq = u32::from_le_bytes([buf[a], buf[a + 1], buf[a + 2], buf[a + 3]]);
+            let vlen = buf[a + 4] as usize;
+            let Some(v) = buf.get(a + 5..a + 5 + vlen) else { continue };
+            let version = String::from_utf8_lossy(v).to_string();
+            let ad = if version == self::version() { bincode::deserialize::<GameAd>(&buf[a + 5 + vlen..n]).unwrap_or_default() } else { GameAd::default() };
+            let ping_ms = self.sent.iter().find(|q| q.0 == seq).map_or(999, |q| now.duration_since(q.1).as_millis().min(999) as u32);
+            let f = Found { ip: from.ip(), version, ad, ping_ms, seen: now };
+            match self.found.iter_mut().find(|e| e.ip == from.ip()) {
+                Some(e) => *e = f,
+                None => self.found.push(f),
+            }
+        }
+        self.found.retain(|f| now.duration_since(f.seen).as_secs_f32() < AD_STALE_SECS);
     }
 }

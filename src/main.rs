@@ -220,6 +220,37 @@ impl HostLobby {
             points: if self.mode == MODE_POINTS { self.points.clone() } else { vec![] },
             observers: self.observers.iter().map(|o| o.name.clone()).collect(),
             observing: self.observers.iter().any(|o| o.conn == conn),
+            map_file: self.map_file(),
+            preset: self.preset_name(),
+            data_hash: defs.hash,
+        }
+    }
+    /// Folder name of the chosen premade map; empty for a random map.
+    fn map_file(&self) -> String {
+        self.map_choice.checked_sub(SIZES.len()).and_then(|k| self.maps.get(k)).cloned().unwrap_or_default()
+    }
+    /// The chosen data preset; empty for the built-in data.
+    fn preset_name(&self) -> String {
+        self.preset.checked_sub(1).and_then(|k| self.presets.get(k)).cloned().unwrap_or_default()
+    }
+    /// What the game browser shows of this lobby.
+    fn ad(&self, defs: &Defs) -> GameAd {
+        let count = |k: u8| self.slots.iter().filter(|s| s.kind == k).count() as u8;
+        GameAd {
+            host: String::new(),
+            map: self.map_file(),
+            cells: SIZES.get(self.map_choice).map_or(0, |s| s.0 as u16),
+            preview: ad_preview(&self.preview, PREVIEW),
+            starts: self.starts.iter().map(|(x, y)| ((x * 255.0).round().clamp(0.0, 255.0) as u8, (y * 255.0).round().clamp(0.0, 255.0) as u8)).collect(),
+            humans: count(2),
+            ais: count(3),
+            slots: self.slots.len() as u8 - count(1),
+            observers: self.observers.len() as u8,
+            can_watch: self.observers.len() < MAX_OBSERVERS,
+            mode: self.mode,
+            preset: self.preset_name(),
+            data_hash: defs.hash,
+            started: false,
         }
     }
 }
@@ -230,6 +261,88 @@ struct ClientLobby {
     pending: Option<(MapData, u8)>,
     /// The map preview the host sent (keyed by a checksum of its pixels).
     tex: Option<(u64, egui::TextureHandle)>,
+    /// Whether the host's premade map (folder name) is on this computer.
+    have_map: Option<(String, bool)>,
+}
+
+/// Two maps are the same map (a saved copy may differ from the original by rounding).
+fn same_map(a: &MapData, b: &MapData) -> bool {
+    a.n == b.n
+        && a.heights.len() == b.heights.len()
+        && a.heights.iter().zip(&b.heights).all(|(x, y)| (x - y).abs() < 0.01)
+        && a.starts == b.starts
+        && a.deposits.len() == b.deposits.len()
+        && a.props.len() == b.props.len()
+        && a.features.len() == b.features.len()
+        && a.layers.len() == b.layers.len()
+        && a.masks == b.masks
+        && a.lake_of == b.lake_of
+}
+
+/// Keeps the map a host sent in `assets/maps`: under its folder name, or (when another map has
+/// that name here) the first free `name_2`, `name_3`... Nothing is written when the same map is
+/// already there. Returns the folder it is in.
+fn keep_map(map: &MapData, file: &str) -> Result<String, String> {
+    let base = longrange::data::clean_name(file).replace(' ', "_");
+    if base.is_empty() {
+        return Err("the map has no usable name".into());
+    }
+    for k in 1..100 {
+        let name = if k == 1 { base.clone() } else { format!("{base}_{k}") };
+        let dir = asset_root().join("maps").join(&name);
+        if !dir.join("map.json").exists() {
+            map.save(&dir)?;
+            return Ok(name);
+        }
+        if MapData::load(&dir).map_or(false, |m| same_map(&m, map)) {
+            return Ok(name);
+        }
+    }
+    Err("too many maps of that name".into())
+}
+
+/// Keeps the host's data preset among the presets: under its name, or `name 2`, `name 3`... when
+/// a different preset has that name here. Nothing is written when the same one is already there.
+fn keep_preset(pack: &DataPack) -> Result<Option<String>, String> {
+    let root = asset_root();
+    let base = longrange::data::clean_name(&pack.name);
+    if base.is_empty() {
+        return Ok(None);
+    }
+    for k in 1..100 {
+        let name = if k == 1 { base.clone() } else { longrange::data::clean_name(&format!("{} {k}", base.chars().take(28).collect::<String>())) };
+        if !longrange::data::presets_dir(&root).join(&name).exists() {
+            let mut p = pack.clone();
+            p.name = name.clone();
+            p.files.clear();
+            p.save(&root)?;
+            return Ok(Some(name));
+        }
+        if DataPack::preset(&root, &name).map_or(false, |h| h.rules == pack.rules && h.factions == pack.factions) {
+            return Ok(Some(name));
+        }
+    }
+    Err("too many presets of that name".into())
+}
+
+/// Saves what the host sent for this game (its premade map, its data preset) so this player has
+/// them from now on, in the background.
+fn keep_downloads(map: Option<(MapData, String)>, pack: Option<DataPack>) {
+    std::thread::spawn(move || {
+        if let Some((map, file)) = map {
+            match keep_map(&map, &file) {
+                Ok(name) => info!("the host's map is in assets/maps/{name}"),
+                Err(e) => warn!("could not save the host's map {file}: {e}"),
+            }
+        }
+        if let Some(pack) = pack {
+            match keep_preset(&pack) {
+                Ok(Some(name)) => info!("the host's game data is the preset '{name}'"),
+                Ok(None) => {}
+                Err(e) => warn!("could not save the host's game data '{}': {e}", pack.name),
+            }
+        }
+    });
 }
 
 enum Role {
@@ -271,7 +384,7 @@ fn take_over(world: &mut World, sim: &mut ClientSim, me: u8, name: &str) -> Resu
     if let Some(old) = sim.host_player {
         hsim.command(world, old, 0, 0, Command::Resign);
     }
-    *host.info.lock().unwrap() = "(game in progress)".into();
+    host.set_started(&world.resource::<MapData>().name);
     let waiting: Vec<u8> = sim.peers.iter().map(|p| p.0).filter(|&p| p != me).collect();
     Ok(Role::Host { host, remote: vec![], sim: hsim, waiting, wait_left: REJOIN_WAIT_SECS, ai_reclaim: sim.ai_reclaim })
 }
@@ -431,7 +544,28 @@ enum Screen {
     Presets(PresetUi),
     HostLobby(HostLobby),
     ClientLobby(ClientLobby),
+    /// The list of games to join.
+    Browse(Browser),
     Game(Session),
+}
+
+/// The game browser: games hosts on the network announce, refreshed every second.
+struct Browser {
+    disc: Discovery,
+    selected: Option<std::net::IpAddr>,
+    /// Map pictures by host (keyed by a checksum of the pixels).
+    thumbs: std::collections::HashMap<std::net::IpAddr, (u64, egui::TextureHandle)>,
+    /// Whether a premade map is on this computer, by folder name (asked again on refresh).
+    have_map: std::collections::HashMap<String, bool>,
+}
+
+impl Browser {
+    fn new() -> Browser {
+        Browser { disc: Discovery::new(), selected: None, thumbs: Default::default(), have_map: Default::default() }
+    }
+    fn has_map(&mut self, name: &str) -> bool {
+        *self.have_map.entry(name.to_string()).or_insert_with(|| asset_root().join("maps").join(name).join("map.json").exists())
+    }
 }
 
 /// Top-level application state (kept off the ECS threads: it owns sockets).
@@ -440,7 +574,6 @@ struct AppState {
     name: String,
     ip: String,
     message: String,
-    discovery: Discovery,
     skirmish: bool,
     settings_open: bool,
     /// The built-in game data; a lobby or a host may put a preset in its place for one game.
@@ -598,7 +731,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     }
     send_peers(&l.host, &remote, me, l.ai_reclaim);
     let sim = HostSim::new(world);
-    *l.host.info.lock().unwrap() = "(game in progress)".into();
+    l.host.set_started("");
     view::start_view(world, me, true);
     Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None, held: vec![] })
 }
@@ -857,7 +990,6 @@ fn session_update(world: &mut World) {
         restore_defs(world, &app.base_defs);
         app.message = msg;
         app.screen = Screen::Menu;
-        app.discovery = Discovery::new();
     }
     world.insert_non_send(app);
 }
@@ -961,6 +1093,181 @@ fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(
     }
 }
 
+enum BrowserAction {
+    Join(String),
+    Back,
+}
+
+/// Columns of the game browser after the map picture: (heading, share of the width).
+const BROWSER_COLS: [(&str, f32); 8] = [
+    (tx!("browser.col_host"), 0.16),
+    (tx!("browser.col_map"), 0.22),
+    (tx!("browser.col_players"), 0.11),
+    (tx!("browser.col_mode"), 0.12),
+    (tx!("browser.col_data"), 0.15),
+    (tx!("browser.col_version"), 0.08),
+    (tx!("browser.col_ping"), 0.06),
+    (tx!("browser.col_status"), 0.10),
+];
+
+/// The game browser: a row per game found (map picture, host, map, players, mode, game data,
+/// version, ping, state), Refresh, Join, and joining by address.
+#[allow(clippy::too_many_arguments)]
+fn browser_ui(ui: &mut egui::Ui, ctx: &egui::Context, b: &mut Browser, defs: &Defs, ip: &mut String, message: &str, width: f32, height: f32) -> Option<BrowserAction> {
+    use egui::{pos2, vec2, Align2, Color32, FontId, Rect};
+    let mut act = None;
+    ui.label(egui::RichText::new(tr!("browser.title")).size(34.0).color(Color32::from_rgb(255, 215, 100)));
+    ui.label(egui::RichText::new(tr!("browser.hint")).size(13.0).weak());
+    ui.add_space(10.0);
+    let pic = 56.0;
+    let row_h = 66.0;
+    let cols_w = width - pic - 40.0;
+    let col_x = |left: f32, k: usize| left + pic + 16.0 + BROWSER_COLS[..k].iter().map(|c| c.1).sum::<f32>() * cols_w;
+    let (head, _) = ui.allocate_exact_size(vec2(width, 22.0), egui::Sense::hover());
+    for (k, (name, _)) in BROWSER_COLS.iter().enumerate() {
+        ui.painter().text(pos2(col_x(head.min.x, k), head.center().y), Align2::LEFT_CENTER, tr(name), FontId::proportional(14.0), Color32::from_gray(160));
+    }
+    ui.separator();
+    let amber = Color32::from_rgb(240, 200, 110);
+    let red = Color32::from_rgb(255, 120, 105);
+    let list_h = (height - 200.0).max(240.0);
+    let mut joinable_sel: Option<std::net::IpAddr> = None;
+    egui::ScrollArea::vertical().max_height(list_h).min_scrolled_height(list_h).show(ui, |ui| {
+        if b.disc.found.is_empty() {
+            ui.add_space(24.0);
+            ui.label(egui::RichText::new(tr!("browser.searching")).size(16.0).weak());
+        }
+        for k in 0..b.disc.found.len() {
+            let f = &b.disc.found[k];
+            let (addr, ad, version, ping) = (f.ip, f.ad.clone(), f.version.clone(), f.ping_ms);
+            let compatible = version == longrange::net::version();
+            let open = ad.humans + ad.ais < ad.slots;
+            let joinable = compatible && !ad.started && (open || ad.can_watch);
+            let (rect, resp) = ui.allocate_exact_size(vec2(width, row_h), egui::Sense::click());
+            let selected = b.selected == Some(addr);
+            if selected && joinable {
+                joinable_sel = Some(addr);
+            }
+            let fill = if selected {
+                Color32::from_rgb(52, 68, 92)
+            } else if resp.hovered() {
+                Color32::from_rgb(36, 43, 53)
+            } else if k % 2 == 0 {
+                Color32::from_rgb(25, 29, 35)
+            } else {
+                Color32::from_rgb(20, 23, 28)
+            };
+            ui.painter().rect_filled(rect, 3.0, fill);
+            // The map picture with the start positions.
+            let pr = Rect::from_min_size(rect.min + vec2(8.0, (row_h - pic) / 2.0), vec2(pic, pic));
+            let side = AD_PREVIEW;
+            let sum = ad.preview.iter().step_by(31).fold(ad.preview.len() as u64, |h, v| h.wrapping_mul(31).wrapping_add(*v as u64));
+            if ad.preview.len() == side * side * 3 && b.thumbs.get(&addr).map_or(true, |t| t.0 != sum) {
+                let t = ctx.load_texture(format!("browse_{addr}"), egui::ColorImage::from_rgb([side, side], &ad.preview), egui::TextureOptions::LINEAR);
+                b.thumbs.insert(addr, (sum, t));
+            }
+            match b.thumbs.get(&addr).filter(|_| !ad.preview.is_empty()) {
+                Some((_, t)) => {
+                    ui.painter().image(t.id(), pr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                }
+                None => {
+                    ui.painter().rect_filled(pr, 3.0, Color32::from_rgb(40, 46, 54));
+                    ui.painter().text(pr.center(), Align2::CENTER_CENTER, "?", FontId::proportional(22.0), Color32::GRAY);
+                }
+            }
+            for (j, (x, y)) in ad.starts.iter().enumerate() {
+                let c = defs.rules.player_colors[j % defs.rules.player_colors.len().max(1)];
+                let at = pr.min + vec2(*x as f32 / 255.0 * pic, *y as f32 / 255.0 * pic);
+                ui.painter().circle(at, 3.0, Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8), egui::Stroke::new(1.0, Color32::BLACK));
+            }
+            // One or two lines of text per column, clipped to it.
+            let cell = |col: usize, top: String, top_col: Color32, sub: Option<(String, Color32)>| {
+                let x0 = col_x(rect.min.x, col);
+                let clip = Rect::from_min_max(pos2(x0, rect.min.y), pos2(x0 + BROWSER_COLS[col].1 * cols_w - 8.0, rect.max.y));
+                let p = ui.painter().with_clip_rect(clip);
+                let dy = if sub.is_some() { -9.0 } else { 0.0 };
+                p.text(pos2(x0, rect.center().y + dy), Align2::LEFT_CENTER, top, FontId::proportional(16.0), top_col);
+                if let Some((t, c)) = sub {
+                    p.text(pos2(x0, rect.center().y + 11.0), Align2::LEFT_CENTER, t, FontId::proportional(12.5), c);
+                }
+            };
+            let text = Color32::from_gray(225);
+            let weak = Color32::from_gray(140);
+            let host = if ad.host.is_empty() { "?".to_string() } else { ad.host.clone() };
+            cell(0, host, Color32::WHITE, Some((addr.to_string(), weak)));
+            let map = match SIZES.iter().find(|s| s.0 == ad.cells as usize) {
+                Some((n, name)) if ad.map.is_empty() => tr!("lobby.random_size", tr(name), *n as f32 * CELL, *n as f32 * CELL),
+                _ => ad.map.clone(),
+            };
+            let map_sub = (!ad.map.is_empty() && !b.has_map(&ad.map)).then(|| (tr!("browser.map_download").to_string(), amber));
+            cell(1, map, text, map_sub);
+            let mut extra = vec![];
+            if ad.ais > 0 {
+                extra.push(tr!("browser.ais", ad.ais));
+            }
+            if ad.observers > 0 {
+                extra.push(tr!("browser.watching", ad.observers));
+            }
+            cell(2, format!("{} / {}", ad.humans + ad.ais, ad.slots), text, (!extra.is_empty()).then(|| (extra.join(", "), weak)));
+            cell(3, if ad.mode == MODE_POINTS { tr!("browser.mode_points") } else { tr!("browser.mode_annihilation") }.to_string(), text, None);
+            let data = if ad.preset.is_empty() { tr!("lobby.built_in").to_string() } else { ad.preset.clone() };
+            let data_sub = (compatible && ad.data_hash != defs.hash).then(|| (tr!("browser.data_download").to_string(), amber));
+            cell(4, data, text, data_sub);
+            cell(5, version.clone(), if compatible { text } else { red }, None);
+            cell(6, tr!("browser.ms", ping), if ping < 60 { text } else { amber }, None);
+            let (status, status_col) = if !compatible {
+                (tr!("browser.status_other_version"), red)
+            } else if ad.started {
+                (tr!("browser.status_started"), weak)
+            } else if open {
+                (tr!("browser.status_open"), Color32::from_rgb(140, 220, 130))
+            } else if ad.can_watch {
+                (tr!("browser.status_watch"), amber)
+            } else {
+                (tr!("browser.status_full"), red)
+            };
+            cell(7, status.to_string(), status_col, None);
+            let resp = if compatible { resp } else { resp.on_hover_text(tr!("browser.other_version_tip", version, longrange::net::version())) };
+            if resp.clicked() {
+                b.selected = Some(addr);
+            }
+            if resp.double_clicked() && joinable {
+                act = Some(BrowserAction::Join(std::net::SocketAddr::new(addr, TCP_PORT).to_string()));
+            }
+            ui.add_space(2.0);
+        }
+    });
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        if ui.add_sized([150.0, 34.0], egui::Button::new(tr!("browser.refresh"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::F5)) {
+            b.disc.refresh();
+            b.have_map.clear();
+        }
+        if ui.add_enabled(joinable_sel.is_some(), egui::Button::new(egui::RichText::new(tr!("browser.join")).size(16.0)).min_size(vec2(170.0, 34.0))).clicked() {
+            if let Some(addr) = joinable_sel {
+                act = Some(BrowserAction::Join(std::net::SocketAddr::new(addr, TCP_PORT).to_string()));
+            }
+        }
+        ui.add_space(30.0);
+        ui.label(tr!("browser.by_address"));
+        let r = ui.add(egui::TextEdit::singleline(ip).desired_width(200.0).hint_text("192.168.1.20"));
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if (ui.add_sized([110.0, 34.0], egui::Button::new(tr!("browser.join_address"))).clicked() || enter) && !ip.trim().is_empty() {
+            act = Some(BrowserAction::Join(ip.trim().to_string()));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add_sized([150.0, 34.0], egui::Button::new(tr!("common.back"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                act = Some(BrowserAction::Back);
+            }
+        });
+    });
+    if !message.is_empty() {
+        ui.add_space(8.0);
+        ui.colored_label(Color32::from_rgb(255, 120, 105), message);
+    }
+    act
+}
+
 /// Main menu and lobbies.
 fn menu_ui(world: &mut World) {
     let Some(mut app) = world.remove_non_send::<AppState>() else { return };
@@ -1026,11 +1333,10 @@ fn menu_ui(world: &mut World) {
     let list_h = (lobby_h - pic - 100.0).max(300.0);
     egui::Area::new(egui::Id::new("menu")).anchor(egui::Align2::CENTER_TOP, [0.0, 20.0]).show(&ctx, |ui| {
         ui.vertical_centered(|ui| {
-            let lobby = matches!(app.screen, Screen::HostLobby(_) | Screen::ClientLobby(_));
+            let lobby = matches!(app.screen, Screen::HostLobby(_) | Screen::ClientLobby(_) | Screen::Browse(_));
             ui.set_max_width(if lobby { lobby_w } else { 560.0 });
             match &mut app.screen {
                 Screen::Menu => {
-                    app.discovery.poll(dt);
                     ui.add_space(30.0);
                     ui.label(egui::RichText::new(tr!("main_menu.title")).size(56.0).color(egui::Color32::from_rgb(255, 215, 100)).strong());
                     ui.label(egui::RichText::new(tr!("main_menu.tagline")).size(16.0));
@@ -1054,34 +1360,10 @@ fn menu_ui(world: &mut World) {
                             Err(e) => app.message = e,
                         }
                     }
-                    ui.add_space(18.0);
-                    ui.label(egui::RichText::new(tr!("main_menu.lan_games")).size(18.0));
-                    let mut join: Option<String> = None;
-                    if app.discovery.found.is_empty() {
-                        ui.label(tr!("main_menu.searching"));
-                    }
-                    for (addr, host_name) in app.discovery.found.iter().take(5) {
-                        if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.join_host", host_name, addr))).clicked() {
-                            join = Some(addr.to_string());
-                        }
-                    }
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        ui.label(tr!("main_menu.or_by_ip"));
-                        let r = ui.add(egui::TextEdit::singleline(&mut app.ip).desired_width(200.0));
-                        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if (ui.button(tr!("main_menu.join")).clicked() || enter) && !app.ip.trim().is_empty() {
-                            join = Some(app.ip.trim().to_string());
-                        }
-                    });
-                    if let Some(addr) = join {
-                        match Client::connect(&addr, &app.name, defs.hash) {
-                            Ok(client) => {
-                                next = Some(Screen::ClientLobby(ClientLobby { client, info: None, pending: None, tex: None }));
-                                app.message.clear();
-                            }
-                            Err(e) => app.message = e,
-                        }
+                    ui.add_space(6.0);
+                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.join_game")).size(18.0))).clicked() {
+                        next = Some(Screen::Browse(Browser::new()));
+                        app.message.clear();
                     }
                     ui.add_space(14.0);
                     if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.game_data_presets"))).clicked() {
@@ -1344,6 +1626,7 @@ fn menu_ui(world: &mut World) {
                         for c in conns {
                             l.host.send_msg(c, &S2C::Lobby(l.info(c, world.resource::<Defs>())));
                         }
+                        l.host.advertise(l.ad(world.resource::<Defs>()));
                     }
                     if start {
                         if let Screen::HostLobby(l) = std::mem::replace(&mut app.screen, Screen::Menu) {
@@ -1365,15 +1648,21 @@ fn menu_ui(world: &mut World) {
                                 Ok(S2C::Lobby(i)) => l.info = Some(i),
                                 Ok(S2C::Start { map, you, data }) => {
                                     // The host plays with other game data than ours: use the host's for this game.
+                                    let mut keep_pack = None;
                                     if let Some(pack) = data {
                                         match Defs::from_pack(pack.clone()) {
                                             Ok(d) => {
                                                 pack.store_assets(&asset_root());
                                                 world.insert_resource(d);
+                                                keep_pack = Some(pack);
                                             }
                                             Err(e) => lost = Some(tr!("connection.host_data_unusable", e)),
                                         }
                                     }
+                                    // A premade map or a preset this player lacks is theirs from now on.
+                                    let file = l.info.as_ref().map(|i| i.map_file.clone()).unwrap_or_default();
+                                    let keep = (!file.is_empty()).then(|| (map.clone(), file));
+                                    keep_downloads(keep, keep_pack);
                                     l.pending = Some((map, you));
                                 }
                                 Ok(S2C::Kicked(why)) => lost = Some(tr(&why).to_string()),
@@ -1424,6 +1713,20 @@ fn menu_ui(world: &mut World) {
                                     ui.set_width(right_w);
                                     map_picture(ui, l.tex.as_ref().map(|t| &t.1), &i.starts, &i.points, &defs, pic);
                                     ui.label(egui::RichText::new(&i.map_name).strong());
+                                    // What the game will download from the host.
+                                    if !i.map_file.is_empty() {
+                                        if l.have_map.as_ref().map_or(true, |h| h.0 != i.map_file) {
+                                            l.have_map = Some((i.map_file.clone(), asset_root().join("maps").join(&i.map_file).join("map.json").exists()));
+                                        }
+                                        let have = l.have_map.as_ref().map_or(false, |h| h.1);
+                                        ui.label(egui::RichText::new(if have { tr!("lobby.map_here") } else { tr!("lobby.map_download") }).weak());
+                                    }
+                                    let preset = if i.preset.is_empty() { tr!("lobby.built_in").to_string() } else { i.preset.clone() };
+                                    if i.data_hash == defs.hash {
+                                        ui.label(egui::RichText::new(tr!("lobby.data_same", preset)).weak());
+                                    } else {
+                                        ui.label(egui::RichText::new(tr!("lobby.data_download", preset)).color(egui::Color32::from_rgb(240, 200, 110)));
+                                    }
                                     ui.add_space(6.0);
                                     ui.label(egui::RichText::new(tr!("lobby.game_options")).size(16.0));
                                     ui.separator();
@@ -1443,9 +1746,27 @@ fn menu_ui(world: &mut World) {
                         }
                     } else if let Some(why) = lost {
                         app.message = why;
-                        next = Some(Screen::Menu);
+                        next = Some(Screen::Browse(Browser::new()));
                     } else if back {
-                        next = Some(Screen::Menu);
+                        next = Some(Screen::Browse(Browser::new()));
+                    }
+                }
+                Screen::Browse(b) => {
+                    b.disc.poll(dt);
+                    let join = browser_ui(ui, &ctx, b, &defs, &mut app.ip, &app.message, lobby_w, lobby_h);
+                    match join {
+                        Some(BrowserAction::Join(addr)) => match Client::connect(&addr, &app.name, defs.hash) {
+                            Ok(client) => {
+                                next = Some(Screen::ClientLobby(ClientLobby { client, info: None, pending: None, tex: None, have_map: None }));
+                                app.message.clear();
+                            }
+                            Err(e) => app.message = e,
+                        },
+                        Some(BrowserAction::Back) => {
+                            next = Some(Screen::Menu);
+                            app.message.clear();
+                        }
+                        None => {}
                     }
                 }
                 Screen::Game(_) | Screen::Presets(_) => {}
@@ -1475,7 +1796,7 @@ fn menu_ui(world: &mut World) {
         }
     }
     if let Some(n) = next {
-        if matches!(n, Screen::Menu) {
+        if matches!(n, Screen::Menu | Screen::Browse(_)) {
             restore_defs(world, &app.base_defs);
         }
         app.screen = n;
@@ -3624,7 +3945,7 @@ fn nettest() {
         disc.poll(1.1);
         std::thread::sleep(Duration::from_millis(50));
     }
-    println!("discovery found: {:?}", disc.found);
+    println!("discovery found: {:?}", disc.found.iter().map(|f| (f.ip, f.version.clone(), f.ad.host.clone())).collect::<Vec<_>>());
     let mut client = Client::connect("127.0.0.1", "tester", defs.hash).expect("connect");
     let mut conn = 0;
     for _ in 0..2 {
@@ -4114,7 +4435,7 @@ fn main() {
     .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))
     .insert_resource(settings)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), discovery: Discovery::new(), skirmish: args.iter().any(|a| a == "--skirmish"), settings_open: false, base_defs: defs })
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish"), settings_open: false, base_defs: defs })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)
@@ -4125,4 +4446,24 @@ fn main() {
     longrange::settings::add_window_icon(&mut app);
     longrange::settings::gl_window_display(&mut app);
     app.run();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A map the host sent, saved here and loaded again, is still the same map: the next game on
+    /// it must not store another copy.
+    #[test]
+    fn kept_map_counts_as_same() {
+        let root = asset_root();
+        let dir = std::env::temp_dir().join(format!("lr_keep_map_{}", std::process::id()));
+        for name in ["duel", "laketest"] {
+            let m = MapData::load(&root.join("maps").join(name)).unwrap();
+            m.save(&dir).unwrap();
+            let back = MapData::load(&dir).unwrap();
+            assert!(same_map(&m, &back), "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
