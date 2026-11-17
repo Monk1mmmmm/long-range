@@ -2027,7 +2027,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 hud.rect_filled(rb, 2.0, rgba(0, 0, 0, 230));
                 hud.rect_filled(rect(rb.min.x, rb.min.y, rb.width() * frac, rb.height()), 2.0, if frac >= 1.0 { rgba(55, 130, 175, 255) } else { rgba(190, 120, 30, 255) });
                 let left = ws.ammo_left(wd);
-                let state = if left == Some(0) { "no ammo".into() } else if ws.cd > 0.0 { format!("{:.1}s", ws.cd) } else if ws.target != 0 && ws.aim < wd.aim_time { "aiming".into() } else { "ready".into() };
+                let state = if left == Some(0) { if wd.rearm > 0.0 { format!("no ammo {:.0}s", (1.0 - ws.rearm) * wd.rearm) } else { "no ammo".into() } } else if ws.cd > 0.0 { format!("{:.1}s", ws.cd) } else if ws.target != 0 && ws.aim < wd.aim_time { "aiming".into() } else { "ready".into() };
                 let rounds = left.map_or(String::new(), |l| format!("  {l}/{} left", wd.ammo));
                 text(rb.min.x + 4.0, rb.min.y, &format!("{}  {:.0} dmg  r{:.0}{rounds}", wd.name, wd.damage * wd.salvo as f32, wd.range), 10.5, Color32::WHITE);
                 hud.text(Pos2::new(rb.max.x - 4.0, rb.min.y), Align2::RIGHT_TOP, state, font(10.5), Color32::WHITE);
@@ -2332,6 +2332,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             t += &format!(" every {:.1}s, range {:.0}", w.reload, w.range);
             if w.ammo > 0 {
                 t += &format!(", {} rounds", w.ammo);
+                if w.rearm > 0.0 {
+                    t += &format!(" (+1 every {:.0}s for {:.0} mass)", w.rearm, w.rearm_mass);
+                }
             }
             if w.min_range > 0.0 {
                 t += &format!(" (min {:.0})", w.min_range);

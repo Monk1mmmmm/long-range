@@ -612,9 +612,16 @@ pub struct WeaponDef {
     #[serde(default)]
     pub hold: f32,
     /// Rounds the weapon carries (each projectile counts, a salvo of 4 uses 4); it falls silent
-    /// when they are spent and is never refilled. 0 = unlimited.
+    /// when they are spent. 0 = unlimited.
     #[serde(default)]
     pub ammo: u16,
+    /// Seconds to rearm one spent round (SupCom tactical missile style: one at a time, paid as a
+    /// flow of `rearm_mass` over that time, slowed by a mass stall). 0 = never rearmed.
+    #[serde(default)]
+    pub rearm: f32,
+    /// Mass one rearmed round costs.
+    #[serde(default)]
+    pub rearm_mass: f32,
     /// None = fixed forward weapon (the whole unit has to face the target).
     #[serde(default)]
     pub turret: Option<TurretDef>,

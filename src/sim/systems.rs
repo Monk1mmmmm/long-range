@@ -1969,6 +1969,26 @@ fn weapons(
             continue;
         }
         let df = defs.get(u.def);
+        // Spent rounds come back one at a time for a flow of mass (not while paused). Mass is
+        // taken in id order, so in a stall the lower ids rearm first.
+        if !census.get(u.id).is_some_and(|c| c.paused) {
+            for (w, st) in df.weapons.iter().zip(ws.list.iter_mut()) {
+                if st.fired == 0 || w.ammo == 0 || w.rearm <= 0.0 {
+                    continue;
+                }
+                let step = DT / w.rearm;
+                let Some(pl) = game.players.get_mut(u.owner as usize) else { break };
+                let want = w.rearm_mass * step;
+                let r = if want > 0.0 { (pl.mass.max(0.0) / want).min(1.0) } else { 1.0 };
+                pl.mass -= want * r;
+                pl.spend_m += want * r / DT;
+                st.rearm += step * r;
+                if st.rearm >= 0.9999 {
+                    st.rearm = 0.0;
+                    st.fired -= 1;
+                }
+            }
+        }
         let team = game.team_of(u.owner);
         let mut origin = body.pos.at(body.y + df.height() * 0.8);
         if let Some(h) = hosted {
@@ -2056,7 +2076,7 @@ fn weapons(
             }
             st.target = target.map_or(0, |c| c.id);
 
-            // --- out of ammunition: the weapon is done for good
+            // --- out of ammunition: silent until a round is rearmed
             if st.ammo_left(w) == Some(0) {
                 st.target = 0;
                 st.burst = 0;

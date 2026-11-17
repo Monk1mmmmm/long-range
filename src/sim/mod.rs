@@ -151,9 +151,12 @@ pub struct WeaponState {
     /// target (the bomber is never lined up exactly).
     #[serde(default)]
     pub fix: V2,
-    /// Rounds fired so far (weapons with limited `ammo`).
+    /// Rounds missing from a weapon with limited `ammo` (fired and not yet rearmed).
     #[serde(default)]
     pub fired: u16,
+    /// Rearming progress of the next round (0..1, weapons with `rearm`).
+    #[serde(default)]
+    pub rearm: f32,
 }
 
 impl WeaponState {
