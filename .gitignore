@@ -7,6 +7,9 @@
 # Local player settings (hotkey preset)
 /settings.json
 
+# Runtime logs (longrange.log, render-errors.log, ...)
+*.log
+
 # Converter scratch output and Python caches
 /tools/out
 __pycache__/
