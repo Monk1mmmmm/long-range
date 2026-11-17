@@ -1385,60 +1385,66 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 ring(g, map, u.pos, d.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.6));
             }
         }
-        if k < 60 {
-            let mut last = u.pos;
-            if let Some(r) = u.factory.as_ref().and_then(|f| f.rally) {
-                ground_line(g, map, last, r, Color::srgba(0.3, 0.8, 1.0, 0.8));
-                ring(g, map, r, 0.5, Color::srgba(0.3, 0.8, 1.0, 0.8));
-            }
-            for o in &u.orders {
-                let (pt, c) = match o {
-                    Order::Move(pt) => (Some(*pt), Color::srgba(0.3, 0.8, 1.0, 0.7)),
-                    Order::AttackMove(pt) => (Some(*pt), Color::srgba(1.0, 0.4, 0.3, 0.7)),
-                    Order::Patrol(pt) => (Some(*pt), Color::srgba(0.4, 0.9, 0.9, 0.7)),
-                    Order::Build { def, pos } => {
-                        let h = fr.d(*def).footprint as f32 * CELL * 0.5;
-                        let c = Color::srgba(1.0, 0.9, 0.3, 0.8);
-                        for (a, b) in [((-h, -h), (h, -h)), ((h, -h), (h, h)), ((h, h), (-h, h)), ((-h, h), (-h, -h))] {
-                            ground_line(g, map, *pos + v2(a.0, a.1), *pos + v2(b.0, b.1), c);
-                        }
-                        (Some(*pos), c)
+    }
+    // Order queues: of the selection, or (shift held, as in SupCom) of every own unit.
+    let queued: Vec<&Info> = if shift {
+        infos.values().filter(|u| u.owner == me && u.host == 0 && (!u.orders.is_empty() || u.factory.as_ref().is_some_and(|f| f.rally.is_some()))).collect()
+    } else {
+        selected.iter().take(60).copied().collect()
+    };
+    for u in queued {
+        let mut last = u.pos;
+        if let Some(r) = u.factory.as_ref().and_then(|f| f.rally) {
+            ground_line(g, map, last, r, Color::srgba(0.3, 0.8, 1.0, 0.8));
+            ring(g, map, r, 0.5, Color::srgba(0.3, 0.8, 1.0, 0.8));
+        }
+        for o in &u.orders {
+            let (pt, c) = match o {
+                Order::Move(pt) => (Some(*pt), Color::srgba(0.3, 0.8, 1.0, 0.7)),
+                Order::AttackMove(pt) => (Some(*pt), Color::srgba(1.0, 0.4, 0.3, 0.7)),
+                Order::Patrol(pt) => (Some(*pt), Color::srgba(0.4, 0.9, 0.9, 0.7)),
+                Order::Build { def, pos } => {
+                    let h = fr.d(*def).footprint as f32 * CELL * 0.5;
+                    let c = Color::srgba(1.0, 0.9, 0.3, 0.8);
+                    for (a, b) in [((-h, -h), (h, -h)), ((h, -h), (h, h)), ((h, h), (-h, h)), ((-h, h), (-h, -h))] {
+                        ground_line(g, map, *pos + v2(a.0, a.1), *pos + v2(b.0, b.1), c);
                     }
-                    Order::Attack(id) => (infos.get(id).map(|t| t.pos), Color::srgba(1.0, 0.2, 0.2, 0.8)),
-                    Order::AttackGround { pos, radius } => {
-                        ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.3, 0.2, 0.8));
-                        (Some(*pos), Color::srgba(1.0, 0.3, 0.2, 0.8))
-                    }
-                    Order::Assist(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.9, 0.9, 0.3, 0.7)),
-                    Order::Reclaim(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1).or_else(|| features.get(*id).map(|f| f.pos)).or_else(|| infos.get(id).map(|t| t.pos)), Color::srgba(0.6, 1.0, 0.4, 0.7)),
-                    Order::ReviveArea { pos, radius } => {
-                        ring(g, map, *pos, *radius, Color::srgba(0.5, 0.9, 1.0, 0.8));
-                        (Some(*pos), Color::srgba(0.5, 0.9, 1.0, 0.8))
-                    }
-                    Order::Terraform { pos, radius, .. } => {
-                        ring(g, map, *pos, *radius, Color::srgba(0.85, 0.65, 0.35, 0.9));
-                        (Some(*pos), Color::srgba(0.85, 0.65, 0.35, 0.9))
-                    }
-                    Order::Load(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.4, 0.8, 1.0, 0.8)),
-                    Order::LoadArea { pos, radius } => {
-                        ring(g, map, *pos, radius.max(0.6), Color::srgba(0.4, 0.8, 1.0, 0.8));
-                        (Some(*pos), Color::srgba(0.4, 0.8, 1.0, 0.8))
-                    }
-                    Order::Unload { pos, radius } => {
-                        ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.75, 0.3, 0.8));
-                        (Some(*pos), Color::srgba(1.0, 0.75, 0.3, 0.8))
-                    }
-                    Order::Revive(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1), Color::srgba(0.5, 0.9, 1.0, 0.8)),
-                    Order::Capture(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.8, 0.5, 1.0, 0.8)),
-                    Order::ReclaimArea { pos, radius } => {
-                        ring(g, map, *pos, *radius, Color::srgba(0.6, 1.0, 0.4, 0.7));
-                        (Some(*pos), Color::srgba(0.6, 1.0, 0.4, 0.7))
-                    }
-                };
-                if let Some(pt) = pt {
-                    ground_line(g, map, last, pt, c);
-                    last = pt;
+                    (Some(*pos), c)
                 }
+                Order::Attack(id) => (infos.get(id).map(|t| t.pos), Color::srgba(1.0, 0.2, 0.2, 0.8)),
+                Order::AttackGround { pos, radius } => {
+                    ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.3, 0.2, 0.8));
+                    (Some(*pos), Color::srgba(1.0, 0.3, 0.2, 0.8))
+                }
+                Order::Assist(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.9, 0.9, 0.3, 0.7)),
+                Order::Reclaim(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1).or_else(|| features.get(*id).map(|f| f.pos)).or_else(|| infos.get(id).map(|t| t.pos)), Color::srgba(0.6, 1.0, 0.4, 0.7)),
+                Order::ReviveArea { pos, radius } => {
+                    ring(g, map, *pos, *radius, Color::srgba(0.5, 0.9, 1.0, 0.8));
+                    (Some(*pos), Color::srgba(0.5, 0.9, 1.0, 0.8))
+                }
+                Order::Terraform { pos, radius, .. } => {
+                    ring(g, map, *pos, *radius, Color::srgba(0.85, 0.65, 0.35, 0.9));
+                    (Some(*pos), Color::srgba(0.85, 0.65, 0.35, 0.9))
+                }
+                Order::Load(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.4, 0.8, 1.0, 0.8)),
+                Order::LoadArea { pos, radius } => {
+                    ring(g, map, *pos, radius.max(0.6), Color::srgba(0.4, 0.8, 1.0, 0.8));
+                    (Some(*pos), Color::srgba(0.4, 0.8, 1.0, 0.8))
+                }
+                Order::Unload { pos, radius } => {
+                    ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.75, 0.3, 0.8));
+                    (Some(*pos), Color::srgba(1.0, 0.75, 0.3, 0.8))
+                }
+                Order::Revive(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1), Color::srgba(0.5, 0.9, 1.0, 0.8)),
+                Order::Capture(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.8, 0.5, 1.0, 0.8)),
+                Order::ReclaimArea { pos, radius } => {
+                    ring(g, map, *pos, *radius, Color::srgba(0.6, 1.0, 0.4, 0.7));
+                    (Some(*pos), Color::srgba(0.6, 1.0, 0.4, 0.7))
+                }
+            };
+            if let Some(pt) = pt {
+                ground_line(g, map, last, pt, c);
+                last = pt;
             }
         }
     }
