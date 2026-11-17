@@ -93,6 +93,8 @@ struct Info {
     /// Binoculars: where they look, and the enemy they follow (0 = none).
     look: f32,
     lock: u32,
+    /// Reactive armor charges left (units that have it).
+    reactive: Option<u8>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -158,7 +160,7 @@ pub struct UiParams<'w, 's> {
     wheel: MessageReader<'w, 's, MouseWheel>,
     gizmos: Gizmos<'w, 's>,
     #[allow(clippy::type_complexity)]
-    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Option<&'static Hosted>, Has<Paused>, Option<&'static Capture>)>,
+    units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Option<&'static Hosted>, Has<Paused>, (Option<&'static Capture>, Option<&'static Reactive>))>,
     ui_sounds: ResMut<'w, super::sound::UiSounds>,
     cursor: ResMut<'w, super::cursor::CursorWant>,
     wrecks: Query<'w, 's, &'static Wreck>,
@@ -667,7 +669,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // ---------------------------------------------------------------- per-frame unit data
     let mut infos: HashMap<u32, Info> = HashMap::with_capacity(512);
     let mut hosted: Vec<u32> = vec![];
-    for (u, i, h, intel, orders, w, f, b, uc, up, host, paused, cap) in &p.units {
+    for (u, i, h, intel, orders, w, f, b, uc, up, host, paused, (cap, era)) in &p.units {
         let known = reveal || game.team_of(u.owner) == team || (intel.seen | intel.radar) & (1 << team) != 0;
         let is_hosted = host.is_some();
         if is_hosted {
@@ -698,6 +700,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 host: host.map_or(0, |h| h.0),
                 look: intel.look,
                 lock: if own { intel.lock } else { 0 },
+                reactive: era.map(|r| r.0),
             },
         );
     }
@@ -2031,6 +2034,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 hud.text(Pos2::new(rb.max.x - 4.0, rb.min.y), Align2::RIGHT_TOP, state, font(10.5), Color32::WHITE);
                 y += 16.0;
             }
+            if let (Some(left), Some(era)) = (u.reactive, ld.reactive) {
+                text(ix, y, &format!("Reactive armor: {left}/{} charges (each stops {:.0}% of a missile)", era.charges, era.block * 100.0), 10.5, if left > 0 { Color32::WHITE } else { rgba(255, 170, 40, 255) });
+                y += 16.0;
+            }
             let e = &ld.eco;
             if e.mass > 0.0 || e.energy > 0.0 || e.upkeep > 0.0 || ld.build_rate() > 0.0 {
                 let c = rgba(180, 225, 255, 255);
@@ -2322,6 +2329,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             lines.push(format!("HP {:.0}   Armor {}", bd.hp, bd.armor));
         }
         lines.push(bd.desc.clone());
+        if let Some(era) = bd.reactive {
+            lines.push(format!("Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them", era.charges, era.block * 100.0));
+        }
         for w in &bd.weapons {
             let mut t = format!("{}: {:.0} {} dmg", w.name, w.damage, w.damage_type);
             if w.salvo > 1 {
