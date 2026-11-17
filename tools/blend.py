@@ -32,11 +32,14 @@ def find_blender():
         return found
     patterns = [
         r"C:\Program Files\Blender Foundation\Blender*\blender.exe",
+        r"C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\blender.exe"),
         "/Applications/Blender.app/Contents/MacOS/Blender",
         os.path.expanduser("~/Applications/Blender.app/Contents/MacOS/Blender"),
         "/snap/bin/blender",
     ]
     for p in patterns:
+        # Newest version last ("Blender 4.2" < "Blender 5.2"); the Program Files glob may match several.
         hits = sorted(glob.glob(p))
         if hits:
             return hits[-1]
@@ -46,7 +49,8 @@ def find_blender():
 def export(blender, a):
     cmd = [blender, "-b", a.file, "--factory-startup", "--python-exit-code", "1", "--python", EXPORTER, "--",
            a.out, a.name, "--front", a.front, "--brightness", str(a.brightness)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # Blender prints UTF-8; Windows' default console code page would choke on non-ASCII paths.
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     # Blender's own chatter is long: show what the exporter printed (up to its LR_END), all of it on failure.
     lines = (r.stdout + r.stderr).splitlines()
     block = False
@@ -65,7 +69,8 @@ def export(blender, a):
 
 
 def main():
-    sys.stdout.reconfigure(line_buffering=True)  # --watch output shows at once, also in a log
+    # --watch output shows at once, also in a log; never fail on characters the console cannot show.
+    sys.stdout.reconfigure(line_buffering=True, errors="replace")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("file")
     p.add_argument("--name")

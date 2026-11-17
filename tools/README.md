@@ -81,6 +81,42 @@ How to build a model for it:
 The script warns about skinning, unknown action names and textures it cannot use. The game loads models at
 start, so restart it (or the editor) to see a new export.
 
+### Step by step: a new building
+
+1. **Model.** Start Blender, delete the default cube, model at real size (a 6x6-cell factory is 12 x 12 units),
+   origin at the ground in the middle, front towards -Y (numpad 1 looks at it). Name the moving objects
+   (`Platform`, `Turret`, ...). Save as `art/abbey_factory.blend` (any folder works; `art/` keeps sources together).
+2. **Colours.** Either give materials the names `team`, `light`, `dark`, `metal` or any other name with the
+   colour you want, or unwrap and paint one texture set (see above).
+3. **Animation** (optional). Select the platform, open the Action editor (Dope Sheet > Action Editor), click
+   New and name the action `rolloff`, key Location at the first frame, move it out, key, back, key.
+4. **Export.** From the repository root:
+
+       python3 tools/blend.py art/abbey_factory.blend --watch          # Linux / macOS
+       py tools\blend.py art\abbey_factory.blend --watch               # Windows (or: python tools\blend.py ...)
+
+   It prints what it wrote, any warnings and the `model` block. Leave it running: every Ctrl+S in Blender
+   exports again.
+5. **Unit JSON.** Paste the `model` block into the unit in `assets/data/factions/<faction>.json` (or the preset
+   editor) and set `footprint` / `size` to match the model:
+
+       "model": { "mesh": "models/abbey_factory.glb", "scale": 1.0 },
+
+6. **Look at it.** Start the game (`cargo run -- --skirmish`) or the map editor and build the unit; restart after
+   each export. If it faces the wrong way, export with `--front +y` (or `-x` / `+x`); if a textured model looks
+   washed out or dark, change `brightness`.
+
+### Windows
+
+The script works the same on Windows; only the commands differ:
+
+- Python: `py tools\blend.py ...` (the Python launcher) or `python tools\blend.py ...`; no packages needed.
+- Blender is looked for on PATH, in `C:\Program Files\Blender Foundation\Blender*` (the newest version there),
+  in Steam's `steamapps\common\Blender` and as the Microsoft Store app. Anywhere else, set the path once per
+  console: `set BLENDER=D:\Apps\Blender\blender.exe` (cmd) or `$env:BLENDER="D:\Apps\Blender\blender.exe"`
+  (PowerShell).
+- Paths with spaces or Cyrillic letters are fine; quote paths with spaces.
+
 ## scm.py - SCM reader
 
 Library used by the converter; also a quick inspector:
