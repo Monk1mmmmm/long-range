@@ -418,7 +418,6 @@
    "vision": 45,
    "spot_time": 5,
    "spot_time_moving": 0.5,
-   "binoculars": { "range": 140, "angle": 20, "turn": 40, "scan": 60 },
    "weapons": [
     {
      "name": "Guided AT Missile",
@@ -562,7 +561,6 @@
    "vision": 45,
    "spot_time": 5,
    "spot_time_moving": 0.5,
-   "binoculars": { "range": 140, "angle": 20, "turn": 40, "scan": 60 },
    "weapons": [
     {
      "name": "Homing AA Missile",
