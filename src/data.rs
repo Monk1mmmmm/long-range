@@ -611,6 +611,10 @@ pub struct WeaponDef {
     /// only while its unit stands still, so a moving order is never frozen by a passing target.
     #[serde(default)]
     pub hold: f32,
+    /// Rounds the weapon carries (each projectile counts, a salvo of 4 uses 4); it falls silent
+    /// when they are spent and is never refilled. 0 = unlimited.
+    #[serde(default)]
+    pub ammo: u16,
     /// None = fixed forward weapon (the whole unit has to face the target).
     #[serde(default)]
     pub turret: Option<TurretDef>,

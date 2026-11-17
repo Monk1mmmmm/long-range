@@ -318,6 +318,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
   dead-locked a base whose upkeep exceeded income.
 - **Engineering station** (`build.station`): immobile builder that assists anything in range by itself.
+- **Ammunition** (weapon `ammo`, rounds; 0 = unlimited): `WeaponState.fired` counts every projectile (snapshotted);
+  a weapon whose rounds are spent never fires again, there is no resupply (asked for: AT Trooper 3, SAM Trooper 4).
+  A salvo is cut to the rounds left. The HUD shows rounds left; `--combattest` infantry has an "Ammunition" line.
 - **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5): the weapon fires only while its unit has no movement goal
   and is stopped, and each shot sets `Mover.hold`, during which `locomotion` keeps the land/hover unit in place
   (a move order given meanwhile starts when the hold runs out).

@@ -2056,6 +2056,14 @@ fn weapons(
             }
             st.target = target.map_or(0, |c| c.id);
 
+            // --- out of ammunition: the weapon is done for good
+            if st.ammo_left(w) == Some(0) {
+                st.target = 0;
+                st.burst = 0;
+                st.aim = 0.0;
+                continue;
+            }
+
             // --- bursts keep firing along the barrel
             if st.burst > 0 {
                 st.burst_cd -= DT;
@@ -2088,7 +2096,7 @@ fn weapons(
                 let d = drop(tp, tv);
                 if st.cd <= 0.0 && st.burst == 0 && d.along <= d.speed * DT * 0.5 && d.along > -d.tol && d.cross.abs() < d.tol {
                     st.cd = w.reload;
-                    st.burst = w.salvo.saturating_sub(1);
+                    st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
                     st.burst_cd = w.salvo_delay;
                     let fix = d.miss * (1.0 / d.fall.max(0.3));
                     st.fix = if fix.len() > 6.0 { fix.norm() * 6.0 } else { fix };
@@ -2135,7 +2143,7 @@ fn weapons(
                 continue;
             }
             st.cd = w.reload;
-            st.burst = w.salvo.saturating_sub(1);
+            st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
             st.burst_cd = w.salvo_delay;
             if let Some(m) = mover.as_mut() {
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
@@ -2175,7 +2183,8 @@ fn bomb_drop(w: &WeaponDef, body: &Body, cruise: f32, tp: Vec3, tv: V2, g: f32) 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &WeaponState) {
+fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &mut WeaponState) {
+    st.fired = st.fired.saturating_add(1);
     let spread = w.spread.to_radians();
     let (vel, kind, pos) = match w.kind {
         WeaponKind::Bomb => ((body.vel + st.fix).at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),

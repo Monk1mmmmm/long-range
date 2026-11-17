@@ -269,6 +269,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("spread", "Spread (deg)", 0.3, 90.0, "Random dispersion of each shot."),
     num("aim_time", "Aim time (s)", 0.0, 100.0, "Seconds the gun must stay on target before it fires."),
     num("hold", "Hold after firing (s)", 0.0, 100.0, "Seconds the unit cannot move after each shot; it also fires only while standing still (mortars). 0 = fires on the move."),
+    num("ammo", "Ammunition", 0.0, 1000.0, "Rounds the weapon carries (every shot of a salvo counts). When they are spent it never fires again; there is no resupply. 0 = unlimited."),
     f("targets", "Targets", Kind::Tags(TARGETS, &["land"]), "What it can shoot at: land (ground units and buildings), air."),
     num("turn_rate", "Missile turn rate (deg/s)", 0.0, 3600.0, "Missiles: how fast they steer toward their target."),
     num("launch_pitch", "Missile launch angle (deg)", 0.0, 90.0, "Missiles: launch elevation (90 = straight up, like a SAM); 0 = a low 20 degrees."),

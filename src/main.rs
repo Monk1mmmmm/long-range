@@ -2836,6 +2836,23 @@ fn infantry_tests(defs: &Defs) {
         }
     }
 
+    // 3c. Limited ammunition: an AT trooper with three missiles against five light tanks kills
+    // three at most, then falls silent for good (no resupply).
+    if let Some(rounds) = defs.id("at_trooper").and_then(|d| defs.get(d).weapons.first()).map(|w| w.ammo).filter(|a| *a > 0) {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let at = spawn(world, &map, "at_trooper", 0, v2(100.0, 129.0), 0.0);
+        set_hp(world, at, 1.0e6);
+        let tanks: Vec<u32> = (0..5).map(|k| spawn(world, &map, "pike", 1, v2(132.0, 121.0 + k as f32 * 4.0), 3.14)).collect();
+        for _ in 0..2000 {
+            world.run_schedule(SimTick);
+        }
+        let killed = tanks.iter().filter(|id| body(world, **id).is_none()).count();
+        let fired = world.query::<(&Unit, &Weapons)>().iter(world).find(|(u, _)| u.id == at).map_or(0, |(_, w)| w.list[0].fired);
+        println!("== Ammunition: an AT trooper with {rounds} missiles vs 5 Pike mortars for 200 s: fired {fired}, killed {killed}");
+        assert!(fired == rounds && killed <= rounds as usize, "limited ammunition");
+    }
+
     // 3. Troopers occupy a neutral house, fire from it, leave it, and are thrown out when it falls.
     {
         let (mut app, map) = world_with(&[]);
