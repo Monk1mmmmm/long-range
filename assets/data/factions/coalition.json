@@ -59,6 +59,7 @@
    "weapons": [
     {
      "name": "Arm Cannon",
+     "prefer": "armored",
      "damage": 60,
      "range": 28,
      "reload": 0.8,
@@ -179,6 +180,9 @@
   },
   {
    "id": "apc",
+   "categories": [
+    "armored"
+   ],
    "name": "Mule",
    "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed.",
    "tier": 1,
@@ -281,6 +285,7 @@
    "weapons": [
     {
      "name": "Tom Cat Machinegun",
+     "prefer": "infantry",
      "damage": 1,
      "range": 15,
      "reload": 1.0,
@@ -352,6 +357,7 @@
    "weapons": [
     {
      "name": "Plasma Gun",
+     "prefer": "infantry",
      "damage": 3,
      "range": 15,
      "reload": 0.33,
@@ -421,6 +427,7 @@
    "weapons": [
     {
      "name": "Guided AT Missile",
+     "prefer": "armored",
      "damage": 300,
      "range": 70,
      "reload": 18.0,
@@ -492,6 +499,7 @@
    "weapons": [
     {
      "name": "Sniper Rifle",
+     "prefer": "infantry",
      "damage": 45,
      "range": 110,
      "reload": 6.0,
@@ -587,6 +595,9 @@
   },
   {
    "id": "overtaker",
+   "categories": [
+    "armored"
+   ],
    "name": "Overtaker M1",
    "desc": "Light tank. Quick flanker with a 75 mm gauss cannon.",
    "tier": 1,
@@ -628,6 +639,7 @@
    "weapons": [
     {
      "name": "Gauss Cannon",
+     "prefer": "armored",
      "damage": 75,
      "range": 45,
      "reload": 2.0,
@@ -647,6 +659,7 @@
     },
     {
      "name": "Heavy Machinegun",
+     "prefer": "infantry",
      "damage": 1,
      "range": 30,
      "reload": 1.2,
@@ -670,6 +683,9 @@
   },
   {
    "id": "pike",
+   "categories": [
+    "armored"
+   ],
    "name": "Pike Mortar",
    "desc": "Mobile mortar. High-arc fire over hills, range 25-100. Slow traverse. Fires only standing and stays put 3 s after each shot.",
    "tier": 1,
@@ -734,6 +750,9 @@
   },
   {
    "id": "mbfag",
+   "categories": [
+    "armored"
+   ],
    "name": "MBFAG-113",
    "desc": "Mobile anti-air system. Rotary cannon bursts, long reach against aircraft.",
    "tier": 1,
@@ -797,6 +816,7 @@
     },
     {
      "name": "Rotary Cannon (Ground)",
+     "prefer": "infantry",
      "damage": 3,
      "range": 25,
      "reload": 0.8,
@@ -1031,6 +1051,9 @@
   },
   {
    "id": "crony",
+   "categories": [
+    "armored"
+   ],
    "name": "Crony M1",
    "desc": "Main battle tank. Slow turret, heavy armor, 200 damage at range 60.",
    "tier": 2,
@@ -1072,6 +1095,7 @@
    "weapons": [
     {
      "name": "Gauss Cannon",
+     "prefer": "armored",
      "damage": 200,
      "range": 60,
      "reload": 4.0,
@@ -1091,6 +1115,7 @@
     },
     {
      "name": "Heavy Machinegun",
+     "prefer": "infantry",
      "damage": 1,
      "range": 30,
      "reload": 1.2,
@@ -1115,6 +1140,9 @@
   },
   {
    "id": "dragoon",
+   "categories": [
+    "armored"
+   ],
    "name": "Dragoon ARV",
    "desc": "Armored recon vehicle. Very fast, long sight, 7-round autocannon bursts.",
    "tier": 2,
@@ -1157,6 +1185,7 @@
    "weapons": [
     {
      "name": "Autocannon",
+     "prefer": "armored",
      "damage": 30,
      "range": 45,
      "reload": 8.0,
@@ -1179,6 +1208,9 @@
   },
   {
    "id": "robin",
+   "categories": [
+    "armored"
+   ],
    "name": "Robin",
    "desc": "Mobile anti-tank. One guided missile every 30 seconds; it kills most tanks.",
    "tier": 2,
@@ -1220,6 +1252,7 @@
    "weapons": [
     {
      "name": "Guided Missile",
+     "prefer": "armored",
      "damage": 500,
      "range": 90,
      "reload": 30.0,
@@ -1296,6 +1329,7 @@
    "weapons": [
     {
      "name": "Riot Gun",
+     "prefer": "infantry",
      "damage": 15,
      "range": 18,
      "reload": 0.5,
@@ -1365,6 +1399,9 @@
   },
   {
    "id": "bohdana",
+   "categories": [
+    "armored"
+   ],
    "name": "Bohdana",
    "desc": "Self-propelled howitzer. Range 60-300. Slow to aim, useless without spotters. Fires only standing and stays put 5 s after each shot.",
    "tier": 3,
@@ -1405,6 +1442,7 @@
    "weapons": [
     {
      "name": "155 mm Howitzer",
+     "prefer": "armored",
      "damage": 400,
      "range": 300,
      "reload": 40.0,
@@ -2020,6 +2058,9 @@
   },
   {
    "id": "delivery_boy",
+   "categories": [
+    "armored"
+   ],
    "name": "Delivery Boy",
    "desc": "Prototype heavy bomber. One enormous bomb, armored airframe.",
    "tier": 3,
@@ -2723,6 +2764,7 @@
    "weapons": [
     {
      "name": "Heavy Machine Gun",
+     "prefer": "infantry",
      "damage": 3,
      "range": 60,
      "reload": 0.4,
@@ -3455,6 +3497,7 @@
    "weapons": [
     {
      "name": "120 mm Gun",
+     "prefer": "armored",
      "damage": 300,
      "range": 200,
      "reload": 10.0,

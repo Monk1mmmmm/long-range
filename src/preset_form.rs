@@ -159,6 +159,7 @@ const SHAPES: &[&str] = &["land", "bot", "air", "structure", "factory", "command
 const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "ring", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri"];
 const WEAPON_KINDS: &[&str] = &["direct", "arc", "high_arc", "missile", "bomb"];
 const TARGETS: &[&str] = &["land", "air"];
+const PRIORITIES: &[&str] = &["none", "armored", "infantry"];
 
 pub const UNIT_GENERAL: &[Field] = &[
     f("id", "Id", Kind::Text, "Unique name the data refers to the unit by (upgrades, commanders, map props). Rename it everywhere if you change it."),
@@ -167,7 +168,7 @@ pub const UNIT_GENERAL: &[Field] = &[
     f("tier", "Tier", Kind::Int(0, 0, 9), "Tech level: a builder of tier N can build units up to tier N. Also the ticks under the strategic icon."),
     num("hp", "Hit points", 100.0, BIG, "Damage the unit takes before it is destroyed."),
     f("armor", "Armor", Kind::Pick(Src::Armor, false), "Armor class: decides how much each damage type hurts it (Armor table in rules.json)."),
-    f("categories", "Categories", Kind::TagsFrom(Src::Category), "Special roles. infantry: takes cover behind trees, rocks and wrecks and can occupy buildings."),
+    f("categories", "Categories", Kind::TagsFrom(Src::Category), "Special roles. infantry: takes cover behind trees, rocks and wrecks and can occupy buildings. armored: what cannons (target priority armored) shoot first."),
     f("built_by", "Built by", Kind::Pick(Src::BuildCat, true), "Build category: builders and factories that build this category can make it. none = nobody builds it."),
     yes("buildable", "Buildable", "Off: it never shows in a build menu (map buildings, units that only come from upgrades)."),
     no("needs_deposit", "Needs a mass deposit", "Can only be placed on a mass deposit (extractors)."),
@@ -271,6 +272,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     f("targets", "Targets", Kind::Tags(TARGETS, &["land"]), "What it can shoot at: land (ground units and buildings), air."),
     num("turn_rate", "Missile turn rate (deg/s)", 0.0, 3600.0, "Missiles: how fast they steer toward their target."),
     num("launch_pitch", "Missile launch angle (deg)", 0.0, 90.0, "Missiles: launch elevation (90 = straight up, like a SAM); 0 = a low 20 degrees."),
+    f("prefer", "Target priority", Kind::Choice(PRIORITIES, "none"), "Which enemies it shoots first when several are in range: armored (units of category armored: tanks) or infantry. none = the nearest."),
     no("snipe", "Sniper rifle", "A hit on a building kills one enemy rider inside instead of damaging the building; it never shoots buildings without enemy riders."),
     f("sound", "Sound", Kind::Pick(Src::Sound, true), "Shot sound; none = chosen by weapon kind."),
 ];
@@ -310,6 +312,7 @@ impl FormCtx {
             add(&mut c.build_cats, cat);
         }
         add(&mut c.categories, "infantry");
+        add(&mut c.categories, "armored");
         for (_, text) in &pack.factions {
             let v: Value = serde_json::from_str(text).unwrap_or_default();
             for u in v["units"].as_array().into_iter().flatten() {
