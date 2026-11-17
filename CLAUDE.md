@@ -228,6 +228,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `radar_blocked_by_terrain` (all default on),
   `near_sight` (6: always seen within it). The lobby lists those switched off (`Rules::switched_off`).
   A new rule needs a `Field` in `preset_form.rs` too, or it only shows in the JSON view.
+- **Armor angle** (`rules.armor_front/side/rear`, 0.6 / 1.0 / 1.5): a projectile hitting an armored unit (category
+  `armored`, not structures) is scaled by where it comes from against the hull's facing, blended linearly by the angle,
+  and by how flat it flies (`systems::armor_angle`: the squared cosine of the descent angle, so steep mortar rounds
+  count the angle little, one falling straight down not at all). Applied to `p.damage` at the hit, before the blast.
+  `--combattest` infantry "Armor angle": a Crony on an Overtaker does 481 head on, 801 to the side, 1199 from behind.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
   over terrain (`map.los`).
 - **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; Trooper and Sniper Trooper: 140, 20 deg):

@@ -2145,6 +2145,28 @@ fn weapons(
     }
 }
 
+/// The share of a hit an armored unit takes for the way it comes in (`rules.armor_front/side/rear`):
+/// head on, from the side or from behind, blended linearly by the angle between the shot and the
+/// hull's facing. The steeper the shot falls the less that counts (it lands on top): a mortar
+/// round coming down at 60 degrees gets a quarter of it, one falling straight down none.
+fn armor_angle(defs: &Defs, c: &Cen, vel: Vec3) -> f32 {
+    if c.structure || !defs.get(c.def).is_armored() {
+        return 1.0;
+    }
+    let r = &defs.rules;
+    let (h2, s2) = (vel.x * vel.x + vel.z * vel.z, vel.length_squared());
+    if h2 < 1e-9 {
+        return 1.0;
+    }
+    // From where the shot comes, against the way the hull faces: 1 head on, -1 from behind.
+    let from = v2(-vel.x, -vel.z) * (1.0 / h2.sqrt());
+    let cos = from.dot(V2::from_angle(c.yaw)).clamp(-1.0, 1.0);
+    let m = if cos >= 0.0 { r.armor_side + (r.armor_front - r.armor_side) * cos } else { r.armor_side + (r.armor_rear - r.armor_side) * -cos };
+    // Squared cosine of the descent angle: 1 for a flat shot, 0 for one falling straight down.
+    let flat = h2 / s2;
+    1.0 + (m - 1.0) * flat
+}
+
 /// Where a bomb stick released now would land, relative to the target.
 struct Drop {
     /// Target point minus the impact point of the stick's middle bomb.
@@ -2342,6 +2364,11 @@ fn projectiles(
         if rules.craters_on() && p.damage >= rules.crater_min_damage && (victim == 0 || p.radius > 0.0) && at.y - map.height(at.x, at.z) < 1.5 && at.y > map.water_xz(at.x, at.z) - 0.5 {
             let depth = rules.crater_scale * p.damage.sqrt() * if p.radius > 0.0 { 1.0 } else { 0.5 };
             effects.craters.push((flat(at), p.radius * 0.5, depth));
+        }
+        // Armored units are tougher head on than from the side or behind (the blast of the shell
+        // hurts whatever is around with what got through).
+        if let Some(c) = census.get(victim) {
+            p.damage *= armor_angle(&defs, c, vel);
         }
         if p.radius > 0.0 {
             census.near(flat(at), p.radius + 6.0, |c| {

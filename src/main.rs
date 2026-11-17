@@ -2836,6 +2836,28 @@ fn infantry_tests(defs: &Defs) {
         }
     }
 
+    // 3e. Armor angle: a Crony shelling an Overtaker for 30 s that faces it, shows it its side, or
+    // turns its back on it.
+    {
+        let mut lost = [0.0f32; 3];
+        for (k, yaw) in [std::f32::consts::PI, std::f32::consts::FRAC_PI_2, 0.0].into_iter().enumerate() {
+            let (mut app, map) = world_with(&[]);
+            let world = app.world_mut();
+            let gun = spawn(world, &map, "crony", 0, v2(100.0, 129.0), 0.0);
+            set_hp(world, gun, 1.0e6);
+            spawn(world, &map, "radar_car", 0, v2(96.0, 135.0), 0.0);
+            let target = spawn(world, &map, "overtaker", 1, v2(150.0, 129.0), yaw);
+            set_hp(world, target, 1.0e6);
+            for _ in 0..300 {
+                world.run_schedule(SimTick);
+            }
+            lost[k] = 1.0e6 - hp(world, target);
+        }
+        let r = &defs.rules;
+        println!("== Armor angle: a Crony shelling an Overtaker for 30 s does {:.0} head on, {:.0} to its side, {:.0} from behind (rules {}/{}/{})", lost[0], lost[1], lost[2], r.armor_front, r.armor_side, r.armor_rear);
+        assert!(lost[0] > 0.0 && lost[0] < lost[1] && lost[1] < lost[2], "armor angle");
+    }
+
     // 3. Troopers occupy a neutral house, fire from it, leave it, and are thrown out when it falls.
     {
         let (mut app, map) = world_with(&[]);

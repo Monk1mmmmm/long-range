@@ -102,6 +102,12 @@ fn garrison_eject_damage() -> f32 {
 fn garrison_defense() -> f32 {
     1.25
 }
+fn armor_front() -> f32 {
+    0.6
+}
+fn armor_rear() -> f32 {
+    1.5
+}
 fn garrison_damage() -> f32 {
     0.04
 }
@@ -303,6 +309,15 @@ pub struct Rules {
     pub capture_energy: f32,
     #[serde(default = "yes")]
     pub friendly_fire: bool,
+    /// Armored units (category `armored`) take this share of a hit on their front, side or rear,
+    /// blended by the angle the shot comes in at; the steeper a shell falls, the less the angle
+    /// counts (straight down: 1). See `systems::armor_angle`.
+    #[serde(default = "armor_front")]
+    pub armor_front: f32,
+    #[serde(default = "one")]
+    pub armor_side: f32,
+    #[serde(default = "armor_rear")]
+    pub armor_rear: f32,
     /// Switches for whole game features (the preset editor's "Switches" section).
     /// Engineers can level, raise and lower the ground.
     #[serde(default = "yes")]
