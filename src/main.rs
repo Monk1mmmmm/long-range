@@ -3312,6 +3312,16 @@ fn air_tests(defs: &Defs) {
     let every = |ids: &HashMapIds, n: &str| ids[n].clone();
     let e = 0.0;
     let w = std::f32::consts::PI;
+    // Mobile anti-air: the T1 MBFAG, the T2 Hailstorm flak and the T3 Skylance SAM against two
+    // Hornets (stealth 1) attack-moving onto them.
+    for aa in ["mbfag", "flak_carrier", "mobile_sam"] {
+        run(
+            &format!("2 Hornets attack-move onto a {aa}"),
+            &[Side { name: "gunship", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: aa, owner: 1, n: 1, at: v2(190.0, 190.0), yaw: w }],
+            &|ids| vec![(0, every(ids, "gunship"), Order::AttackMove(v2(200.0, 190.0)))],
+            450,
+        );
+    }
     run(
         "3 Firebrands, attack order on the middle one of 5 parked mortars",
         &[Side { name: "bomber", owner: 0, n: 3, at: v2(40.0, 190.0), yaw: e }, Side { name: "pike", owner: 1, n: 5, at: v2(190.0, 190.0), yaw: w }, Side { name: "radar_tower", owner: 0, n: 1, at: v2(130.0, 150.0), yaw: e }],
