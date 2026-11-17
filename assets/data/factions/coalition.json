@@ -1903,8 +1903,8 @@
   {
    "id": "fast_transport",
    "name": "Swift",
-   "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries four land units (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed.",
-   "tier": 2,
+   "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries eight land units like it (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed.",
+   "tier": 3,
    "hp": 600,
    "armor": "Air",
    "cost": {
@@ -2046,7 +2046,7 @@
    "vision": 28,
    "stealth": 1,
    "transport": {
-    "capacity": 4
+    "capacity": 8
    }
   },
   {
