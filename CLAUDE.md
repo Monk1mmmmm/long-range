@@ -167,7 +167,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `tr!("{} of {:.0}", a, b)` (`String`; `{}`, `{0}`, specs like `{:.1}` / `{:02}`, plural forms `{0|one|few|many}`;
   no inline captures, no `{:?}`). Texts in `const` tables are marked `tx!("...")` and shown with `tr(TABLE[i])`;
   unit/weapon names and descriptions from the data with `tr(&d.name)`. The English text is the key of
-  `assets/lang/<code>.json` (only `uk.json` so far; `_language` is the name in the Settings list).
+  `assets/lang/<code>.json` (only `uk.json` so far; `_language` is the name in the Settings list). The file is
+  grouped by purpose in nested objects (`main_menu`, `lobby`, `connection`, `settings`, `hud_*`, `units_*`,
+  `weapons`, `preset_*`, `map_editor`...; a text shown in several groups' places goes in `common`): put a new
+  text in the group of the screen that shows it. The loader flattens the groups; one text in two groups fails the test.
   `cargo test --lib i18n` fails when a `tr!`/`tx!` text or a built-in unit name/description/weapon name has no
   translation, when a translation is no longer used, or when placeholders differ: a new or changed English text
   (also a unit description in the faction JSON) needs its Ukrainian line in `uk.json` in the same commit. Never

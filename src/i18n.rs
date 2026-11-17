@@ -1,7 +1,9 @@
 //! Localisation. The English text in the source is the key: `tr!("Settings")` shows the current
 //! language's text for "Settings", or "Settings" itself when there is none. Translations live in
-//! `assets/lang/<code>.json`, one flat object `{"English": "translation"}`; keys starting with `_`
-//! are not texts (`_language` is the name shown in the language list).
+//! `assets/lang/<code>.json`: `{"English": "translation"}` pairs, grouped by purpose in nested
+//! objects (`"lobby": {...}`, `"hud_orders": {...}`; the groups are only for the reader, a text is
+//! found whatever group holds it, and a text shown in several places sits in `common`). Keys starting
+//! with `_` are not texts (`_language` is the name shown in the language list).
 //!
 //! - `tr!("text")` -> `&str`; `tr!("{} of {}", a, b)` -> `String` (arguments are anything `Display`).
 //!   Placeholders: `{}` (next argument), `{0}` (by number, for another word order), with an optional
@@ -45,13 +47,32 @@ fn lang_dir() -> std::path::PathBuf {
     crate::data::asset_root().join("lang")
 }
 
+/// Every (English, translation) pair of a language file, the groups flattened, in file order.
+/// Keys starting with `_` and values that are not text are left out.
+fn flatten(v: &serde_json::Value, out: &mut Vec<(String, String)>) {
+    if let Some(m) = v.as_object() {
+        for (k, v) in m {
+            if k.starts_with('_') {
+                continue;
+            }
+            match v {
+                serde_json::Value::String(t) => out.push((k.clone(), t.clone())),
+                serde_json::Value::Object(_) => flatten(v, out),
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Reads one language file into (language name, texts).
-fn read(code: &str) -> Result<(String, HashMap<String, String>), String> {
+fn read(code: &str) -> Result<(String, Vec<(String, String)>), String> {
     let path = lang_dir().join(format!("{code}.json"));
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let map: HashMap<String, String> = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    let name = map.get("_language").cloned().unwrap_or_else(|| code.to_string());
-    Ok((name, map))
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let name = v["_language"].as_str().map_or_else(|| code.to_string(), String::from);
+    let mut texts = vec![];
+    flatten(&v, &mut texts);
+    Ok((name, texts))
 }
 
 /// Switches the language ("en", "uk"...; "" = `system_language`). English, an unknown code or a
@@ -65,7 +86,7 @@ pub fn set_language(code: &str) {
             Ok((_, map)) => {
                 let texts = map
                     .into_iter()
-                    .filter(|(k, v)| !k.starts_with('_') && !v.is_empty())
+                    .filter(|(_, v)| !v.is_empty())
                     .map(|(k, v)| (&*Box::leak(k.into_boxed_str()), &*Box::leak(v.into_boxed_str())))
                     .collect();
                 Some(Lang { code: code.to_string(), texts })
@@ -388,25 +409,28 @@ mod tests {
         for e in std::fs::read_dir(&dir).unwrap().flatten() {
             let path = e.path();
             let text = std::fs::read_to_string(&path).unwrap();
-            let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let missing: Vec<_> = keys.iter().filter(|k| map.get(*k).and_then(|v| v.as_str()).is_none_or(|v| v.is_empty())).collect();
+            let mut pairs = vec![];
+            flatten(&v, &mut pairs);
+            let mut map: HashMap<&str, &str> = HashMap::new();
+            for (k, t) in &pairs {
+                if map.insert(k, t).is_some() {
+                    problems.push(format!("{name}: in two groups (keep one; texts shown in several places go in \"common\"): {}", serde_json::to_string(k).unwrap()));
+                }
+            }
+            let missing: Vec<_> = keys.iter().filter(|k| map.get(k.as_str()).is_none_or(|v| v.is_empty())).collect();
             if !missing.is_empty() {
-                problems.push(format!("{name}: {} texts without a translation (add them):", missing.len()));
+                problems.push(format!("{name}: {} texts without a translation (add them to the group they belong to):", missing.len()));
                 for k in missing {
                     problems.push(format!("  {}: \"\",", serde_json::to_string(k).unwrap()));
                 }
             }
-            for (k, v) in &map {
-                if k.starts_with('_') {
-                    continue;
-                }
+            for (k, t) in &pairs {
                 if !keys.contains(k) {
                     problems.push(format!("{name}: no longer used (remove it): {}", serde_json::to_string(k).unwrap()));
-                } else if let Some(v) = v.as_str() {
-                    if !v.is_empty() && holes(k) != holes(v) {
-                        problems.push(format!("{name}: placeholders differ: {} -> {}", serde_json::to_string(k).unwrap(), serde_json::to_string(v).unwrap()));
-                    }
+                } else if !t.is_empty() && holes(k) != holes(t) {
+                    problems.push(format!("{name}: placeholders differ: {} -> {}", serde_json::to_string(k).unwrap(), serde_json::to_string(t).unwrap()));
                 }
             }
         }
