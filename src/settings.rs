@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     /// Graphics API: "auto", "dx12", "vulkan" or "gl". Applied at start-up.
     pub backend: String,
-    /// "compat" (no GPU occlusion culling; safe on old integrated GPUs) or "full". Applied at start-up.
-    pub renderer: String,
     /// 0 = off, 1 = low, 2 = high.
     pub shadows: u8,
     /// "off", "fxaa" or "msaa4".
@@ -49,7 +47,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), renderer: "compat".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true }
     }
 }
 
@@ -85,19 +83,15 @@ impl Settings {
             "auto".into()
         }
     }
-    pub fn full_renderer(&self) -> bool {
-        std::env::var("LR_RENDERER").unwrap_or_else(|_| self.renderer.clone()).eq_ignore_ascii_case("full")
-    }
 }
 
 /// Renderer setup shared by the game and the editor.
 ///
-/// Old integrated GPUs (Intel HD 5xx and similar) crash or show a black view with Bevy's default
-/// pipeline, so the default configuration is conservative: DirectX 12 on Windows (with the DXC
-/// shader compiler built in), GPU occlusion culling off (its depth-pyramid compute passes are
-/// what those drivers reject) and no MSAA. All of it can be changed in the settings window.
+/// Bevy's full pipeline, GPU occlusion culling included. Old integrated GPUs (Intel HD 5xx and
+/// similar) crash at start-up with Vulkan, so Windows defaults to DirectX 12 (with the DXC shader
+/// compiler built in), and MSAA is off by default. Both can be changed in the settings window.
 pub fn render_plugin(s: &Settings) -> bevy::render::RenderPlugin {
-    use bevy::render::settings::{Backends, RenderCreation, WgpuFeatures, WgpuSettings};
+    use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
     let mut w = WgpuSettings::default();
     match s.effective_backend().as_str() {
         "vulkan" => w.backends = Some(Backends::VULKAN),
@@ -106,13 +100,6 @@ pub fn render_plugin(s: &Settings) -> bevy::render::RenderPlugin {
         "metal" => w.backends = Some(Backends::METAL),
         // "auto": whatever wgpu prefers (WGPU_BACKEND is honoured by `WgpuSettings::default`).
         _ => {}
-    }
-    if !s.full_renderer() {
-        // Without this feature Bevy reports "some GPU preprocessing is limited": it keeps the simple
-        // mesh preprocessing but drops indirect/occlusion culling and with it the depth-pyramid
-        // compute pipelines (read-write R32Float storage textures) that fail on these GPUs.
-        // (Zeroing the compute limits instead is not an option: the atmosphere plugin then fails.)
-        w.disabled_features = Some(WgpuFeatures::INDIRECT_FIRST_INSTANCE);
     }
     // DX12 shader compiler. MSVC builds have DXC linked in (Bevy selects it). Other Windows builds
     // (MinGW cross build) look for dxcompiler.dll next to the executable: Bevy only checks the
@@ -480,7 +467,7 @@ pub fn apply_settings(
     }
 }
 
-/// Restarts the program (used after changing the graphics API or renderer).
+/// Restarts the program (used after changing the graphics API).
 pub fn restart() {
     if let Ok(exe) = std::env::current_exe() {
         let args: Vec<String> = std::env::args().skip(1).filter(|a| a != "--skirmish").collect();
@@ -517,12 +504,6 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
             for b in options {
                 ui.selectable_value(&mut s.backend, b.to_string(), name(b));
             }
-        });
-        ui.end_row();
-        ui.label("Renderer");
-        egui::ComboBox::from_id_salt("renderer").selected_text(if s.renderer == "full" { "Full" } else { "Compatible" }).show_ui(ui, |ui| {
-            ui.selectable_value(&mut s.renderer, "compat".to_string(), "Compatible (old integrated GPUs)");
-            ui.selectable_value(&mut s.renderer, "full".to_string(), "Full (GPU occlusion culling)");
         });
         ui.end_row();
         ui.label("Shadows");
@@ -598,9 +579,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
     });
     ui.add_space(6.0);
     ui.label(egui::RichText::new(format!("Running on: {adapter}")).weak());
-    let needs_restart = s.backend != started_with.backend || s.renderer != started_with.renderer;
+    let needs_restart = s.backend != started_with.backend;
     if needs_restart {
-        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), "Graphics API and renderer change after a restart.");
+        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), "The graphics API changes after a restart.");
     }
     if !errors.is_empty() {
         ui.add_space(4.0);
