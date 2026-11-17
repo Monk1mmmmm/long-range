@@ -330,6 +330,10 @@ pub struct Brain {
     pushes: u32,
     /// A zone the army could not get into, left alone until the tick.
     avoid: (usize, u32),
+    /// The zone the last attack fell back from and how many attacks on it in a row did; after a
+    /// fall-back no new attack starts before `calm`.
+    lost: (usize, u32),
+    calm: u32,
     note: String,
     /// Slowly decaying peaks of what the enemy was seen to have.
     enemy_peak: f32,
@@ -1205,12 +1209,15 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         let z = b.zones[rally_zone].pos;
         free_at(z + (start - z).norm() * 6.0 + b.fwd * if rally_zone == b.home { 16.0 } else { 0.0 })
     };
-    // Known enemy ground strength around a point: units in sight and remembered turrets.
+    // Known enemy ground strength around a point: units in sight and remembered turrets that
+    // reach it. Long-range batteries further off than the units looked for are no part of this
+    // fight: falling back would not take the army out of their reach (a heavy battery covers half
+    // the map, rally zone included), so counting them made attacks turn back as soon as they began.
     let enemy_near = |q: V2, r: f32| -> f32 {
         b.memory
             .values()
             .filter(|s| !s.air && (s.known || s.structure))
-            .filter(|s| s.pos.dist(q) < if s.structure { b.info[s.def as usize].range + 15.0 } else { r })
+            .filter(|s| s.pos.dist(q) < if s.structure { (b.info[s.def as usize].range + 15.0).min(r + 15.0) } else { r })
             .map(|s| b.info[s.def as usize].threat)
             .sum()
     };
@@ -1326,6 +1333,15 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     let sum = |v: &[&Mine]| v.iter().map(|m| threat(m)).sum::<f32>();
     let within = |v: &[&Mine], at: V2, r: f32| v.iter().filter(|m| m.pos.dist(at) < r).map(|m| threat(m)).sum::<f32>();
     let mid = |v: &[&Mine]| free_at(v.iter().fold(v2(0.0, 0.0), |a, m| a + m.pos * threat(m).max(1.0)) * (1.0 / v.iter().map(|m| threat(m).max(1.0)).sum::<f32>().max(1.0)));
+    // Units of the main force away from the rally zone: those that stand still without firing
+    // are held by something they cannot hit (no line of fire) and would wait on attack-move for
+    // ever, so they walk back without stopping; those shelling something far off are busy.
+    let still = |m: &Mine| census.get(m.id).map_or(false, |c| c.vel.len() < 0.05);
+    let busy = |m: &Mine| census.get(m.id).map_or(false, |c| c.firing);
+    let to_rally = |m: &Mine| {
+        let back = matches!(m.order, Some(Order::Move(q)) if q.dist(rally) < 5.0);
+        if back || (m.pos.dist(rally) > 60.0 && still(m) && !busy(m)) { Order::Move(rally) } else { Order::AttackMove(rally) }
+    };
     let mut centre = rally;
     if b.strategy == Strategy::Kill && !main.is_empty() {
         // M27's commander kill: everything on the enemy commander.
@@ -1364,7 +1380,16 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             } else if (foe > 0.0 && local < pf.retreat * foe) || force < pf.retreat * b.nerve * b.defence(z) {
                 b.phase = Phase::Retreat(tick + 400);
                 b.wave += 1;
+                // Thrown back from the same zone again and again: try somewhere else for a while.
+                b.lost = (zi, if b.lost.0 == zi { b.lost.1 + 1 } else { 1 });
+                if b.lost.1 >= 3 {
+                    b.avoid = (zi, tick + 3000);
+                    b.lost = (zi, 0);
+                }
             } else if cleared || !z.reachable {
+                if cleared {
+                    b.lost = (zi, 0);
+                }
                 b.phase = match b.pick_target(cx, team, centre, force, &Profile { attack: pf.attack * b.nerve, ..*pf }) {
                     Some(t) => Phase::Attack(t),
                     None => Phase::Gather,
@@ -1392,7 +1417,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         match b.phase {
             Phase::Gather => {
                 for m in &main {
-                    go(&mut orders, m, Order::AttackMove(rally));
+                    go(&mut orders, m, to_rally(m));
                 }
                 // Stalemates end: ten minutes of waiting halve the superiority asked for.
                 let nerve = 1.0 - 0.5 * (tick.saturating_sub(b.busy) as f32 / 6000.0).min(1.0);
@@ -1400,8 +1425,10 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                 // What has arrived decides, not the share of the army: units keep coming.
                 let room = 40.0 + (main.len() as f32).sqrt() * 2.0;
                 let ready = within(&main, rally, room);
+                // Units in a fight far away (artillery shelling a base) do not hold the next attack up.
+                let away: f32 = main.iter().filter(|m| m.pos.dist(rally) > room + 20.0 && still(m) && busy(m)).map(|m| threat(m)).sum();
                 b.note += &format!(" at rally {:.0} need {:.0} nerve {:.2}", ready, min_force, nerve);
-                if ready >= min_force && ready >= 0.4 * total {
+                if ready >= min_force && ready >= 0.4 * (total - away) && tick >= b.calm {
                     if let Some(t) = b.pick_target(cx, team, rally, ready, &eager) {
                         b.nerve = nerve;
                         b.phase = Phase::Attack(t);
@@ -1459,7 +1486,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                     b.joiners.extend(ready.iter().map(|m| m.id));
                 }
                 for m in &reserve {
-                    go(&mut orders, m, Order::AttackMove(rally));
+                    go(&mut orders, m, to_rally(m));
                 }
             }
             Phase::Retreat(until) => {
@@ -1467,7 +1494,10 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                     go(&mut orders, m, Order::Move(rally));
                 }
                 if tick > until || within(&main, rally, 50.0) >= 0.5 * total {
+                    // A breather before the next attack, so that a fall-back is not followed by
+                    // the same attack in the next second.
                     b.phase = Phase::Gather;
+                    b.calm = tick + 200;
                 }
             }
         }
