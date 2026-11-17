@@ -111,3 +111,24 @@ Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
 Liberec and Jablonec with the Lužická Nisa (the `liberec` map):
 
     .venv/bin/python tools/osm_map.py liberec --bbox 50.6689,14.9911,50.8078,15.2092 --cells 512 --title "Liberec and Jablonec" --river "Lužická Nisa" --river-width 4,6 --village 0.45 --max-props 9000
+
+## scmap_map.py - port a Supreme Commander map
+
+    .venv/bin/python tools/scmap_map.py "<FA>/maps/adaptive_ivano_frankivsk.v0002" ivano_frankivsk --title "Ivano-Frankivsk" [--variants 4,6,8,10]
+
+Reads the map's `.scmap` (`tools/scmap.py`, FA version 56 / FAF 60; `python3 tools/scmap.py file.scmap` prints a
+summary) and `_save.lua` and writes `assets/maps/NAME` (the smallest variant) plus `NAME_<k>p` for the others.
+All variants share terrain, ground, roads, buildings, trees and deposits and keep the whole map; only the starts
+differ (the k of the map's starts with the largest smallest distance between them).
+
+| SupCom | Becomes |
+|---|---|
+| heightmap (1 unit per vertex) | 2 units per cell: tent average, the lowest point where the window touches water (narrow rivers stay whole) |
+| water elevation | sea level |
+| strata masks | ground layers by texture name (`STRATA`: farms -> meadow, gravel, dirt, grass -> forest floor...); a rock stratum painted as lines becomes vector roads (thinned, traced, simplified) |
+| scmap props (trees, logs, rocks; `PROPS`) | trees, shrubs, stones/rocks/boulders |
+| Mass markers | deposits (hydrocarbons are dropped: no such resource) |
+| `ARMY_n` markers | start positions |
+| civilian units (`CIVS`) | neutral buildings: big ones first where they fit (one free cell around, not on roads or deposits, not within 40 of any start), then residential towers, then a small mod house where a tower did not fit |
+
+Check pictures: `tools/out/<variant>_preview.png`.
