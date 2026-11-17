@@ -151,6 +151,19 @@ pub struct WeaponState {
     /// target (the bomber is never lined up exactly).
     #[serde(default)]
     pub fix: V2,
+    /// Rounds missing from a weapon with limited `ammo` (fired and not yet rearmed).
+    #[serde(default)]
+    pub fired: u16,
+    /// Rearming progress of the next round (0..1, weapons with `rearm`).
+    #[serde(default)]
+    pub rearm: f32,
+}
+
+impl WeaponState {
+    /// Rounds left of a weapon with limited ammunition (`None`: unlimited).
+    pub fn ammo_left(&self, w: &crate::data::WeaponDef) -> Option<u16> {
+        (w.ammo > 0).then(|| w.ammo.saturating_sub(self.fired))
+    }
 }
 
 #[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]

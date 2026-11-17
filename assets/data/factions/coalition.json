@@ -381,7 +381,7 @@
     "infantry"
    ],
    "name": "AT Trooper",
-   "desc": "Infantry with a guided anti-tank missile. Slow to reload; best fired from cover or from a building.",
+   "desc": "Infantry with a guided anti-tank missile and three rounds of it; spent rounds come back one a minute for mass. Slow to reload; best fired from cover or from a building.",
    "tier": 2,
    "hp": 90,
    "armor": "Light",
@@ -423,6 +423,9 @@
    "weapons": [
     {
      "name": "Guided AT Missile",
+     "ammo": 3,
+     "rearm": 60,
+     "rearm_mass": 25,
      "prefer": "armored",
      "damage": 300,
      "range": 70,
@@ -521,7 +524,7 @@
     "infantry"
    ],
    "name": "SAM Trooper",
-   "desc": "Infantry with a shoulder-fired homing anti-air missile. Aircraft only.",
+   "desc": "Infantry with a shoulder-fired homing anti-air missile and four rounds of it; spent rounds come back one a minute for mass. Aircraft only.",
    "tier": 2,
    "hp": 80,
    "armor": "Light",
@@ -564,6 +567,9 @@
    "weapons": [
     {
      "name": "Homing AA Missile",
+     "ammo": 4,
+     "rearm": 60,
+     "rearm_mass": 20,
      "damage": 110,
      "range": 80,
      "reload": 7.0,

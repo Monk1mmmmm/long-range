@@ -2839,6 +2839,51 @@ fn infantry_tests(defs: &Defs) {
         }
     }
 
+    // 3c. Limited ammunition: an AT trooper with three missiles against five light tanks kills
+    // three at most, then falls silent while its side has no mass; given mass, it rearms one
+    // round per `rearm` seconds and fires again.
+    if let Some(w) = defs.id("at_trooper").and_then(|d| defs.get(d).weapons.first()).filter(|w| w.ammo > 0) {
+        let rounds = w.ammo;
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let set_mass = |world: &mut World, m: f32| {
+            let p = &mut world.resource_mut::<Game>().players[0];
+            p.mass = m;
+            p.max_mass = m.max(1.0);
+        };
+        // The commander's income would pay for rearming: paused, it earns nothing.
+        let own: Vec<u32> = world.query::<&Unit>().iter(world).filter(|u| u.owner == 0).map(|u| u.id).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Pause { ids: own, on: true }));
+        let at = spawn(world, &map, "at_trooper", 0, v2(100.0, 129.0), 0.0);
+        set_hp(world, at, 1.0e6);
+        let tanks: Vec<u32> = (0..5).map(|k| spawn(world, &map, "pike", 1, v2(132.0, 121.0 + k as f32 * 4.0), 3.14)).collect();
+        for _ in 0..2000 {
+            set_mass(world, 0.0);
+            world.run_schedule(SimTick);
+        }
+        let killed = tanks.iter().filter(|id| body(world, **id).is_none()).count();
+        let fired = world.query::<(&Unit, &Weapons)>().iter(world).find(|(u, _)| u.id == at).map_or(0, |(_, w)| w.list[0].fired);
+        println!("== Ammunition: an AT trooper with {rounds} missiles vs 5 Pike mortars for 200 s, no mass: fired {fired}, killed {killed}");
+        assert!(fired == rounds && killed <= rounds as usize, "limited ammunition");
+        if w.rearm > 0.0 && killed < tanks.len() {
+            let mut spent = 0.0;
+            for _ in 0..((w.rearm * 10.0) as u32 + 300) {
+                set_mass(world, 100.0);
+                world.run_schedule(SimTick);
+                let p = &world.resource::<Game>().players[0];
+                spent += 100.0 + p.income_m * 0.1 - p.mass;
+            }
+            let killed2 = tanks.iter().filter(|id| body(world, **id).is_none()).count();
+            println!(
+                "== Rearm: {:.0} s with mass: {spent:.0} mass spent ({:.0} per round), {} more killed",
+                w.rearm + 30.0,
+                w.rearm_mass,
+                killed2 - killed
+            );
+            assert!(spent >= w.rearm_mass * 0.99 && spent <= w.rearm_mass * 2.0 + 1.0 && killed2 > killed, "rearming");
+        }
+    }
+
     // 3. Troopers occupy a neutral house, fire from it, leave it, and are thrown out when it falls.
     {
         let (mut app, map) = world_with(&[]);
