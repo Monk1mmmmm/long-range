@@ -3590,13 +3590,13 @@ fn air_tests(defs: &Defs) {
         600,
     );
     run(
-        "2 Cyclone-H vs 2 fighter-bombers",
+        "2 Cyclones vs 2 fighter-bombers",
         &[Side { name: "interceptor3", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "fighter_bomber", owner: 1, n: 2, at: v2(200.0, 190.0), yaw: w }],
         &|ids| vec![(0, every(ids, "interceptor3"), Order::AttackMove(v2(300.0, 190.0))), (1, every(ids, "fighter_bomber"), Order::AttackMove(v2(40.0, 190.0)))],
         600,
     );
     run(
-        "DA3 battery, a Delivery Boy and 3 Harriers fly over it",
+        "Phalanx battery, a Delivery Boy and 3 Harriers fly over it",
         &[Side { name: "aa_turret3", owner: 0, n: 1, at: v2(190.0, 190.0), yaw: e }, Side { name: "delivery_boy", owner: 1, n: 1, at: v2(30.0, 200.0), yaw: e }, Side { name: "fighter_bomber", owner: 1, n: 3, at: v2(30.0, 180.0), yaw: e }],
         &|ids| vec![(1, every(ids, "delivery_boy"), Order::Move(v2(360.0, 200.0))), (1, every(ids, "fighter_bomber"), Order::Move(v2(360.0, 180.0)))],
         600,

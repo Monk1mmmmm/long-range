@@ -274,7 +274,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit of stealth s shows within `UnitDef::radar_vs(s)` = the largest range of the levels above s; stealth 3
   (infantry) never shows. T2 aircraft (Harrier, Hornet, Stork) and the T3 Swift are stealth 1, the Delivery Boy 2. Radar
   towers T1 160 / T2 250+160 / T3 360+250+150 (upgrade in place, U), mobile radars UC-01R/02R/03R; build cost
-  rises ~4x and upkeep ~3x per tier. The Skyspear SAM's own radar is level 2. Rings are drawn per level
+  rises ~4x and upkeep ~3x per tier. The Faust SAM's own radar is level 2. Rings are drawn per level
   (blue, violet, orange); the fog shows the furthest reach. `--combattest` prints the radar-vs-stealth matrix. Vision needs it too and is also blocked by standing trees, rocks and wrecks and by finished buildings
   (`sim::sight_block` -> `map::SightBlock`: per-cell blocker height plus the building standing there; `map.sight_line`;
   the end cells never block, nor the building a viewer looks out of or the one it looks at, so garrisons see from the roof). Within 6
@@ -347,8 +347,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   radar car, T2 Crony/Dragoon/Robin/Sparky, T3 Bohdana. Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
   SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (box models), UC-02R/03R mobile radars
-  (radar car mesh scaled up with box dishes), T3 Swift fast assault transport (box model, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone-H interceptor (interceptor mesh, stealth 2, own
-  T3 radar 80 so it finds stealthed aircraft) and T3 DA3 Railgun Battery (AA turret mesh scaled up, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
+  (radar car mesh scaled up with box dishes), T3 Swift fast assault transport (box model, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (interceptor mesh, stealth 2, own
+  T3 radar 80 so it finds stealthed aircraft) and T3 Phalanx Railgun Battery (AA turret mesh scaled up, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
   Mobile anti-air beyond the T1 MBFAG (requested; there is no T3 SAM trooper, only the T2 one): T2 Hailstorm
   (`flak_carrier`, Dragoon mesh, airburst flak bursts, air only) and T3 Skylance (`mobile_sam`, Robin mesh, own level-2
   radar, heavy homing missile, air only). `--combattest` air: 2 Hornets beat the MBFAG and narrowly the Hailstorm, the Skylance downs both.

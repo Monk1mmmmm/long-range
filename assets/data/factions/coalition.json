@@ -183,7 +183,7 @@
    "categories": [
     "armored"
    ],
-   "name": "Mule",
+   "name": "Tavria",
    "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed.",
    "tier": 1,
    "hp": 320,
@@ -1793,7 +1793,7 @@
   },
   {
    "id": "interceptor",
-   "name": "Cyclone-L",
+   "name": "Porter",
    "desc": "Interceptor. Fixed forward railguns, air targets only.",
    "tier": 1,
    "hp": 295,
@@ -1847,7 +1847,7 @@
   },
   {
    "id": "interceptor3",
-   "name": "Cyclone-H",
+   "name": "Cyclone",
    "desc": "Heavy air superiority fighter. Railguns for aircraft only. Stealth 2, and its own T3 fire-control radar finds stealthed aircraft within 80 (needs energy).",
    "tier": 3,
    "hp": 900,
@@ -3081,7 +3081,7 @@
   },
   {
    "id": "aa_turret",
-   "name": "DA1 Railgun",
+   "name": "Dart Railgun",
    "desc": "Anti-air turret.",
    "tier": 1,
    "hp": 1200,
@@ -3136,7 +3136,7 @@
   },
   {
    "id": "sam",
-   "name": "Skyspear SAM",
+   "name": "Faust SAM",
    "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 25 s.",
    "tier": 2,
    "hp": 1100,
@@ -3237,7 +3237,7 @@
   },
   {
    "id": "aa_turret3",
-   "name": "DA3 Railgun Battery",
+   "name": "Phalanx Railgun Battery",
    "desc": "Heavy anti-air battery: twin long railguns guided by its own T3 radar (finds stealth 2 aircraft within 120; needs energy).",
    "tier": 3,
    "hp": 4000,
@@ -3700,7 +3700,7 @@
   },
   {
    "id": "heavy_battery",
-   "name": "M1 Heavy Battery",
+   "name": "Bertha Heavy Battery",
    "desc": "Fortified 120 mm gun. Range 40-200, big blast, traverses at a crawl.",
    "tier": 2,
    "hp": 6000,

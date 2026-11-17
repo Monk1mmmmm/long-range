@@ -298,7 +298,7 @@
       "desc": "Cannot build. Reclaims wrecks, debris, trees and rocks, or revives wrecks as working units for your side (right-click a wreck, or J and drag a circle)."
     },
     "apc": {
-      "name": "Mule",
+      "name": "Tavria",
       "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed."
     },
     "buggy": {
@@ -390,11 +390,11 @@
       "desc": "Air scout. Huge sight radius, unarmed."
     },
     "interceptor": {
-      "name": "Cyclone-L",
+      "name": "Porter",
       "desc": "Interceptor. Fixed forward railguns, air targets only."
     },
     "interceptor3": {
-      "name": "Cyclone-H",
+      "name": "Cyclone",
       "desc": "Heavy air superiority fighter. Railguns for aircraft only. Stealth 2, and its own T3 fire-control radar finds stealthed aircraft within 80 (needs energy)."
     },
     "bomber": {
@@ -486,15 +486,15 @@
       "desc": "Anti-armor emplacement. High-arc fire, range 30-90, very slow traverse."
     },
     "aa_turret": {
-      "name": "DA1 Railgun",
+      "name": "Dart Railgun",
       "desc": "Anti-air turret."
     },
     "sam": {
-      "name": "Skyspear SAM",
+      "name": "Faust SAM",
       "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 25 s."
     },
     "aa_turret3": {
-      "name": "DA3 Railgun Battery",
+      "name": "Phalanx Railgun Battery",
       "desc": "Heavy anti-air battery: twin long railguns guided by its own T3 radar (finds stealth 2 aircraft within 120; needs energy)."
     },
     "radar_tower": {
@@ -514,7 +514,7 @@
       "desc": "Automatically assists every construction, upgrade and repair within its radius."
     },
     "heavy_battery": {
-      "name": "M1 Heavy Battery",
+      "name": "Bertha Heavy Battery",
       "desc": "Fortified 120 mm gun. Range 40-200, big blast, traverses at a crawl."
     },
     "sandbags": {

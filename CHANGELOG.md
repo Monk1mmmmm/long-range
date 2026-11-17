@@ -36,6 +36,9 @@ Changed
 - The AT Trooper sets up before firing (3 s) and holds still after each shot.
 - Swift assault transport moves to T3 and carries 8, like the Stork (thanks to Sadsaltan).
 - The Hornet gunship shoots infantry first (thanks to Sadsaltan).
+- Renamed units: Mule APC -> Tavria, Cyclone-L -> Porter, Cyclone-H -> Cyclone, DA1 Railgun -> Dart Railgun,
+  Skyspear SAM -> Faust SAM, DA3 Railgun Battery -> Phalanx Railgun Battery, M1 Heavy Battery -> Bertha
+  Heavy Battery.
 - The "Compatible" renderer option is gone; the full renderer is always used (thanks to Sadsaltan).
 
 Bug fixes
