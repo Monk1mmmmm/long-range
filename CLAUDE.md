@@ -396,6 +396,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   mass + energy / `reclaim_energy_factor`. Idle AI engineers reclaim nearby rocks/trees when low.
   Drawing: per-chunk meshes rebuilt on change; Bevy's CPU frustum culling skips off-screen chunks
   (bounds are recomputed when a mesh changes); the fog texture's RGB carries the fog brightness for them.
+  LOD: at medium/high detail each chunk has a second, low-detail mesh; `VisibilityRange` crossfades to it at
+  `flora::LOD_FADE` camera distance from the chunk centre (chunk meshes are built around that centre).
   Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.
 - **Ground textures** (`surface.rs`, purely visual, never in the sim or its hash): SupCom-style strata. `MapData.layers`
   (kind + tile size; at most 9), layer 0 covers the map, each further layer is drawn over the ones below by its mask
@@ -434,6 +436,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   a map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points
   left per team, start `Game.cp_start`: typed in the lobby, else `rules.cp_start_points`, default 1200). A team holding fewer points than its strongest opponent loses
   `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
+- **Model LOD** (setting `model_lod`, default on): unit and ghost models are hidden wherever the HUD draws the
+  strategic icon instead (`view::as_icon`: icon zoom, or under `SPECK_PX` on screen; `view::model_lod`). Neutral
+  buildings keep their models while `neutral_icons` is off. Wrecks have no icons and always keep theirs.
 - **Selection**: a box takes fighting units first, then builders (`build` present), then buildings.
 - **Selection sounds**: `view::sound::select_sound` picks by role, `"select_sound"` in the unit JSON overrides.
 - Bohdana was nerfed on request: 40 s reload, 3 s aim, 10 deg/s traverse, 5 s hold; its cost was later cut
