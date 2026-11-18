@@ -2825,6 +2825,8 @@ fn combattest() {
         order(world, vec![stork], Order::LoadArea { pos: v2(105.0, 101.0), radius: 12.0 });
         world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0 }], queue: true }));
         order(world, riders.clone(), Order::Load(apc));
+        // Orders queued behind boarding are kept for after the ride.
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: riders.clone(), orders: vec![Order::Move(v2(166.0, 148.0))], queue: true }));
         let (mut most, mut in_apc) = (0, 0);
         for t in 0..900u32 {
             world.run_schedule(SimTick);
@@ -2838,9 +2840,9 @@ fn combattest() {
         let mut q = world.query::<(&Unit, &Body, Has<Hosted>)>();
         let moved = q.iter(world).filter(|(u, b, h)| tanks.contains(&u.id) && !h && b.pos.dist(v2(220.0, 220.0)) < 8.0).count();
         let left = q.iter(world).filter(|(u, b, h)| tanks.contains(&u.id) && !h && b.pos.dist(v2(105.0, 101.0)) < 14.0).count();
-        let out = q.iter(world).filter(|(u, b, h)| riders.contains(&u.id) && !h && b.pos.dist(v2(150.0, 150.0)) < 7.0).count();
+        let out = q.iter(world).filter(|(u, b, h)| riders.contains(&u.id) && !h && b.pos.dist(v2(166.0, 148.0)) < 7.0).count();
         let cap = defs.get(defs.id("air_transport").unwrap()).transport.as_ref().map_or(0, |t| t.capacity);
-        println!("== Transport aircraft (capacity {cap}) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down at its target");
+        println!("== Transport aircraft (capacity {cap}) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down and drove on to their queued goal");
         assert!(most == cap as usize && moved == most && left == 10 - most && in_apc == 3 && out == 3, "transports");
     }
     // 10. Control points: the team that holds fewer points loses its score and then the game.

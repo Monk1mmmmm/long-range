@@ -1192,7 +1192,8 @@ fn think(
                                 p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                             }
                         }
-                        commands.entity(t.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));
+                        // Their own orders stay: what they were told to do before or while riding.
+                        commands.entity(t.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
                     }
                     pop = true;
                 }
@@ -2005,9 +2006,13 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
     }
 }
 
-/// Units riding in a transport (or waiting inside a factory) travel with it.
-fn carry(census: Res<Census>, mut riders: Query<(&Hosted, &mut Body)>, hosts: Query<&Body, Without<Hosted>>) {
-    for (h, mut b) in &mut riders {
+/// Units riding in a transport (or waiting inside a factory) travel with it. They keep the rest of
+/// their orders for when they are set down; only an order to board the transport they are in is done.
+fn carry(census: Res<Census>, mut riders: Query<(&Hosted, &mut Body, &mut Orders)>, hosts: Query<&Body, Without<Hosted>>) {
+    for (h, mut b, mut o) in &mut riders {
+        if o.0.contains(&Order::Load(h.0)) {
+            o.0.retain(|o| *o != Order::Load(h.0));
+        }
         if let Some(host) = census.get(h.0).and_then(|c| hosts.get(c.e).ok()) {
             b.pos = host.pos;
             b.y = host.y;
