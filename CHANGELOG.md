@@ -48,6 +48,7 @@ Changed
 Under the hood
 - `tools/blend.py` exports Blender models for the game (parts, animations, team/light/dark/metal materials,
   `--watch` re-exports on every save); see `tools/README.md`.
+- Releases are built and published by GitHub Actions when a version tag is pushed (`.github/workflows/release.yml`).
 - `tools/relaxed_preset.py` makes the Relaxed preset from the built-in data; run it again after the data changes.
 - `tools/model_bounds.py` compares model bounds with the units' JSON size and hit box.
 - Preset editor: new unit setting "Regeneration (hp/s)", rules `splash_direct` / `splash_armored`, weapon
