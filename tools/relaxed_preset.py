@@ -63,9 +63,10 @@ def faction(f):
         if u.get("radar") and u.get("eco", {}).get("upkeep"):
             u["eco"]["upkeep"] = round(u["eco"]["upkeep"] * RADAR_UPKEEP, 2)
         for w in u.get("weapons", []):
-            # Unlimited rounds: no rearming to keep track of.
-            for k in ("ammo", "rearm", "rearm_mass"):
-                w.pop(k, None)
+            # Unlimited rounds: no rearming to keep track of (a suicide drone's one warhead stays).
+            if not w.get("suicide"):
+                for k in ("ammo", "rearm", "rearm_mass"):
+                    w.pop(k, None)
             if u["id"] in HOLD and "hold" in w:
                 if HOLD[u["id"]] > 0:
                     w["hold"] = HOLD[u["id"]]
