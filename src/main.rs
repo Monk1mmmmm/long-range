@@ -3104,7 +3104,8 @@ fn infantry_tests(defs: &Defs) {
         let world = app.world_mut();
         let tank = spawn(world, &map, "bastion", 0, v2(130.0, 129.0), 0.0);
         let full = defs.get(defs.id("bastion").unwrap()).reactive.map_or(0, |r| r.charges);
-        set_hp(world, tank, 1000.0);
+        let start_hp = defs.get(defs.id("bastion").unwrap()).hp * 0.6;
+        set_hp(world, tank, start_hp);
         for (u, mut r) in world.query::<(&Unit, &mut Reactive)>().iter_mut(world) {
             if u.id == tank {
                 r.0 = 0;
@@ -3116,7 +3117,7 @@ fn infantry_tests(defs: &Defs) {
             world.run_schedule(SimTick);
         }
         let (hp_after, back) = (hp(world, tank), charges(world, tank).unwrap_or(0));
-        println!("== Reactive armor: 2 AT troopers on a Bastion for 60 s take {:.0} hp with its {full} charges ({} left), {:.0} without; repaired from 1000 to {hp_after:.0} hp, charges back to {back}", lost[0], left[0], lost[1]);
+        println!("== Reactive armor: 2 AT troopers on a Bastion for 60 s take {:.0} hp with its {full} charges ({} left), {:.0} without; repaired from {start_hp:.0} to {hp_after:.0} hp, charges back to {back}", lost[0], left[0], lost[1]);
         assert!(left[0] == 0 && lost[0] < lost[1], "reactive armor stops part of the missile damage");
         assert!(hp_after >= defs.get(defs.id("bastion").unwrap()).hp && back == full, "a full repair replaces the reactive armor");
     }
