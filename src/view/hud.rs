@@ -64,6 +64,36 @@ impl HudAssets {
     }
 }
 
+/// `k` of the points `pts` (fewer than there are) spread evenly over them: the first is the one
+/// furthest from their middle (an end of a line), each next the one furthest from those taken,
+/// then a few rounds of moving each to the middle point (medoid) of the points nearest to it.
+fn spread(pts: &[V2], k: usize) -> Vec<V2> {
+    let mid = pts.iter().fold(v2(0.0, 0.0), |a, p| a + *p) * (1.0 / pts.len() as f32);
+    let far = |from: &dyn Fn(V2) -> f32| (0..pts.len()).max_by(|a, b| from(pts[*a]).total_cmp(&from(pts[*b]))).unwrap();
+    let mut pick = vec![far(&|p| p.dist(mid))];
+    while pick.len() < k {
+        pick.push(far(&|p| pick.iter().map(|i| p.dist(pts[*i])).fold(f32::MAX, f32::min)));
+    }
+    for _ in 0..8 {
+        let owner: Vec<usize> = pts.iter().map(|p| (0..k).min_by(|a, b| p.dist(pts[pick[*a]]).total_cmp(&p.dist(pts[pick[*b]]))).unwrap()).collect();
+        let mut moved = false;
+        for c in 0..k {
+            let group: Vec<usize> = (0..pts.len()).filter(|i| owner[*i] == c).collect();
+            let cost = |m: usize| group.iter().map(|i| pts[*i].dist(pts[m])).sum::<f32>();
+            if let Some(best) = group.iter().copied().min_by(|a, b| cost(*a).total_cmp(&cost(*b))) {
+                if best != pick[c] && cost(best) + 1e-3 < cost(pick[c]) && !pick.contains(&best) {
+                    pick[c] = best;
+                    moved = true;
+                }
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    pick.into_iter().map(|i| pts[i]).collect()
+}
+
 /// Can a `rider` get into `host`? Transports take whatever is carriable, buildings infantry only.
 fn rides_in(rider: &UnitDef, host: &UnitDef) -> bool {
     host.transport.is_some() && carriable(rider) && (!host.is_garrison() || rider.is_infantry())
@@ -141,6 +171,9 @@ enum Context {
     Wreck { reclaim: Vec<u32>, revive: Vec<u32>, id: u32 },
     /// A tree or rock.
     Feature(Vec<u32>, u32),
+    /// An own trench: the infantry spread out along it (unit ids and their spots), the rest of
+    /// the selection moves to the click.
+    Trench(Vec<u32>, Vec<V2>),
     Move,
 }
 
@@ -254,6 +287,70 @@ impl Frame<'_> {
         units.iter().filter(|u| self.d(u.def).assault > 0.0 && rides_in(self.d(u.def), hd)).map(|u| u.id).collect()
     }
 
+    /// Right-click on a finished trench piece (anybody's: trenches shelter whoever stands in them)
+    /// that no enemy infantry hold: the selected infantry spread out over the whole trench (every
+    /// such piece joined to it, diagonals too), one per piece, evenly over its
+    /// length when there are fewer men than pieces, and pieces that other men of ours already
+    /// hold left to them while there are enough free ones. None when no infantry is selected.
+    fn trench_spots(&self, s: &Seen, units: &[&Info]) -> Option<(Vec<u32>, Vec<V2>)> {
+        let enemy_in = |p: V2| {
+            self.seen.iter().any(|o| {
+                o.enemy && o.contact == Contact::Visible && (o.pos.x - p.x).abs() <= CELL * 0.5 && (o.pos.y - p.y).abs() <= CELL * 0.5 && o.def.is_some_and(|d| self.d(d).is_infantry())
+            })
+        };
+        let is_piece = |s: &Seen| {
+            s.contact == Contact::Visible
+                && s.def.and_then(|d| self.d(d).work()).is_some_and(|w| w.1 > 0.0)
+                && self.infos.get(&s.id).is_some_and(|i| i.built.is_none() && i.hp > 0.0)
+                && !enemy_in(s.pos)
+        };
+        if !is_piece(s) {
+            return None;
+        }
+        let men: Vec<&Info> = units.iter().copied().filter(|u| {
+            let d = self.d(u.def);
+            d.is_infantry() && !d.is_structure() && !d.is_plane()
+        }).collect();
+        if men.is_empty() {
+            return None;
+        }
+        // The trench: every piece reached from the clicked one in steps of one cell.
+        let all: Vec<V2> = self.seen.iter().filter(|o| is_piece(o)).map(|o| o.pos).collect();
+        let mut pieces = vec![s.pos];
+        let mut open = vec![s.pos];
+        let mut left: Vec<V2> = all.into_iter().filter(|p| p.dist(s.pos) > 0.1).collect();
+        while let Some(p) = open.pop() {
+            if pieces.len() >= 1000 {
+                break;
+            }
+            let (near, far): (Vec<V2>, Vec<V2>) = left.into_iter().partition(|q| (q.x - p.x).abs() < CELL * 1.5 && (q.y - p.y).abs() < CELL * 1.5);
+            left = far;
+            pieces.extend(&near);
+            open.extend(near);
+        }
+        pieces.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+        // Pieces our other infantry already stand in.
+        let picked: Vec<u32> = men.iter().map(|u| u.id).collect();
+        let held = |p: V2| {
+            self.infos.values().any(|o| {
+                self.game.team_of(o.owner) == self.team && o.host == 0 && !picked.contains(&o.id) && self.d(o.def).is_infantry() && (o.pos.x - p.x).abs() <= CELL * 0.5 && (o.pos.y - p.y).abs() <= CELL * 0.5
+            })
+        };
+        let free: Vec<V2> = pieces.iter().copied().filter(|p| !held(*p)).collect();
+        let pool = if free.len() >= men.len() { free } else { pieces };
+        let n = men.len();
+        let spots: Vec<V2> = if n >= pool.len() {
+            (0..n).map(|k| pool[k % pool.len()]).collect()
+        } else if n == 1 {
+            vec![*pool.iter().min_by(|a, b| a.dist(s.pos).total_cmp(&b.dist(s.pos))).unwrap()]
+        } else {
+            spread(&pool, n)
+        };
+        let from: Vec<V2> = men.iter().map(|u| u.pos).collect();
+        let asg = assign(&from, &spots);
+        Some((men.iter().map(|u| u.id).collect(), asg.iter().map(|k| spots[*k]).collect()))
+    }
+
     fn formation(&self, units: &[&Info], path: &[V2]) -> Vec<V2> {
         let n = units.len();
         if n == 0 {
@@ -342,6 +439,10 @@ impl Frame<'_> {
         let units = self.selected(view);
         if let Some(h) = hover {
             let s = &self.seen[h];
+            // A trench nobody hostile holds, whoever dug it: our infantry man it.
+            if let Some((ids, spots)) = self.trench_spots(s, &units) {
+                return Context::Trench(ids, spots);
+            }
             if s.enemy {
                 // A building enemy infantry hold: our infantry storm it.
                 let inf = self.stormers(&units, s);
@@ -1164,6 +1265,13 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         }
                     }
                     Context::Feature(ids, id) => out.push(order(ids, Order::Reclaim(id))),
+                    Context::Trench(ids, spots) => {
+                        let rest: Vec<u32> = units.iter().filter(|u| !ids.contains(&u.id) && !fr.d(u.def).is_structure()).map(|u| u.id).collect();
+                        out.push(Command::Orders { ids, orders: spots.into_iter().map(Order::Move).collect(), queue: shift });
+                        if !rest.is_empty() {
+                            out.push(order(rest, Order::Move(ground)));
+                        }
+                    }
                     Context::Move => fr.order_move(view, &[ground], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out),
                 }
             }
@@ -2475,6 +2583,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 Context::Assist(..) => Some(CursorKind::Assist),
                 Context::Wreck { reclaim, .. } => Some(if reclaim.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
                 Context::Feature(..) => Some(CursorKind::Reclaim),
+                Context::Trench(..) => Some(CursorKind::Load),
                 // Only buildings that cannot move or set a rally point: nothing to do.
                 Context::Move if fr.selected(view).iter().all(|u| fr.d(u.def).is_structure() && !fr.d(u.def).is_factory()) && fr.garrison_riders(view).is_empty() => None,
                 Context::Move => Some(if alt { CursorKind::AttackMove } else { CursorKind::Move }),
