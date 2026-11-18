@@ -279,7 +279,7 @@
    },
    "vision": 20,
    "transport": {
-    "capacity": 4
+    "capacity": 12
    }
   },
   {
@@ -394,7 +394,7 @@
    },
    "vision": 22,
    "transport": {
-    "capacity": 6
+    "capacity": 16
    }
   },
   {
@@ -557,7 +557,7 @@
    },
    "vision": 22,
    "transport": {
-    "capacity": 8
+    "capacity": 28
    }
   },
   {
@@ -776,7 +776,7 @@
    },
    "vision": 24,
    "transport": {
-    "capacity": 10
+    "capacity": 28
    }
   },
   {
