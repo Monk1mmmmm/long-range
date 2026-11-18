@@ -240,7 +240,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   (`hit_box: [w, h, l]` in the unit JSON, default `size`) turns with the unit and stands on its base (reaching
   `sim::HIT_BELOW` under it for slopes); the numbers are the model's bounds without gun barrels
   (`python3 tools/model_bounds.py` prints them next to the JSON; troopers, commander, watch tower and Stork were set by
-  hand). Shells: `Cen::hit_seg`; blasts and missile fuzes: `Cen::hit_dist`; line-of-fire obstacles use the circle
+  hand; aircraft have at least 0.6 in every direction, on request, so guns still hit them). Shells: `Cen::hit_seg`; blasts and missile fuzes: `Cen::hit_dist`; line-of-fire obstacles use the circle
   `Cen::hit_r` around the box.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 - **Line of fire** (direct fire, `systems::Lane`): a gun follows the shell's real arc (with a spread allowance)
