@@ -257,11 +257,6 @@ pub const UNIT_REACTIVE: &[Field] = &[
     num("block", tx!("preset_units.reactive_block"), 0.75, 1.0, tx!("preset_units.reactive_block_tip")),
 ];
 
-pub const UNIT_DEFLECT: &[Field] = &[
-    num("below", tx!("preset_units.deflect_below"), 10.0, BIG, tx!("preset_units.deflect_below_tip")),
-    num("take", tx!("preset_units.deflect_take"), 0.1, 1.0, tx!("preset_units.deflect_take_tip")),
-];
-
 pub const UNIT_DEATH: &[Field] = &[
     num("damage", tx!("preset_units.death_damage"), 100.0, BIG, tx!("preset_units.death_damage_tip")),
     num("radius", tx!("preset_units.death_radius"), 5.0, 1000.0, tx!("preset_units.death_radius_tip")),
@@ -756,7 +751,6 @@ pub fn unit_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
         ch |= optional(ui, v, "transport", tr!("preset_units.carries_units"), tr!("preset_units.carries_units_tip"), json!({ "capacity": 4 }), UNIT_TRANSPORT, ctx, "transport");
         ch |= optional(ui, v, "fieldwork", tr!("preset_units.field_work"), tr!("preset_units.field_work_tip"), json!({ "cover": 0.5 }), UNIT_FIELDWORK, ctx, "fieldwork");
         ch |= optional(ui, v, "reactive", tr!("preset_units.reactive_armor"), tr!("preset_units.reactive_armor_tip"), json!({ "charges": 4, "block": 0.75 }), UNIT_REACTIVE, ctx, "reactive");
-        ch |= optional(ui, v, "deflect", tr!("preset_units.deflect_armor"), tr!("preset_units.deflect_armor_tip"), json!({ "below": 10, "take": 0.1 }), UNIT_DEFLECT, ctx, "deflect");
         ch |= optional(ui, v, "death", tr!("preset_units.explodes_when_destroyed"), tr!("preset_units.explodes_tip"), json!({ "damage": 100, "radius": 5 }), UNIT_DEATH, ctx, "death");
     });
     section(ui, tr!("preset_units.icon_and_model"), false, |ui| ch |= grid(ui, v, UNIT_ICON, ctx, "icon"));

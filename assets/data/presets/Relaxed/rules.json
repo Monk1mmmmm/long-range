@@ -210,50 +210,65 @@
   "Normal",
   "Autocannon",
   "AP",
-  "Explosive"
+  "Explosive",
+  "SmallArms"
  ],
  "armor": {
+  "APC": {
+   "Normal": 0.1,
+   "Autocannon": 0.5,
+   "AP": 1.0,
+   "Explosive": 1.0,
+   "SmallArms": 0.1
+  },
   "Light": {
    "Normal": 1.0,
    "Autocannon": 1.0,
    "AP": 1.0,
-   "Explosive": 1.0
+   "Explosive": 1.0,
+   "SmallArms": 1.0
   },
   "LightTank": {
    "Normal": 0.5,
    "Autocannon": 0.66,
    "AP": 1.0,
-   "Explosive": 1.0
+   "Explosive": 1.0,
+   "SmallArms": 1.0
   },
   "MediumTank": {
    "Normal": 0.2,
    "Autocannon": 0.33,
    "AP": 1.0,
-   "Explosive": 0.8
+   "Explosive": 0.8,
+   "SmallArms": 1.0
   },
   "Structure": {
    "Normal": 0.6,
    "Autocannon": 0.8,
    "AP": 1.0,
-   "Explosive": 1.0
+   "Explosive": 1.0,
+   "SmallArms": 1.0
   },
   "Commander": {
    "Normal": 0.5,
    "Autocannon": 0.7,
    "AP": 1.0,
-   "Explosive": 0.6
+   "Explosive": 0.6,
+   "SmallArms": 1.0
   },
   "Air": {
    "Normal": 1.0,
    "Autocannon": 1.0,
    "AP": 1.0,
-   "Explosive": 0.5
+   "Explosive": 0.5,
+   "SmallArms": 1.0
   },
   "Civilian": {
    "Normal": 0.3,
    "Autocannon": 0.7,
    "AP": 0.7,
-   "Explosive": 1.5
+   "Explosive": 1.5,
+   "SmallArms": 0.7
   }
  },
  "player_colors": [

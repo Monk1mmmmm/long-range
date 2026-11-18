@@ -590,14 +590,6 @@ pub struct ReactiveDef {
     pub block: f32,
 }
 
-/// Armour that small arms barely scratch: a single hit doing less than `below` (raw damage,
-/// after the hit angle, before the armor table) does only `take` of its damage.
-#[derive(Deserialize, Clone, Copy, Debug)]
-pub struct DeflectDef {
-    pub below: f32,
-    pub take: f32,
-}
-
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WeaponKind {
@@ -877,9 +869,6 @@ pub struct UnitDef {
     /// Explosive reactive armor (see `ReactiveDef`).
     #[serde(default)]
     pub reactive: Option<ReactiveDef>,
-    /// Small-arms-proof armour (see `DeflectDef`).
-    #[serde(default)]
-    pub deflect: Option<DeflectDef>,
     /// Sound played when the unit is selected (one of `view::sound::UI_SOUNDS`); empty = by role.
     #[serde(default)]
     pub select_sound: String,
@@ -1331,9 +1320,6 @@ impl Defs {
             }
             if u.reactive.is_some_and(|r| !(0.0..=1.0).contains(&r.block)) {
                 return Err(format!("{}: reactive armor block goes from 0 to 1", u.id));
-            }
-            if u.deflect.is_some_and(|d| !(0.0..=1.0).contains(&d.take)) {
-                return Err(format!("{}: deflect take goes from 0 to 1", u.id));
             }
             if u.mv.amphibious && u.mv.kind != MoveKind::Land {
                 return Err(format!("{}: only land units can be amphibious", u.id));

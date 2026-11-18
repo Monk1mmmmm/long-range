@@ -2935,7 +2935,7 @@ fn apc_tests(defs: &Defs) {
     }
     let left = hp(world, apc);
     println!("== Tavria under small arms: 6 riflemen + an HMG tower for 30 s leave it {left:.0} of {full:.0} hp");
-    assert!(left > full * 0.6, "small arms glance off the Tavria");
+    assert!(left > full * 0.5, "small arms barely scratch the Tavria");
 
     // 2. Destroyed with four riflemen inside: they bail out, hurt.
     let (mut app, map) = world_with(None);

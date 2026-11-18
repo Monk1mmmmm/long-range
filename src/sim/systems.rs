@@ -3120,11 +3120,6 @@ fn deaths(
         let Some(c) = census.get(id) else { continue };
         let Ok((e, u, b, mut h, uc, hosted, shed)) = q.get_mut(c.e) else { continue };
         let d = defs.get(u.def);
-        // Small arms bounce off a hull made against them.
-        let dmg = match d.deflect {
-            Some(df) if dmg < df.below => dmg * df.take,
-            _ => dmg,
-        };
         let real = dmg * defs.armor_mult(dtype, d.armor_id);
         let standing = h.0 > 0.0;
         h.0 -= real;

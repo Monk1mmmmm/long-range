@@ -202,11 +202,7 @@
    "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed. Bullets and machine-gun fire glance off its hull; riders get out alive when it is destroyed. Amphibious: drives along the bottom of rivers and lakes up to 4 deep, out of reach of guns.",
    "tier": 1,
    "hp": 520,
-   "armor": "LightTank",
-   "deflect": {
-    "below": 10,
-    "take": 0.1
-   },
+   "armor": "APC",
    "cost": {
     "mass": 90,
     "energy": 900,
@@ -432,7 +428,7 @@
      "reload": 0.33,
      "speed": 32,
      "kind": "direct",
-     "damage_type": "AP",
+     "damage_type": "SmallArms",
      "spread": 0.5,
      "turret": {
       "yaw_speed": 180,
@@ -583,7 +579,7 @@
      "reload": 6.0,
      "speed": 150,
      "kind": "direct",
-     "damage_type": "AP",
+     "damage_type": "SmallArms",
      "spread": 0.2,
      "aim_time": 1.5,
      "snipe": true,
