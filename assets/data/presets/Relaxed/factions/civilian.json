@@ -1,0 +1,1696 @@
+{
+ "id": "civilian",
+ "name": "Civilians",
+ "playable": false,
+ "_comment": "Map buildings. Placed in the map editor as neutral (ignored unless attacked on purpose) or hostile (shoots everyone).",
+ "units": [
+  {
+   "id": "house",
+   "name": "House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/civ_house1.glb",
+    "albedo": "models/civ_house1_albedo.png",
+    "team_mask": "models/civ_house1_team.png",
+    "normal": "models/civ_house1_normal.png",
+    "scale": 0.375
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ]
+  },
+  {
+   "id": "row_house",
+   "name": "Row House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 25,
+    "energy": 125,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/civ_old_house1.glb",
+    "albedo": "models/civ_old_house1_albedo.png",
+    "team_mask": "models/civ_old_house1_team.png",
+    "normal": "models/civ_old_house1_normal.png",
+    "scale": 0.375
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ]
+  },
+  {
+   "id": "apartment",
+   "name": "Apartment Block",
+   "desc": "Residential high-rise.",
+   "tier": 0,
+   "hp": 1500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 90,
+    "energy": 450,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    3.76,
+    8.0
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar",
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/civ_apartments1.glb",
+    "albedo": "models/civ_apartments1_albedo.png",
+    "team_mask": "models/civ_apartments1_team.png",
+    "normal": "models/civ_apartments1_normal.png",
+    "scale": 0.375
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ]
+  },
+  {
+   "id": "warehouse",
+   "name": "Warehouse",
+   "desc": "Industrial storage. Leaves plenty of scrap.",
+   "tier": 0,
+   "hp": 2000,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 160,
+    "energy": 800,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    5.0,
+    12.0
+   ],
+   "footprint": 6,
+   "transport": {
+    "capacity": 8
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "model": {
+    "mesh": "models/civ_factory.glb",
+    "albedo": "models/civ_factory_albedo.png",
+    "team_mask": "models/civ_factory_team.png",
+    "normal": "models/civ_factory_normal.png",
+    "scale": 0.5
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ]
+  },
+  {
+   "id": "refinery",
+   "name": "Refinery",
+   "desc": "Industrial plant. Burns fiercely when destroyed.",
+   "tier": 0,
+   "hp": 2500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 220,
+    "energy": 1100,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    9.0,
+    12.0
+   ],
+   "footprint": 6,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame",
+     "plus"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       -1.6,
+       1.8,
+       0
+      ],
+      "size": [
+       6.8,
+       3.6,
+       8.4
+      ],
+      "color": [
+       0.6,
+       0.56,
+       0.5
+      ]
+     },
+     {
+      "pos": [
+       3.6,
+       4.4,
+       -2.4
+      ],
+      "size": [
+       1.6,
+       8.8,
+       1.6
+      ],
+      "color": [
+       0.5,
+       0.3,
+       0.25
+      ]
+     },
+     {
+      "pos": [
+       3.6,
+       3.2,
+       2.0
+      ],
+      "size": [
+       2.8,
+       6.4,
+       2.8
+      ],
+      "color": [
+       0.75,
+       0.75,
+       0.72
+      ]
+     }
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "death": {
+    "damage": 500,
+    "radius": 15.0
+   }
+  },
+  {
+   "id": "fuel_tank",
+   "name": "Fuel Tank",
+   "desc": "Industrial. Explodes when hit hard enough.",
+   "tier": 0,
+   "hp": 250,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.8,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "ring"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       1.4,
+       0
+      ],
+      "size": [
+       2.8,
+       2.8,
+       2.8
+      ],
+      "color": [
+       0.82,
+       0.8,
+       0.75
+      ]
+     },
+     {
+      "pos": [
+       0,
+       2.9,
+       0
+      ],
+      "size": [
+       2.0,
+       0.24,
+       2.0
+      ],
+      "color": [
+       0.7,
+       0.2,
+       0.15
+      ]
+     }
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "death": {
+    "damage": 350,
+    "radius": 11.25
+   }
+  },
+  {
+   "id": "pylon",
+   "name": "Power Pylon",
+   "desc": "Infrastructure.",
+   "tier": 0,
+   "hp": 150,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 10,
+    "energy": 50,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    9.0,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bolt"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       4.4,
+       0
+      ],
+      "size": [
+       0.5,
+       8.8,
+       0.5
+      ],
+      "color": [
+       0.5,
+       0.52,
+       0.55
+      ]
+     },
+     {
+      "pos": [
+       0,
+       7.8,
+       0
+      ],
+      "size": [
+       3.8,
+       0.24,
+       0.4
+      ],
+      "color": [
+       0.5,
+       0.52,
+       0.55
+      ]
+     },
+     {
+      "pos": [
+       0,
+       6.4,
+       0
+      ],
+      "size": [
+       2.6,
+       0.24,
+       0.4
+      ],
+      "color": [
+       0.5,
+       0.52,
+       0.55
+      ]
+     }
+    ]
+   },
+   "categories": [
+    "civilian",
+    "infrastructure"
+   ]
+  },
+  {
+   "id": "comm_tower",
+   "name": "Comm Tower",
+   "desc": "Infrastructure.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 30,
+    "energy": 150,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    12.0,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.8,
+       0
+      ],
+      "size": [
+       2.4,
+       1.6,
+       2.4
+      ],
+      "color": [
+       0.5,
+       0.5,
+       0.52
+      ]
+     },
+     {
+      "pos": [
+       0,
+       6.4,
+       0
+      ],
+      "size": [
+       0.4,
+       11.2,
+       0.4
+      ],
+      "color": [
+       0.75,
+       0.2,
+       0.2
+      ]
+     },
+     {
+      "pos": [
+       0,
+       10.4,
+       0
+      ],
+      "size": [
+       1.8,
+       1.0,
+       0.3
+      ],
+      "color": [
+       0.85,
+       0.85,
+       0.85
+      ],
+      "spin": 40
+     }
+    ]
+   },
+   "categories": [
+    "civilian",
+    "infrastructure"
+   ]
+  },
+  {
+   "id": "water_tower",
+   "name": "Water Tower",
+   "desc": "Infrastructure.",
+   "tier": 0,
+   "hp": 350,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 25,
+    "energy": 125,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    7.2,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "mass"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       2.6,
+       0
+      ],
+      "size": [
+       1.0,
+       5.2,
+       1.0
+      ],
+      "color": [
+       0.45,
+       0.45,
+       0.48
+      ]
+     },
+     {
+      "pos": [
+       0,
+       6.0,
+       0
+      ],
+      "size": [
+       3.0,
+       2.4,
+       3.0
+      ],
+      "color": [
+       0.6,
+       0.68,
+       0.75
+      ]
+     }
+    ]
+   },
+   "categories": [
+    "civilian",
+    "infrastructure"
+   ]
+  },
+  {
+   "id": "house2",
+   "name": "Modern House 1",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house2.glb",
+    "albedo": "models/civ_house2_albedo.png",
+    "team_mask": "models/civ_house2_team.png",
+    "normal": "models/civ_house2_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house3",
+   "name": "Modern House 2",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house3.glb",
+    "albedo": "models/civ_house3_albedo.png",
+    "team_mask": "models/civ_house3_team.png",
+    "normal": "models/civ_house3_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house4",
+   "name": "Modern House 3",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house4.glb",
+    "albedo": "models/civ_house4_albedo.png",
+    "team_mask": "models/civ_house4_team.png",
+    "normal": "models/civ_house4_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house5",
+   "name": "Modern House 4",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house5.glb",
+    "albedo": "models/civ_house5_albedo.png",
+    "team_mask": "models/civ_house5_team.png",
+    "normal": "models/civ_house5_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house6",
+   "name": "Modern House 5",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house6.glb",
+    "albedo": "models/civ_house6_albedo.png",
+    "team_mask": "models/civ_house6_team.png",
+    "normal": "models/civ_house6_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house7",
+   "name": "Modern House 6",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.88,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house7.glb",
+    "albedo": "models/civ_house7_albedo.png",
+    "team_mask": "models/civ_house7_team.png",
+    "normal": "models/civ_house7_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house8",
+   "name": "Modern House 7",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.06,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house8.glb",
+    "albedo": "models/civ_house8_albedo.png",
+    "team_mask": "models/civ_house8_team.png",
+    "normal": "models/civ_house8_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "house9",
+   "name": "Modern House 8",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.06,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_house9.glb",
+    "albedo": "models/civ_house9_albedo.png",
+    "team_mask": "models/civ_house9_team.png",
+    "normal": "models/civ_house9_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "old_house2",
+   "name": "Old House 1",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_old_house2.glb",
+    "albedo": "models/civ_old_house2_albedo.png",
+    "team_mask": "models/civ_old_house2_team.png",
+    "normal": "models/civ_old_house2_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "old_house3",
+   "name": "Old House 2",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_old_house3.glb",
+    "albedo": "models/civ_old_house3_albedo.png",
+    "team_mask": "models/civ_old_house3_team.png",
+    "normal": "models/civ_old_house3_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "old_house4",
+   "name": "Old House 3",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_old_house4.glb",
+    "albedo": "models/civ_old_house4_albedo.png",
+    "team_mask": "models/civ_old_house4_team.png",
+    "normal": "models/civ_old_house4_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "corner_house1",
+   "name": "Corner House 1",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house1.glb",
+    "albedo": "models/civ_corner_house1_albedo.png",
+    "team_mask": "models/civ_corner_house1_team.png",
+    "normal": "models/civ_corner_house1_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "corner_house2",
+   "name": "Corner House 2",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house2.glb",
+    "albedo": "models/civ_corner_house2_albedo.png",
+    "team_mask": "models/civ_corner_house2_team.png",
+    "normal": "models/civ_corner_house2_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "corner_house3",
+   "name": "Corner House 3",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house3.glb",
+    "albedo": "models/civ_corner_house3_albedo.png",
+    "team_mask": "models/civ_corner_house3_team.png",
+    "normal": "models/civ_corner_house3_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "corner_house4",
+   "name": "Corner House 4",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.38,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_corner_house4.glb",
+    "albedo": "models/civ_corner_house4_albedo.png",
+    "team_mask": "models/civ_corner_house4_team.png",
+    "normal": "models/civ_corner_house4_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "apartment2",
+   "name": "Apartment Building",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.76,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_apartments2.glb",
+    "albedo": "models/civ_apartments2_albedo.png",
+    "team_mask": "models/civ_apartments2_team.png",
+    "normal": "models/civ_apartments2_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "church",
+   "name": "Church",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.62,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_church.glb",
+    "albedo": "models/civ_church_albedo.png",
+    "team_mask": "models/civ_church_team.png",
+    "normal": "models/civ_church_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "grocery",
+   "name": "Grocery Store",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.5,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_grocery.glb",
+    "albedo": "models/civ_grocery_albedo.png",
+    "team_mask": "models/civ_grocery_team.png",
+    "normal": "models/civ_grocery_normal.png",
+    "scale": 0.5
+   }
+  },
+  {
+   "id": "containers",
+   "name": "Container Stack 1",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.94,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_containers1.glb",
+    "albedo": "models/civ_containers1_albedo.png",
+    "team_mask": "models/civ_containers1_team.png",
+    "normal": "models/civ_containers1_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "containers2",
+   "name": "Container Stack 2",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.88,
+    4.0
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_containers2.glb",
+    "albedo": "models/civ_containers2_albedo.png",
+    "team_mask": "models/civ_containers2_team.png",
+    "normal": "models/civ_containers2_normal.png",
+    "scale": 0.375
+   }
+  },
+  {
+   "id": "residential_tower",
+   "name": "Residential Tower",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    7.8,
+    8.0
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "residential"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_residential.glb",
+    "albedo": "models/civ_uef_residential_albedo.png",
+    "team_mask": "models/civ_uef_residential_team.png",
+    "normal": "models/civ_uef_residential_normal.png",
+    "scale": 0.2
+   }
+  },
+  {
+   "id": "science_lab",
+   "name": "Science Lab",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    4.9,
+    8.0
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_lab.glb",
+    "albedo": "models/civ_uef_lab_albedo.png",
+    "team_mask": "models/civ_uef_lab_team.png",
+    "normal": "models/civ_uef_lab_normal.png",
+    "scale": 0.2
+   }
+  },
+  {
+   "id": "admin_building",
+   "name": "Administrative Building",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    3.68,
+    8.0
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_admin.glb",
+    "albedo": "models/civ_uef_admin_albedo.png",
+    "team_mask": "models/civ_uef_admin_team.png",
+    "normal": "models/civ_uef_admin_normal.png",
+    "scale": 0.2
+   }
+  },
+  {
+   "id": "admin_hall",
+   "name": "Administration Hall",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    7.12,
+    12.0
+   ],
+   "footprint": 6,
+   "transport": {
+    "capacity": 8
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_hall.glb",
+    "albedo": "models/civ_uef_hall_albedo.png",
+    "team_mask": "models/civ_uef_hall_team.png",
+    "normal": "models/civ_uef_hall_normal.png",
+    "scale": 0.06
+   }
+  },
+  {
+   "id": "high_command",
+   "name": "High Command",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    8.44,
+    8.0
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "civic"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_command.glb",
+    "albedo": "models/civ_uef_command_albedo.png",
+    "team_mask": "models/civ_uef_command_team.png",
+    "normal": "models/civ_uef_command_normal.png",
+    "scale": 0.4
+   }
+  },
+  {
+   "id": "farm",
+   "name": "Agricultural Center",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    4.38,
+    12.0
+   ],
+   "footprint": 6,
+   "transport": {
+    "capacity": 8
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_farm.glb",
+    "albedo": "models/civ_uef_farm_albedo.png",
+    "team_mask": "models/civ_uef_farm_team.png",
+    "normal": "models/civ_uef_farm_normal.png",
+    "scale": 0.2
+   }
+  },
+  {
+   "id": "plant",
+   "name": "Manufacturing Plant",
+   "desc": "Industrial building. Leaves scrap to reclaim.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    4.82,
+    8.0
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "categories": [
+    "civilian",
+    "industrial"
+   ],
+   "model": {
+    "mesh": "models/civ_uef_plant.glb",
+    "albedo": "models/civ_uef_plant_albedo.png",
+    "team_mask": "models/civ_uef_plant_team.png",
+    "normal": "models/civ_uef_plant_normal.png",
+    "scale": 0.2
+   }
+  },
+  {
+   "id": "bunker",
+   "name": "Bunker",
+   "desc": "Fortified position. Hostile garrisons shoot at anything in range.",
+   "tier": 0,
+   "hp": 2500,
+   "armor": "Structure",
+   "cost": {
+    "mass": 80,
+    "energy": 400,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    1.8,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 4
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.8,
+       0
+      ],
+      "size": [
+       3.6,
+       1.6,
+       3.6
+      ],
+      "color": [
+       0.42,
+       0.44,
+       0.4
+      ]
+     },
+     {
+      "pos": [
+       0,
+       1.2,
+       -1.9
+      ],
+      "size": [
+       1.8,
+       0.4,
+       0.4
+      ],
+      "color": [
+       0.1,
+       0.1,
+       0.1
+      ]
+     }
+    ]
+   },
+   "categories": [
+    "civilian",
+    "military"
+   ],
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "Garrison MG",
+     "damage": 3,
+     "range": 40,
+     "reload": 0.5,
+     "speed": 75,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.06,
+     "spread": 0.8,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90
+     }
+    }
+   ]
+  }
+ ]
+}

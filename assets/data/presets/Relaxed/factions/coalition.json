@@ -1,0 +1,4435 @@
+{
+ "id": "coalition",
+ "name": "Coalition",
+ "playable": true,
+ "commander": "commander",
+ "_comment": "Roster of the Long Range Tank mod. tier gates what a factory/engineer of that tier can build; built_by is the build category.",
+ "units": [
+  {
+   "id": "commander",
+   "name": "Commander",
+   "desc": "Command mech. Builds the base. Lose it and you lose the battle.",
+   "tier": 1,
+   "hp": 12800,
+   "armor": "Commander",
+   "cost": {
+    "mass": 5000,
+    "energy": 50000,
+    "time": 60000
+   },
+   "size": [
+    3.75,
+    3.5,
+    3.75
+   ],
+   "icon": {
+    "shape": "commander",
+    "glyphs": []
+   },
+   "model": {
+    "mesh": "models/trooper.glb",
+    "albedo": "models/trooper_albedo.png",
+    "team_mask": "models/trooper_team.png",
+    "normal": "models/trooper_normal.png",
+    "scale": 0.475
+   },
+   "portrait": "icons/units/trooper.png",
+   "move": {
+    "kind": "land",
+    "speed": 2.4,
+    "reverse": 1.6,
+    "accel": 3.0,
+    "turn": 120
+   },
+   "vision": 35,
+   "eco": {
+    "mass": 1,
+    "energy": 20,
+    "store_mass": 1000,
+    "store_energy": 6000
+   },
+   "build": {
+    "rate": 10,
+    "range": 7,
+    "categories": [
+     "structure"
+    ],
+    "tier": 1
+   },
+   "weapons": [
+    {
+     "name": "Arm Cannon",
+     "prefer": "armored",
+     "damage": 60,
+     "range": 28,
+     "reload": 0.8,
+     "speed": 55,
+     "kind": "direct",
+     "damage_type": "AP",
+     "spread": 0.4,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     }
+    }
+   ],
+   "death": {
+    "damage": 1500,
+    "radius": 25
+   },
+   "wreck": false
+  },
+  {
+   "id": "engineer",
+   "name": "Engineer",
+   "desc": "Builds tier 1 structures, assists, repairs and reclaims.",
+   "tier": 1,
+   "hp": 195,
+   "armor": "Light",
+   "cost": {
+    "mass": 52,
+    "energy": 260,
+    "time": 260
+   },
+   "size": [
+    0.7,
+    0.8,
+    0.6
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "eng"
+    ]
+   },
+   "model": {
+    "mesh": "models/engineer.glb",
+    "albedo": "models/engineer_albedo.png",
+    "team_mask": "models/engineer_team.png",
+    "normal": "models/engineer_normal.png",
+    "scale": 0.15
+   },
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.4,
+    "reverse": 1.9,
+    "accel": 2.4,
+    "turn": 120
+   },
+   "vision": 18,
+   "eco": {
+    "store_mass": 10
+   },
+   "build": {
+    "rate": 5,
+    "range": 6,
+    "categories": [
+     "structure"
+    ],
+    "tier": 1
+   }
+  },
+  {
+   "id": "scavenger",
+   "name": "Scavenger",
+   "desc": "Cannot build. Reclaims wrecks, debris, trees and rocks, or revives wrecks as working units for your side (right-click a wreck, or J and drag a circle).",
+   "tier": 1,
+   "hp": 234,
+   "armor": "Light",
+   "cost": {
+    "mass": 70,
+    "energy": 400,
+    "time": 350
+   },
+   "size": [
+    0.7,
+    0.8,
+    0.6
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "mass"
+    ]
+   },
+   "model": {
+    "mesh": "models/engineer.glb",
+    "albedo": "models/engineer_albedo.png",
+    "team_mask": "models/engineer_team.png",
+    "normal": "models/engineer_normal.png",
+    "scale": 0.085
+   },
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.0,
+    "accel": 2.6,
+    "turn": 120
+   },
+   "vision": 18,
+   "build": {
+    "rate": 6,
+    "range": 5,
+    "scavenger": true
+   }
+  },
+  {
+   "id": "apc",
+   "categories": [
+    "armored"
+   ],
+   "name": "Tavria",
+   "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed.",
+   "tier": 1,
+   "hp": 416,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 90,
+    "energy": 900,
+    "time": 450
+   },
+   "size": [
+    2.25,
+    1.75,
+    4.0
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "cargo"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0.0,
+       0.55,
+       0.0
+      ],
+      "size": [
+       2.25,
+       0.6,
+       4.0
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0.0,
+       1.25,
+       0.25
+      ],
+      "size": [
+       2.0,
+       0.9,
+       3.25
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0.0,
+       1.25,
+       -1.65
+      ],
+      "size": [
+       1.75,
+       0.7,
+       0.5
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.0,
+       1.8,
+       0.625
+      ],
+      "size": [
+       1.25,
+       0.2,
+       1.75
+      ],
+      "color": "metal"
+     }
+    ]
+   },
+   "built_by": "land",
+   "select_sound": "select_vehicle",
+   "move": {
+    "kind": "land",
+    "speed": 4.4,
+    "reverse": 3.0,
+    "accel": 2.6,
+    "turn": 90
+   },
+   "vision": 22,
+   "transport": {
+    "capacity": 6
+   }
+  },
+  {
+   "id": "buggy",
+   "name": "Buggy",
+   "desc": "Land scout. Fast, fragile, long sight - the eyes of your guns.",
+   "tier": 1,
+   "hp": 39,
+   "armor": "Light",
+   "cost": {
+    "mass": 20,
+    "energy": 300,
+    "time": 120
+   },
+   "size": [
+    1.0,
+    1.0,
+    1.625
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "ring"
+    ]
+   },
+   "model": {
+    "mesh": "models/buggy.glb",
+    "albedo": "models/buggy_albedo.png",
+    "team_mask": "models/buggy_team.png",
+    "scale": 0.2
+   },
+   "portrait": "icons/units/buggy.png",
+   "built_by": "land",
+   "select_sound": "select_vehicle",
+   "move": {
+    "kind": "land",
+    "speed": 6.2,
+    "reverse": 5.0,
+    "accel": 3.2,
+    "turn": 110
+   },
+   "vision": 45,
+   "weapons": [
+    {
+     "name": "Tom Cat Machinegun",
+     "prefer": "infantry",
+     "damage": 1,
+     "range": 15,
+     "reload": 1.0,
+     "speed": 75,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.08,
+     "spread": 0.8,
+     "turret": {
+      "yaw_speed": 360,
+      "pitch_speed": 85,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "trooper",
+   "stealth": 3,
+   "assault": 10,
+   "categories": [
+    "infantry"
+   ],
+   "name": "Trooper",
+   "desc": "Armored assault bot. Cheap plasma gun that also hurts armor.",
+   "tier": 1,
+   "hp": 84,
+   "armor": "Light",
+   "cost": {
+    "mass": 65,
+    "energy": 500,
+    "time": 140
+   },
+   "size": [
+    1.25,
+    1.5,
+    1.25
+   ],
+   "icon": {
+    "shape": "bot",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/trooper.glb",
+    "albedo": "models/trooper_albedo.png",
+    "team_mask": "models/trooper_team.png",
+    "normal": "models/trooper_normal.png",
+    "scale": 0.1562
+   },
+   "portrait": "icons/units/trooper.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.6,
+    "reverse": 2.0,
+    "accel": 5.0,
+    "turn": 150
+   },
+   "vision": 45,
+   "binoculars": {
+    "range": 140,
+    "angle": 20,
+    "turn": 40,
+    "scan": 60
+   },
+   "weapons": [
+    {
+     "name": "Plasma Gun",
+     "prefer": "infantry",
+     "damage": 3,
+     "range": 15,
+     "reload": 0.33,
+     "speed": 32,
+     "kind": "direct",
+     "damage_type": "AP",
+     "spread": 0.5,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "at_trooper",
+   "stealth": 3,
+   "assault": 3,
+   "categories": [
+    "infantry"
+   ],
+   "name": "AT Trooper",
+   "desc": "Infantry with a guided anti-tank missile and three rounds of it; spent rounds come back one a minute for mass. Slow to reload; best fired from cover or from a building.",
+   "tier": 2,
+   "hp": 117,
+   "armor": "Light",
+   "cost": {
+    "mass": 170,
+    "energy": 1600,
+    "time": 700
+   },
+   "size": [
+    1.25,
+    1.5,
+    1.25
+   ],
+   "icon": {
+    "shape": "bot",
+    "glyphs": [
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/trooper.glb",
+    "albedo": "models/trooper_albedo.png",
+    "team_mask": "models/trooper_team.png",
+    "normal": "models/trooper_normal.png",
+    "scale": 0.1562
+   },
+   "portrait": "icons/units/trooper.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.0,
+    "reverse": 2.0,
+    "accel": 5.0,
+    "turn": 150
+   },
+   "vision": 45,
+   "weapons": [
+    {
+     "name": "Guided AT Missile",
+     "prefer": "armored",
+     "damage": 300,
+     "range": 95,
+     "reload": 18.0,
+     "speed": 20,
+     "kind": "missile",
+     "damage_type": "AP",
+     "turn_rate": 60,
+     "aim_time": 3.0,
+     "turret": {
+      "yaw_speed": 150,
+      "pitch_speed": 150,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sniper_trooper",
+   "stealth": 3,
+   "assault": 2,
+   "categories": [
+    "infantry"
+   ],
+   "name": "Sniper Trooper",
+   "desc": "Marksman with a long rifle. Slow, accurate shots; also picks off infantry inside buildings from afar without harming the building.",
+   "tier": 2,
+   "hp": 72,
+   "armor": "Light",
+   "cost": {
+    "mass": 140,
+    "energy": 1400,
+    "time": 600
+   },
+   "size": [
+    1.25,
+    1.5,
+    1.25
+   ],
+   "icon": {
+    "shape": "bot",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/trooper.glb",
+    "albedo": "models/trooper_albedo.png",
+    "team_mask": "models/trooper_team.png",
+    "normal": "models/trooper_normal.png",
+    "scale": 0.1562
+   },
+   "portrait": "icons/units/trooper.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.0,
+    "reverse": 2.0,
+    "accel": 5.0,
+    "turn": 150
+   },
+   "vision": 45,
+   "binoculars": {
+    "range": 140,
+    "angle": 20,
+    "turn": 40,
+    "scan": 60
+   },
+   "weapons": [
+    {
+     "name": "Sniper Rifle",
+     "prefer": "infantry",
+     "damage": 45,
+     "range": 110,
+     "reload": 6.0,
+     "speed": 150,
+     "kind": "direct",
+     "damage_type": "AP",
+     "spread": 0.2,
+     "aim_time": 1.5,
+     "snipe": true,
+     "turret": {
+      "yaw_speed": 150,
+      "pitch_speed": 150,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sam_trooper",
+   "stealth": 3,
+   "assault": 2.5,
+   "categories": [
+    "infantry"
+   ],
+   "name": "SAM Trooper",
+   "desc": "Infantry with a shoulder-fired homing anti-air missile and four rounds of it; spent rounds come back one a minute for mass. Aircraft only.",
+   "tier": 2,
+   "hp": 104,
+   "armor": "Light",
+   "cost": {
+    "mass": 150,
+    "energy": 1500,
+    "time": 600
+   },
+   "size": [
+    1.25,
+    1.5,
+    1.25
+   ],
+   "icon": {
+    "shape": "bot",
+    "glyphs": [
+     "arc",
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/trooper.glb",
+    "albedo": "models/trooper_albedo.png",
+    "team_mask": "models/trooper_team.png",
+    "normal": "models/trooper_normal.png",
+    "scale": 0.1562
+   },
+   "portrait": "icons/units/trooper.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.2,
+    "reverse": 2.0,
+    "accel": 5.0,
+    "turn": 150
+   },
+   "vision": 45,
+   "weapons": [
+    {
+     "name": "Homing AA Missile",
+     "damage": 110,
+     "range": 80,
+     "reload": 7.0,
+     "speed": 38,
+     "kind": "missile",
+     "damage_type": "AP",
+     "turn_rate": 140,
+     "aim_time": 0.6,
+     "turret": {
+      "yaw_speed": 150,
+      "pitch_speed": 150,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     },
+     "targets": [
+      "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "overtaker",
+   "categories": [
+    "armored"
+   ],
+   "name": "Overtaker M1",
+   "desc": "Light tank. Quick flanker with a 75 mm gauss cannon.",
+   "tier": 1,
+   "hp": 390,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 320,
+    "energy": 1000,
+    "time": 450
+   },
+   "size": [
+    1.5,
+    1.25,
+    2.25
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/overtaker.glb",
+    "albedo": "models/overtaker_albedo.png",
+    "team_mask": "models/overtaker_team.png",
+    "normal": "models/overtaker_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/overtaker.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.8,
+    "reverse": 1.6,
+    "accel": 1.3,
+    "turn": 75
+   },
+   "vision": 35,
+   "weapons": [
+    {
+     "name": "Gauss Cannon",
+     "prefer": "armored",
+     "damage": 75,
+     "range": 60,
+     "reload": 2.0,
+     "speed": 45,
+     "kind": "direct",
+     "damage_type": "AP",
+     "radius": 1.25,
+     "spread": 0.35,
+     "aim_time": 0.4,
+     "turret": {
+      "yaw_speed": 90,
+      "pitch_speed": 60,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    },
+    {
+     "name": "Heavy Machinegun",
+     "prefer": "infantry",
+     "damage": 1,
+     "range": 30,
+     "reload": 1.2,
+     "speed": 100,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.08,
+     "spread": 0.6,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90,
+      "yaw_bone": "MainGunMachineGunTurret",
+      "pitch_bone": "MainGunMachineGunBarrel",
+      "muzzle_bone": "MainGunMachineGunMuzzle"
+     },
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pike",
+   "categories": [
+    "armored"
+   ],
+   "name": "Pike Mortar",
+   "desc": "Mobile mortar. High-arc fire over hills, range 25-100. Slow traverse. Fires only standing and stays put 3 s after each shot.",
+   "tier": 1,
+   "hp": 286,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 220,
+    "energy": 1200,
+    "time": 1200
+   },
+   "size": [
+    1.5,
+    1.0,
+    2.0
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/pike.glb",
+    "albedo": "models/pike_albedo.png",
+    "team_mask": "models/pike_team.png",
+    "normal": "models/pike_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/pike.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 3.6,
+    "reverse": 3.0,
+    "accel": 1.3,
+    "turn": 70
+   },
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "Mortar",
+     "damage": 50,
+     "range": 100,
+     "reload": 2.0,
+     "speed": 50,
+     "kind": "high_arc",
+     "damage_type": "Explosive",
+     "radius": 5.0,
+     "min_range": 25,
+     "spread": 0.6,
+     "aim_time": 0.5,
+     "hold": 1.5,
+     "turret": {
+      "yaw_speed": 15,
+      "pitch_speed": 50,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "mbfag",
+   "categories": [
+    "armored"
+   ],
+   "name": "MBFAG-113",
+   "desc": "Mobile anti-air system. Rotary cannon bursts, long reach against aircraft.",
+   "tier": 1,
+   "hp": 325,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 200,
+    "energy": 600,
+    "time": 500
+   },
+   "size": [
+    1.25,
+    1.125,
+    1.75
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "arc"
+    ]
+   },
+   "model": {
+    "mesh": "models/mbfag.glb",
+    "albedo": "models/mbfag_albedo.png",
+    "team_mask": "models/mbfag_team.png",
+    "normal": "models/mbfag_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/mbfag.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.4,
+    "accel": 1.2,
+    "turn": 50
+   },
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "Rotary Cannon (Air)",
+     "damage": 3,
+     "range": 90,
+     "reload": 0.8,
+     "speed": 110,
+     "kind": "direct",
+     "damage_type": "Autocannon",
+     "salvo": 5,
+     "salvo_delay": 0.06,
+     "spread": 0.7,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 180,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     },
+     "targets": [
+      "air"
+     ]
+    },
+    {
+     "name": "Rotary Cannon (Ground)",
+     "prefer": "infantry",
+     "damage": 3,
+     "range": 25,
+     "reload": 0.8,
+     "speed": 60,
+     "kind": "direct",
+     "damage_type": "Autocannon",
+     "salvo": 5,
+     "salvo_delay": 0.06,
+     "spread": 1.2,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 180,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     },
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "flak_carrier",
+   "categories": [
+    "armored"
+   ],
+   "name": "Hailstorm",
+   "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells at aircraft out to 100; cannot shoot at the ground.",
+   "tier": 2,
+   "hp": 494,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 420,
+    "energy": 2600,
+    "time": 1100
+   },
+   "size": [
+    1.125,
+    1.375,
+    2.375
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "arc"
+    ]
+   },
+   "model": {
+    "mesh": "models/dragoon.glb",
+    "albedo": "models/dragoon_albedo.png",
+    "team_mask": "models/dragoon_team.png",
+    "normal": "models/dragoon_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/dragoon.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 3.4,
+    "reverse": 2.6,
+    "accel": 1.6,
+    "turn": 50
+   },
+   "vision": 32,
+   "weapons": [
+    {
+     "name": "Twin Flak Cannon",
+     "damage": 14,
+     "range": 100,
+     "reload": 1.5,
+     "speed": 120,
+     "kind": "direct",
+     "damage_type": "Autocannon",
+     "radius": 2.0,
+     "salvo": 4,
+     "salvo_delay": 0.1,
+     "spread": 0.8,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 120,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     },
+     "targets": [
+      "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mobile_sam",
+   "categories": [
+    "armored"
+   ],
+   "name": "Skylance",
+   "desc": "Mobile SAM on the Robin chassis. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides a heavy homing missile at aircraft out to 130, then it reloads for 10 s.",
+   "tier": 3,
+   "hp": 780,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 1100,
+    "energy": 11000,
+    "time": 2600
+   },
+   "size": [
+    1.25,
+    1.125,
+    1.875
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "arc",
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/robin.glb",
+    "albedo": "models/robin_albedo.png",
+    "team_mask": "models/robin_team.png",
+    "normal": "models/robin_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/robin.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 3.2,
+    "reverse": 2.8,
+    "accel": 1.3,
+    "turn": 60
+   },
+   "vision": 30,
+   "radar": 110,
+   "radar2": 110,
+   "eco": {
+    "upkeep": 7.5
+   },
+   "weapons": [
+    {
+     "name": "Skylance Missile",
+     "sound": "missile",
+     "damage": 450,
+     "damage_type": "AP",
+     "range": 130,
+     "reload": 10.0,
+     "speed": 50,
+     "kind": "missile",
+     "turn_rate": 160,
+     "launch_pitch": 70,
+     "aim_time": 0.8,
+     "spread": 0,
+     "turret": {
+      "yaw_speed": 90,
+      "pitch_speed": 60,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     },
+     "targets": [
+      "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "radar_car",
+   "name": "UC-01R Radar",
+   "desc": "Mobile T1 radar: finds unstealthed units within 120. Hills block it. Needs energy.",
+   "tier": 1,
+   "hp": 98,
+   "armor": "Light",
+   "cost": {
+    "mass": 115,
+    "energy": 2500,
+    "time": 600
+   },
+   "size": [
+    0.875,
+    1.0,
+    1.0
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "mesh": "models/radar_car.glb",
+    "albedo": "models/radar_car_albedo.png",
+    "team_mask": "models/radar_car_team.png",
+    "normal": "models/radar_car_normal.png",
+    "scale": 0.3125
+   },
+   "portrait": "icons/units/radar_car.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.4,
+    "accel": 2.4,
+    "turn": 90
+   },
+   "vision": 20,
+   "radar": 120,
+   "eco": {
+    "upkeep": 20.0
+   }
+  },
+  {
+   "id": "radar_car2",
+   "name": "UC-02R Radar",
+   "desc": "Mobile T2 radar: finds unstealthed units within 180 and stealth 1 units (T2 aircraft) within 110. Hills block it. Costly to run.",
+   "tier": 2,
+   "hp": 234,
+   "armor": "Light",
+   "cost": {
+    "mass": 400,
+    "energy": 9000,
+    "time": 1400
+   },
+   "size": [
+    1.05,
+    1.2,
+    1.2
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "mesh": "models/radar_car.glb",
+    "albedo": "models/radar_car_albedo.png",
+    "team_mask": "models/radar_car_team.png",
+    "normal": "models/radar_car_normal.png",
+    "scale": 0.375,
+    "boxes": [
+     {
+      "pos": [
+       0,
+       3.5,
+       0.3
+      ],
+      "size": [
+       0.25,
+       1.0,
+       0.25
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       4.1,
+       0.3
+      ],
+      "size": [
+       0.25,
+       0.9,
+       2.6
+      ],
+      "color": "light",
+      "spin": 110
+     }
+    ]
+   },
+   "portrait": "icons/units/radar_car.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.4,
+    "accel": 2.2,
+    "turn": 80
+   },
+   "vision": 22,
+   "radar": 180,
+   "radar2": 110,
+   "eco": {
+    "upkeep": 55.0
+   }
+  },
+  {
+   "id": "radar_car3",
+   "name": "UC-03R Radar",
+   "desc": "Mobile T3 radar: finds unstealthed units within 260, stealth 1 units within 180 and stealth 2 units (T3 aircraft) within 100. Infantry never show on radar. Hills block it. Very costly to run.",
+   "tier": 3,
+   "hp": 585,
+   "armor": "Light",
+   "cost": {
+    "mass": 1500,
+    "energy": 32000,
+    "time": 3500
+   },
+   "size": [
+    1.2,
+    1.4,
+    1.4
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "mesh": "models/radar_car.glb",
+    "albedo": "models/radar_car_albedo.png",
+    "team_mask": "models/radar_car_team.png",
+    "normal": "models/radar_car_normal.png",
+    "scale": 0.4375,
+    "boxes": [
+     {
+      "pos": [
+       0,
+       3.9,
+       0.3
+      ],
+      "size": [
+       0.3,
+       1.8,
+       0.3
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       4.9,
+       0.3
+      ],
+      "size": [
+       0.3,
+       1.0,
+       3.0
+      ],
+      "color": "light",
+      "spin": 80
+     },
+     {
+      "pos": [
+       0,
+       4.0,
+       0.3
+      ],
+      "size": [
+       0.2,
+       0.6,
+       1.6
+      ],
+      "color": "light",
+      "spin": -120
+     }
+    ]
+   },
+   "portrait": "icons/units/radar_car.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.4,
+    "accel": 2.2,
+    "turn": 80
+   },
+   "vision": 22,
+   "radar": 260,
+   "radar2": 180,
+   "radar3": 100,
+   "eco": {
+    "upkeep": 150.0
+   }
+  },
+  {
+   "id": "crony",
+   "categories": [
+    "armored"
+   ],
+   "name": "Crony M1",
+   "desc": "Main battle tank. Slow turret, heavy armor, 200 damage at range 80.",
+   "tier": 2,
+   "hp": 650,
+   "armor": "MediumTank",
+   "cost": {
+    "mass": 560,
+    "energy": 1500,
+    "time": 600
+   },
+   "size": [
+    1.875,
+    1.25,
+    3.0
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/crony.glb",
+    "albedo": "models/crony_albedo.png",
+    "team_mask": "models/crony_team.png",
+    "normal": "models/crony_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/crony.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.6,
+    "reverse": 2.4,
+    "accel": 0.9,
+    "turn": 45
+   },
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "Gauss Cannon",
+     "prefer": "armored",
+     "damage": 200,
+     "range": 80,
+     "reload": 4.0,
+     "speed": 60,
+     "kind": "direct",
+     "damage_type": "AP",
+     "radius": 1.25,
+     "spread": 0.25,
+     "aim_time": 1.0,
+     "turret": {
+      "yaw_speed": 15,
+      "pitch_speed": 60,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    },
+    {
+     "name": "Heavy Machinegun",
+     "prefer": "infantry",
+     "damage": 1,
+     "range": 30,
+     "reload": 1.2,
+     "speed": 100,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.08,
+     "spread": 0.6,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90,
+      "yaw_bone": "MachineGunTurret",
+      "pitch_bone": "MachineGunBarrel",
+      "muzzle_bone": "MachineGunMuzzle"
+     },
+     "targets": [
+      "land",
+      "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "dragoon",
+   "categories": [
+    "armored"
+   ],
+   "name": "Dragoon ARV",
+   "desc": "Armored recon vehicle. Very fast, long sight, 7-round autocannon bursts.",
+   "tier": 2,
+   "hp": 416,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 375,
+    "energy": 1200,
+    "time": 900
+   },
+   "size": [
+    1.125,
+    1.375,
+    2.375
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "ring",
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/dragoon.glb",
+    "albedo": "models/dragoon_albedo.png",
+    "team_mask": "models/dragoon_team.png",
+    "normal": "models/dragoon_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/dragoon.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 7.5,
+    "reverse": 2.5,
+    "accel": 3.5,
+    "turn": 45
+   },
+   "vision": 45,
+   "weapons": [
+    {
+     "name": "Autocannon",
+     "prefer": "armored",
+     "damage": 30,
+     "range": 45,
+     "reload": 8.0,
+     "speed": 70,
+     "kind": "direct",
+     "damage_type": "Autocannon",
+     "salvo": 7,
+     "salvo_delay": 0.15,
+     "spread": 0.4,
+     "aim_time": 0.3,
+     "turret": {
+      "yaw_speed": 60,
+      "pitch_speed": 50,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "robin",
+   "categories": [
+    "armored"
+   ],
+   "name": "Robin",
+   "desc": "Mobile anti-tank. One guided missile every 30 seconds; it kills most tanks.",
+   "tier": 2,
+   "hp": 286,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 450,
+    "energy": 3000,
+    "time": 2500
+   },
+   "size": [
+    1.25,
+    1.125,
+    1.875
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/robin.glb",
+    "albedo": "models/robin_albedo.png",
+    "team_mask": "models/robin_team.png",
+    "normal": "models/robin_normal.png",
+    "scale": 0.175
+   },
+   "portrait": "icons/units/robin.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 3.6,
+    "reverse": 3.0,
+    "accel": 1.3,
+    "turn": 70
+   },
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "Guided Missile",
+     "prefer": "armored",
+     "damage": 500,
+     "range": 90,
+     "reload": 30.0,
+     "speed": 24,
+     "kind": "missile",
+     "damage_type": "AP",
+     "turn_rate": 70,
+     "aim_time": 1.0,
+     "turret": {
+      "yaw_speed": 60,
+      "pitch_speed": 20,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sparky",
+   "name": "Sparky",
+   "desc": "Field engineer. Builds up to tier 2 and, alone, field works: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar.",
+   "tier": 2,
+   "hp": 702,
+   "armor": "Light",
+   "cost": {
+    "mass": 225,
+    "energy": 1000,
+    "time": 1000
+   },
+   "size": [
+    0.65,
+    0.6,
+    0.8
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "eng",
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/sparky.glb",
+    "albedo": "models/sparky_albedo.png",
+    "team_mask": "models/sparky_team.png",
+    "normal": "models/sparky_normal.png",
+    "scale": 0.05
+   },
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 3.6,
+    "reverse": 1.5,
+    "accel": 3.6,
+    "turn": 120
+   },
+   "vision": 20,
+   "radar": 30,
+   "eco": {
+    "upkeep": 7.5,
+    "store_mass": 30,
+    "store_energy": 200
+   },
+   "build": {
+    "rate": 10,
+    "range": 6,
+    "categories": [
+     "structure",
+     "field"
+    ],
+    "tier": 2
+   },
+   "weapons": [
+    {
+     "name": "Riot Gun",
+     "prefer": "infantry",
+     "damage": 15,
+     "range": 18,
+     "reload": 0.5,
+     "speed": 30,
+     "kind": "direct",
+     "spread": 1.0,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180,
+      "yaw_bone": "Gun_Turret",
+      "pitch_bone": "Gun_Barrel",
+      "muzzle_bone": "Gun_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "engineer2",
+   "name": "Engineer Mk2",
+   "desc": "Builds tier 1-2 structures.",
+   "tier": 2,
+   "hp": 949,
+   "armor": "Light",
+   "cost": {
+    "mass": 160,
+    "energy": 840,
+    "time": 800
+   },
+   "size": [
+    0.7,
+    0.9,
+    0.9
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "eng"
+    ]
+   },
+   "model": {
+    "mesh": "models/engineer2.glb",
+    "albedo": "models/engineer2_albedo.png",
+    "team_mask": "models/engineer2_team.png",
+    "normal": "models/engineer2_normal.png",
+    "scale": 0.16
+   },
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.4,
+    "reverse": 1.8,
+    "accel": 2.4,
+    "turn": 120
+   },
+   "vision": 20,
+   "eco": {
+    "store_mass": 20
+   },
+   "build": {
+    "rate": 10,
+    "range": 6,
+    "categories": [
+     "structure"
+    ],
+    "tier": 2
+   }
+  },
+  {
+   "id": "bohdana",
+   "categories": [
+    "armored"
+   ],
+   "name": "Bohdana",
+   "desc": "Self-propelled howitzer. Range 60-300. Slow to aim, useless without spotters. Fires only standing and stays put 5 s after each shot.",
+   "tier": 3,
+   "hp": 559,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 1400,
+    "energy": 12000,
+    "time": 4000
+   },
+   "size": [
+    1.5,
+    1.25,
+    2.375
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/bohdana.glb",
+    "team_mask": "models/bohdana_team.png",
+    "normal": "models/bohdana_normal.png",
+    "scale": 0.05
+   },
+   "portrait": "icons/units/bohdana.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 1.8,
+    "reverse": 1.2,
+    "accel": 0.5,
+    "turn": 45
+   },
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "155 mm Howitzer",
+     "prefer": "armored",
+     "damage": 400,
+     "range": 300,
+     "reload": 40.0,
+     "speed": 50,
+     "kind": "high_arc",
+     "damage_type": "Explosive",
+     "radius": 6.25,
+     "min_range": 60,
+     "spread": 1.0,
+     "aim_time": 3.0,
+     "hold": 3.0,
+     "turret": {
+      "yaw_speed": 10,
+      "pitch_speed": 50,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "bastion",
+   "categories": [
+    "armored"
+   ],
+   "name": "Bastion",
+   "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 320 damage at range 90, slow turret.",
+   "tier": 3,
+   "hp": 1820,
+   "armor": "MediumTank",
+   "cost": {
+    "mass": 1300,
+    "energy": 6000,
+    "time": 2200
+   },
+   "size": [
+    2.438,
+    1.625,
+    3.9
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/crony.glb",
+    "albedo": "models/crony_albedo.png",
+    "team_mask": "models/crony_team.png",
+    "normal": "models/crony_normal.png",
+    "scale": 0.2275
+   },
+   "portrait": "icons/units/crony.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.2,
+    "reverse": 2.0,
+    "accel": 0.7,
+    "turn": 38
+   },
+   "vision": 32,
+   "reactive": {
+    "charges": 4,
+    "block": 0.75
+   },
+   "weapons": [
+    {
+     "name": "Heavy Gauss Cannon",
+     "prefer": "armored",
+     "damage": 320,
+     "range": 90,
+     "reload": 5.0,
+     "speed": 65,
+     "kind": "direct",
+     "damage_type": "AP",
+     "radius": 1.5,
+     "spread": 0.25,
+     "aim_time": 1.2,
+     "turret": {
+      "yaw_speed": 12,
+      "pitch_speed": 50,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    },
+    {
+     "name": "Heavy Machinegun",
+     "prefer": "infantry",
+     "damage": 1,
+     "range": 30,
+     "reload": 1.2,
+     "speed": 100,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.08,
+     "spread": 0.6,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90,
+      "yaw_bone": "MachineGunTurret",
+      "pitch_bone": "MachineGunBarrel",
+      "muzzle_bone": "MachineGunMuzzle"
+     },
+     "targets": [
+      "land",
+      "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "engineer3",
+   "name": "Engineer Mk3",
+   "desc": "Builds every structure.",
+   "tier": 3,
+   "hp": 1950,
+   "armor": "Light",
+   "cost": {
+    "mass": 490,
+    "energy": 3150,
+    "time": 2100
+   },
+   "size": [
+    0.85,
+    0.9,
+    1.3
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "eng"
+    ]
+   },
+   "model": {
+    "mesh": "models/engineer3.glb",
+    "albedo": "models/engineer3_albedo.png",
+    "team_mask": "models/engineer3_team.png",
+    "normal": "models/engineer3_normal.png",
+    "scale": 0.2
+   },
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 2.4,
+    "reverse": 1.8,
+    "accel": 2.4,
+    "turn": 120
+   },
+   "vision": 26,
+   "eco": {
+    "store_mass": 40
+   },
+   "build": {
+    "rate": 15,
+    "range": 7,
+    "categories": [
+     "structure"
+    ],
+    "tier": 3
+   }
+  },
+  {
+   "id": "air_scout",
+   "name": "Kestrel",
+   "desc": "Air scout. Huge sight radius, unarmed.",
+   "tier": 1,
+   "hp": 156,
+   "armor": "Air",
+   "cost": {
+    "mass": 120,
+    "energy": 1600,
+    "time": 600
+   },
+   "size": [
+    0.5,
+    0.2,
+    0.8
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "ring"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_scout.glb",
+    "albedo": "models/air_scout_albedo.png",
+    "team_mask": "models/air_scout_team.png",
+    "normal": "models/air_scout_normal.png",
+    "scale": 0.08
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 13,
+    "turn": 55,
+    "altitude": 12
+   },
+   "vision": 60
+  },
+  {
+   "id": "interceptor",
+   "name": "Porter",
+   "desc": "Interceptor. Fixed forward railguns, air targets only.",
+   "tier": 1,
+   "hp": 384,
+   "armor": "Air",
+   "cost": {
+    "mass": 250,
+    "energy": 3000,
+    "time": 500
+   },
+   "size": [
+    0.9,
+    0.25,
+    1.0
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "arc"
+    ]
+   },
+   "model": {
+    "mesh": "models/interceptor.glb",
+    "albedo": "models/interceptor_albedo.png",
+    "team_mask": "models/interceptor_team.png",
+    "normal": "models/interceptor_normal.png",
+    "scale": 0.075
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 18,
+    "turn": 85,
+    "altitude": 12
+   },
+   "vision": 30,
+   "weapons": [
+    {
+     "name": "Linked Railgun",
+     "damage": 25,
+     "range": 40,
+     "reload": 0.5,
+     "speed": 120,
+     "kind": "direct",
+     "spread": 0.8,
+     "targets": [
+      "air"
+     ],
+     "muzzle_bone": "Muzzle"
+    }
+   ]
+  },
+  {
+   "id": "interceptor3",
+   "name": "Cyclone",
+   "desc": "Heavy air superiority fighter. Railguns for aircraft only. Stealth 2, and its own T3 fire-control radar finds stealthed aircraft within 80 (needs energy).",
+   "tier": 3,
+   "hp": 1170,
+   "armor": "Air",
+   "cost": {
+    "mass": 650,
+    "energy": 16000,
+    "time": 2200
+   },
+   "size": [
+    1.2,
+    0.35,
+    1.35
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "arc"
+    ]
+   },
+   "model": {
+    "mesh": "models/interceptor.glb",
+    "albedo": "models/interceptor_albedo.png",
+    "team_mask": "models/interceptor_team.png",
+    "normal": "models/interceptor_normal.png",
+    "scale": 0.1
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 20,
+    "turn": 130,
+    "altitude": 13
+   },
+   "vision": 32,
+   "stealth": 2,
+   "radar": 100,
+   "radar2": 100,
+   "radar3": 80,
+   "eco": {
+    "upkeep": 15.0
+   },
+   "weapons": [
+    {
+     "name": "Heavy Linked Railgun",
+     "damage": 45,
+     "range": 45,
+     "reload": 0.4,
+     "speed": 140,
+     "kind": "direct",
+     "spread": 0.6,
+     "targets": [
+      "air"
+     ],
+     "muzzle_bone": "Muzzle"
+    }
+   ]
+  },
+  {
+   "id": "bomber",
+   "name": "Firebrand",
+   "desc": "Attack bomber. Runs over its target, drops a stick of five bombs across it, flies on and comes round for the next pass.",
+   "tier": 1,
+   "hp": 416,
+   "armor": "Air",
+   "cost": {
+    "mass": 250,
+    "energy": 1400,
+    "time": 400
+   },
+   "size": [
+    1.3,
+    0.3,
+    1.2
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/bomber.glb",
+    "albedo": "models/bomber_albedo.png",
+    "team_mask": "models/bomber_team.png",
+    "normal": "models/bomber_normal.png",
+    "scale": 0.125
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 12.5,
+    "turn": 45,
+    "altitude": 12
+   },
+   "vision": 32,
+   "radar": 65,
+   "weapons": [
+    {
+     "name": "Bomb Stick",
+     "damage": 40,
+     "range": 40,
+     "reload": 8.0,
+     "speed": 0,
+     "kind": "bomb",
+     "damage_type": "Explosive",
+     "radius": 3.12,
+     "salvo": 5,
+     "salvo_delay": 0.15,
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fighter_bomber",
+   "name": "Harrier FB",
+   "desc": "Fighter-bomber. Fast; railguns for aircraft and a pair of bombs for ground targets.",
+   "tier": 2,
+   "hp": 546,
+   "armor": "Air",
+   "cost": {
+    "mass": 360,
+    "energy": 5500,
+    "time": 1000
+   },
+   "size": [
+    1.1,
+    0.3,
+    1.2
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "arc",
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/interceptor.glb",
+    "albedo": "models/interceptor_albedo.png",
+    "team_mask": "models/interceptor_team.png",
+    "normal": "models/interceptor_normal.png",
+    "scale": 0.09
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 17,
+    "turn": 70,
+    "altitude": 12
+   },
+   "vision": 30,
+   "stealth": 1,
+   "radar": 70,
+   "weapons": [
+    {
+     "name": "Linked Railgun",
+     "damage": 18,
+     "range": 35,
+     "reload": 0.6,
+     "speed": 120,
+     "kind": "direct",
+     "spread": 0.9,
+     "targets": [
+      "air"
+     ],
+     "muzzle_bone": "Muzzle"
+    },
+    {
+     "name": "Bomb Pair",
+     "damage": 80,
+     "range": 45,
+     "reload": 7.0,
+     "speed": 0,
+     "kind": "bomb",
+     "damage_type": "Explosive",
+     "radius": 3.75,
+     "salvo": 2,
+     "salvo_delay": 0.2,
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "gunship",
+   "name": "Hornet",
+   "desc": "Gunship. Hovers and rakes ground units with riot gun bursts, infantry first.",
+   "tier": 2,
+   "hp": 585,
+   "armor": "Air",
+   "cost": {
+    "mass": 420,
+    "energy": 4800,
+    "time": 1600
+   },
+   "size": [
+    1.0,
+    0.6,
+    1.5
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/gunship.glb",
+    "albedo": "models/gunship_albedo.png",
+    "team_mask": "models/gunship_team.png",
+    "normal": "models/gunship_normal.png",
+    "scale": 0.08
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "hover",
+    "speed": 9,
+    "reverse": 4,
+    "accel": 5,
+    "turn": 120,
+    "altitude": 7
+   },
+   "vision": 30,
+   "stealth": 1,
+   "weapons": [
+    {
+     "name": "Riot Gun",
+     "prefer": "infantry",
+     "damage": 15,
+     "range": 30,
+     "reload": 3.3,
+     "speed": 45,
+     "kind": "direct",
+     "damage_type": "Autocannon",
+     "salvo": 8,
+     "salvo_delay": 0.1,
+     "spread": 1.2,
+     "targets": [
+      "land"
+     ],
+     "muzzle_bone": "Muzzle",
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 120
+     }
+    }
+   ]
+  },
+  {
+   "id": "air_transport",
+   "name": "Stork",
+   "desc": "Transport aircraft. Lifts eight land units over cliffs and water (L load, K unload). Unarmed.",
+   "tier": 2,
+   "hp": 676,
+   "armor": "Air",
+   "cost": {
+    "mass": 240,
+    "energy": 3200,
+    "time": 1300
+   },
+   "size": [
+    4.5,
+    1.5,
+    5.5
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "cargo"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_transport.glb",
+    "albedo": "models/air_transport_albedo.png",
+    "team_mask": "models/air_transport_team.png",
+    "normal": "models/air_transport_normal.png",
+    "scale": 0.059
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "hover",
+    "speed": 10,
+    "reverse": 4,
+    "accel": 5,
+    "turn": 110,
+    "altitude": 8
+   },
+   "vision": 26,
+   "stealth": 1,
+   "transport": {
+    "capacity": 8
+   }
+  },
+  {
+   "id": "fast_transport",
+   "name": "Swift",
+   "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries eight land units like it (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed.",
+   "tier": 3,
+   "hp": 780,
+   "armor": "Air",
+   "cost": {
+    "mass": 380,
+    "energy": 7000,
+    "time": 1600
+   },
+   "size": [
+    3.0,
+    1.2,
+    4.5
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "cargo",
+     "bar"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0.0,
+       0.6,
+       0.0
+      ],
+      "size": [
+       1.4,
+       0.9,
+       4.5
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0.0,
+       0.75,
+       -2.5
+      ],
+      "size": [
+       0.9,
+       0.6,
+       0.8
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.0,
+       1.1,
+       0.4
+      ],
+      "size": [
+       4.6,
+       0.15,
+       0.9
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       -1.9,
+       1.0,
+       0.4
+      ],
+      "size": [
+       0.6,
+       0.6,
+       1.6
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       1.9,
+       1.0,
+       0.4
+      ],
+      "size": [
+       0.6,
+       0.6,
+       1.6
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       -1.9,
+       1.4,
+       0.4
+      ],
+      "size": [
+       1.9,
+       0.1,
+       1.9
+      ],
+      "color": "light",
+      "spin": 1100
+     },
+     {
+      "pos": [
+       1.9,
+       1.4,
+       0.4
+      ],
+      "size": [
+       1.9,
+       0.1,
+       1.9
+      ],
+      "color": "light",
+      "spin": 1100
+     },
+     {
+      "pos": [
+       0.0,
+       1.2,
+       2.1
+      ],
+      "size": [
+       1.8,
+       0.15,
+       0.6
+      ],
+      "color": "dark"
+     }
+    ]
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "hover",
+    "speed": 20,
+    "reverse": 6,
+    "accel": 11,
+    "turn": 160,
+    "altitude": 7
+   },
+   "vision": 28,
+   "stealth": 1,
+   "transport": {
+    "capacity": 8
+   }
+  },
+  {
+   "id": "delivery_boy",
+   "categories": [
+    "armored"
+   ],
+   "name": "Delivery Boy",
+   "desc": "Prototype heavy bomber. One enormous bomb, armored airframe.",
+   "tier": 3,
+   "hp": 1300,
+   "armor": "MediumTank",
+   "cost": {
+    "mass": 2500,
+    "energy": 60000,
+    "time": 6500
+   },
+   "size": [
+    5.75,
+    1.0,
+    3.25
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "dot",
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/delivery_boy.glb",
+    "albedo": "models/delivery_boy_albedo.png",
+    "team_mask": "models/delivery_boy_team.png",
+    "normal": "models/delivery_boy_normal.png",
+    "scale": 0.0875
+   },
+   "portrait": "icons/units/delivery_boy.png",
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 11,
+    "turn": 40,
+    "altitude": 14
+   },
+   "vision": 16,
+   "stealth": 2,
+   "radar": 60,
+   "eco": {
+    "upkeep": 37.5
+   },
+   "weapons": [
+    {
+     "name": "Heavy Bomb",
+     "damage": 1200,
+     "range": 40,
+     "reload": 20.0,
+     "speed": 0,
+     "kind": "bomb",
+     "damage_type": "Explosive",
+     "radius": 11.25,
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pump",
+   "name": "Mass Pump",
+   "desc": "Extracts mass from a deposit. Upgradeable (U).",
+   "tier": 1,
+   "hp": 600,
+   "armor": "Structure",
+   "cost": {
+    "mass": 30,
+    "energy": 250,
+    "time": 60
+   },
+   "size": [
+    2.0,
+    1.4,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "mass"
+    ]
+   },
+   "model": {
+    "mesh": "models/pump.glb",
+    "albedo": "models/pump_albedo.png",
+    "team_mask": "models/pump_team.png",
+    "normal": "models/pump_normal.png",
+    "scale": 0.06
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "eco": {
+    "mass": 2,
+    "upkeep": 4
+   },
+   "needs_deposit": true,
+   "upgrade": "pump2",
+   "build": {
+    "rate": 10,
+    "range": 0,
+    "categories": [],
+    "tier": 1
+   }
+  },
+  {
+   "id": "pump2",
+   "name": "Mass Pump Mk2",
+   "desc": "Triple output, more upkeep. Built by tier 2+ engineers or upgraded from a Mass Pump (U).",
+   "tier": 2,
+   "hp": 3000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 900,
+    "energy": 5000,
+    "time": 900
+   },
+   "size": [
+    2.0,
+    1.4,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "mass"
+    ]
+   },
+   "model": {
+    "mesh": "models/pump2.glb",
+    "albedo": "models/pump2_albedo.png",
+    "team_mask": "models/pump2_team.png",
+    "normal": "models/pump2_normal.png",
+    "scale": 0.06
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "eco": {
+    "mass": 6,
+    "upkeep": 20
+   },
+   "needs_deposit": true,
+   "upgrade": "pump3",
+   "build": {
+    "rate": 15,
+    "range": 0,
+    "categories": [],
+    "tier": 2
+   }
+  },
+  {
+   "id": "pump3",
+   "name": "Mass Pump Mk3",
+   "desc": "Maximum extraction, heavy energy upkeep. Built by tier 3 engineers or upgraded from a Mk2 pump.",
+   "tier": 3,
+   "hp": 8400,
+   "armor": "Structure",
+   "cost": {
+    "mass": 3000,
+    "energy": 30000,
+    "time": 2875
+   },
+   "size": [
+    2.0,
+    1.6,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "mass"
+    ]
+   },
+   "model": {
+    "mesh": "models/pump3.glb",
+    "albedo": "models/pump3_albedo.png",
+    "team_mask": "models/pump3_team.png",
+    "normal": "models/pump3_normal.png",
+    "scale": 0.06
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "eco": {
+    "mass": 12,
+    "upkeep": 60
+   },
+   "needs_deposit": true
+  },
+  {
+   "id": "windmill",
+   "name": "Windmill",
+   "desc": "Cheap power: +20 energy.",
+   "tier": 1,
+   "hp": 600,
+   "armor": "Structure",
+   "cost": {
+    "mass": 75,
+    "energy": 750,
+    "time": 125
+   },
+   "size": [
+    6.0,
+    9.5,
+    6.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "bolt"
+    ]
+   },
+   "model": {
+    "mesh": "models/windmill.glb",
+    "albedo": "models/windmill_albedo.png",
+    "team_mask": "models/windmill_team.png",
+    "normal": "models/windmill_normal.png",
+    "scale": 0.1,
+    "spin": [
+     {
+      "bone": "RotorBone",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 140
+     }
+    ]
+   },
+   "portrait": "icons/units/windmill.png",
+   "footprint": 3,
+   "built_by": "structure",
+   "eco": {
+    "energy": 20
+   }
+  },
+  {
+   "id": "power_plant",
+   "name": "Power Plant",
+   "desc": "Reliable power: +120 energy. Explodes when destroyed.",
+   "tier": 2,
+   "hp": 1600,
+   "armor": "Structure",
+   "cost": {
+    "mass": 450,
+    "energy": 3600,
+    "time": 900
+   },
+   "size": [
+    6.0,
+    1.7,
+    6.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "bolt"
+    ]
+   },
+   "model": {
+    "mesh": "models/power_plant.glb",
+    "albedo": "models/power_plant_albedo.png",
+    "team_mask": "models/power_plant_team.png",
+    "normal": "models/power_plant_normal.png",
+    "scale": 0.5
+   },
+   "footprint": 3,
+   "built_by": "structure",
+   "eco": {
+    "energy": 120
+   },
+   "death": {
+    "damage": 250,
+    "radius": 6.25
+   }
+  },
+  {
+   "id": "solar",
+   "name": "Solar Field",
+   "desc": "Massive power: +400 energy.",
+   "tier": 3,
+   "hp": 1200,
+   "armor": "Structure",
+   "cost": {
+    "mass": 1200,
+    "energy": 9000,
+    "time": 2400
+   },
+   "size": [
+    12.0,
+    1.5,
+    12.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "bolt"
+    ]
+   },
+   "model": {
+    "mesh": "models/solar.glb",
+    "albedo": "models/solar_albedo.png",
+    "team_mask": "models/solar_team.png",
+    "normal": "models/solar_normal.png",
+    "scale": 0.2
+   },
+   "portrait": "icons/units/solar.png",
+   "footprint": 6,
+   "built_by": "structure",
+   "eco": {
+    "energy": 400
+   }
+  },
+  {
+   "id": "energy_storage",
+   "name": "Energy Storage",
+   "desc": "Stores 5000 energy. Explodes violently.",
+   "tier": 1,
+   "hp": 500,
+   "armor": "Structure",
+   "cost": {
+    "mass": 250,
+    "energy": 1200,
+    "time": 200
+   },
+   "size": [
+    2.0,
+    1.6,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "store",
+     "bolt"
+    ],
+    "no_tier": true
+   },
+   "model": {
+    "mesh": "models/energy_storage.glb",
+    "albedo": "models/energy_storage_albedo.png",
+    "team_mask": "models/energy_storage_team.png",
+    "normal": "models/energy_storage_normal.png",
+    "scale": 0.145
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "eco": {
+    "store_energy": 5000
+   },
+   "death": {
+    "damage": 600,
+    "radius": 6.25
+   }
+  },
+  {
+   "id": "mass_storage",
+   "name": "Mass Storage",
+   "desc": "Stores 500 mass.",
+   "tier": 1,
+   "hp": 1600,
+   "armor": "Structure",
+   "cost": {
+    "mass": 200,
+    "energy": 1500,
+    "time": 250
+   },
+   "size": [
+    2.0,
+    1.0,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "store",
+     "mass"
+    ],
+    "no_tier": true
+   },
+   "model": {
+    "mesh": "models/mass_storage.glb",
+    "albedo": "models/mass_storage_albedo.png",
+    "team_mask": "models/mass_storage_team.png",
+    "normal": "models/mass_storage_normal.png",
+    "scale": 0.125
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "eco": {
+    "store_mass": 500
+   }
+  },
+  {
+   "id": "land_factory",
+   "name": "Land Factory",
+   "desc": "Builds tier 1 land units. Upgrade (U) for higher tiers.",
+   "tier": 1,
+   "hp": 2500,
+   "armor": "Structure",
+   "cost": {
+    "mass": 240,
+    "energy": 2100,
+    "time": 300
+   },
+   "size": [
+    8.0,
+    3.5,
+    8.0
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "land"
+    ]
+   },
+   "model": {
+    "mesh": "models/land_factory.glb",
+    "albedo": "models/land_factory_albedo.png",
+    "team_mask": "models/land_factory_team.png",
+    "normal": "models/land_factory_normal.png",
+    "scale": 0.1
+   },
+   "footprint": 4,
+   "built_by": "structure",
+   "vision": 20,
+   "eco": {
+    "store_mass": 80
+   },
+   "build": {
+    "rate": 20,
+    "range": 0,
+    "categories": [
+     "land"
+    ],
+    "tier": 1
+   },
+   "upgrade": "land_factory2"
+  },
+  {
+   "id": "land_factory2",
+   "name": "Land Factory Mk2",
+   "desc": "Builds tier 1-2 land units. Right-click sets the rally point.",
+   "tier": 2,
+   "hp": 4000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 800,
+    "energy": 7200,
+    "time": 1600
+   },
+   "size": [
+    8.0,
+    3.5,
+    8.0
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "land"
+    ]
+   },
+   "model": {
+    "mesh": "models/land_factory2.glb",
+    "albedo": "models/land_factory2_albedo.png",
+    "team_mask": "models/land_factory2_team.png",
+    "normal": "models/land_factory2_normal.png",
+    "scale": 0.1
+   },
+   "footprint": 4,
+   "built_by": "structure",
+   "vision": 20,
+   "eco": {
+    "store_mass": 160
+   },
+   "build": {
+    "rate": 40,
+    "range": 0,
+    "categories": [
+     "land"
+    ],
+    "tier": 2
+   },
+   "upgrade": "land_factory3"
+  },
+  {
+   "id": "land_factory3",
+   "name": "Land Factory Mk3",
+   "desc": "Builds tier 1-3 land units. Right-click sets the rally point.",
+   "tier": 3,
+   "hp": 6000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 2000,
+    "energy": 18000,
+    "time": 4000
+   },
+   "size": [
+    8.0,
+    3.5,
+    8.0
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "land"
+    ]
+   },
+   "model": {
+    "mesh": "models/land_factory2.glb",
+    "albedo": "models/land_factory2_albedo.png",
+    "team_mask": "models/land_factory2_team.png",
+    "normal": "models/land_factory2_normal.png",
+    "scale": 0.112
+   },
+   "footprint": 4,
+   "built_by": "structure",
+   "vision": 20,
+   "eco": {
+    "store_mass": 240
+   },
+   "build": {
+    "rate": 60,
+    "range": 0,
+    "categories": [
+     "land"
+    ],
+    "tier": 3
+   }
+  },
+  {
+   "id": "air_factory",
+   "name": "Air Factory",
+   "desc": "Builds tier 1 air units. Upgrade (U) for higher tiers.",
+   "tier": 1,
+   "hp": 2500,
+   "armor": "Structure",
+   "cost": {
+    "mass": 210,
+    "energy": 2400,
+    "time": 300
+   },
+   "size": [
+    8.0,
+    3.5,
+    8.0
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "tri"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_factory.glb",
+    "albedo": "models/air_factory_albedo.png",
+    "team_mask": "models/air_factory_team.png",
+    "normal": "models/air_factory_normal.png",
+    "scale": 0.1
+   },
+   "footprint": 4,
+   "built_by": "structure",
+   "vision": 20,
+   "eco": {
+    "store_mass": 80
+   },
+   "build": {
+    "rate": 20,
+    "range": 0,
+    "categories": [
+     "air"
+    ],
+    "tier": 1
+   },
+   "upgrade": "air_factory2"
+  },
+  {
+   "id": "air_factory2",
+   "name": "Air Factory Mk2",
+   "desc": "Builds tier 1-2 air units. Right-click sets the rally point.",
+   "tier": 2,
+   "hp": 4000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 630,
+    "energy": 11700,
+    "time": 1800
+   },
+   "size": [
+    8.0,
+    3.5,
+    8.0
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "tri"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_factory2.glb",
+    "albedo": "models/air_factory2_albedo.png",
+    "team_mask": "models/air_factory2_team.png",
+    "normal": "models/air_factory2_normal.png",
+    "scale": 0.1
+   },
+   "footprint": 4,
+   "built_by": "structure",
+   "vision": 20,
+   "eco": {
+    "store_mass": 160
+   },
+   "build": {
+    "rate": 40,
+    "range": 0,
+    "categories": [
+     "air"
+    ],
+    "tier": 2
+   },
+   "upgrade": "air_factory3"
+  },
+  {
+   "id": "air_factory3",
+   "name": "Air Factory Mk3",
+   "desc": "Builds tier 1-3 air units. Right-click sets the rally point.",
+   "tier": 3,
+   "hp": 6000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 1800,
+    "energy": 24000,
+    "time": 4200
+   },
+   "size": [
+    8.0,
+    3.5,
+    8.0
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "tri"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_factory2.glb",
+    "albedo": "models/air_factory2_albedo.png",
+    "team_mask": "models/air_factory2_team.png",
+    "normal": "models/air_factory2_normal.png",
+    "scale": 0.112
+   },
+   "footprint": 4,
+   "built_by": "structure",
+   "vision": 20,
+   "eco": {
+    "store_mass": 240
+   },
+   "build": {
+    "rate": 60,
+    "range": 0,
+    "categories": [
+     "air"
+    ],
+    "tier": 3
+   }
+  },
+  {
+   "id": "hmg_turret",
+   "name": "HMG Turret",
+   "desc": "Point defense. Shreds bots and scouts, bounces off armor.",
+   "tier": 1,
+   "hp": 1300,
+   "armor": "Structure",
+   "cost": {
+    "mass": 250,
+    "energy": 2000,
+    "time": 250
+   },
+   "size": [
+    4.0,
+    1.25,
+    4.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/hmg_turret.glb",
+    "albedo": "models/hmg_turret_albedo.png",
+    "team_mask": "models/hmg_turret_team.png",
+    "normal": "models/hmg_turret_normal.png",
+    "scale": 0.3875
+   },
+   "portrait": "icons/units/hmg_turret.png",
+   "footprint": 2,
+   "built_by": "structure",
+   "vision": 26,
+   "weapons": [
+    {
+     "name": "Heavy Machine Gun",
+     "prefer": "infantry",
+     "damage": 3,
+     "range": 60,
+     "reload": 0.4,
+     "speed": 75,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.05,
+     "spread": 0.5,
+     "turret": {
+      "yaw_speed": 90,
+      "pitch_speed": 60,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "gauss_turret",
+   "name": "Gauss Turret",
+   "desc": "Anti-armor emplacement. High-arc fire, range 30-90, very slow traverse.",
+   "tier": 1,
+   "hp": 1300,
+   "armor": "Structure",
+   "cost": {
+    "mass": 450,
+    "energy": 2000,
+    "time": 500
+   },
+   "size": [
+    4.0,
+    1.25,
+    4.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "plus",
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/gauss_turret.glb",
+    "albedo": "models/gauss_turret_albedo.png",
+    "team_mask": "models/gauss_turret_team.png",
+    "normal": "models/gauss_turret_normal.png",
+    "scale": 0.3875
+   },
+   "portrait": "icons/units/gauss_turret.png",
+   "footprint": 2,
+   "built_by": "structure",
+   "vision": 26,
+   "weapons": [
+    {
+     "name": "Gauss Mortar",
+     "damage": 50,
+     "range": 90,
+     "reload": 2.0,
+     "speed": 50,
+     "kind": "high_arc",
+     "damage_type": "AP",
+     "radius": 2.5,
+     "min_range": 30,
+     "spread": 0.5,
+     "aim_time": 0.5,
+     "turret": {
+      "yaw_speed": 10,
+      "pitch_speed": 50,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "aa_turret",
+   "name": "Dart Railgun",
+   "desc": "Anti-air turret.",
+   "tier": 1,
+   "hp": 1200,
+   "armor": "Structure",
+   "cost": {
+    "mass": 400,
+    "energy": 4000,
+    "time": 250
+   },
+   "size": [
+    2.0,
+    1.3,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "arc"
+    ]
+   },
+   "model": {
+    "mesh": "models/aa_turret.glb",
+    "albedo": "models/aa_turret_albedo.png",
+    "team_mask": "models/aa_turret_team.png",
+    "normal": "models/aa_turret_normal.png",
+    "scale": 0.155
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "vision": 24,
+   "weapons": [
+    {
+     "name": "Linked Railgun",
+     "damage": 30,
+     "range": 90,
+     "reload": 0.5,
+     "speed": 150,
+     "kind": "direct",
+     "spread": 0.5,
+     "targets": [
+      "air"
+     ],
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle_01"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sam",
+   "name": "Faust SAM",
+   "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 25 s.",
+   "tier": 2,
+   "hp": 1100,
+   "armor": "Structure",
+   "cost": {
+    "mass": 900,
+    "energy": 9000,
+    "time": 1500
+   },
+   "size": [
+    3.6,
+    3.3,
+    3.6
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "arc",
+     "chevron"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0.0,
+       0.2,
+       0.0
+      ],
+      "size": [
+       3.6,
+       0.4,
+       3.6
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0.0,
+       0.55,
+       0.5
+      ],
+      "size": [
+       2.6,
+       0.3,
+       1.6
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       -0.93,
+       1.95,
+       0.5
+      ],
+      "size": [
+       0.5,
+       2.5,
+       0.5
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       -0.31,
+       1.95,
+       0.5
+      ],
+      "size": [
+       0.5,
+       2.5,
+       0.5
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.31,
+       1.95,
+       0.5
+      ],
+      "size": [
+       0.5,
+       2.5,
+       0.5
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.93,
+       1.95,
+       0.5
+      ],
+      "size": [
+       0.5,
+       2.5,
+       0.5
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.0,
+       1.3,
+       -1.2
+      ],
+      "size": [
+       0.25,
+       2.2,
+       0.25
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0.0,
+       2.6,
+       -1.2
+      ],
+      "size": [
+       1.7,
+       1.0,
+       0.15
+      ],
+      "color": "team",
+      "spin": 60
+     }
+    ]
+   },
+   "footprint": 2,
+   "built_by": "structure",
+   "vision": 24,
+   "radar": 130,
+   "radar2": 130,
+   "eco": {
+    "upkeep": 10.0
+   },
+   "weapons": [
+    {
+     "name": "SAM Missile",
+     "sound": "missile",
+     "damage": 900,
+     "damage_type": "AP",
+     "range": 150,
+     "reload": 25.0,
+     "speed": 45,
+     "kind": "missile",
+     "turn_rate": 150,
+     "launch_pitch": 85,
+     "aim_time": 1.0,
+     "spread": 0,
+     "targets": [
+      "air"
+     ],
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 120
+     }
+    }
+   ]
+  },
+  {
+   "id": "aa_turret3",
+   "name": "Phalanx Railgun Battery",
+   "desc": "Heavy anti-air battery: twin long railguns guided by its own T3 radar (finds stealth 2 aircraft within 120; needs energy).",
+   "tier": 3,
+   "hp": 4000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 1800,
+    "energy": 18000,
+    "time": 2500
+   },
+   "size": [
+    3.2,
+    2.1,
+    3.2
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "arc",
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/aa_turret.glb",
+    "albedo": "models/aa_turret_albedo.png",
+    "team_mask": "models/aa_turret_team.png",
+    "normal": "models/aa_turret_normal.png",
+    "scale": 0.25,
+    "boxes": [
+     {
+      "pos": [
+       -5.0,
+       4.0,
+       5.0
+      ],
+      "size": [
+       0.6,
+       8.0,
+       0.6
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       -5.0,
+       8.6,
+       5.0
+      ],
+      "size": [
+       0.6,
+       2.4,
+       6.0
+      ],
+      "color": "light",
+      "spin": 90
+     }
+    ]
+   },
+   "footprint": 2,
+   "built_by": "structure",
+   "vision": 26,
+   "radar": 160,
+   "radar2": 160,
+   "radar3": 120,
+   "eco": {
+    "upkeep": 30.0
+   },
+   "weapons": [
+    {
+     "name": "Twin Heavy Railgun",
+     "damage": 70,
+     "range": 125,
+     "reload": 0.6,
+     "speed": 170,
+     "kind": "direct",
+     "salvo": 2,
+     "salvo_delay": 0.1,
+     "spread": 0.4,
+     "targets": [
+      "air"
+     ],
+     "turret": {
+      "yaw_speed": 200,
+      "pitch_speed": 200,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle_01"
+     }
+    }
+   ]
+  },
+  {
+   "id": "radar_tower",
+   "name": "Radar Tower",
+   "desc": "T1 radar: finds unstealthed units within 160. Blocked by terrain - build it on high ground. Needs energy. Upgradeable (U).",
+   "tier": 1,
+   "hp": 300,
+   "armor": "Structure",
+   "cost": {
+    "mass": 80,
+    "energy": 700,
+    "time": 200
+   },
+   "size": [
+    2.0,
+    4.5,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.15,
+       0
+      ],
+      "size": [
+       1.4,
+       0.3,
+       1.4
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       2.2,
+       0
+      ],
+      "size": [
+       0.25,
+       4.0,
+       0.25
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0,
+       4.4,
+       0
+      ],
+      "size": [
+       0.15,
+       0.9,
+       1.8
+      ],
+      "color": "light",
+      "spin": 90
+     }
+    ]
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "vision": 20,
+   "radar": 160,
+   "upgrade": "radar_tower2",
+   "build": {
+    "rate": 10,
+    "range": 0,
+    "categories": [],
+    "tier": 1
+   },
+   "eco": {
+    "upkeep": 7.5
+   }
+  },
+  {
+   "id": "radar_tower2",
+   "name": "Radar Tower Mk2",
+   "desc": "T2 radar: finds unstealthed units within 250 and stealth 1 units (T2 aircraft) within 160. Blocked by terrain. Costly to run. Built by tier 2+ engineers or upgraded from a Radar Tower (U).",
+   "tier": 2,
+   "hp": 700,
+   "armor": "Structure",
+   "cost": {
+    "mass": 320,
+    "energy": 2800,
+    "time": 700
+   },
+   "size": [
+    2.0,
+    6.0,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.2,
+       0
+      ],
+      "size": [
+       1.8,
+       0.4,
+       1.8
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       -0.35,
+       2.9,
+       0
+      ],
+      "size": [
+       0.2,
+       5.2,
+       0.2
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0.35,
+       2.9,
+       0
+      ],
+      "size": [
+       0.2,
+       5.2,
+       0.2
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0,
+       3.4,
+       0
+      ],
+      "size": [
+       1.0,
+       0.15,
+       0.4
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       5.9,
+       0
+      ],
+      "size": [
+       0.2,
+       1.2,
+       2.6
+      ],
+      "color": "light",
+      "spin": 70
+     },
+     {
+      "pos": [
+       0,
+       4.5,
+       0
+      ],
+      "size": [
+       0.15,
+       0.6,
+       1.4
+      ],
+      "color": "light",
+      "spin": -110
+     }
+    ]
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "vision": 22,
+   "radar": 250,
+   "radar2": 160,
+   "upgrade": "radar_tower3",
+   "build": {
+    "rate": 10,
+    "range": 0,
+    "categories": [],
+    "tier": 2
+   },
+   "eco": {
+    "upkeep": 22.5
+   }
+  },
+  {
+   "id": "radar_tower3",
+   "name": "Radar Tower Mk3",
+   "desc": "T3 radar: finds unstealthed units within 360, stealth 1 units within 250 and stealth 2 units (T3 aircraft) within 150. Infantry never show on radar. Blocked by terrain. Very costly to run. Built by tier 3 engineers or upgraded from a Radar Tower Mk2 (U).",
+   "tier": 3,
+   "hp": 1500,
+   "armor": "Structure",
+   "cost": {
+    "mass": 1280,
+    "energy": 11200,
+    "time": 2000
+   },
+   "size": [
+    2.0,
+    8.0,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "wave"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.25,
+       0
+      ],
+      "size": [
+       2.0,
+       0.5,
+       2.0
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       1.0,
+       0
+      ],
+      "size": [
+       1.4,
+       1.0,
+       1.4
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0,
+       4.3,
+       0
+      ],
+      "size": [
+       0.5,
+       6.6,
+       0.5
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0,
+       7.7,
+       0
+      ],
+      "size": [
+       0.25,
+       1.3,
+       3.2
+      ],
+      "color": "light",
+      "spin": 55
+     },
+     {
+      "pos": [
+       0,
+       6.2,
+       0
+      ],
+      "size": [
+       0.2,
+       0.9,
+       2.2
+      ],
+      "color": "light",
+      "spin": -80
+     },
+     {
+      "pos": [
+       0,
+       4.6,
+       0
+      ],
+      "size": [
+       0.15,
+       0.6,
+       1.4
+      ],
+      "color": "light",
+      "spin": 130
+     }
+    ]
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "vision": 24,
+   "radar": 360,
+   "radar2": 250,
+   "radar3": 150,
+   "build": {
+    "rate": 10,
+    "range": 0,
+    "categories": [],
+    "tier": 3
+   },
+   "eco": {
+    "upkeep": 67.5
+   }
+  },
+  {
+   "id": "eng_station",
+   "name": "Engineering Station",
+   "desc": "Automatically assists every construction, upgrade and repair within its radius.",
+   "tier": 2,
+   "hp": 1000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 350,
+    "energy": 2000,
+    "time": 700
+   },
+   "size": [
+    2.0,
+    2.3,
+    2.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "eng"
+    ]
+   },
+   "model": {
+    "mesh": "models/eng_station.glb",
+    "albedo": "models/eng_station_albedo.png",
+    "team_mask": "models/eng_station_team.png",
+    "normal": "models/eng_station_normal.png",
+    "scale": 0.05
+   },
+   "footprint": 1,
+   "built_by": "structure",
+   "vision": 15,
+   "build": {
+    "rate": 15,
+    "range": 14,
+    "categories": [],
+    "tier": 2,
+    "station": true
+   }
+  },
+  {
+   "id": "heavy_battery",
+   "name": "Bertha Heavy Battery",
+   "desc": "Fortified 120 mm gun. Range 40-200, big blast, traverses at a crawl.",
+   "tier": 2,
+   "hp": 6000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 2200,
+    "energy": 12000,
+    "time": 2500
+   },
+   "size": [
+    6.0,
+    2.75,
+    6.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/heavy_battery.glb",
+    "albedo": "models/heavy_battery_albedo.png",
+    "team_mask": "models/heavy_battery_team.png",
+    "normal": "models/heavy_battery_normal.png",
+    "scale": 0.5
+   },
+   "portrait": "icons/units/heavy_battery.png",
+   "footprint": 3,
+   "built_by": "structure",
+   "vision": 26,
+   "weapons": [
+    {
+     "name": "120 mm Gun",
+     "prefer": "armored",
+     "damage": 300,
+     "range": 200,
+     "reload": 10.0,
+     "speed": 52,
+     "kind": "arc",
+     "damage_type": "Explosive",
+     "radius": 6.25,
+     "min_range": 40,
+     "spread": 0.6,
+     "aim_time": 1.5,
+     "turret": {
+      "yaw_speed": 5,
+      "pitch_speed": 30,
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle_01"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sandbags",
+   "name": "Sandbags",
+   "desc": "A stretch of sandbag wall; drag to build a line. Enemy shots that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry take cover behind it. Units can cross it.",
+   "tier": 2,
+   "hp": 250,
+   "armor": "Structure",
+   "cost": {
+    "mass": 8,
+    "energy": 40,
+    "time": 40
+   },
+   "size": [
+    2.0,
+    0.9,
+    2.0
+   ],
+   "footprint": 1,
+   "fieldwork": {
+    "cover": 0.5
+   },
+   "wreck": false,
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.2,
+       0
+      ],
+      "size": [
+       2.0,
+       0.4,
+       2.0
+      ],
+      "color": [
+       0.62,
+       0.55,
+       0.38
+      ]
+     },
+     {
+      "pos": [
+       0,
+       0.55,
+       0
+      ],
+      "size": [
+       1.7,
+       0.3,
+       1.7
+      ],
+      "color": [
+       0.57,
+       0.5,
+       0.34
+      ]
+     },
+     {
+      "pos": [
+       0,
+       0.8,
+       0
+      ],
+      "size": [
+       1.4,
+       0.2,
+       1.4
+      ],
+      "color": [
+       0.65,
+       0.58,
+       0.41
+      ]
+     }
+    ]
+   },
+   "built_by": "field",
+   "vision": 0
+  },
+  {
+   "id": "trench",
+   "name": "Trench",
+   "desc": "A piece of trench; drag to build a line. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time.",
+   "tier": 2,
+   "hp": 400,
+   "armor": "Structure",
+   "cost": {
+    "mass": 5,
+    "energy": 120,
+    "time": 80
+   },
+   "size": [
+    2.0,
+    1.1,
+    2.0
+   ],
+   "footprint": 1,
+   "fieldwork": {
+    "cover": 0.6,
+    "dig": 0.8
+   },
+   "wreck": false,
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "frame"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.04,
+       0
+      ],
+      "size": [
+       1.9,
+       0.08,
+       1.9
+      ],
+      "color": [
+       0.34,
+       0.25,
+       0.15
+      ]
+     },
+     {
+      "pos": [
+       -0.9,
+       0.45,
+       -0.9
+      ],
+      "size": [
+       0.16,
+       0.9,
+       0.16
+      ],
+      "color": [
+       0.28,
+       0.2,
+       0.12
+      ]
+     },
+     {
+      "pos": [
+       -0.9,
+       0.45,
+       0.9
+      ],
+      "size": [
+       0.16,
+       0.9,
+       0.16
+      ],
+      "color": [
+       0.28,
+       0.2,
+       0.12
+      ]
+     },
+     {
+      "pos": [
+       0.9,
+       0.45,
+       -0.9
+      ],
+      "size": [
+       0.16,
+       0.9,
+       0.16
+      ],
+      "color": [
+       0.28,
+       0.2,
+       0.12
+      ]
+     },
+     {
+      "pos": [
+       0.9,
+       0.45,
+       0.9
+      ],
+      "size": [
+       0.16,
+       0.9,
+       0.16
+      ],
+      "color": [
+       0.28,
+       0.2,
+       0.12
+      ]
+     },
+     {
+      "pos": [
+       0.9,
+       0.98,
+       0.9
+      ],
+      "size": [
+       0.3,
+       0.16,
+       0.3
+      ],
+      "color": "team"
+     }
+    ]
+   },
+   "built_by": "field",
+   "vision": 0
+  },
+  {
+   "id": "field_bunker",
+   "name": "Field Bunker",
+   "desc": "Concrete bunker for up to 4 infantry, who fire from it and take only a small share of the hits on it.",
+   "tier": 2,
+   "hp": 2500,
+   "armor": "Structure",
+   "cost": {
+    "mass": 180,
+    "energy": 1500,
+    "time": 500
+   },
+   "size": [
+    4.0,
+    1.9,
+    4.0
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 4
+   },
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "cargo"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.8,
+       0
+      ],
+      "size": [
+       3.6,
+       1.6,
+       3.6
+      ],
+      "color": [
+       0.45,
+       0.46,
+       0.42
+      ]
+     },
+     {
+      "pos": [
+       0,
+       1.7,
+       0
+      ],
+      "size": [
+       3.9,
+       0.25,
+       3.9
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       1.88,
+       0
+      ],
+      "size": [
+       1.4,
+       0.12,
+       1.4
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0,
+       1.15,
+       -1.82
+      ],
+      "size": [
+       2.2,
+       0.3,
+       0.1
+      ],
+      "color": [
+       0.08,
+       0.08,
+       0.08
+      ]
+     },
+     {
+      "pos": [
+       0,
+       1.15,
+       1.82
+      ],
+      "size": [
+       2.2,
+       0.3,
+       0.1
+      ],
+      "color": [
+       0.08,
+       0.08,
+       0.08
+      ]
+     },
+     {
+      "pos": [
+       -1.82,
+       1.15,
+       0
+      ],
+      "size": [
+       0.1,
+       0.3,
+       2.2
+      ],
+      "color": [
+       0.08,
+       0.08,
+       0.08
+      ]
+     },
+     {
+      "pos": [
+       1.82,
+       1.15,
+       0
+      ],
+      "size": [
+       0.1,
+       0.3,
+       2.2
+      ],
+      "color": [
+       0.08,
+       0.08,
+       0.08
+      ]
+     }
+    ]
+   },
+   "built_by": "field",
+   "vision": 20
+  },
+  {
+   "id": "watch_tower",
+   "name": "Watch Tower",
+   "desc": "Tall lookout for up to 2 infantry: from its platform they see and use their binoculars 1.6 times as far, over trees and low hills, and fire from up there.",
+   "tier": 2,
+   "hp": 450,
+   "armor": "Structure",
+   "cost": {
+    "mass": 90,
+    "energy": 700,
+    "time": 350
+   },
+   "size": [
+    2.0,
+    7.0,
+    2.0
+   ],
+   "hit_radius": 0.8,
+   "footprint": 1,
+   "transport": {
+    "capacity": 2,
+    "vision": 1.6
+   },
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "cargo",
+     "ring"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       -0.75,
+       2.5,
+       -0.75
+      ],
+      "size": [
+       0.18,
+       5.0,
+       0.18
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       -0.75,
+       2.5,
+       0.75
+      ],
+      "size": [
+       0.18,
+       5.0,
+       0.18
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0.75,
+       2.5,
+       -0.75
+      ],
+      "size": [
+       0.18,
+       5.0,
+       0.18
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0.75,
+       2.5,
+       0.75
+      ],
+      "size": [
+       0.18,
+       5.0,
+       0.18
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0,
+       5.1,
+       0
+      ],
+      "size": [
+       2.0,
+       0.2,
+       2.0
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       5.6,
+       -0.95
+      ],
+      "size": [
+       2.0,
+       0.8,
+       0.1
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0,
+       5.6,
+       0.95
+      ],
+      "size": [
+       2.0,
+       0.8,
+       0.1
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       -0.95,
+       5.6,
+       0
+      ],
+      "size": [
+       0.1,
+       0.8,
+       2.0
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.95,
+       5.6,
+       0
+      ],
+      "size": [
+       0.1,
+       0.8,
+       2.0
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       -0.9,
+       6.4,
+       -0.9
+      ],
+      "size": [
+       0.1,
+       1.0,
+       0.1
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       -0.9,
+       6.4,
+       0.9
+      ],
+      "size": [
+       0.1,
+       1.0,
+       0.1
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0.9,
+       6.4,
+       -0.9
+      ],
+      "size": [
+       0.1,
+       1.0,
+       0.1
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0.9,
+       6.4,
+       0.9
+      ],
+      "size": [
+       0.1,
+       1.0,
+       0.1
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0,
+       6.95,
+       0
+      ],
+      "size": [
+       2.3,
+       0.12,
+       2.3
+      ],
+      "color": "team"
+     }
+    ]
+   },
+   "built_by": "field",
+   "vision": 35
+  }
+ ]
+}
