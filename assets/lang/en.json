@@ -975,6 +975,8 @@
     "general_tier_tip": "Tech level: a builder of tier N can build units up to tier N. Also the ticks under the strategic icon.",
     "general_hp": "Hit points",
     "general_hp_tip": "Damage the unit takes before it is destroyed.",
+    "general_regen": "Regeneration (hp/s)",
+    "general_regen_tip": "Hit points it heals by itself every second, up to full health. 0 = none (troopers heal slowly).",
     "general_armor": "Armor",
     "general_armor_tip": "Armor class: decides how much each damage type hurts it (Armor table in rules.json).",
     "general_categories": "Categories",

@@ -753,6 +753,9 @@ pub struct UnitDef {
     #[serde(default)]
     pub tier: u8,
     pub hp: f32,
+    /// Hit points it heals by itself per second (troopers), up to `hp`. 0 = none.
+    #[serde(default)]
+    pub regen: f32,
     pub armor: String,
     pub cost: Cost,
     /// Collision box: width (x), height (y), length (z).

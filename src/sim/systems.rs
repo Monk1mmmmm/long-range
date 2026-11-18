@@ -1612,6 +1612,13 @@ fn build_progress(
     mut reactive: Query<&mut Reactive>,
     mut commands: Commands,
 ) {
+    // Units that heal by themselves (`regen`): finished and still alive.
+    for (_, u, mut h, _, uc, _) in q.iter_mut() {
+        let d = defs.get(u.def);
+        if d.regen > 0.0 && uc.is_none() && h.0 > 0.0 && h.0 < d.hp {
+            h.0 = (h.0 + d.regen * DT).min(d.hp);
+        }
+    }
     // (payer, target entity, build rate)
     let mut jobs: Vec<(u8, Entity, f32)> = vec![];
     for (e, u, _, builder, uc, up) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
