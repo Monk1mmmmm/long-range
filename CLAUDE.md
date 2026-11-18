@@ -237,6 +237,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `high_arc` (indirect, raise their charge to reach), `missile` (homing, limited turn rate), `bomb`.
   Hits are resolved against terrain and unit cylinders, so shots miss, fall short or hit hills.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
+- **Line of fire** (direct fire, `systems::Lane`): a gun follows the shell's real arc (with a spread allowance)
+  and fires only if it reaches the target before the ground, water, a building other than the target, or an own
+  (with friendly fire) or neutral unit. A hull-down target is aimed at higher up (`WeaponState.lift`); with no
+  clear shot (`WeaponState.blocked`) the gun takes another enemy in the clear (not an ordered one), and units on
+  Attack / attack-move whose guns are all blocked close in. `fire` adds half a tick of gravity so shells fly the
+  arc they were laid for. `--combattest` "Line of fire" lines.
 - **Bombers** (SupCom style, `systems.rs::bomb_drop`): a bomb weapon's reach is at least the forward
   throw (speed x fall time) + 12, whatever its JSON `range`. The stick is released so that its middle
   bomb lands on the target (moving targets are led) and every bomb gets the same small sideways push
