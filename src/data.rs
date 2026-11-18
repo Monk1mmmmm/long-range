@@ -111,6 +111,12 @@ fn armor_front() -> f32 {
 fn armor_rear() -> f32 {
     1.5
 }
+fn splash_direct() -> f32 {
+    0.4
+}
+fn splash_armored() -> f32 {
+    0.5
+}
 fn garrison_damage() -> f32 {
     0.04
 }
@@ -321,6 +327,15 @@ pub struct Rules {
     pub armor_side: f32,
     #[serde(default = "armor_rear")]
     pub armor_rear: f32,
+    /// Splash of direct-fire guns (weapons of kind `direct` without their own `splash`): the share
+    /// of the shell's damage a unit it did not hit takes at the centre of the blast (fading to
+    /// nothing at the edge). The unit hit directly always takes all of it.
+    #[serde(default = "splash_direct")]
+    pub splash_direct: f32,
+    /// Armored units (category `armored`, not structures) take this share of any splash: shell
+    /// blasts they were not hit by directly and death blasts.
+    #[serde(default = "splash_armored")]
+    pub splash_armored: f32,
     /// Switches for whole game features (the preset editor's "Switches" section).
     /// Engineers can level, raise and lower the ground.
     #[serde(default = "yes")]
@@ -619,9 +634,16 @@ pub struct WeaponDef {
     pub damage: f32,
     #[serde(default = "normal")]
     pub damage_type: String,
-    /// Blast radius, 0 = direct hits only. Damage fades from all at the centre to none at the edge.
+    /// Blast radius, 0 = direct hits only. The unit hit directly takes all the damage, others
+    /// around `splash` of it at the centre, fading to none at the edge.
     #[serde(default)]
     pub radius: f32,
+    /// Share of the damage the blast does to units not hit directly (at its centre). None = by
+    /// kind: `rules.splash_direct` for direct-fire guns, all of it for artillery, bombs and missiles.
+    #[serde(default)]
+    pub splash: Option<f32>,
+    #[serde(skip)]
+    pub splash_share: f32,
     pub range: f32,
     #[serde(default)]
     pub min_range: f32,
@@ -1260,6 +1282,7 @@ impl Defs {
                 w.dtype = rules.damage_types.iter().position(|d| *d == w.damage_type).ok_or(format!("{}: unknown damage type '{}'", u.id, w.damage_type))?;
                 w.hits_land = w.targets.iter().any(|t| t == "land");
                 w.hits_air = w.targets.iter().any(|t| t == "air");
+                w.splash_share = w.splash.unwrap_or(if w.kind == WeaponKind::Direct { rules.splash_direct } else { 1.0 }).max(0.0);
             }
             if let Some(b) = &u.build {
                 u.builds = snapshot

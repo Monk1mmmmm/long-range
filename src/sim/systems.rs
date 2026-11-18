@@ -2568,6 +2568,7 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
         from: flat(origin),
         snipe: w.snipe,
         shooter: u.id,
+        splash: w.splash_share,
     };
     spawn_projectile(commands, shot);
 }
@@ -2697,9 +2698,11 @@ fn projectiles(
         if let Some(c) = census.get(victim) {
             p.damage *= armor_angle(&defs, c, vel);
         }
-        if p.radius > 0.0 {
+        // The unit hit takes it all (below); the blast hurts the others around with `splash` of it,
+        // armored ones less again.
+        if p.radius > 0.0 && p.splash > 0.0 {
             census.near(flat(at), p.radius + 6.0, |c| {
-                if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
+                if c.id == victim || c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
                     return;
                 }
                 let horiz = (c.pos.dist(flat(at)) - c.hit_r * 0.7).max(0.0);
@@ -2708,10 +2711,12 @@ fn projectiles(
                 if d < p.radius {
                     // Infantry in a trench are sheltered from a blast that is not in there with them.
                     let open = trench_of(&census, &defs, c).filter(|t| !in_cell(flat(at), t.2)).map_or(1.0, |t| 1.0 - t.1);
-                    effects.damage.push((c.id, p.damage * blast_share(d, p.radius) * open, p.dtype as usize));
+                    let share = p.splash * splash_armor(&defs, c) * blast_share(d, p.radius) * open;
+                    effects.damage.push((c.id, p.damage * share, p.dtype as usize));
                 }
             });
-        } else if victim != 0 && p.snipe {
+        }
+        if victim != 0 && p.snipe {
             // Through the window: the lowest-id enemy rider takes it, the building nothing.
             let rider = census.get(victim).filter(|c| defs.get(c.def).is_garrison()).and_then(|_| {
                 census.list.iter().filter(|r| r.host == victim && r.done && r.hp > 0.0 && hostile(team, r.team)).min_by_key(|r| r.id)
@@ -2857,6 +2862,11 @@ fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, te
         p.damage -= soak;
         effects.damage.push((id, soak, p.dtype as usize));
     }
+}
+
+/// Share of splash an armored unit takes (`rules.splash_armored`); 1 for anything else.
+fn splash_armor(defs: &Defs, c: &Cen) -> f32 {
+    if !c.structure && defs.get(c.def).is_armored() { defs.rules.splash_armored } else { 1.0 }
 }
 
 /// Share of a blast's damage at distance `d` from its centre: all of it at the centre, fading in a
@@ -3214,7 +3224,7 @@ fn deaths(
             let flat = (c.pos.dist(pos) - c.hit_r * 0.7).max(0.0);
             let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
             if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
-                effects.damage.push((c.id, damage * blast_share(d, radius), blast_type));
+                effects.damage.push((c.id, damage * blast_share(d, radius) * splash_armor(&defs, c), blast_type));
             }
         });
     }

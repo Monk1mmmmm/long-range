@@ -260,6 +260,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   and by how flat it flies (`systems::armor_angle`: the squared cosine of the descent angle, so steep mortar rounds
   count the angle little, one falling straight down not at all). Applied to `p.damage` at the hit, before the blast.
   `--combattest` infantry "Armor angle": a Crony on an Overtaker does 481 head on, 801 to the side, 1199 from behind.
+- **Splash** (`rules.splash_direct` 0.4, `rules.splash_armored` 0.5, weapon `splash`): a shell with a blast radius does all
+  its damage to the unit it hits directly; units it did not hit take `splash` of it at the blast centre, fading linearly to
+  none at the edge. `splash` defaults to `splash_direct` for `direct` weapons, 1 for artillery, bombs and missiles.
+  Armored units (not structures) take `splash_armored` of any splash, death blasts included. `--combattest` "Splash" line.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
   over terrain (`map.los`).
 - **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; Trooper and Sniper Trooper: 140, 20 deg):

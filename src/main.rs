@@ -3167,6 +3167,32 @@ fn infantry_tests(defs: &Defs) {
         assert!(lost[0] > 0.0 && lost[0] < lost[1] && lost[1] < lost[2], "armor angle");
     }
 
+    // 1b2. Splash: a Crony (its blast widened to 4 for the test) shelling an Overtaker with another
+    // Overtaker and a Trooper 2.5 away on either side.
+    {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let crony = defs.id("crony").unwrap();
+        world.resource_mut::<Defs>().units[crony as usize].weapons[0].radius = 4.0;
+        let gun = spawn(world, &map, "crony", 0, v2(100.0, 129.0), 0.0);
+        set_hp(world, gun, 1.0e6);
+        spawn(world, &map, "radar_car", 0, v2(96.0, 135.0), 0.0);
+        let target = spawn(world, &map, "overtaker", 1, v2(150.0, 129.0), std::f32::consts::FRAC_PI_2);
+        let tank = spawn(world, &map, "overtaker", 1, v2(150.0, 131.5), std::f32::consts::FRAC_PI_2);
+        let man = spawn(world, &map, "trooper", 1, v2(150.0, 126.5), 0.0);
+        for id in [target, tank, man] {
+            set_hp(world, id, 1.0e6);
+        }
+        order(world, 0, vec![gun], Order::Attack(target));
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let [a, b, c] = [target, tank, man].map(|id| 1.0e6 - hp(world, id));
+        let r = &defs.rules;
+        println!("== Splash: a Crony (blast 4) shelling an Overtaker for 30 s does {a:.0} to it, {b:.0} to the Overtaker beside it, {c:.0} to the Trooper beside it (rules splash {} / armored {})", r.splash_direct, r.splash_armored);
+        assert!(a > 0.0 && c > 0.0 && c < a * 0.4 && b < c, "splash is much less than a direct hit, and less again on armor");
+    }
+
     // 1c. Line of fire: a Crony does not shell a neutral house, nor (with friendly fire) an own
     // tank, standing between it and the nearest enemy; it shoots another enemy in the clear.
     for (blocker, owner) in [("house", NEUTRAL), ("overtaker", 0)] {

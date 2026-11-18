@@ -314,6 +314,13 @@ pub struct Projectile {
     /// The unit that fired it: never hit by its own shot or blast (nor the building it fires from).
     #[serde(default)]
     pub shooter: u32,
+    /// Share of `damage` the blast does to units it did not hit directly (`WeaponDef.splash`).
+    #[serde(default = "one")]
+    pub splash: f32,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 // ---------------------------------------------------------------------------- resources

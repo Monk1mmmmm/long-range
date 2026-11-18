@@ -95,6 +95,8 @@ pub const RULE_COMBAT: &[Field] = &[
     num("armor_front", tx!("preset_rules.combat_armor_front"), 0.6, 10.0, tx!("preset_rules.combat_armor_front_tip")),
     num("armor_side", tx!("preset_rules.combat_armor_side"), 1.0, 10.0, tx!("preset_rules.combat_armor_side_tip")),
     num("armor_rear", tx!("preset_rules.combat_armor_rear"), 1.5, 10.0, tx!("preset_rules.combat_armor_rear_tip")),
+    num("splash_direct", tx!("preset_rules.combat_splash_direct"), 0.4, 1.0, tx!("preset_rules.combat_splash_direct_tip")),
+    num("splash_armored", tx!("preset_rules.combat_splash_armored"), 0.5, 1.0, tx!("preset_rules.combat_splash_armored_tip")),
 ];
 
 pub const RULE_INTEL: &[Field] = &[
@@ -270,6 +272,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("damage", tx!("preset_weapons.damage"), 10.0, BIG, tx!("preset_weapons.damage_tip")),
     f("damage_type", tx!("preset_weapons.damage_type"), Kind::Pick(Src::DamageType, false), tx!("preset_weapons.damage_type_tip")),
     num("radius", tx!("preset_weapons.radius"), 0.0, 1000.0, tx!("preset_weapons.radius_tip")),
+    f("splash", tx!("preset_weapons.splash"), Kind::OptNum(0.0, 1.0, 0.4), tx!("preset_weapons.splash_tip")),
     num("range", tx!("preset_weapons.range"), 50.0, 10000.0, tx!("preset_weapons.range_tip")),
     num("min_range", tx!("preset_weapons.min_range"), 0.0, 10000.0, tx!("preset_weapons.min_range_tip")),
     num("reload", tx!("preset_weapons.reload"), 1.0, 3600.0, tx!("preset_weapons.reload_tip")),
