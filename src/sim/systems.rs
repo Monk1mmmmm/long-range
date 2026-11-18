@@ -1715,6 +1715,10 @@ fn build_progress(
                 commands.entity(te).remove::<(UnderConstruction, Revival)>();
                 // Marked complete right away so later contributions in this tick see it.
                 uc.0 = 2.0;
+                // Field works (sandbags, trenches) belong to nobody once built: cover for every side.
+                if defs.get(u.def).is_fieldwork() {
+                    u.owner = NEUTRAL;
+                }
             }
         } else {
             let mut up = up.unwrap();
