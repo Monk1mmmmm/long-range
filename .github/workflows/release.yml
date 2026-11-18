@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag, e.g. v0.9.0 (empty: v + the version in Cargo.toml). Made on the chosen branch if it does not exist."
+        description: "Tag, e.g. v0.9.0 or 0.9.0 (empty: v + the version in Cargo.toml). Made on the chosen branch if it does not exist."
         required: false
         default: ""
 
@@ -31,7 +31,8 @@ jobs:
         shell: bash
         run: |
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          echo "TAG=${TAG_IN:-v$v}" >> "$GITHUB_ENV"
+          t=${TAG_IN:-v$v}
+          echo "TAG=v${t#v}" >> "$GITHUB_ENV"
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libx11-dev libxkbcommon-dev libwayland-dev pkg-config zip
       - uses: Swatinem/rust-cache@v2
@@ -55,7 +56,8 @@ jobs:
         shell: bash
         run: |
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          echo "TAG=${TAG_IN:-v$v}" >> "$GITHUB_ENV"
+          t=${TAG_IN:-v$v}
+          echo "TAG=v${t#v}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: Build and bundle
         shell: pwsh
@@ -75,7 +77,8 @@ jobs:
         shell: bash
         run: |
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          echo "TAG=${TAG_IN:-v$v}" >> "$GITHUB_ENV"
+          t=${TAG_IN:-v$v}
+          echo "TAG=v${t#v}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           path: dist
