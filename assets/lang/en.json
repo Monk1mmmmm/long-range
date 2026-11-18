@@ -270,7 +270,8 @@
     "hint_board": "LOAD: click the transport to board (infantry: or a building to occupy)",
     "hint_unload": "UNLOAD: click or drag a circle; the cargo is set down spread over it",
     "hint_build_deposit": "BUILD {}: click a deposit, or drag a circle to queue every deposit inside",
-    "hint_build": "BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing."
+    "hint_build": "BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.",
+    "hint_build_fieldwork": "BUILD {}: draw a line of any shape with the right button, or click / drag a straight line with the left. Shift keeps placing."
   },
   "hud_screens": {
     "paused_by_you": " by you",
@@ -304,7 +305,8 @@
     "ctrl_k_self_destruct_shift_0": "Ctrl+K self-destruct.  Shift+0-9 adds a group to the selection.",
     "select_ctrl_a_air_ctrl_d": "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
     "ctrl_shift_d_a_nearest_land": "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
-    "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
+    "ctrl_r_distribute": "        Ctrl+R share the selection's queued orders out among it   / nearest extractor of the lowest tier (Shift+/ adds the next)",
+    "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; sandbags and trenches: draw any line with the right button; pumps: drag a circle.",
     "factory_menu_left_click_queues": "Factory menu: left-click queues (Shift x5), right-click removes.",
     "ctrl_0_9_set_group_0": "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
     "tab_pauses_resumes_the_selection": "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
@@ -439,6 +441,10 @@
       "name": "Hornet",
       "desc": "Gunship. Hovers and rakes ground units with riot gun bursts, infantry first."
     },
+    "dove": {
+      "name": "Dove",
+      "desc": "Suicide drone. Cheap, slow and fragile: any anti-air swats it down. Flies at its target and dives into it with a heavy mortar round."
+    },
     "air_transport": {
       "name": "Stork",
       "desc": "Transport aircraft. Lifts eight land units over cliffs and water (L load, K unload). Unarmed."
@@ -549,11 +555,11 @@
     },
     "sandbags": {
       "name": "Sandbags",
-      "desc": "A stretch of sandbag wall; drag to build a line. Enemy shots that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry take cover behind it. Units can cross it."
+      "desc": "A stretch of sandbag wall; draw a line of any shape with the right mouse button (or drag a straight one) to build it. Shots from any side that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry of every side take cover behind it. Units can cross it."
     },
     "trench": {
       "name": "Trench",
-      "desc": "A piece of trench; drag to build a line. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time."
+      "desc": "A piece of trench; draw a line of any shape with the right mouse button (or drag a straight one) to build it. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time."
     },
     "field_bunker": {
       "name": "Field Bunker",
@@ -722,6 +728,7 @@
     "gauss_cannon": "Gauss Cannon",
     "heavy_machinegun": "Heavy Machinegun",
     "mortar": "Mortar",
+    "mortar_warhead": "Mortar Warhead",
     "rotary_cannon_air": "Rotary Cannon (Air)",
     "rotary_cannon_ground": "Rotary Cannon (Ground)",
     "twin_flak_cannon": "Twin Flak Cannon",
@@ -862,6 +869,10 @@
     "combat_armor_side_tip": "Share of a hit an armored unit takes from the side.",
     "combat_armor_rear": "Armor angle: rear",
     "combat_armor_rear_tip": "Share of a hit an armored unit takes from behind.",
+    "combat_splash_direct": "Splash of direct-fire guns",
+    "combat_splash_direct_tip": "Share of a gun shell's damage that units it did not hit take at the blast centre (fading to none at the edge). The unit hit directly always takes all of it. Weapons can set their own splash.",
+    "combat_splash_armored": "Splash on armored units",
+    "combat_splash_armored_tip": "Armored units (category armored) take this share of any splash: blasts of shells that did not hit them directly, and death blasts.",
     "intel_near_sight": "Close-range sight",
     "intel_near_sight_tip": "Everything closer than this to a unit is seen at once, whatever stands in between.",
     "intel_spot_forget": "Spotting progress lost after (s)",
@@ -975,6 +986,8 @@
     "general_tier_tip": "Tech level: a builder of tier N can build units up to tier N. Also the ticks under the strategic icon.",
     "general_hp": "Hit points",
     "general_hp_tip": "Damage the unit takes before it is destroyed.",
+    "general_regen": "Regeneration (hp/s)",
+    "general_regen_tip": "Hit points it heals by itself every second, up to full health. 0 = none (troopers heal slowly).",
     "general_armor": "Armor",
     "general_armor_tip": "Armor class: decides how much each damage type hurts it (Armor table in rules.json).",
     "general_categories": "Categories",
@@ -1002,11 +1015,9 @@
     "cost_time": "Build time",
     "cost_time_tip": "Build work: seconds it takes at 1 build power (an engineer with build power 10 needs a tenth of it).",
     "body_size": "Size (width, height, length)",
-    "body_size_tip": "Collision box: shots hit it (unless a hit radius / height is set below) and units bump into it. Height also sets where it looks from.",
-    "body_hit_radius": "Hit radius",
-    "body_hit_radius_tip": "Radius of what shots and blasts hit. Unset = half the size (structures: the footprint).",
-    "body_hit_height": "Hit height",
-    "body_hit_height_tip": "Height of what shots and blasts hit. Unset = the size's height.",
+    "body_size_tip": "Collision box: units bump into it, and shots hit it unless a hit box is set below. Height also sets where it looks from.",
+    "body_hit_box": "Hit box (width, height, length)",
+    "body_hit_box_tip": "What shots and blasts hit: a box that turns with the unit, standing on its base. Unset = the size.",
     "body_footprint": "Footprint (cells)",
     "body_footprint_tip": "Structures: side length on the build grid (1 cell = 2 units). Mobile units: 0.",
     "body_move_kind": "Movement",
@@ -1118,7 +1129,9 @@
     "damage_type": "Damage type",
     "damage_type_tip": "Decides the armor multiplier (Armor table in rules.json).",
     "radius": "Blast radius",
-    "radius_tip": "0 = it only hurts what it hits directly. Otherwise full damage at the centre, fading to nothing at the edge.",
+    "radius_tip": "0 = it only hurts what it hits directly. Otherwise the unit hit takes all the damage and the others around a share of it (Splash), fading to nothing at the edge.",
+    "splash": "Splash",
+    "splash_tip": "Share of the damage the blast does to units the shell did not hit directly, at its centre. Unset: the rules' splash for direct-fire guns, all of it for artillery, bombs and missiles.",
     "range": "Range",
     "range_tip": "Furthest target distance. Units must see or radar their target to shoot it.",
     "min_range": "Least range",
@@ -1153,6 +1166,8 @@
     "prefer_tip": "Which enemies it shoots first when several are in range: armored (units of category armored: tanks) or infantry. none = the nearest.",
     "snipe": "Sniper rifle",
     "snipe_tip": "A hit on a building kills one enemy rider inside instead of damaging the building; it never shoots buildings without enemy riders.",
+    "suicide": "Suicide drone",
+    "suicide_tip": "Firing launches the unit itself at the target (a homing dive) and removes it, without a wreck or death blast. Give the weapon 1 round of ammunition.",
     "sound": "Sound",
     "sound_tip": "Shot sound; none = chosen by weapon kind.",
     "turret_yaw_speed": "Traverse (deg/s)",

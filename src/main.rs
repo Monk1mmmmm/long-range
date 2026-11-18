@@ -3104,7 +3104,8 @@ fn infantry_tests(defs: &Defs) {
         let world = app.world_mut();
         let tank = spawn(world, &map, "bastion", 0, v2(130.0, 129.0), 0.0);
         let full = defs.get(defs.id("bastion").unwrap()).reactive.map_or(0, |r| r.charges);
-        set_hp(world, tank, 1000.0);
+        let start_hp = defs.get(defs.id("bastion").unwrap()).hp * 0.6;
+        set_hp(world, tank, start_hp);
         for (u, mut r) in world.query::<(&Unit, &mut Reactive)>().iter_mut(world) {
             if u.id == tank {
                 r.0 = 0;
@@ -3116,7 +3117,7 @@ fn infantry_tests(defs: &Defs) {
             world.run_schedule(SimTick);
         }
         let (hp_after, back) = (hp(world, tank), charges(world, tank).unwrap_or(0));
-        println!("== Reactive armor: 2 AT troopers on a Bastion for 60 s take {:.0} hp with its {full} charges ({} left), {:.0} without; repaired from 1000 to {hp_after:.0} hp, charges back to {back}", lost[0], left[0], lost[1]);
+        println!("== Reactive armor: 2 AT troopers on a Bastion for 60 s take {:.0} hp with its {full} charges ({} left), {:.0} without; repaired from {start_hp:.0} to {hp_after:.0} hp, charges back to {back}", lost[0], left[0], lost[1]);
         assert!(left[0] == 0 && lost[0] < lost[1], "reactive armor stops part of the missile damage");
         assert!(hp_after >= defs.get(defs.id("bastion").unwrap()).hp && back == full, "a full repair replaces the reactive armor");
     }
@@ -3165,6 +3166,32 @@ fn infantry_tests(defs: &Defs) {
         let r = &defs.rules;
         println!("== Armor angle: a Crony shelling an Overtaker for 30 s does {:.0} head on, {:.0} to its side, {:.0} from behind (rules {}/{}/{})", lost[0], lost[1], lost[2], r.armor_front, r.armor_side, r.armor_rear);
         assert!(lost[0] > 0.0 && lost[0] < lost[1] && lost[1] < lost[2], "armor angle");
+    }
+
+    // 1b2. Splash: a Crony (its blast widened to 4 for the test) shelling an Overtaker with another
+    // Overtaker and a Trooper 2.5 away on either side.
+    {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let crony = defs.id("crony").unwrap();
+        world.resource_mut::<Defs>().units[crony as usize].weapons[0].radius = 4.0;
+        let gun = spawn(world, &map, "crony", 0, v2(100.0, 129.0), 0.0);
+        set_hp(world, gun, 1.0e6);
+        spawn(world, &map, "radar_car", 0, v2(96.0, 135.0), 0.0);
+        let target = spawn(world, &map, "overtaker", 1, v2(150.0, 129.0), std::f32::consts::FRAC_PI_2);
+        let tank = spawn(world, &map, "overtaker", 1, v2(150.0, 131.5), std::f32::consts::FRAC_PI_2);
+        let man = spawn(world, &map, "trooper", 1, v2(150.0, 126.5), 0.0);
+        for id in [target, tank, man] {
+            set_hp(world, id, 1.0e6);
+        }
+        order(world, 0, vec![gun], Order::Attack(target));
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let [a, b, c] = [target, tank, man].map(|id| 1.0e6 - hp(world, id));
+        let r = &defs.rules;
+        println!("== Splash: a Crony (blast 4) shelling an Overtaker for 30 s does {a:.0} to it, {b:.0} to the Overtaker beside it, {c:.0} to the Trooper beside it (rules splash {} / armored {})", r.splash_direct, r.splash_armored);
+        assert!(a > 0.0 && c > 0.0 && c < a * 0.4 && b < c, "splash is much less than a direct hit, and less again on armor");
     }
 
     // 1c. Line of fire: a Crony does not shell a neutral house, nor (with friendly fire) an own
@@ -3501,8 +3528,9 @@ fn fieldwork_tests(defs: &Defs) {
         let (mut app, map) = new_world();
         let world = app.world_mut();
         let at = v2(131.0, 101.0);
-        // Sandbags stand between the trooper and the enemy to the east.
-        let w = work.map(|n| spawn(world, &map, n, 0, if n == "sandbags" { at + v2(2.0, 0.0) } else { at }, 0.0));
+        // Sandbags stand between the trooper and the enemy to the east. They are the enemy's own:
+        // sandbags shelter every side.
+        let w = work.map(|n| if n == "sandbags" { spawn(world, &map, n, 1, at + v2(2.0, 0.0), 0.0) } else { spawn(world, &map, n, 0, at, 0.0) });
         if let Some(w) = w {
             set_hp(world, w, 1.0e5);
         }
@@ -3578,6 +3606,24 @@ fn fieldwork_tests(defs: &Defs) {
         let filled = pieces.iter().filter(|p| at.iter().any(|a| a.dist(**p) < 0.6)).count();
         println!("== Trench: 2 idle troopers near 2 pieces stand in {filled} of them");
         assert!(filled == 2, "infantry man the trench");
+    }
+
+    // 4b. An idle trooper with enemies in sight walks behind a sandbag piece near by (anybody's).
+    {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let bags = v2(131.0, 101.0);
+        spawn(world, &map, "sandbags", 1, bags, 0.0);
+        let t = spawn(world, &map, "trooper", 0, v2(125.0, 103.0), 0.0);
+        set_hp(world, t, 1.0e6);
+        let foes: Vec<u32> = (0..2).map(|i| spawn(world, &map, "trooper", 1, v2(145.0, 99.0 + i as f32 * 4.0), 3.14)).collect();
+        for f in &foes {
+            set_hp(world, *f, 1.0e6);
+        }
+        run(world, 150);
+        let p = body(world, t).unwrap().0;
+        println!("== Sandbag cover: an idle trooper under fire moved to ({:.1}, {:.1}), the sandbags stand at ({:.0}, {:.0})", p.x, p.y, bags.x, bags.y);
+        assert!(p.x < bags.x - 1.0 && p.dist(bags) < 2.5, "infantry hide behind sandbags");
     }
 
     // 5. Bombed out: a mortar shelling sandbags and a trench destroys both.
@@ -3884,6 +3930,26 @@ fn air_tests(defs: &Defs) {
             450,
         );
     }
+    // Dove suicide drones: a workable payload, but slow and fragile, so even T1 anti-air stops them.
+    run(
+        "4 Doves attack-move onto 3 parked Overtakers",
+        &[Side { name: "dove", owner: 0, n: 4, at: v2(80.0, 190.0), yaw: e }, Side { name: "overtaker", owner: 1, n: 3, at: v2(190.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "dove"), Order::AttackMove(v2(200.0, 190.0)))],
+        450,
+    );
+    for aa in ["mbfag", "aa_turret"] {
+        run(
+            &format!("6 Doves attack-move onto 2 Overtakers guarded by a {aa} (and a radar tower)"),
+            &[
+                Side { name: "dove", owner: 0, n: 6, at: v2(60.0, 190.0), yaw: e },
+                Side { name: "overtaker", owner: 1, n: 2, at: v2(190.0, 190.0), yaw: w },
+                Side { name: aa, owner: 1, n: 1, at: v2(196.0, 200.0), yaw: w },
+                Side { name: "radar_tower", owner: 1, n: 1, at: v2(215.0, 190.0), yaw: w },
+            ],
+            &|ids| vec![(0, every(ids, "dove"), Order::AttackMove(v2(200.0, 190.0)))],
+            600,
+        );
+    }
     run(
         "Hornet flies over 2 tanks with 4 troopers just behind them, all in range (target priority: infantry first)",
         &[Side { name: "gunship", owner: 0, n: 1, at: v2(110.0, 190.0), yaw: e }, Side { name: "crony", owner: 1, n: 2, at: v2(150.0, 190.0), yaw: w }, Side { name: "trooper", owner: 1, n: 4, at: v2(158.0, 190.0), yaw: w }],
@@ -3924,11 +3990,21 @@ fn air_tests(defs: &Defs) {
         &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(330.0, 190.0)))],
         900,
     );
+    // T2 fighter-bombers should beat as many T1 interceptors.
+    for n in 1..=4 {
+        run(
+            &format!("{n} fighter-bombers vs {n} interceptors, both attack-move to the same spot"),
+            &[Side { name: "fighter_bomber", owner: 0, n, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n, at: v2(200.0, 190.0), yaw: w }],
+            &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(130.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(130.0, 190.0)))],
+            1800,
+        );
+    }
+    // About equal mass (720 against 750).
     run(
-        "2 fighter-bombers vs 2 interceptors",
-        &[Side { name: "fighter_bomber", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n: 2, at: v2(200.0, 190.0), yaw: w }],
-        &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(300.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(40.0, 190.0)))],
-        600,
+        "2 fighter-bombers vs 3 interceptors",
+        &[Side { name: "fighter_bomber", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n: 3, at: v2(200.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(130.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(130.0, 190.0)))],
+        1800,
     );
     run(
         "SAM site, 4 Firebrands fly over it",

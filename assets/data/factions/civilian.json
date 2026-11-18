@@ -21,6 +21,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [2.25, 1.9, 3.75],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -60,6 +61,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.4, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -99,6 +101,7 @@
     3.76,
     8.0
    ],
+   "hit_box": [3.0, 3.75, 9.0],
    "footprint": 4,
    "transport": {
     "capacity": 6
@@ -139,6 +142,7 @@
     5.0,
     12.0
    ],
+   "hit_box": [4.75, 5.0, 12.0],
    "footprint": 6,
    "transport": {
     "capacity": 8
@@ -178,6 +182,7 @@
     9.0,
     12.0
    ],
+   "hit_box": [10.0, 8.8, 8.4],
    "footprint": 6,
    "icon": {
     "shape": "civilian",
@@ -267,6 +272,7 @@
     2.8,
     4.0
    ],
+   "hit_box": [2.8, 3.0, 2.8],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -338,6 +344,7 @@
     9.0,
     4.0
    ],
+   "hit_box": [3.8, 8.8, 0.5],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -422,6 +429,7 @@
     12.0,
     4.0
    ],
+   "hit_box": [2.4, 12.0, 2.4],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -507,6 +515,7 @@
     7.2,
     4.0
    ],
+   "hit_box": [3.0, 7.2, 3.0],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -574,6 +583,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [2.25, 1.9, 3.75],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -613,6 +623,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [2.25, 1.9, 3.75],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -652,6 +663,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [2.25, 1.9, 3.75],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -691,6 +703,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [3.0, 1.9, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -730,6 +743,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [3.0, 1.9, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -769,6 +783,7 @@
     1.88,
     4.0
    ],
+   "hit_box": [3.0, 1.9, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -808,6 +823,7 @@
     2.06,
     4.0
    ],
+   "hit_box": [2.25, 2.05, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -847,6 +863,7 @@
     2.06,
     4.0
    ],
+   "hit_box": [2.25, 2.05, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -886,6 +903,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.4, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -925,6 +943,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.4, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -964,6 +983,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.4, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1003,6 +1023,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.0, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1042,6 +1063,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.0, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1081,6 +1103,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.0, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1120,6 +1143,7 @@
     3.38,
     4.0
    ],
+   "hit_box": [3.0, 3.4, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1159,6 +1183,7 @@
     3.76,
     4.0
    ],
+   "hit_box": [3.0, 3.75, 3.0],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1198,6 +1223,7 @@
     5.62,
     4.0
    ],
+   "hit_box": [3.0, 5.6, 4.9],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1237,6 +1263,7 @@
     1.5,
     4.0
    ],
+   "hit_box": [4.5, 1.5, 4.5],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1276,6 +1303,7 @@
     1.94,
     4.0
    ],
+   "hit_box": [3.9, 1.95, 4.6],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -1312,6 +1340,7 @@
     3.88,
     4.0
    ],
+   "hit_box": [3.85, 3.9, 4.65],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -1348,6 +1377,7 @@
     7.8,
     8.0
    ],
+   "hit_box": [6.0, 7.8, 6.0],
    "footprint": 4,
    "transport": {
     "capacity": 6
@@ -1387,6 +1417,7 @@
     4.9,
     8.0
    ],
+   "hit_box": [5.8, 4.9, 5.9],
    "footprint": 4,
    "transport": {
     "capacity": 6
@@ -1426,6 +1457,7 @@
     3.68,
     8.0
    ],
+   "hit_box": [5.05, 3.7, 6.0],
    "footprint": 4,
    "transport": {
     "capacity": 6
@@ -1465,6 +1497,7 @@
     7.12,
     12.0
    ],
+   "hit_box": [11.75, 7.15, 7.2],
    "footprint": 6,
    "transport": {
     "capacity": 8
@@ -1504,6 +1537,7 @@
     8.44,
     8.0
    ],
+   "hit_box": [4.9, 8.45, 5.4],
    "footprint": 4,
    "transport": {
     "capacity": 6
@@ -1543,6 +1577,7 @@
     4.38,
     12.0
    ],
+   "hit_box": [9.9, 4.35, 8.45],
    "footprint": 6,
    "transport": {
     "capacity": 8
@@ -1582,6 +1617,7 @@
     4.82,
     8.0
    ],
+   "hit_box": [5.95, 4.8, 4.9],
    "footprint": 4,
    "transport": {
     "capacity": 6
@@ -1621,6 +1657,7 @@
     1.8,
     4.0
    ],
+   "hit_box": [3.6, 1.6, 3.9],
    "footprint": 2,
    "transport": {
     "capacity": 4

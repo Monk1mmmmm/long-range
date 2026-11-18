@@ -141,8 +141,11 @@ fn census_build(
             structure: d.is_structure(),
             radius: d.radius(),
             height: d.height(),
-            hit_r: d.hit_radius(),
-            hit_h: d.hit_height(),
+            hit_w: d.hit_box()[0] * 0.5,
+            hit_h: d.hit_box()[1],
+            hit_l: d.hit_box()[2] * 0.5,
+            hit_r: d.hit_box()[0].max(d.hit_box()[2]) * 0.5,
+            face: V2::from_angle(b.yaw),
             seen: i.seen,
             radar: i.radar,
             work: builder.map_or(0, |b| b.work),
@@ -1413,7 +1416,7 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
             consider(s.pos, s.radius, s.height);
         }
     });
-    // Sandbags.
+    // Sandbags (anybody's: they shelter every side).
     census.near(anchor, search + 3.0, |c| {
         if c.fieldwork && c.done && c.hp > 0.0 && defs.get(c.def).work().map_or(false, |w| w.0 > 0.05 && w.1 <= 0.0) {
             consider(c.pos, c.radius, c.height);
@@ -1612,6 +1615,13 @@ fn build_progress(
     mut reactive: Query<&mut Reactive>,
     mut commands: Commands,
 ) {
+    // Units that heal by themselves (`regen`): finished and still alive.
+    for (_, u, mut h, _, uc, _) in q.iter_mut() {
+        let d = defs.get(u.def);
+        if d.regen > 0.0 && uc.is_none() && h.0 > 0.0 && h.0 < d.hp {
+            h.0 = (h.0 + d.regen * DT).min(d.hp);
+        }
+    }
     // (payer, target entity, build rate)
     let mut jobs: Vec<(u8, Entity, f32)> = vec![];
     for (e, u, _, builder, uc, up) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
@@ -2050,6 +2060,8 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
             // Mortars and howitzers pick a charge for a steep (about 65 degree) arc instead of
             // always lobbing at full power, which would keep shells in the air for ages.
             WeaponKind::HighArc => ballistic(d, to.y, (g * d / 0.766).sqrt().clamp(8.0, w.speed * 1.5), g, true, true).unwrap(),
+            // A suicide drone dives straight at it.
+            WeaponKind::Missile if w.suicide => (fm::atan2(to.y, d.max(0.1)), d / w.speed.max(1.0), w.speed),
             WeaponKind::Missile => (if w.launch_pitch > 0.0 { w.launch_pitch.to_radians() } else { 0.35 }, d / w.speed.max(1.0), w.speed),
             WeaponKind::Bomb => (0.0, 0.0, 0.0),
         };
@@ -2101,8 +2113,7 @@ impl Lane<'_> {
                 return;
             }
             if own || c.structure || !hostile(self.team, c.team) {
-                let r = if c.structure { c.hit_r * 1.1 } else { c.hit_r } + 0.12;
-                list.push((c.pos, r, c.y - 0.3, c.y + c.hit_h + 0.3));
+                list.push((c.pos, c.hit_r, c.y - HIT_BELOW, c.y + c.hit_h));
             }
         });
         list
@@ -2166,7 +2177,7 @@ impl Lane<'_> {
         for (lift, dip, side) in [(0.0, dip, spread * 0.5), (0.2, dip, spread * 0.5), (0.4, dip, spread * 0.5), (0.4, 0.0, 0.0)] {
             let lift = lift * c.hit_h;
             let sol = solve(w, origin, c.center() + Vec3::Y * lift, c.vel, self.g);
-            if self.clears(origin, &sol, c.hit_r, dip, side, &obst) {
+            if self.clears(origin, &sol, c.hit_w.min(c.hit_l), dip, side, &obst) {
                 return Some(lift);
             }
         }
@@ -2205,7 +2216,7 @@ fn weapons(
     mut game: ResMut<Game>,
     mut rng: ResMut<SimRng>,
     mut fx: ResMut<FxLog>,
-    effects: Res<Effects>,
+    mut effects: ResMut<Effects>,
     mut commands: Commands,
 ) {
     let g = defs.rules.gravity;
@@ -2464,6 +2475,12 @@ fn weapons(
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+            if w.suicide {
+                // The drone is the warhead: it is gone, quietly (no wreck, no death blast).
+                effects.damage.push((u.id, 1.0e9, 0));
+                effects.reclaimed.push(u.id);
+                break;
+            }
         }
     }
 }
@@ -2526,8 +2543,13 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
     let (vel, kind, pos) = match w.kind {
         WeaponKind::Bomb => ((body.vel + st.fix).at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
         WeaponKind::Missile => {
-            let d = dir_from(st.yaw, st.pitch.max(0.3));
-            (d * w.speed, PROJ_MISSILE, origin + d * 0.5)
+            if w.suicide {
+                let d = dir_from(st.yaw, st.pitch);
+                (d * w.speed, PROJ_MISSILE, body.pos.at(body.y))
+            } else {
+                let d = dir_from(st.yaw, st.pitch.max(0.3));
+                (d * w.speed, PROJ_MISSILE, origin + d * 0.5)
+            }
         }
         _ => {
             let speed = if st.speed > 0.0 { st.speed } else { w.speed };
@@ -2568,6 +2590,7 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
         from: flat(origin),
         snipe: w.snipe,
         shooter: u.id,
+        splash: w.splash_share,
     };
     spawn_projectile(commands, shot);
 }
@@ -2613,7 +2636,7 @@ fn projectiles(
                 let max = p.turn.to_radians() * DT;
                 let nd = if ang <= max || ang < 1e-4 { want } else { cur.lerp(want, max / ang).normalize_or_zero() };
                 vel = nd * speed;
-                if (t.center() - a).length() < speed * DT + t.hit_r * 0.7 {
+                if t.hit_dist(a) < speed * DT {
                     hit = Some((t.center(), t.id));
                 }
             }
@@ -2624,7 +2647,6 @@ fn projectiles(
         if hit.is_none() {
             let seg = b - a;
             let seg2 = Vec2::new(seg.x, seg.z);
-            let len2 = seg2.length_squared().max(1e-6);
             let mut best: Option<(f32, u32)> = None;
             let mid = flat((a + b) * 0.5);
             census.near(mid, seg2.length() * 0.5 + 8.0, |c| {
@@ -2642,12 +2664,7 @@ fn projectiles(
                 if if c.air { !p.hits_air } else { !p.hits_land } {
                     return;
                 }
-                let rel = Vec2::new(c.pos.x - a.x, c.pos.y - a.z);
-                let t = (rel.dot(seg2) / len2).clamp(0.0, 1.0);
-                let at = a + seg * t;
-                let horiz = Vec2::new(at.x - c.pos.x, at.z - c.pos.y).length();
-                let r = if c.structure { c.hit_r * 1.1 } else { c.hit_r } + 0.12;
-                if horiz < r && at.y > c.y - 0.3 && at.y < c.y + c.hit_h + 0.3 && best.map_or(true, |x| t < x.0) {
+                if let Some(t) = c.hit_seg(a, b).filter(|t| best.map_or(true, |x| *t < x.0)) {
                     best = Some((t, c.id));
                 }
             });
@@ -2670,7 +2687,7 @@ fn projectiles(
         }
         // Cover: trees, rocks and wrecks the shot flies through on the way soak up part of it.
         soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
-        soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, team, &map, &defs, &census, &mut effects);
+        soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, &map, &defs, &census, &mut effects);
         let w = map.world();
         let Some((at, victim)) = hit else {
             if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > w + 20.0 || b.z > w + 20.0 {
@@ -2697,21 +2714,23 @@ fn projectiles(
         if let Some(c) = census.get(victim) {
             p.damage *= armor_angle(&defs, c, vel);
         }
-        if p.radius > 0.0 {
+        // The unit hit takes it all (below); the blast hurts the others around with `splash` of it,
+        // armored ones less again.
+        if p.radius > 0.0 && p.splash > 0.0 {
             census.near(flat(at), p.radius + 6.0, |c| {
-                if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
+                if c.id == victim || c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
                     return;
                 }
-                let horiz = (c.pos.dist(flat(at)) - c.hit_r * 0.7).max(0.0);
-                let vert = if at.y < c.y { c.y - at.y } else { (at.y - c.y - c.hit_h).max(0.0) };
-                let d = (horiz * horiz + vert * vert).sqrt();
+                let d = c.hit_dist(at);
                 if d < p.radius {
                     // Infantry in a trench are sheltered from a blast that is not in there with them.
                     let open = trench_of(&census, &defs, c).filter(|t| !in_cell(flat(at), t.2)).map_or(1.0, |t| 1.0 - t.1);
-                    effects.damage.push((c.id, p.damage * blast_share(d, p.radius) * open, p.dtype as usize));
+                    let share = p.splash * splash_armor(&defs, c) * blast_share(d, p.radius) * open;
+                    effects.damage.push((c.id, p.damage * share, p.dtype as usize));
                 }
             });
-        } else if victim != 0 && p.snipe {
+        }
+        if victim != 0 && p.snipe {
             // Through the window: the lowest-id enemy rider takes it, the building nothing.
             let rider = census.get(victim).filter(|c| defs.get(c.def).is_garrison()).and_then(|_| {
                 census.list.iter().filter(|r| r.host == victim && r.done && r.hp > 0.0 && hostile(team, r.team)).min_by_key(|r| r.id)
@@ -2815,13 +2834,13 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
     }
 }
 
-/// Built cover (field works) in the way of a shot flying from `a` to `b` this tick. Sandbags of a
-/// side hostile to the shooter that it flies through take their `cover` share, like trees do
-/// (`soak_cover`; a side's own shots pass over its own works). A shot that hits infantry standing
+/// Built cover (field works) in the way of a shot flying from `a` to `b` this tick. Sandbags it
+/// flies through take their `cover` share, like trees do (`soak_cover`), whoever built them: they
+/// shelter every side. A shot that hits infantry standing
 /// in a trench loses the trench's share to the trench. Works within `rules.cover_grace` of the
 /// shooter do not count. What a work soaks up is damage to it, so cover is shot to pieces in time.
 #[allow(clippy::too_many_arguments)]
-fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, team: u8, map: &MapData, defs: &Defs, census: &Census, effects: &mut Effects) {
+fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, map: &MapData, defs: &Defs, census: &Census, effects: &mut Effects) {
     let grace = defs.rules.cover_grace;
     let seg = b - a;
     let seg2 = Vec2::new(seg.x, seg.z);
@@ -2832,7 +2851,7 @@ fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, te
     // (position along the stretch, work id, cover share)
     let mut cross: Vec<(f32, u32, f32)> = vec![];
     census.near(flat((a + b) * 0.5), seg2.length() * 0.5 + 4.0, |c| {
-        if !c.fieldwork || !c.done || c.hp <= 0.0 || c.id == p.target || !hostile(team, c.team) || c.pos.dist(p.from) - c.radius < grace {
+        if !c.fieldwork || !c.done || c.hp <= 0.0 || c.id == p.target || c.pos.dist(p.from) - c.radius < grace {
             return;
         }
         let Some((cover, _)) = defs.get(c.def).work().filter(|w| w.0 > 0.0 && w.1 <= 0.0) else { return };
@@ -2857,6 +2876,11 @@ fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, te
         p.damage -= soak;
         effects.damage.push((id, soak, p.dtype as usize));
     }
+}
+
+/// Share of splash an armored unit takes (`rules.splash_armored`); 1 for anything else.
+fn splash_armor(defs: &Defs, c: &Cen) -> f32 {
+    if !c.structure && defs.get(c.def).is_armored() { defs.rules.splash_armored } else { 1.0 }
 }
 
 /// Share of a blast's damage at distance `d` from its centre: all of it at the centre, fading in a
@@ -3211,10 +3235,9 @@ fn deaths(
             effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
         }
         census.near(pos, radius + 4.0, |c| {
-            let flat = (c.pos.dist(pos) - c.hit_r * 0.7).max(0.0);
-            let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
+            let d = c.hit_dist(pos.at(y));
             if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
-                effects.damage.push((c.id, damage * blast_share(d, radius), blast_type));
+                effects.damage.push((c.id, damage * blast_share(d, radius) * splash_armor(&defs, c), blast_type));
             }
         });
     }

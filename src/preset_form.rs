@@ -37,6 +37,8 @@ pub enum Kind {
     TagsFrom(Src),
     /// Three numbers (x, y, z).
     Vec3,
+    /// Three numbers, or absent = worked out by the game (the checkbox sets 1, 1, 1).
+    OptVec3,
     Color([f32; 3]),
 }
 
@@ -95,6 +97,8 @@ pub const RULE_COMBAT: &[Field] = &[
     num("armor_front", tx!("preset_rules.combat_armor_front"), 0.6, 10.0, tx!("preset_rules.combat_armor_front_tip")),
     num("armor_side", tx!("preset_rules.combat_armor_side"), 1.0, 10.0, tx!("preset_rules.combat_armor_side_tip")),
     num("armor_rear", tx!("preset_rules.combat_armor_rear"), 1.5, 10.0, tx!("preset_rules.combat_armor_rear_tip")),
+    num("splash_direct", tx!("preset_rules.combat_splash_direct"), 0.4, 1.0, tx!("preset_rules.combat_splash_direct_tip")),
+    num("splash_armored", tx!("preset_rules.combat_splash_armored"), 0.5, 1.0, tx!("preset_rules.combat_splash_armored_tip")),
 ];
 
 pub const RULE_INTEL: &[Field] = &[
@@ -172,6 +176,7 @@ pub const UNIT_GENERAL: &[Field] = &[
     f("desc", tx!("preset_units.general_desc"), Kind::Text, tx!("preset_units.general_desc_tip")),
     f("tier", tx!("preset_units.general_tier"), Kind::Int(0, 0, 9), tx!("preset_units.general_tier_tip")),
     num("hp", tx!("preset_units.general_hp"), 100.0, BIG, tx!("preset_units.general_hp_tip")),
+    num("regen", tx!("preset_units.general_regen"), 0.0, 1000.0, tx!("preset_units.general_regen_tip")),
     f("armor", tx!("preset_units.general_armor"), Kind::Pick(Src::Armor, false), tx!("preset_units.general_armor_tip")),
     f("categories", tx!("preset_units.general_categories"), Kind::TagsFrom(Src::Category), tx!("preset_units.general_categories_tip")),
     f("built_by", tx!("preset_units.general_built_by"), Kind::Pick(Src::BuildCat, true), tx!("preset_units.general_built_by_tip")),
@@ -192,8 +197,7 @@ pub const UNIT_COST: &[Field] = &[
 
 pub const UNIT_BODY: &[Field] = &[
     f("size", tx!("preset_units.body_size"), Kind::Vec3, tx!("preset_units.body_size_tip")),
-    f("hit_radius", tx!("preset_units.body_hit_radius"), Kind::OptNum(0.05, 100.0, 0.5), tx!("preset_units.body_hit_radius_tip")),
-    f("hit_height", tx!("preset_units.body_hit_height"), Kind::OptNum(0.05, 100.0, 1.0), tx!("preset_units.body_hit_height_tip")),
+    f("hit_box", tx!("preset_units.body_hit_box"), Kind::OptVec3, tx!("preset_units.body_hit_box_tip")),
     f("footprint", tx!("preset_units.body_footprint"), Kind::Int(0, 0, 64), tx!("preset_units.body_footprint_tip")),
     f("move.kind", tx!("preset_units.body_move_kind"), Kind::Choice(MOVE_KINDS, "none"), tx!("preset_units.body_move_kind_tip")),
     num("move.speed", tx!("preset_units.body_move_speed"), 0.0, 1000.0, tx!("preset_units.body_move_speed_tip")),
@@ -270,6 +274,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("damage", tx!("preset_weapons.damage"), 10.0, BIG, tx!("preset_weapons.damage_tip")),
     f("damage_type", tx!("preset_weapons.damage_type"), Kind::Pick(Src::DamageType, false), tx!("preset_weapons.damage_type_tip")),
     num("radius", tx!("preset_weapons.radius"), 0.0, 1000.0, tx!("preset_weapons.radius_tip")),
+    f("splash", tx!("preset_weapons.splash"), Kind::OptNum(0.0, 1.0, 0.4), tx!("preset_weapons.splash_tip")),
     num("range", tx!("preset_weapons.range"), 50.0, 10000.0, tx!("preset_weapons.range_tip")),
     num("min_range", tx!("preset_weapons.min_range"), 0.0, 10000.0, tx!("preset_weapons.min_range_tip")),
     num("reload", tx!("preset_weapons.reload"), 1.0, 3600.0, tx!("preset_weapons.reload_tip")),
@@ -287,6 +292,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("launch_pitch", tx!("preset_weapons.launch_pitch"), 0.0, 90.0, tx!("preset_weapons.launch_pitch_tip")),
     f("prefer", tx!("preset_weapons.prefer"), Kind::Choice(PRIORITIES, "none"), tx!("preset_weapons.prefer_tip")),
     no("snipe", tx!("preset_weapons.snipe"), tx!("preset_weapons.snipe_tip")),
+    no("suicide", tx!("preset_weapons.suicide"), tx!("preset_weapons.suicide_tip")),
     f("sound", tx!("preset_weapons.sound"), Kind::Pick(Src::Sound, true), tx!("preset_weapons.sound_tip")),
 ];
 
@@ -522,6 +528,31 @@ fn widget(ui: &mut egui::Ui, v: &mut Value, fd: &Field, ctx: &FormCtx, salt: &st
                 }
                 if changed {
                     out = Some(Some(Value::Array(xs.iter().map(|x| number(*x)).collect())));
+                }
+            });
+        }
+        Kind::OptVec3 => {
+            let mut on = cur.as_ref().map_or(false, |x| x.is_array());
+            let mut xs = [1.0f64; 3];
+            if let Some(a) = cur.as_ref().and_then(|x| x.as_array()) {
+                for (k, x) in a.iter().take(3).enumerate() {
+                    xs[k] = x.as_f64().unwrap_or(1.0);
+                }
+            }
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut on, tr!("preset_editor.own_value")).on_hover_text(tip).changed() {
+                    out = Some(on.then(|| Value::Array(xs.iter().map(|x| number(*x)).collect())));
+                }
+                if on {
+                    let mut changed = false;
+                    for x in xs.iter_mut() {
+                        changed |= ui.add(drag(x, 0.05, 1000.0)).on_hover_text(tip).changed();
+                    }
+                    if changed {
+                        out = Some(Some(Value::Array(xs.iter().map(|x| number(*x)).collect())));
+                    }
+                } else {
+                    ui.label(egui::RichText::new(tr!("preset_editor.default")).weak());
                 }
             });
         }

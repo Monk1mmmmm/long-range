@@ -111,6 +111,12 @@ fn armor_front() -> f32 {
 fn armor_rear() -> f32 {
     1.5
 }
+fn splash_direct() -> f32 {
+    0.4
+}
+fn splash_armored() -> f32 {
+    0.5
+}
 fn garrison_damage() -> f32 {
     0.04
 }
@@ -321,6 +327,15 @@ pub struct Rules {
     pub armor_side: f32,
     #[serde(default = "armor_rear")]
     pub armor_rear: f32,
+    /// Splash of direct-fire guns (weapons of kind `direct` without their own `splash`): the share
+    /// of the shell's damage a unit it did not hit takes at the centre of the blast (fading to
+    /// nothing at the edge). The unit hit directly always takes all of it.
+    #[serde(default = "splash_direct")]
+    pub splash_direct: f32,
+    /// Armored units (category `armored`, not structures) take this share of any splash: shell
+    /// blasts they were not hit by directly and death blasts.
+    #[serde(default = "splash_armored")]
+    pub splash_armored: f32,
     /// Switches for whole game features (the preset editor's "Switches" section).
     /// Engineers can level, raise and lower the ground.
     #[serde(default = "yes")]
@@ -619,9 +634,16 @@ pub struct WeaponDef {
     pub damage: f32,
     #[serde(default = "normal")]
     pub damage_type: String,
-    /// Blast radius, 0 = direct hits only. Damage fades from all at the centre to none at the edge.
+    /// Blast radius, 0 = direct hits only. The unit hit directly takes all the damage, others
+    /// around `splash` of it at the centre, fading to none at the edge.
     #[serde(default)]
     pub radius: f32,
+    /// Share of the damage the blast does to units not hit directly (at its centre). None = by
+    /// kind: `rules.splash_direct` for direct-fire guns, all of it for artillery, bombs and missiles.
+    #[serde(default)]
+    pub splash: Option<f32>,
+    #[serde(skip)]
+    pub splash_share: f32,
     pub range: f32,
     #[serde(default)]
     pub min_range: f32,
@@ -672,6 +694,10 @@ pub struct WeaponDef {
     /// the building alone; the weapon never shoots at buildings without enemy riders.
     #[serde(default)]
     pub snipe: bool,
+    /// Suicide drone: firing launches the unit itself at the target as a homing missile (a
+    /// straight dive from where it flies) and removes it, without a wreck or death blast.
+    #[serde(default)]
+    pub suicide: bool,
     /// Target priority: "armored" shoots units of category `armored` (tanks) first, "infantry" shoots
     /// infantry first; otherwise (or when none is in range) the nearest enemy.
     #[serde(default)]
@@ -753,16 +779,18 @@ pub struct UnitDef {
     #[serde(default)]
     pub tier: u8,
     pub hp: f32,
+    /// Hit points it heals by itself per second (troopers), up to `hp`. 0 = none.
+    #[serde(default)]
+    pub regen: f32,
     pub armor: String,
     pub cost: Cost,
     /// Collision box: width (x), height (y), length (z).
     pub size: [f32; 3],
-    /// What shots and blasts hit, where it is smaller (or bigger) than the body: radius and height.
-    /// Absent = from `size` / `footprint`.
+    /// What shots and blasts hit: a box turning with the unit, width (x), height (y), length (z),
+    /// standing on the unit's base and centred on it, measured from the model (gun barrels left out).
+    /// Absent = `size`.
     #[serde(default)]
-    pub hit_radius: Option<f32>,
-    #[serde(default)]
-    pub hit_height: Option<f32>,
+    pub hit_box: Option<[f32; 3]>,
     /// Structures: side length in grid cells.
     #[serde(default)]
     pub footprint: i32,
@@ -896,11 +924,9 @@ impl UnitDef {
     pub fn height(&self) -> f32 {
         self.size[1]
     }
-    pub fn hit_radius(&self) -> f32 {
-        self.hit_radius.unwrap_or(self.radius())
-    }
-    pub fn hit_height(&self) -> f32 {
-        self.hit_height.unwrap_or(self.height())
+    /// The box shots and blasts hit: width, height, length (`hit_box`, else `size`).
+    pub fn hit_box(&self) -> [f32; 3] {
+        self.hit_box.unwrap_or(self.size)
     }
     /// How far its radar finds a unit of this stealth level (0 = none): the largest range among
     /// the radar levels above it.
@@ -1260,6 +1286,7 @@ impl Defs {
                 w.dtype = rules.damage_types.iter().position(|d| *d == w.damage_type).ok_or(format!("{}: unknown damage type '{}'", u.id, w.damage_type))?;
                 w.hits_land = w.targets.iter().any(|t| t == "land");
                 w.hits_air = w.targets.iter().any(|t| t == "air");
+                w.splash_share = w.splash.unwrap_or(if w.kind == WeaponKind::Direct { rules.splash_direct } else { 1.0 }).max(0.0);
             }
             if let Some(b) = &u.build {
                 u.builds = snapshot
@@ -1275,8 +1302,8 @@ impl Defs {
             if !(u.hp > 0.0 && u.cost.time > 0.0) {
                 return Err(format!("{}: hp and cost.time must be above 0", u.id));
             }
-            if u.hit_radius.map_or(false, |r| !(r > 0.0)) || u.hit_height.map_or(false, |h| !(h > 0.0)) {
-                return Err(format!("{}: hit_radius and hit_height must be above 0", u.id));
+            if u.hit_box().iter().any(|x| !(*x > 0.0)) {
+                return Err(format!("{}: hit_box (or size, without one) must be above 0 in every direction", u.id));
             }
             // An upgrade happens in place: the occupancy grid and the unit's components stay.
             if let Some(t) = u.upgrade_id.map(|t| &snapshot[t as usize]) {

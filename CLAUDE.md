@@ -47,6 +47,7 @@ python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/mode
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
+python3 tools/model_bounds.py                             # model bounds of every unit vs its JSON size / hit_box
 .venv/bin/python tools/osm_map.py NAME --bbox S,W,N,E      # map of a real place (OSM + terrain tiles) -> assets/maps/NAME, see tools/README.md
 .venv/bin/python tools/scmap_map.py "<FA maps>/<map folder>" NAME [--size 512] [--variants 4,6]   # port a SupCom map (.scmap + _save.lua) -> assets/maps/NAME, NAME_<k>p
 # The converters need numpy + Pillow: they live in the project venv (python3 -m venv .venv; .venv/bin/pip install numpy pillow).
@@ -235,7 +236,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Ballistics**: every shot is a projectile entity with 3D position/velocity under gravity
   (`rules.json: gravity`). Weapon kinds: `direct` (needs clear line of fire, leads the target), `arc`,
   `high_arc` (indirect, raise their charge to reach), `missile` (homing, limited turn rate), `bomb`.
-  Hits are resolved against terrain and unit cylinders, so shots miss, fall short or hit hills.
+  Hits are resolved against terrain and unit hit boxes, so shots miss, fall short or hit hills. A hit box
+  (`hit_box: [w, h, l]` in the unit JSON, default `size`) turns with the unit and stands on its base (reaching
+  `sim::HIT_BELOW` under it for slopes); the numbers are the model's bounds without gun barrels
+  (`python3 tools/model_bounds.py` prints them next to the JSON; troopers, commander, watch tower and Stork were set by
+  hand; aircraft have at least 0.6 in every direction, on request, so guns still hit them). Shells: `Cen::hit_seg`; blasts and missile fuzes: `Cen::hit_dist`; line-of-fire obstacles use the circle
+  `Cen::hit_r` around the box.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 - **Line of fire** (direct fire, `systems::Lane`): a gun follows the shell's real arc (with a spread allowance)
   and fires only if it reaches the target before the ground, water, a building other than the target, or an own
@@ -260,6 +266,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   and by how flat it flies (`systems::armor_angle`: the squared cosine of the descent angle, so steep mortar rounds
   count the angle little, one falling straight down not at all). Applied to `p.damage` at the hit, before the blast.
   `--combattest` infantry "Armor angle": a Crony on an Overtaker does 481 head on, 801 to the side, 1199 from behind.
+- **Splash** (`rules.splash_direct` 0.4, `rules.splash_armored` 0.5, weapon `splash`): a shell with a blast radius does all
+  its damage to the unit it hits directly; units it did not hit take `splash` of it at the blast centre, fading linearly to
+  none at the edge. `splash` defaults to `splash_direct` for `direct` weapons, 1 for artillery, bombs and missiles.
+  Armored units (not structures) take `splash_armored` of any splash, death blasts included. `--combattest` "Splash" line.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
   over terrain (`map.los`).
 - **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; Trooper and Sniper Trooper: 140, 20 deg):
@@ -319,6 +329,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   least 0.7 tall) on the far side from the closest known armed enemy within `cover_threat_range`, within
   `cover_search` of `Mover.anchor` (0.6x of it around themselves when fighting). Re-chosen every 5 ticks and
   kept in `Mover.cover`; a new order or Stop clears it (Stop also moves the anchor to where they stand).
+  Field works are cover for every side: anybody's sandbags soak shots from anybody (`soak_works`, except within
+  `cover_grace` of the shooter) and infantry hide behind any sandbags; any trench shelters whoever stands in it.
+  Right-clicking a trench piece no enemy infantry hold (`hud::Frame::trench_spots`) spreads the selected infantry
+  over the whole joined trench, one per piece (`hud::spread`: evenly when fewer men than pieces, pieces our other
+  men hold left to them); the rest of the selection moves to the click.
 - **Garrisons**: a structure with a `transport` block (`UnitDef::is_garrison`; most civilian houses, civic and
   industrial buildings, the bunker) takes infantry only (`Order::Load(building)`, right-click a neutral or own
   building). Riders keep `Hosted`, can't be targeted, fire from the roof (`weapons` takes hosted riders of a
@@ -359,6 +374,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Mobile anti-air beyond the T1 MBFAG (requested; there is no T3 SAM trooper, only the T2 one): T2 Hailstorm
   (`flak_carrier`, Dragoon mesh, airburst flak bursts, air only) and T3 Skylance (`mobile_sam`, Robin mesh, own level-2
   radar, heavy homing missile, air only). `--combattest` air: 2 Hornets beat the MBFAG and narrowly the Hailstorm, the Skylance downs both.
+  The T1 Porter interceptor was weakened on request (damage 25 -> 22, turn 85 -> 80) so that T2 Harrier fighter-bombers
+  beat as many Porters (`--combattest` air: 1v1 to 4v4, all won), while 3 Porters (same mass) still beat 2 Harriers.
 - **Energy stall**: upkeep and construction share energy proportionally (`build_progress`, `Player.power`);
   pumps produce at that fraction, radars cut out below 0.5. `Paused` (Tab / `Command::Pause`) switches a
   unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
@@ -376,7 +393,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit directly (`projectiles`, `PROJ_MISSILE`) uses up a charge and loses `block` of its damage, with a small blast.
   Charges left are the `Reactive` component (in `unit_state!`); `build_progress` puts them all back when a repair
   brings the unit to full health. `--combattest` infantry "Reactive armor" line. The Bastion (requested T3 tank against
-  AT infantry) is the Crony mesh at 1.3x, 1400 hp, MediumTank armor.
+  AT infantry) is the Crony mesh at 1.3x, 800 hp, 1300 mass / 12000 energy, MediumTank armor.
+- **Suicide drones** (weapon `suicide: true`, with `ammo: 1`; the T2 Dove): when the weapon fires, the unit itself is
+  launched at the target as a homing missile (a straight dive from where it flies, `solve`/`fire`) and removed
+  quietly (`Effects.reclaimed`: no wreck, no death blast). The Dove: 70 mass, 40 hp, speed 5.5, altitude 6, a 180
+  Explosive / radius 4 warhead, range 14; the AI treats it as a bomber. `--combattest` air "Doves" lines: 4 kill an
+  Overtaker unopposed; with a radar tower an MBFAG downs 4 of 6, a T1 AA turret all 6.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
 - **Game browser** (main menu "Join game" -> `Screen::Browse`, `main.rs::browser_ui`): a table of the games found by UDP

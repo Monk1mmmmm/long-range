@@ -64,6 +64,36 @@ impl HudAssets {
     }
 }
 
+/// `k` of the points `pts` (fewer than there are) spread evenly over them: the first is the one
+/// furthest from their middle (an end of a line), each next the one furthest from those taken,
+/// then a few rounds of moving each to the middle point (medoid) of the points nearest to it.
+fn spread(pts: &[V2], k: usize) -> Vec<V2> {
+    let mid = pts.iter().fold(v2(0.0, 0.0), |a, p| a + *p) * (1.0 / pts.len() as f32);
+    let far = |from: &dyn Fn(V2) -> f32| (0..pts.len()).max_by(|a, b| from(pts[*a]).total_cmp(&from(pts[*b]))).unwrap();
+    let mut pick = vec![far(&|p| p.dist(mid))];
+    while pick.len() < k {
+        pick.push(far(&|p| pick.iter().map(|i| p.dist(pts[*i])).fold(f32::MAX, f32::min)));
+    }
+    for _ in 0..8 {
+        let owner: Vec<usize> = pts.iter().map(|p| (0..k).min_by(|a, b| p.dist(pts[pick[*a]]).total_cmp(&p.dist(pts[pick[*b]]))).unwrap()).collect();
+        let mut moved = false;
+        for c in 0..k {
+            let group: Vec<usize> = (0..pts.len()).filter(|i| owner[*i] == c).collect();
+            let cost = |m: usize| group.iter().map(|i| pts[*i].dist(pts[m])).sum::<f32>();
+            if let Some(best) = group.iter().copied().min_by(|a, b| cost(*a).total_cmp(&cost(*b))) {
+                if best != pick[c] && cost(best) + 1e-3 < cost(pick[c]) && !pick.contains(&best) {
+                    pick[c] = best;
+                    moved = true;
+                }
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
+    pick.into_iter().map(|i| pts[i]).collect()
+}
+
 /// Can a `rider` get into `host`? Transports take whatever is carriable, buildings infantry only.
 fn rides_in(rider: &UnitDef, host: &UnitDef) -> bool {
     host.transport.is_some() && carriable(rider) && (!host.is_garrison() || rider.is_infantry())
@@ -141,6 +171,9 @@ enum Context {
     Wreck { reclaim: Vec<u32>, revive: Vec<u32>, id: u32 },
     /// A tree or rock.
     Feature(Vec<u32>, u32),
+    /// An own trench: the infantry spread out along it (unit ids and their spots), the rest of
+    /// the selection moves to the click.
+    Trench(Vec<u32>, Vec<V2>),
     Move,
 }
 
@@ -254,6 +287,70 @@ impl Frame<'_> {
         units.iter().filter(|u| self.d(u.def).assault > 0.0 && rides_in(self.d(u.def), hd)).map(|u| u.id).collect()
     }
 
+    /// Right-click on a finished trench piece (anybody's: trenches shelter whoever stands in them)
+    /// that no enemy infantry hold: the selected infantry spread out over the whole trench (every
+    /// such piece joined to it, diagonals too), one per piece, evenly over its
+    /// length when there are fewer men than pieces, and pieces that other men of ours already
+    /// hold left to them while there are enough free ones. None when no infantry is selected.
+    fn trench_spots(&self, s: &Seen, units: &[&Info]) -> Option<(Vec<u32>, Vec<V2>)> {
+        let enemy_in = |p: V2| {
+            self.seen.iter().any(|o| {
+                o.enemy && o.contact == Contact::Visible && (o.pos.x - p.x).abs() <= CELL * 0.5 && (o.pos.y - p.y).abs() <= CELL * 0.5 && o.def.is_some_and(|d| self.d(d).is_infantry())
+            })
+        };
+        let is_piece = |s: &Seen| {
+            s.contact == Contact::Visible
+                && s.def.and_then(|d| self.d(d).work()).is_some_and(|w| w.1 > 0.0)
+                && self.infos.get(&s.id).is_some_and(|i| i.built.is_none() && i.hp > 0.0)
+                && !enemy_in(s.pos)
+        };
+        if !is_piece(s) {
+            return None;
+        }
+        let men: Vec<&Info> = units.iter().copied().filter(|u| {
+            let d = self.d(u.def);
+            d.is_infantry() && !d.is_structure() && !d.is_plane()
+        }).collect();
+        if men.is_empty() {
+            return None;
+        }
+        // The trench: every piece reached from the clicked one in steps of one cell.
+        let all: Vec<V2> = self.seen.iter().filter(|o| is_piece(o)).map(|o| o.pos).collect();
+        let mut pieces = vec![s.pos];
+        let mut open = vec![s.pos];
+        let mut left: Vec<V2> = all.into_iter().filter(|p| p.dist(s.pos) > 0.1).collect();
+        while let Some(p) = open.pop() {
+            if pieces.len() >= 1000 {
+                break;
+            }
+            let (near, far): (Vec<V2>, Vec<V2>) = left.into_iter().partition(|q| (q.x - p.x).abs() < CELL * 1.5 && (q.y - p.y).abs() < CELL * 1.5);
+            left = far;
+            pieces.extend(&near);
+            open.extend(near);
+        }
+        pieces.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+        // Pieces our other infantry already stand in.
+        let picked: Vec<u32> = men.iter().map(|u| u.id).collect();
+        let held = |p: V2| {
+            self.infos.values().any(|o| {
+                self.game.team_of(o.owner) == self.team && o.host == 0 && !picked.contains(&o.id) && self.d(o.def).is_infantry() && (o.pos.x - p.x).abs() <= CELL * 0.5 && (o.pos.y - p.y).abs() <= CELL * 0.5
+            })
+        };
+        let free: Vec<V2> = pieces.iter().copied().filter(|p| !held(*p)).collect();
+        let pool = if free.len() >= men.len() { free } else { pieces };
+        let n = men.len();
+        let spots: Vec<V2> = if n >= pool.len() {
+            (0..n).map(|k| pool[k % pool.len()]).collect()
+        } else if n == 1 {
+            vec![*pool.iter().min_by(|a, b| a.dist(s.pos).total_cmp(&b.dist(s.pos))).unwrap()]
+        } else {
+            spread(&pool, n)
+        };
+        let from: Vec<V2> = men.iter().map(|u| u.pos).collect();
+        let asg = assign(&from, &spots);
+        Some((men.iter().map(|u| u.id).collect(), asg.iter().map(|k| spots[*k]).collect()))
+    }
+
     fn formation(&self, units: &[&Info], path: &[V2]) -> Vec<V2> {
         let n = units.len();
         if n == 0 {
@@ -342,6 +439,10 @@ impl Frame<'_> {
         let units = self.selected(view);
         if let Some(h) = hover {
             let s = &self.seen[h];
+            // A trench nobody hostile holds, whoever dug it: our infantry man it.
+            if let Some((ids, spots)) = self.trench_spots(s, &units) {
+                return Context::Trench(ids, spots);
+            }
             if s.enemy {
                 // A building enemy infantry hold: our infantry storm it.
                 let inf = self.stormers(&units, s);
@@ -465,6 +566,61 @@ impl Frame<'_> {
         out
     }
 
+    /// Pieces of a field work (sandbags, trench) along a line drawn with the right mouse button:
+    /// every cell the stroke passes through, in drawing order, as one unbroken chain (a diagonal
+    /// step gets a piece in the corner nearer the stroke). Cells the stroke comes back to are not
+    /// queued twice.
+    fn fieldwork_path(&self, d: DefId, path: &[V2]) -> Vec<V2> {
+        let step = self.d(d).footprint.max(1) as f32 * CELL;
+        let mut out: Vec<V2> = vec![];
+        let mut last: Option<V2> = None;
+        let add = |out: &mut Vec<V2>, p: V2| {
+            if !out.contains(&p) && out.len() < 200 {
+                out.push(p);
+            }
+        };
+        let mut visit = |s: V2, out: &mut Vec<V2>| {
+            let p = snap(self.defs, self.map, d, s);
+            match last {
+                Some(l) if l == p => return,
+                Some(l) if l.x != p.x && l.y != p.y => {
+                    let (c1, c2) = (v2(p.x, l.y), v2(l.x, p.y));
+                    add(out, if c1.dist(s) <= c2.dist(s) { c1 } else { c2 });
+                }
+                _ => {}
+            }
+            add(out, p);
+            last = Some(p);
+        };
+        let Some(first) = path.first() else { return out };
+        visit(*first, &mut out);
+        for w in path.windows(2) {
+            let n = (w[0].dist(w[1]) / (step * 0.2)).ceil().max(1.0) as usize;
+            for k in 1..=n {
+                visit(w[0] + (w[1] - w[0]) * (k as f32 / n as f32), &mut out);
+            }
+        }
+        out
+    }
+
+    /// The selected engineers that can build `d`.
+    fn builders_of(&self, view: &ViewState, d: DefId) -> Vec<&Info> {
+        self.selected(view).into_iter().filter(|u| self.d(u.def).is_engineer() && self.d(u.def).builds.contains(&d)).collect()
+    }
+
+    /// Build orders for every placeable spot, in the given order (the first replaces the queue
+    /// unless `shift`).
+    fn order_build(&self, builders: &[&Info], d: DefId, spots: &[V2], occ: &[u8], shift: bool, out: &mut Vec<Command>) {
+        let ids: Vec<u32> = builders.iter().map(|u| u.id).collect();
+        let mut first = true;
+        for pt in spots {
+            if can_place(self.defs, self.map, occ, d, *pt) {
+                out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Build { def: d, pos: *pt }], queue: shift || !first });
+                first = false;
+            }
+        }
+    }
+
     fn hover(&self, over_hud: bool) -> Option<usize> {
         if over_hud {
             return None;
@@ -481,6 +637,101 @@ impl Frame<'_> {
         }
         best.map(|b| b.1)
     }
+}
+
+/// Can a unit of type `d` carry out `o`? (Mirrors what `apply_commands` accepts.)
+fn can_do(d: &UnitDef, o: &Order) -> bool {
+    match o {
+        Order::Build { def, .. } => d.is_engineer() && d.builds.contains(def),
+        Order::Capture(_) | Order::Terraform { .. } => d.is_engineer(),
+        Order::Revive(_) | Order::ReviveArea { .. } => d.is_scavenger(),
+        Order::Reclaim(_) | Order::ReclaimArea { .. } => d.is_engineer() || d.is_scavenger(),
+        Order::Attack(_) | Order::AttackGround { .. } => d.armed() && !d.is_scavenger(),
+        Order::Load(_) | Order::LoadArea { .. } | Order::Unload { .. } => d.transport.is_some() && !d.is_garrison(),
+        Order::Assist(_) | Order::Move(_) | Order::AttackMove(_) | Order::Patrol(_) => true,
+    }
+}
+
+/// FAF's "distribute orders" (Ctrl+R): the orders queued on the selected units, each taken once, are
+/// shared out among them so that every unit gets a run of orders lying near each other and about the
+/// same number (engineers given ten extractors at once each build a few instead of all walking to every
+/// one). Only units able to carry out an order get it. With more units than orders the spare units
+/// take the list of the nearest unit that got one (and so help build, reclaim, fight there). Patrol
+/// routes are a loop of their own and are left out. Returns the commands, first order replacing the
+/// queue, the rest appended.
+fn distribute_orders(defs: &Defs, map: &MapData, infos: &HashMap<u32, Info>, wrecks: &[(u32, V2, f32, f32)], sel: &[u32]) -> Vec<Command> {
+    let mut units: Vec<&Info> = sel.iter().filter_map(|id| infos.get(id)).filter(|u| u.host == 0 && u.built.is_none() && !defs.get(u.def).is_structure()).collect();
+    units.sort_by_key(|u| u.id);
+    let mut pool: Vec<Order> = vec![];
+    for u in &units {
+        for o in &u.orders {
+            if !matches!(o, Order::Patrol(_)) && !pool.contains(o) {
+                pool.push(*o);
+            }
+        }
+    }
+    units.retain(|u| pool.iter().any(|o| can_do(defs.get(u.def), o)));
+    if pool.is_empty() || units.is_empty() {
+        return vec![];
+    }
+    let at = |o: &Order, fallback: V2| -> V2 {
+        let by_id = |id: u32| {
+            if is_feature(id) {
+                map.features.get((id - FEATURE_ID0) as usize).map(|f| f.pos)
+            } else {
+                infos.get(&id).map(|u| u.pos).or_else(|| wrecks.iter().find(|w| w.0 == id).map(|w| w.1))
+            }
+        };
+        match *o {
+            Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) => p,
+            Order::Build { pos, .. }
+            | Order::AttackGround { pos, .. }
+            | Order::ReclaimArea { pos, .. }
+            | Order::ReviveArea { pos, .. }
+            | Order::Terraform { pos, .. }
+            | Order::LoadArea { pos, .. }
+            | Order::Unload { pos, .. } => pos,
+            Order::Attack(id) | Order::Assist(id) | Order::Reclaim(id) | Order::Capture(id) | Order::Revive(id) | Order::Load(id) => by_id(id).unwrap_or(fallback),
+        }
+    };
+    let cap = pool.len().div_ceil(units.len());
+    let mut lists: Vec<Vec<Order>> = vec![vec![]; units.len()];
+    let mut ends: Vec<V2> = units.iter().map(|u| u.pos).collect();
+    for o in &pool {
+        // The unit whose last order (or its position) is nearest, among those below their share.
+        let best = (0..units.len())
+            .filter(|k| can_do(defs.get(units[*k].def), o))
+            .min_by(|a, b| {
+                let key = |k: usize| (lists[k].len() >= cap, ends[k].dist(at(o, ends[k])));
+                let (ka, kb) = (key(*a), key(*b));
+                ka.0.cmp(&kb.0).then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
+            });
+        if let Some(k) = best {
+            ends[k] = at(o, ends[k]);
+            lists[k].push(*o);
+        }
+    }
+    let shared = lists.clone();
+    for k in 0..units.len() {
+        if !lists[k].is_empty() {
+            continue;
+        }
+        let d = defs.get(units[k].def);
+        let near = (0..units.len())
+            .map(|j| (j, shared[j].iter().copied().filter(|o| can_do(d, o)).collect::<Vec<Order>>()))
+            .filter(|(_, l)| !l.is_empty())
+            .min_by(|a, b| units[a.0].pos.dist(units[k].pos).partial_cmp(&units[b.0].pos.dist(units[k].pos)).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some((_, l)) = near {
+            lists[k] = l;
+        }
+    }
+    let rounds = lists.iter().map(|l| l.len()).max().unwrap_or(0);
+    (0..rounds)
+        .filter_map(|r| {
+            let (ids, orders): (Vec<u32>, Vec<Order>) = (0..units.len()).filter(|k| lists[*k].len() > r).map(|k| (units[k].id, lists[k][r])).unzip();
+            (!ids.is_empty()).then_some(Command::Orders { ids, orders, queue: r > 0 })
+        })
+        .collect()
 }
 
 /// FAF-style hotbuild class of a unit: which key builds it in the alternative preset.
@@ -942,17 +1193,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 let radius = start.dist(ground);
                 match view.mode {
                     Mode::Place(d) => {
-                        let builders: Vec<&Info> = fr.selected(view).into_iter().filter(|u| fr.d(u.def).is_engineer() && fr.d(u.def).builds.contains(&d)).collect();
+                        let builders = fr.builders_of(view, d);
                         if !builders.is_empty() {
                             let from = builders.iter().fold(v2(0.0, 0.0), |a, u| a + u.pos) * (1.0 / builders.len() as f32);
-                            let ids: Vec<u32> = builders.iter().map(|u| u.id).collect();
-                            let mut first = true;
-                            for pt in fr.build_spots(d, start, ground, &occ, from, ctrl) {
-                                if can_place(defs, map, &occ, d, pt) {
-                                    out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Build { def: d, pos: pt }], queue: shift || !first });
-                                    first = false;
-                                }
-                            }
+                            fr.order_build(&builders, d, &fr.build_spots(d, start, ground, &occ, from, ctrl), &occ, shift, out);
                         }
                     }
                     Mode::Assist => {
@@ -1129,7 +1373,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
         }
         if rmb_down && !over_hud {
-            if view.mode != Mode::None {
+            if let Mode::Place(d) = view.mode.clone() {
+                // Field works: a line drawn with the right button, like a move order, becomes a
+                // chain of pieces along it (a plain right-click still leaves build mode).
+                if fr.d(d).is_fieldwork() && !fr.builders_of(view, d).is_empty() {
+                    view.drag_start = None;
+                    view.path = vec![ground];
+                    view.pathing = Some(2);
+                } else {
+                    view.mode = Mode::None;
+                    view.drag_start = None;
+                    view.pathing = None;
+                }
+            } else if view.mode != Mode::None {
                 view.mode = Mode::None;
                 view.drag_start = None;
                 view.pathing = None;
@@ -1140,6 +1396,20 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         if view.pathing.is_some() && view.path.len() < 500 && view.path.last().map_or(false, |l| l.dist(ground) > 0.8) {
             view.path.push(ground);
+        }
+        if rmb_up && view.pathing == Some(2) {
+            view.pathing = None;
+            let path = std::mem::take(&mut view.path);
+            match view.mode.clone() {
+                Mode::Place(d) if path_len(&path) >= 1.0 => {
+                    let builders = fr.builders_of(view, d);
+                    fr.order_build(&builders, d, &fr.fieldwork_path(d, &path), &occ, shift, out);
+                    if !shift {
+                        view.mode = Mode::None;
+                    }
+                }
+                _ => view.mode = Mode::None,
+            }
         }
         if rmb_up && view.pathing == Some(1) {
             view.pathing = None;
@@ -1164,6 +1434,13 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         }
                     }
                     Context::Feature(ids, id) => out.push(order(ids, Order::Reclaim(id))),
+                    Context::Trench(ids, spots) => {
+                        let rest: Vec<u32> = units.iter().filter(|u| !ids.contains(&u.id) && !fr.d(u.def).is_structure()).map(|u| u.id).collect();
+                        out.push(Command::Orders { ids, orders: spots.into_iter().map(Order::Move).collect(), queue: shift });
+                        if !rest.is_empty() {
+                            out.push(order(rest, Order::Move(ground)));
+                        }
+                    }
                     Context::Move => fr.order_move(view, &[ground], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out),
                 }
             }
@@ -1240,6 +1517,30 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             if jp(KeyCode::KeyK) && has_sel {
                 out.push(Command::SelfDestruct { ids: view.sel.clone() });
+            }
+            // FAF: share the queued orders of the selection out among it.
+            if jp(KeyCode::KeyR) && has_sel {
+                out.extend(distribute_orders(defs, map, &infos, &wrecks, &view.sel));
+            }
+        }
+        // FAF: "/" selects the nearest (to the pointer) extractor of the lowest tier one has, preferring those
+        // that can still be upgraded and are not upgrading yet; Shift+/ adds the next nearest one.
+        if jp(KeyCode::Slash) && !ctrl {
+            let mexes: Vec<&Info> = infos
+                .values()
+                .filter(|u| u.owner == me && u.built.is_none() && u.host == 0 && defs.get(u.def).needs_deposit && defs.get(u.def).is_structure())
+                .filter(|u| !shift || !view.sel.contains(&u.id))
+                .collect();
+            let rank = |u: &Info| (u.upg.is_some() || defs.get(u.def).upgrade_id.is_none(), defs.get(u.def).tier);
+            if let Some(low) = mexes.iter().map(|u| rank(u)).min() {
+                let pick = mexes.iter().filter(|u| rank(u) == low).min_by(|a, b| (a.pos.dist(ground), a.id).partial_cmp(&(b.pos.dist(ground), b.id)).unwrap_or(std::cmp::Ordering::Equal));
+                if let Some(m) = pick {
+                    if shift {
+                        view.sel.push(m.id);
+                    } else {
+                        view.sel = vec![m.id];
+                    }
+                }
             }
         }
         if ctrl && shift {
@@ -1503,8 +1804,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let from = selected.first().map_or(ground, |u| u.pos);
             let spots = match view.drag_start {
                 Some(a) => fr.build_spots(d, a, ground, &occ, from, ctrl),
+                None if view.pathing == Some(2) => fr.fieldwork_path(d, &view.path),
                 None => vec![snap(defs, map, d, ground)],
             };
+            if view.pathing == Some(2) && view.path.len() > 1 {
+                g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.35)), preview);
+            }
             if let (Some(a), true) = (view.drag_start, df.needs_deposit) {
                 ring(g, map, a, a.dist(ground), preview);
             }
@@ -1552,7 +1857,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         _ => {}
     }
-    if view.pathing.is_some() && path_len(&view.path) >= 2.5 {
+    if matches!(view.pathing, Some(0 | 1)) && path_len(&view.path) >= 2.5 {
         let c = if view.pathing == Some(0) || alt { Color::srgba(1.0, 0.45, 0.3, 1.0) } else { Color::srgba(0.3, 0.9, 1.0, 1.0) };
         g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.35)), c);
         let movers: Vec<&Info> = selected.iter().copied().filter(|u| !fr.d(u.def).is_structure() && !fr.d(u.def).is_plane()).collect();
@@ -2475,6 +2780,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 Context::Assist(..) => Some(CursorKind::Assist),
                 Context::Wreck { reclaim, .. } => Some(if reclaim.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
                 Context::Feature(..) => Some(CursorKind::Reclaim),
+                Context::Trench(..) => Some(CursorKind::Load),
                 // Only buildings that cannot move or set a rally point: nothing to do.
                 Context::Move if fr.selected(view).iter().all(|u| fr.d(u.def).is_structure() && !fr.d(u.def).is_factory()) && fr.garrison_riders(view).is_empty() => None,
                 Context::Move => Some(if alt { CursorKind::AttackMove } else { CursorKind::Move }),
@@ -2523,6 +2829,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         Mode::Load => tr!("hud_orders.hint_board").to_string(),
         Mode::Unload => tr!("hud_orders.hint_unload").to_string(),
         Mode::Place(d) if fr.d(d).needs_deposit => tr!("hud_orders.hint_build_deposit", unit_name(fr.d(d))),
+        Mode::Place(d) if fr.d(d).is_fieldwork() => tr!("hud_orders.hint_build_fieldwork", unit_name(fr.d(d))),
         Mode::Place(d) => tr!("hud_orders.hint_build", unit_name(fr.d(d))),
         Mode::None => String::new(),
     };
@@ -2562,6 +2869,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if faf { tr!("hud_help.s_artillery_d_anti_air_y") } else { tr!("hud_help.ctrl_k_self_destruct_shift_0") },
             tr!("hud_help.select_ctrl_a_air_ctrl_d"),
             tr!("hud_help.ctrl_shift_d_a_nearest_land"),
+            tr!("hud_help.ctrl_r_distribute"),
             tr!("hud_help.build_menu_click_then_click_the"),
             tr!("hud_help.factory_menu_left_click_queues"),
             tr!("hud_help.ctrl_0_9_set_group_0"),
