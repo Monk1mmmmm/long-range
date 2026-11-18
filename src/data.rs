@@ -39,6 +39,9 @@ fn eye_height() -> f32 {
 fn one() -> f32 {
     1.0
 }
+fn albedo_brightness() -> f32 {
+    2.1
+}
 fn one_u8() -> u8 {
     1
 }
@@ -719,6 +722,10 @@ pub struct ModelDef {
     pub normal: Option<String>,
     #[serde(default = "one")]
     pub scale: f32,
+    /// Multiplier on the albedo texture's colours. The mod's textures are dark (default 2.1);
+    /// textures painted for this game (`tools/blend.py`) use 1.
+    #[serde(default = "albedo_brightness")]
+    pub brightness: f32,
     #[serde(default)]
     pub spin: Vec<SpinDef>,
     #[serde(default)]

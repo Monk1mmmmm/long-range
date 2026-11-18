@@ -43,6 +43,7 @@ cargo run --bin lr-editor -- --scatter NAME [SEED] [AMOUNT]   # add trees and ro
 cargo run --bin lr-editor -- --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
+python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/models/NAME.glb + textures (needs Blender; tools/README.md)
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
@@ -504,7 +505,11 @@ unfold while `Builder.work`), `doors` (eng station: open to the middle while wor
 `water` (engineers, Sparky: ground under them below the water level), `rolloff` (air factory platform: out, hold,
 back when `Factory.building` changes; SupCom only does it for land units). `models::tests` loads every GLB.
 Wrecks (`spawn_model` with a wreck material) get no animated, aimed or spinning parts: rest pose, still.
-The mod ships no commander or radar tower model: the commander reuses the trooper mesh at 3x scale; the radar tower
+Models made in Blender go through `tools/blend.py` (`blend_export.py` runs inside Blender): objects are parts,
+actions named like the `AnimKind`s are animations, materials named team/light/dark/metal take that flat colour
+(`models::prim_mat`; other materials keep their colour when the unit has no albedo texture), an object with several
+materials becomes one part per primitive. `ModelDef.brightness` multiplies the albedo (2.1 default for the mod's dark
+textures, 1 for ours). The mod ships no commander or radar tower model: the commander reuses the trooper mesh at 3x scale; the radar tower
 and the APC are JSON box models. The Stork uses the mod's hooked stock UEF transport (UEA0104, blueprint scale).
 
 ## Not done yet / ideas
