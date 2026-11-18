@@ -3501,8 +3501,9 @@ fn fieldwork_tests(defs: &Defs) {
         let (mut app, map) = new_world();
         let world = app.world_mut();
         let at = v2(131.0, 101.0);
-        // Sandbags stand between the trooper and the enemy to the east.
-        let w = work.map(|n| spawn(world, &map, n, 0, if n == "sandbags" { at + v2(2.0, 0.0) } else { at }, 0.0));
+        // Sandbags stand between the trooper and the enemy to the east. They are the enemy's own:
+        // sandbags shelter every side.
+        let w = work.map(|n| if n == "sandbags" { spawn(world, &map, n, 1, at + v2(2.0, 0.0), 0.0) } else { spawn(world, &map, n, 0, at, 0.0) });
         if let Some(w) = w {
             set_hp(world, w, 1.0e5);
         }
@@ -3578,6 +3579,24 @@ fn fieldwork_tests(defs: &Defs) {
         let filled = pieces.iter().filter(|p| at.iter().any(|a| a.dist(**p) < 0.6)).count();
         println!("== Trench: 2 idle troopers near 2 pieces stand in {filled} of them");
         assert!(filled == 2, "infantry man the trench");
+    }
+
+    // 4b. An idle trooper with enemies in sight walks behind a sandbag piece near by (anybody's).
+    {
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let bags = v2(131.0, 101.0);
+        spawn(world, &map, "sandbags", 1, bags, 0.0);
+        let t = spawn(world, &map, "trooper", 0, v2(125.0, 103.0), 0.0);
+        set_hp(world, t, 1.0e6);
+        let foes: Vec<u32> = (0..2).map(|i| spawn(world, &map, "trooper", 1, v2(145.0, 99.0 + i as f32 * 4.0), 3.14)).collect();
+        for f in &foes {
+            set_hp(world, *f, 1.0e6);
+        }
+        run(world, 150);
+        let p = body(world, t).unwrap().0;
+        println!("== Sandbag cover: an idle trooper under fire moved to ({:.1}, {:.1}), the sandbags stand at ({:.0}, {:.0})", p.x, p.y, bags.x, bags.y);
+        assert!(p.x < bags.x - 1.0 && p.dist(bags) < 2.5, "infantry hide behind sandbags");
     }
 
     // 5. Bombed out: a mortar shelling sandbags and a trench destroys both.

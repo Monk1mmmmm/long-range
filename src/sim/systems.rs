@@ -1413,7 +1413,7 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
             consider(s.pos, s.radius, s.height);
         }
     });
-    // Sandbags.
+    // Sandbags (anybody's: they shelter every side).
     census.near(anchor, search + 3.0, |c| {
         if c.fieldwork && c.done && c.hp > 0.0 && defs.get(c.def).work().map_or(false, |w| w.0 > 0.05 && w.1 <= 0.0) {
             consider(c.pos, c.radius, c.height);
@@ -2670,7 +2670,7 @@ fn projectiles(
         }
         // Cover: trees, rocks and wrecks the shot flies through on the way soak up part of it.
         soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
-        soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, team, &map, &defs, &census, &mut effects);
+        soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, &map, &defs, &census, &mut effects);
         let w = map.world();
         let Some((at, victim)) = hit else {
             if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > w + 20.0 || b.z > w + 20.0 {
@@ -2815,13 +2815,13 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
     }
 }
 
-/// Built cover (field works) in the way of a shot flying from `a` to `b` this tick. Sandbags of a
-/// side hostile to the shooter that it flies through take their `cover` share, like trees do
-/// (`soak_cover`; a side's own shots pass over its own works). A shot that hits infantry standing
+/// Built cover (field works) in the way of a shot flying from `a` to `b` this tick. Sandbags it
+/// flies through take their `cover` share, like trees do (`soak_cover`), whoever built them: they
+/// shelter every side. A shot that hits infantry standing
 /// in a trench loses the trench's share to the trench. Works within `rules.cover_grace` of the
 /// shooter do not count. What a work soaks up is damage to it, so cover is shot to pieces in time.
 #[allow(clippy::too_many_arguments)]
-fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, team: u8, map: &MapData, defs: &Defs, census: &Census, effects: &mut Effects) {
+fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, map: &MapData, defs: &Defs, census: &Census, effects: &mut Effects) {
     let grace = defs.rules.cover_grace;
     let seg = b - a;
     let seg2 = Vec2::new(seg.x, seg.z);
@@ -2832,7 +2832,7 @@ fn soak_works(p: &mut Projectile, a: Vec3, b: Vec3, hit: Option<(Vec3, u32)>, te
     // (position along the stretch, work id, cover share)
     let mut cross: Vec<(f32, u32, f32)> = vec![];
     census.near(flat((a + b) * 0.5), seg2.length() * 0.5 + 4.0, |c| {
-        if !c.fieldwork || !c.done || c.hp <= 0.0 || c.id == p.target || !hostile(team, c.team) || c.pos.dist(p.from) - c.radius < grace {
+        if !c.fieldwork || !c.done || c.hp <= 0.0 || c.id == p.target || c.pos.dist(p.from) - c.radius < grace {
             return;
         }
         let Some((cover, _)) = defs.get(c.def).work().filter(|w| w.0 > 0.0 && w.1 <= 0.0) else { return };
