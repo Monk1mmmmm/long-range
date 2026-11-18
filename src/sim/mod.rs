@@ -549,6 +549,10 @@ pub fn carriable(d: &crate::data::UnitDef) -> bool {
 
 /// Per-tick read-only view of every unit, so systems can look at other units
 /// without fighting over component borrows.
+/// How far below its base a unit's hit box reaches: its body height is the ground at its centre,
+/// and on a slope the hull dips below that at one end.
+pub const HIT_BELOW: f32 = 0.3;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Cen {
     pub e: Entity,
@@ -570,9 +574,15 @@ pub struct Cen {
     pub structure: bool,
     pub radius: f32,
     pub height: f32,
-    /// The cylinder shots and blasts hit (`UnitDef::hit_radius` / `hit_height`).
-    pub hit_r: f32,
+    /// The box shots and blasts hit (`UnitDef::hit_box`): half its width and half its length
+    /// (across and along `face`), its height above `y`.
+    pub hit_w: f32,
+    pub hit_l: f32,
     pub hit_h: f32,
+    /// Half the larger of width and length: a circle around the box, for rough tests.
+    pub hit_r: f32,
+    /// The way the unit faces (`yaw`).
+    pub face: V2,
     pub seen: u16,
     pub radar: u16,
     pub work: u32,
@@ -596,6 +606,41 @@ impl Cen {
     }
     pub fn center(&self) -> Vec3 {
         self.pos.at(self.y + self.hit_h * 0.5)
+    }
+    /// `p` in the hit box's frame: (across, above the base, along the facing).
+    fn hit_local(&self, p: Vec3) -> Vec3 {
+        let rel = V2 { x: p.x - self.pos.x, y: p.z - self.pos.y };
+        Vec3::new(rel.dot(self.face.perp()), p.y - self.y, rel.dot(self.face))
+    }
+    /// Distance from `p` to the hit box (0 inside).
+    pub fn hit_dist(&self, p: Vec3) -> f32 {
+        let l = self.hit_local(p);
+        let dx = (l.x.abs() - self.hit_w).max(0.0);
+        let dz = (l.z.abs() - self.hit_l).max(0.0);
+        let dy = if l.y < -HIT_BELOW { -HIT_BELOW - l.y } else { (l.y - self.hit_h).max(0.0) };
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    }
+    /// Where along `a`..`b` (0..1) the segment enters the hit box, if it does.
+    pub fn hit_seg(&self, a: Vec3, b: Vec3) -> Option<f32> {
+        let (la, lb) = (self.hit_local(a), self.hit_local(b));
+        let d = lb - la;
+        let (mut t0, mut t1) = (0.0f32, 1.0f32);
+        for (o, d, lo, hi) in [(la.x, d.x, -self.hit_w, self.hit_w), (la.y, d.y, -HIT_BELOW, self.hit_h), (la.z, d.z, -self.hit_l, self.hit_l)] {
+            if d.abs() < 1e-9 {
+                if o < lo || o > hi {
+                    return None;
+                }
+            } else {
+                let (u, v) = ((lo - o) / d, (hi - o) / d);
+                let (u, v) = if u < v { (u, v) } else { (v, u) };
+                t0 = t0.max(u);
+                t1 = t1.min(v);
+                if t0 > t1 {
+                    return None;
+                }
+            }
+        }
+        Some(t0)
     }
     pub fn known_to(&self, team: u8) -> bool {
         (self.seen | self.radar) & (1 << team) != 0

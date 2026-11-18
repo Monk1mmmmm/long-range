@@ -3970,11 +3970,21 @@ fn air_tests(defs: &Defs) {
         &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(330.0, 190.0)))],
         900,
     );
+    // T2 fighter-bombers should beat as many T1 interceptors.
+    for n in 1..=4 {
+        run(
+            &format!("{n} fighter-bombers vs {n} interceptors, both attack-move to the same spot"),
+            &[Side { name: "fighter_bomber", owner: 0, n, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n, at: v2(200.0, 190.0), yaw: w }],
+            &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(130.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(130.0, 190.0)))],
+            1800,
+        );
+    }
+    // About equal mass (720 against 750).
     run(
-        "2 fighter-bombers vs 2 interceptors",
-        &[Side { name: "fighter_bomber", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n: 2, at: v2(200.0, 190.0), yaw: w }],
-        &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(300.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(40.0, 190.0)))],
-        600,
+        "2 fighter-bombers vs 3 interceptors",
+        &[Side { name: "fighter_bomber", owner: 0, n: 2, at: v2(60.0, 190.0), yaw: e }, Side { name: "interceptor", owner: 1, n: 3, at: v2(200.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "fighter_bomber"), Order::AttackMove(v2(130.0, 190.0))), (1, every(ids, "interceptor"), Order::AttackMove(v2(130.0, 190.0)))],
+        1800,
     );
     run(
         "SAM site, 4 Firebrands fly over it",

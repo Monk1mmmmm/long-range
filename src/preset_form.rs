@@ -37,6 +37,8 @@ pub enum Kind {
     TagsFrom(Src),
     /// Three numbers (x, y, z).
     Vec3,
+    /// Three numbers, or absent = worked out by the game (the checkbox sets 1, 1, 1).
+    OptVec3,
     Color([f32; 3]),
 }
 
@@ -194,8 +196,7 @@ pub const UNIT_COST: &[Field] = &[
 
 pub const UNIT_BODY: &[Field] = &[
     f("size", tx!("preset_units.body_size"), Kind::Vec3, tx!("preset_units.body_size_tip")),
-    f("hit_radius", tx!("preset_units.body_hit_radius"), Kind::OptNum(0.05, 100.0, 0.5), tx!("preset_units.body_hit_radius_tip")),
-    f("hit_height", tx!("preset_units.body_hit_height"), Kind::OptNum(0.05, 100.0, 1.0), tx!("preset_units.body_hit_height_tip")),
+    f("hit_box", tx!("preset_units.body_hit_box"), Kind::OptVec3, tx!("preset_units.body_hit_box_tip")),
     f("footprint", tx!("preset_units.body_footprint"), Kind::Int(0, 0, 64), tx!("preset_units.body_footprint_tip")),
     f("move.kind", tx!("preset_units.body_move_kind"), Kind::Choice(MOVE_KINDS, "none"), tx!("preset_units.body_move_kind_tip")),
     num("move.speed", tx!("preset_units.body_move_speed"), 0.0, 1000.0, tx!("preset_units.body_move_speed_tip")),
@@ -526,6 +527,31 @@ fn widget(ui: &mut egui::Ui, v: &mut Value, fd: &Field, ctx: &FormCtx, salt: &st
                 }
                 if changed {
                     out = Some(Some(Value::Array(xs.iter().map(|x| number(*x)).collect())));
+                }
+            });
+        }
+        Kind::OptVec3 => {
+            let mut on = cur.as_ref().map_or(false, |x| x.is_array());
+            let mut xs = [1.0f64; 3];
+            if let Some(a) = cur.as_ref().and_then(|x| x.as_array()) {
+                for (k, x) in a.iter().take(3).enumerate() {
+                    xs[k] = x.as_f64().unwrap_or(1.0);
+                }
+            }
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut on, tr!("preset_editor.own_value")).on_hover_text(tip).changed() {
+                    out = Some(on.then(|| Value::Array(xs.iter().map(|x| number(*x)).collect())));
+                }
+                if on {
+                    let mut changed = false;
+                    for x in xs.iter_mut() {
+                        changed |= ui.add(drag(x, 0.05, 1000.0)).on_hover_text(tip).changed();
+                    }
+                    if changed {
+                        out = Some(Some(Value::Array(xs.iter().map(|x| number(*x)).collect())));
+                    }
+                } else {
+                    ui.label(egui::RichText::new(tr!("preset_editor.default")).weak());
                 }
             });
         }

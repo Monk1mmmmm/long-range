@@ -47,6 +47,7 @@ python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/mode
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
+python3 tools/model_bounds.py                             # model bounds of every unit vs its JSON size / hit_box
 .venv/bin/python tools/osm_map.py NAME --bbox S,W,N,E      # map of a real place (OSM + terrain tiles) -> assets/maps/NAME, see tools/README.md
 .venv/bin/python tools/scmap_map.py "<FA maps>/<map folder>" NAME [--size 512] [--variants 4,6]   # port a SupCom map (.scmap + _save.lua) -> assets/maps/NAME, NAME_<k>p
 # The converters need numpy + Pillow: they live in the project venv (python3 -m venv .venv; .venv/bin/pip install numpy pillow).
@@ -235,7 +236,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Ballistics**: every shot is a projectile entity with 3D position/velocity under gravity
   (`rules.json: gravity`). Weapon kinds: `direct` (needs clear line of fire, leads the target), `arc`,
   `high_arc` (indirect, raise their charge to reach), `missile` (homing, limited turn rate), `bomb`.
-  Hits are resolved against terrain and unit cylinders, so shots miss, fall short or hit hills.
+  Hits are resolved against terrain and unit hit boxes, so shots miss, fall short or hit hills. A hit box
+  (`hit_box: [w, h, l]` in the unit JSON, default `size`) turns with the unit and stands on its base (reaching
+  `sim::HIT_BELOW` under it for slopes); the numbers are the model's bounds without gun barrels
+  (`python3 tools/model_bounds.py` prints them next to the JSON; troopers, commander, watch tower and Stork were set by
+  hand; aircraft have at least 0.6 in every direction, on request, so guns still hit them). Shells: `Cen::hit_seg`; blasts and missile fuzes: `Cen::hit_dist`; line-of-fire obstacles use the circle
+  `Cen::hit_r` around the box.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 - **Line of fire** (direct fire, `systems::Lane`): a gun follows the shell's real arc (with a spread allowance)
   and fires only if it reaches the target before the ground, water, a building other than the target, or an own
@@ -363,6 +369,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Mobile anti-air beyond the T1 MBFAG (requested; there is no T3 SAM trooper, only the T2 one): T2 Hailstorm
   (`flak_carrier`, Dragoon mesh, airburst flak bursts, air only) and T3 Skylance (`mobile_sam`, Robin mesh, own level-2
   radar, heavy homing missile, air only). `--combattest` air: 2 Hornets beat the MBFAG and narrowly the Hailstorm, the Skylance downs both.
+  The T1 Porter interceptor was weakened on request (damage 25 -> 22, turn 85 -> 80) so that T2 Harrier fighter-bombers
+  beat as many Porters (`--combattest` air: 1v1 to 4v4, all won), while 3 Porters (same mass) still beat 2 Harriers.
 - **Energy stall**: upkeep and construction share energy proportionally (`build_progress`, `Player.power`);
   pumps produce at that fraction, radars cut out below 0.5. `Paused` (Tab / `Command::Pause`) switches a
   unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
