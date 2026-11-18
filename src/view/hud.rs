@@ -483,6 +483,101 @@ impl Frame<'_> {
     }
 }
 
+/// Can a unit of type `d` carry out `o`? (Mirrors what `apply_commands` accepts.)
+fn can_do(d: &UnitDef, o: &Order) -> bool {
+    match o {
+        Order::Build { def, .. } => d.is_engineer() && d.builds.contains(def),
+        Order::Capture(_) | Order::Terraform { .. } => d.is_engineer(),
+        Order::Revive(_) | Order::ReviveArea { .. } => d.is_scavenger(),
+        Order::Reclaim(_) | Order::ReclaimArea { .. } => d.is_engineer() || d.is_scavenger(),
+        Order::Attack(_) | Order::AttackGround { .. } => d.armed() && !d.is_scavenger(),
+        Order::Load(_) | Order::LoadArea { .. } | Order::Unload { .. } => d.transport.is_some() && !d.is_garrison(),
+        Order::Assist(_) | Order::Move(_) | Order::AttackMove(_) | Order::Patrol(_) => true,
+    }
+}
+
+/// FAF's "distribute orders" (Ctrl+R): the orders queued on the selected units, each taken once, are
+/// shared out among them so that every unit gets a run of orders lying near each other and about the
+/// same number (engineers given ten extractors at once each build a few instead of all walking to every
+/// one). Only units able to carry out an order get it. With more units than orders the spare units
+/// take the list of the nearest unit that got one (and so help build, reclaim, fight there). Patrol
+/// routes are a loop of their own and are left out. Returns the commands, first order replacing the
+/// queue, the rest appended.
+fn distribute_orders(defs: &Defs, map: &MapData, infos: &HashMap<u32, Info>, wrecks: &[(u32, V2, f32, f32)], sel: &[u32]) -> Vec<Command> {
+    let mut units: Vec<&Info> = sel.iter().filter_map(|id| infos.get(id)).filter(|u| u.host == 0 && u.built.is_none() && !defs.get(u.def).is_structure()).collect();
+    units.sort_by_key(|u| u.id);
+    let mut pool: Vec<Order> = vec![];
+    for u in &units {
+        for o in &u.orders {
+            if !matches!(o, Order::Patrol(_)) && !pool.contains(o) {
+                pool.push(*o);
+            }
+        }
+    }
+    units.retain(|u| pool.iter().any(|o| can_do(defs.get(u.def), o)));
+    if pool.is_empty() || units.is_empty() {
+        return vec![];
+    }
+    let at = |o: &Order, fallback: V2| -> V2 {
+        let by_id = |id: u32| {
+            if is_feature(id) {
+                map.features.get((id - FEATURE_ID0) as usize).map(|f| f.pos)
+            } else {
+                infos.get(&id).map(|u| u.pos).or_else(|| wrecks.iter().find(|w| w.0 == id).map(|w| w.1))
+            }
+        };
+        match *o {
+            Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) => p,
+            Order::Build { pos, .. }
+            | Order::AttackGround { pos, .. }
+            | Order::ReclaimArea { pos, .. }
+            | Order::ReviveArea { pos, .. }
+            | Order::Terraform { pos, .. }
+            | Order::LoadArea { pos, .. }
+            | Order::Unload { pos, .. } => pos,
+            Order::Attack(id) | Order::Assist(id) | Order::Reclaim(id) | Order::Capture(id) | Order::Revive(id) | Order::Load(id) => by_id(id).unwrap_or(fallback),
+        }
+    };
+    let cap = pool.len().div_ceil(units.len());
+    let mut lists: Vec<Vec<Order>> = vec![vec![]; units.len()];
+    let mut ends: Vec<V2> = units.iter().map(|u| u.pos).collect();
+    for o in &pool {
+        // The unit whose last order (or its position) is nearest, among those below their share.
+        let best = (0..units.len())
+            .filter(|k| can_do(defs.get(units[*k].def), o))
+            .min_by(|a, b| {
+                let key = |k: usize| (lists[k].len() >= cap, ends[k].dist(at(o, ends[k])));
+                let (ka, kb) = (key(*a), key(*b));
+                ka.0.cmp(&kb.0).then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
+            });
+        if let Some(k) = best {
+            ends[k] = at(o, ends[k]);
+            lists[k].push(*o);
+        }
+    }
+    let shared = lists.clone();
+    for k in 0..units.len() {
+        if !lists[k].is_empty() {
+            continue;
+        }
+        let d = defs.get(units[k].def);
+        let near = (0..units.len())
+            .map(|j| (j, shared[j].iter().copied().filter(|o| can_do(d, o)).collect::<Vec<Order>>()))
+            .filter(|(_, l)| !l.is_empty())
+            .min_by(|a, b| units[a.0].pos.dist(units[k].pos).partial_cmp(&units[b.0].pos.dist(units[k].pos)).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some((_, l)) = near {
+            lists[k] = l;
+        }
+    }
+    let rounds = lists.iter().map(|l| l.len()).max().unwrap_or(0);
+    (0..rounds)
+        .filter_map(|r| {
+            let (ids, orders): (Vec<u32>, Vec<Order>) = (0..units.len()).filter(|k| lists[*k].len() > r).map(|k| (units[k].id, lists[k][r])).unzip();
+            (!ids.is_empty()).then_some(Command::Orders { ids, orders, queue: r > 0 })
+        })
+        .collect()
+}
+
 /// FAF-style hotbuild class of a unit: which key builds it in the alternative preset.
 fn hot_key(d: &UnitDef) -> Option<KeyCode> {
     use crate::data::WeaponKind as K;
@@ -1240,6 +1335,30 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             if jp(KeyCode::KeyK) && has_sel {
                 out.push(Command::SelfDestruct { ids: view.sel.clone() });
+            }
+            // FAF: share the queued orders of the selection out among it.
+            if jp(KeyCode::KeyR) && has_sel {
+                out.extend(distribute_orders(defs, map, &infos, &wrecks, &view.sel));
+            }
+        }
+        // FAF: "/" selects the nearest (to the pointer) extractor of the lowest tier one has, preferring those
+        // that can still be upgraded and are not upgrading yet; Shift+/ adds the next nearest one.
+        if jp(KeyCode::Slash) && !ctrl {
+            let mexes: Vec<&Info> = infos
+                .values()
+                .filter(|u| u.owner == me && u.built.is_none() && u.host == 0 && defs.get(u.def).needs_deposit && defs.get(u.def).is_structure())
+                .filter(|u| !shift || !view.sel.contains(&u.id))
+                .collect();
+            let rank = |u: &Info| (u.upg.is_some() || defs.get(u.def).upgrade_id.is_none(), defs.get(u.def).tier);
+            if let Some(low) = mexes.iter().map(|u| rank(u)).min() {
+                let pick = mexes.iter().filter(|u| rank(u) == low).min_by(|a, b| (a.pos.dist(ground), a.id).partial_cmp(&(b.pos.dist(ground), b.id)).unwrap_or(std::cmp::Ordering::Equal));
+                if let Some(m) = pick {
+                    if shift {
+                        view.sel.push(m.id);
+                    } else {
+                        view.sel = vec![m.id];
+                    }
+                }
             }
         }
         if ctrl && shift {
@@ -2562,6 +2681,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if faf { tr!("hud_help.s_artillery_d_anti_air_y") } else { tr!("hud_help.ctrl_k_self_destruct_shift_0") },
             tr!("hud_help.select_ctrl_a_air_ctrl_d"),
             tr!("hud_help.ctrl_shift_d_a_nearest_land"),
+            tr!("hud_help.ctrl_r_distribute"),
             tr!("hud_help.build_menu_click_then_click_the"),
             tr!("hud_help.factory_menu_left_click_queues"),
             tr!("hud_help.ctrl_0_9_set_group_0"),
