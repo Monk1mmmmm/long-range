@@ -566,6 +566,61 @@ impl Frame<'_> {
         out
     }
 
+    /// Pieces of a field work (sandbags, trench) along a line drawn with the right mouse button:
+    /// every cell the stroke passes through, in drawing order, as one unbroken chain (a diagonal
+    /// step gets a piece in the corner nearer the stroke). Cells the stroke comes back to are not
+    /// queued twice.
+    fn fieldwork_path(&self, d: DefId, path: &[V2]) -> Vec<V2> {
+        let step = self.d(d).footprint.max(1) as f32 * CELL;
+        let mut out: Vec<V2> = vec![];
+        let mut last: Option<V2> = None;
+        let add = |out: &mut Vec<V2>, p: V2| {
+            if !out.contains(&p) && out.len() < 200 {
+                out.push(p);
+            }
+        };
+        let mut visit = |s: V2, out: &mut Vec<V2>| {
+            let p = snap(self.defs, self.map, d, s);
+            match last {
+                Some(l) if l == p => return,
+                Some(l) if l.x != p.x && l.y != p.y => {
+                    let (c1, c2) = (v2(p.x, l.y), v2(l.x, p.y));
+                    add(out, if c1.dist(s) <= c2.dist(s) { c1 } else { c2 });
+                }
+                _ => {}
+            }
+            add(out, p);
+            last = Some(p);
+        };
+        let Some(first) = path.first() else { return out };
+        visit(*first, &mut out);
+        for w in path.windows(2) {
+            let n = (w[0].dist(w[1]) / (step * 0.2)).ceil().max(1.0) as usize;
+            for k in 1..=n {
+                visit(w[0] + (w[1] - w[0]) * (k as f32 / n as f32), &mut out);
+            }
+        }
+        out
+    }
+
+    /// The selected engineers that can build `d`.
+    fn builders_of(&self, view: &ViewState, d: DefId) -> Vec<&Info> {
+        self.selected(view).into_iter().filter(|u| self.d(u.def).is_engineer() && self.d(u.def).builds.contains(&d)).collect()
+    }
+
+    /// Build orders for every placeable spot, in the given order (the first replaces the queue
+    /// unless `shift`).
+    fn order_build(&self, builders: &[&Info], d: DefId, spots: &[V2], occ: &[u8], shift: bool, out: &mut Vec<Command>) {
+        let ids: Vec<u32> = builders.iter().map(|u| u.id).collect();
+        let mut first = true;
+        for pt in spots {
+            if can_place(self.defs, self.map, occ, d, *pt) {
+                out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Build { def: d, pos: *pt }], queue: shift || !first });
+                first = false;
+            }
+        }
+    }
+
     fn hover(&self, over_hud: bool) -> Option<usize> {
         if over_hud {
             return None;
@@ -1043,17 +1098,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 let radius = start.dist(ground);
                 match view.mode {
                     Mode::Place(d) => {
-                        let builders: Vec<&Info> = fr.selected(view).into_iter().filter(|u| fr.d(u.def).is_engineer() && fr.d(u.def).builds.contains(&d)).collect();
+                        let builders = fr.builders_of(view, d);
                         if !builders.is_empty() {
                             let from = builders.iter().fold(v2(0.0, 0.0), |a, u| a + u.pos) * (1.0 / builders.len() as f32);
-                            let ids: Vec<u32> = builders.iter().map(|u| u.id).collect();
-                            let mut first = true;
-                            for pt in fr.build_spots(d, start, ground, &occ, from, ctrl) {
-                                if can_place(defs, map, &occ, d, pt) {
-                                    out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Build { def: d, pos: pt }], queue: shift || !first });
-                                    first = false;
-                                }
-                            }
+                            fr.order_build(&builders, d, &fr.build_spots(d, start, ground, &occ, from, ctrl), &occ, shift, out);
                         }
                     }
                     Mode::Assist => {
@@ -1230,7 +1278,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
         }
         if rmb_down && !over_hud {
-            if view.mode != Mode::None {
+            if let Mode::Place(d) = view.mode.clone() {
+                // Field works: a line drawn with the right button, like a move order, becomes a
+                // chain of pieces along it (a plain right-click still leaves build mode).
+                if fr.d(d).is_fieldwork() && !fr.builders_of(view, d).is_empty() {
+                    view.drag_start = None;
+                    view.path = vec![ground];
+                    view.pathing = Some(2);
+                } else {
+                    view.mode = Mode::None;
+                    view.drag_start = None;
+                    view.pathing = None;
+                }
+            } else if view.mode != Mode::None {
                 view.mode = Mode::None;
                 view.drag_start = None;
                 view.pathing = None;
@@ -1241,6 +1301,20 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         if view.pathing.is_some() && view.path.len() < 500 && view.path.last().map_or(false, |l| l.dist(ground) > 0.8) {
             view.path.push(ground);
+        }
+        if rmb_up && view.pathing == Some(2) {
+            view.pathing = None;
+            let path = std::mem::take(&mut view.path);
+            match view.mode.clone() {
+                Mode::Place(d) if path_len(&path) >= 1.0 => {
+                    let builders = fr.builders_of(view, d);
+                    fr.order_build(&builders, d, &fr.fieldwork_path(d, &path), &occ, shift, out);
+                    if !shift {
+                        view.mode = Mode::None;
+                    }
+                }
+                _ => view.mode = Mode::None,
+            }
         }
         if rmb_up && view.pathing == Some(1) {
             view.pathing = None;
@@ -1611,8 +1685,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let from = selected.first().map_or(ground, |u| u.pos);
             let spots = match view.drag_start {
                 Some(a) => fr.build_spots(d, a, ground, &occ, from, ctrl),
+                None if view.pathing == Some(2) => fr.fieldwork_path(d, &view.path),
                 None => vec![snap(defs, map, d, ground)],
             };
+            if view.pathing == Some(2) && view.path.len() > 1 {
+                g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.35)), preview);
+            }
             if let (Some(a), true) = (view.drag_start, df.needs_deposit) {
                 ring(g, map, a, a.dist(ground), preview);
             }
@@ -1660,7 +1738,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         _ => {}
     }
-    if view.pathing.is_some() && path_len(&view.path) >= 2.5 {
+    if matches!(view.pathing, Some(0 | 1)) && path_len(&view.path) >= 2.5 {
         let c = if view.pathing == Some(0) || alt { Color::srgba(1.0, 0.45, 0.3, 1.0) } else { Color::srgba(0.3, 0.9, 1.0, 1.0) };
         g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.35)), c);
         let movers: Vec<&Info> = selected.iter().copied().filter(|u| !fr.d(u.def).is_structure() && !fr.d(u.def).is_plane()).collect();
@@ -2632,6 +2710,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         Mode::Load => tr!("hud_orders.hint_board").to_string(),
         Mode::Unload => tr!("hud_orders.hint_unload").to_string(),
         Mode::Place(d) if fr.d(d).needs_deposit => tr!("hud_orders.hint_build_deposit", unit_name(fr.d(d))),
+        Mode::Place(d) if fr.d(d).is_fieldwork() => tr!("hud_orders.hint_build_fieldwork", unit_name(fr.d(d))),
         Mode::Place(d) => tr!("hud_orders.hint_build", unit_name(fr.d(d))),
         Mode::None => String::new(),
     };

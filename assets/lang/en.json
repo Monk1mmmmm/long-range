@@ -270,7 +270,8 @@
     "hint_board": "LOAD: click the transport to board (infantry: or a building to occupy)",
     "hint_unload": "UNLOAD: click or drag a circle; the cargo is set down spread over it",
     "hint_build_deposit": "BUILD {}: click a deposit, or drag a circle to queue every deposit inside",
-    "hint_build": "BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing."
+    "hint_build": "BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.",
+    "hint_build_fieldwork": "BUILD {}: draw a line of any shape with the right button, or click / drag a straight line with the left. Shift keeps placing."
   },
   "hud_screens": {
     "paused_by_you": " by you",
@@ -304,7 +305,7 @@
     "ctrl_k_self_destruct_shift_0": "Ctrl+K self-destruct.  Shift+0-9 adds a group to the selection.",
     "select_ctrl_a_air_ctrl_d": "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
     "ctrl_shift_d_a_nearest_land": "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
-    "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; pumps: drag a circle.",
+    "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; sandbags and trenches: draw any line with the right button; pumps: drag a circle.",
     "factory_menu_left_click_queues": "Factory menu: left-click queues (Shift x5), right-click removes.",
     "ctrl_0_9_set_group_0": "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
     "tab_pauses_resumes_the_selection": "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
@@ -553,11 +554,11 @@
     },
     "sandbags": {
       "name": "Sandbags",
-      "desc": "A stretch of sandbag wall; drag to build a line. Shots from any side that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry of every side take cover behind it. Units can cross it."
+      "desc": "A stretch of sandbag wall; draw a line of any shape with the right mouse button (or drag a straight one) to build it. Shots from any side that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry of every side take cover behind it. Units can cross it."
     },
     "trench": {
       "name": "Trench",
-      "desc": "A piece of trench; drag to build a line. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time."
+      "desc": "A piece of trench; draw a line of any shape with the right mouse button (or drag a straight one) to build it. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time."
     },
     "field_bunker": {
       "name": "Field Bunker",

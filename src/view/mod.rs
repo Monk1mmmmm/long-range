@@ -63,7 +63,7 @@ pub struct ViewState {
     pub mode: Mode,
     pub box_start: Option<Vec2>,
     pub drag_start: Option<V2>,
-    /// 0 = left button (mode order), 1 = right button.
+    /// 0 = left button (mode order), 1 = right button, 2 = right button drawing a field work line.
     pub pathing: Option<u8>,
     pub path: Vec<V2>,
     pub last_click: (f64, DefId),
