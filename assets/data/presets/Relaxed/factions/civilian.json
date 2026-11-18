@@ -27,9 +27,6 @@
     3.75
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -71,9 +68,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -115,9 +109,6 @@
     9.0
    ],
    "footprint": 4,
-   "transport": {
-    "capacity": 6
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -160,9 +151,6 @@
     12.0
    ],
    "footprint": 6,
-   "transport": {
-    "capacity": 8
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -625,9 +613,6 @@
     3.75
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -669,9 +654,6 @@
     3.75
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -713,9 +695,6 @@
     3.75
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -757,9 +736,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -801,9 +777,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -845,9 +818,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -889,9 +859,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -933,9 +900,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -977,9 +941,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1021,9 +982,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1065,9 +1023,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1109,9 +1064,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1153,9 +1105,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1197,9 +1146,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1241,9 +1187,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1285,9 +1228,6 @@
     3.0
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1329,9 +1269,6 @@
     4.9
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1373,9 +1310,6 @@
     4.5
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 3
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1499,9 +1433,6 @@
     6.0
    ],
    "footprint": 4,
-   "transport": {
-    "capacity": 6
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1543,9 +1474,6 @@
     5.9
    ],
    "footprint": 4,
-   "transport": {
-    "capacity": 6
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1587,9 +1515,6 @@
     6.0
    ],
    "footprint": 4,
-   "transport": {
-    "capacity": 6
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1631,9 +1556,6 @@
     7.2
    ],
    "footprint": 6,
-   "transport": {
-    "capacity": 8
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1675,9 +1597,6 @@
     5.4
    ],
    "footprint": 4,
-   "transport": {
-    "capacity": 6
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1719,9 +1638,6 @@
     8.45
    ],
    "footprint": 6,
-   "transport": {
-    "capacity": 8
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1763,9 +1679,6 @@
     4.9
    ],
    "footprint": 4,
-   "transport": {
-    "capacity": 6
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [
@@ -1807,9 +1720,6 @@
     3.9
    ],
    "footprint": 2,
-   "transport": {
-    "capacity": 4
-   },
    "icon": {
     "shape": "civilian",
     "glyphs": [

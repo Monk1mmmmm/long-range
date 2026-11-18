@@ -29,12 +29,12 @@
  "power_stall_pump_factor": 0.6,
  "friendly_fire": false,
  "_comment_armor_angle": "Armored units (unit category armored) take armor_front of a hit head on, armor_side from the side and armor_rear from behind, blended by the angle; the steeper a shell falls, the less the angle counts (straight down: 1).",
- "armor_front": 0.75,
+ "armor_front": 1.0,
  "armor_side": 1.0,
- "armor_rear": 1.25,
+ "armor_rear": 1.0,
  "_comment_splash": "A shell with a blast radius does all its damage to the unit it hits. Units it did not hit take a share at the blast centre, fading to none at the edge: splash_direct for direct-fire guns (or the weapon's own splash), all of it for artillery, bombs and missiles. Armored units take splash_armored of any splash (also death blasts).",
  "splash_direct": 0.4,
- "splash_armored": 0.5,
+ "splash_armored": 1.0,
  "_comment_switches": "Game features that can be switched off: terraforming, craters, wrecks left by destroyed units, hills blocking sight, trees/rocks/wrecks blocking sight, hills blocking radar, enemy buildings remembered from sight shown dimmed once destroyed out of sight (ghosts_show_destroyed, view only). near_sight: everything closer than this to a unit is seen regardless.",
  "terraforming": true,
  "craters": true,
@@ -215,11 +215,11 @@
  ],
  "armor": {
   "APC": {
-   "Normal": 0.1,
-   "Autocannon": 0.5,
+   "Normal": 1.0,
+   "Autocannon": 1.0,
    "AP": 1.0,
    "Explosive": 1.0,
-   "SmallArms": 0.1
+   "SmallArms": 1.0
   },
   "Light": {
    "Normal": 1.0,
@@ -229,46 +229,46 @@
    "SmallArms": 1.0
   },
   "LightTank": {
-   "Normal": 0.5,
-   "Autocannon": 0.66,
+   "Normal": 1.0,
+   "Autocannon": 1.0,
    "AP": 1.0,
    "Explosive": 1.0,
-   "SmallArms": 0.1
+   "SmallArms": 1.0
   },
   "MediumTank": {
-   "Normal": 0.2,
-   "Autocannon": 0.33,
-   "AP": 1.0,
-   "Explosive": 0.8,
-   "SmallArms": 0.1
-  },
-  "Structure": {
-   "Normal": 0.6,
-   "Autocannon": 0.8,
+   "Normal": 1.0,
+   "Autocannon": 1.0,
    "AP": 1.0,
    "Explosive": 1.0,
-   "SmallArms": 0.6
+   "SmallArms": 1.0
+  },
+  "Structure": {
+   "Normal": 1.0,
+   "Autocannon": 1.0,
+   "AP": 1.0,
+   "Explosive": 1.0,
+   "SmallArms": 1.0
   },
   "Commander": {
-   "Normal": 0.5,
-   "Autocannon": 0.7,
+   "Normal": 1.0,
+   "Autocannon": 1.0,
    "AP": 1.0,
-   "Explosive": 0.6,
-   "SmallArms": 0.5
+   "Explosive": 1.0,
+   "SmallArms": 1.0
   },
   "Air": {
    "Normal": 1.0,
    "Autocannon": 1.0,
    "AP": 1.0,
-   "Explosive": 0.5,
+   "Explosive": 1.0,
    "SmallArms": 1.0
   },
   "Civilian": {
-   "Normal": 0.3,
-   "Autocannon": 0.7,
-   "AP": 0.7,
-   "Explosive": 1.5,
-   "SmallArms": 0.3
+   "Normal": 1.0,
+   "Autocannon": 1.0,
+   "AP": 1.0,
+   "Explosive": 1.0,
+   "SmallArms": 1.0
   }
  },
  "player_colors": [

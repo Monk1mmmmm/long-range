@@ -22,8 +22,10 @@ RULES = {
     "sight_blocked_by_reclaimables": False,  # trees, rocks, wrecks no longer hide units
     "sight_blocked_by_buildings": False,     # nor do buildings (hills still do)
     "near_sight": 12,                        # 6: nothing sneaks up unseen right next to a unit
-    "armor_front": 0.75,                     # 0.6 / 1.0 / 1.5: facing matters less
-    "armor_rear": 1.25,
+    "armor_front": 1.0,                      # 0.6 / 1.0 / 1.5: no damage by hit angle
+    "armor_side": 1.0,
+    "armor_rear": 1.0,
+    "splash_armored": 1.0,                   # 0.5: armored units take splash like any other
     "debris.land_damage": 0.0,               # falling debris hurts nobody
     "garrison_eject_damage": 0.15,           # 0.4
     "cp_bleed": 0.5,                         # 1: control point games leave time to come back
@@ -33,6 +35,8 @@ MOBILE_HP = 1.3      # mobile units live longer: more time to react before a gro
 COMMANDER_HP = 1.6   # losing the commander ends the game: make sniping it much harder
 RADAR_UPKEEP = 0.5   # scouting is cheaper to keep running
 HOLD = {"at_trooper": 0.0, "pike": 1.5, "bohdana": 3.0}  # set-up times (built-in 3 / 3 / 5)
+# No combat engineers: the units that build field works go, and so does everything only they build.
+FIELD_BUILD = "field"
 
 
 def rules():
@@ -43,14 +47,25 @@ def rules():
         for p in path:
             d = d[p]
         d[last] = val
+    # No armor: every armor class takes every damage type in full.
+    for table in r["armor"].values():
+        for k in table:
+            table[k] = 1.0
     r["_comment_preset"] = "Relaxed preset, made by tools/relaxed_preset.py from the built-in data."
     return r
 
 
 def faction(f):
+    for u in f["units"]:
+        # Infantry enters no buildings: structures lose their garrison (mobile transports keep theirs).
+        if not u.get("move"):
+            u.pop("transport", None)
     if not f.get("playable"):
         return f
+    f["units"] = [u for u in f["units"]
+                  if FIELD_BUILD not in u.get("build", {}).get("categories", []) and u.get("built_by") != FIELD_BUILD]
     for u in f["units"]:
+        u.pop("reactive", None)  # no reactive (dynamic) armor
         if u.get("move"):
             u["hp"] = round(u["hp"] * (COMMANDER_HP if u["id"] == f.get("commander") else MOBILE_HP))
         if u["id"] == f.get("commander"):
