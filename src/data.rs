@@ -1352,3 +1352,22 @@ impl Defs {
         Ok(Defs { rules, units, by_name, factions, feature_by_name, hash, pack: Arc::new(pack) })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every preset shipped in `assets/data/presets` loads and passes validation.
+    #[test]
+    fn presets_load() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+        Defs::load(&root).expect("built-in data");
+        let mut n = 0;
+        for e in std::fs::read_dir(presets_dir(&root)).expect("presets folder") {
+            let name = e.unwrap().file_name().to_string_lossy().into_owned();
+            Defs::load_preset(&root, &name).unwrap_or_else(|err| panic!("preset {name}: {err}"));
+            n += 1;
+        }
+        assert!(n > 0);
+    }
+}
