@@ -403,7 +403,7 @@
     "armored"
    ],
    "name": "Zaporozhets",
-   "desc": "Heavy armoured carrier. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. A roof machine gun keeps infantry off it. Slow.",
+   "desc": "Infantry fighting vehicle, heavily armoured. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. A roof machine gun keeps infantry off it. Slow.",
    "tier": 2,
    "hp": 700,
    "armor": "APC",
@@ -566,7 +566,7 @@
     "armored"
    ],
    "name": "Hetman",
-   "desc": "Assault carrier, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns.",
+   "desc": "Heavy infantry fighting vehicle, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns.",
    "tier": 3,
    "hp": 1000,
    "armor": "APC",

@@ -3,6 +3,25 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.10.0
+
+Not compatible with v0.9.0 in multiplayer: everybody needs this version.
+
+New
+- Three more armoured carriers alongside the Tavria, built at the land factory:
+  - Tavria (T1): now a light, fast, cheap carrier for 4 units, 220 hp;
+  - Slavuta (T2): amphibious carrier for 6 units - drives along the bottom of rivers and lakes up to 4 deep,
+    where shells and guns cannot reach it (slower under water);
+  - Zaporozhets (T2): infantry fighting vehicle for 8 units, 700 hp of heavy armour, with a roof machine gun;
+  - Hetman (T3): heavy infantry fighting vehicle for 10 units, 1000 hp, reactive armor like the Bastion's
+    (its first four missile hits lose three quarters of their damage) and a twin machine gun.
+- Infantry riding a land carrier bail out alive (hurt) when it is destroyed.
+- Unit tooltips show "Amphibious"; the preset editor has an "Amphibious" switch for land units.
+
+Changed
+- Armour shrugs off small arms: rifles and machine guns (new damage type SmallArms) do a tenth of their damage to
+  every armoured vehicle. They also do less to buildings (0.6) and the commander (0.5), like machine guns did before.
+
 ## v0.9.0
 
 Not compatible with v0.8.0 in multiplayer: everybody needs this version.
