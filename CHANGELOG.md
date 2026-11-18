@@ -3,6 +3,20 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.10.1
+
+Only the Relaxed data preset changes; the standard game is the same as v0.10.0. Everybody in a multiplayer
+game still needs the same version.
+
+Changed (Relaxed preset)
+- No armour: every unit takes every damage type in full, armoured vehicles take splash like anything else, and
+  where a shot hits the hull (front, side, rear) no longer matters.
+- No reactive armour on the Bastion and the Hetman.
+- No combat engineer: the Sparky is gone, and with it everything only it built (sandbags, trenches, the field
+  bunker and the watch tower).
+- Infantry can no longer enter buildings (houses, civic and industrial buildings, bunkers). Carriers and air
+  transports still take them.
+
 ## v0.10.0
 
 Not compatible with v0.9.0 in multiplayer: everybody needs this version.
