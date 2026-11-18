@@ -1852,14 +1852,14 @@
    "move": {
     "kind": "plane",
     "speed": 18,
-    "turn": 85,
+    "turn": 80,
     "altitude": 12
    },
    "vision": 30,
    "weapons": [
     {
      "name": "Linked Railgun",
-     "damage": 25,
+     "damage": 22,
      "range": 40,
      "reload": 0.5,
      "speed": 120,
