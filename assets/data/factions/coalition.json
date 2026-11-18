@@ -187,10 +187,14 @@
     "armored"
    ],
    "name": "Tavria",
-   "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed.",
+   "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed. Bullets and machine-gun fire glance off its hull; riders get out alive when it is destroyed. Amphibious: drives along the bottom of rivers and lakes up to 4 deep, out of reach of guns.",
    "tier": 1,
-   "hp": 320,
+   "hp": 400,
    "armor": "LightTank",
+   "deflect": {
+    "below": 10,
+    "take": 0.1
+   },
    "cost": {
     "mass": 90,
     "energy": 900,
@@ -239,7 +243,8 @@
     "speed": 4.4,
     "reverse": 3.0,
     "accel": 2.6,
-    "turn": 90
+    "turn": 90,
+    "amphibious": true
    },
    "vision": 22,
    "transport": {

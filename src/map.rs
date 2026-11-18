@@ -540,12 +540,20 @@ impl MapData {
         Vec3::new(-dx, 2.0 * e, -dz).normalize()
     }
 
-    /// Is this cell too steep or too deep under water to drive on?
-    fn cell_blocked(&self, x: usize, y: usize) -> bool {
+    /// Passability of a cell: 1 = too steep, or too deep under water even for amphibious units;
+    /// `OCC_DEEP` = under water, but only `AMPHIBIOUS_DEPTH` or less; 0 = free.
+    fn cell_blocked(&self, x: usize, y: usize) -> u8 {
         let hs = [self.vertex(x, y), self.vertex(x + 1, y), self.vertex(x, y + 1), self.vertex(x + 1, y + 1)];
         let (mn, mx) = (hs.iter().cloned().fold(f32::MAX, f32::min), hs.iter().cloned().fold(f32::MIN, f32::max));
         let avg = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25;
-        (mx - mn) / CELL > 0.85 || avg < self.water_cell(x, y) - 0.3
+        let water = self.water_cell(x, y);
+        if (mx - mn) / CELL > 0.85 || mn < water - AMPHIBIOUS_DEPTH {
+            1
+        } else if avg < water - 0.3 {
+            OCC_DEEP
+        } else {
+            0
+        }
     }
 
     pub fn rebuild_blocked(&mut self) {
@@ -553,9 +561,7 @@ impl MapData {
         self.blocked = vec![0; n * n];
         for y in 0..n {
             for x in 0..n {
-                if self.cell_blocked(x, y) {
-                    self.blocked[y * n + x] = 1;
-                }
+                self.blocked[y * n + x] = self.cell_blocked(x, y);
             }
         }
     }
@@ -568,7 +574,7 @@ impl MapData {
         }
         for cy in y.saturating_sub(1)..=y.min(n - 1) {
             for cx in x.saturating_sub(1)..=x.min(n - 1) {
-                self.blocked[cy * n + cx] = self.cell_blocked(cx, cy) as u8;
+                self.blocked[cy * n + cx] = self.cell_blocked(cx, cy);
             }
         }
     }
@@ -1116,24 +1122,37 @@ impl PartialOrd for Node {
 /// built there, but units cross it and its ground is not locked.
 pub const OCC_WORK: u8 = 3;
 
+/// Occupancy value of a cell under water that amphibious land units (`move.amphibious`) drive
+/// through along the bottom, and other land units cannot enter.
+pub const OCC_DEEP: u8 = 4;
+
+/// The deepest water (from its surface to the lowest corner of a cell's ground) amphibious units go
+/// into. A Tavria is 1.75 high: it dives about twice its height.
+pub const AMPHIBIOUS_DEPTH: f32 = 4.0;
+
 /// Can a unit stand on a cell with this occupancy value?
 pub fn passable(occ: u8) -> bool {
     occ == 0 || occ == OCC_WORK
 }
 
-fn free(occ: &[u8], n: i32, x: i32, y: i32) -> bool {
-    x >= 0 && y >= 0 && x < n && y < n && passable(occ[(y * n + x) as usize])
+/// Can a land unit, amphibious or not, stand on a cell with this occupancy value?
+pub fn passable_for(occ: u8, amphibious: bool) -> bool {
+    passable(occ) || (amphibious && occ == OCC_DEEP)
+}
+
+fn free(occ: &[u8], n: i32, x: i32, y: i32, amph: bool) -> bool {
+    x >= 0 && y >= 0 && x < n && y < n && passable_for(occ[(y * n + x) as usize], amph)
 }
 
 /// True if a straight walk from a to b stays on free cells.
-pub fn line_clear(occ: &[u8], n: usize, a: V2, b: V2) -> bool {
+pub fn line_clear(occ: &[u8], n: usize, a: V2, b: V2, amph: bool) -> bool {
     let d = b - a;
     let steps = (d.len() / (CELL * 0.4)).ceil().max(1.0) as i32;
     let side = d.norm().perp() * 0.5;
     for i in 0..=steps {
         let p = a + d * (i as f32 / steps as f32);
         for q in [p + side, p - side] {
-            if !free(occ, n as i32, (q.x / CELL).floor() as i32, (q.y / CELL).floor() as i32) {
+            if !free(occ, n as i32, (q.x / CELL).floor() as i32, (q.y / CELL).floor() as i32, amph) {
                 return false;
             }
         }
@@ -1143,8 +1162,13 @@ pub fn line_clear(occ: &[u8], n: usize, a: V2, b: V2) -> bool {
 
 /// Nearest free cell to (cx, cy), searching outward in rings.
 pub fn nearest_free(occ: &[u8], n: usize, cx: i32, cy: i32) -> Option<(i32, i32)> {
+    nearest_free_for(occ, n, cx, cy, false)
+}
+
+/// Nearest cell to (cx, cy) a land unit can stand on (amphibious ones also under water).
+pub fn nearest_free_for(occ: &[u8], n: usize, cx: i32, cy: i32, amph: bool) -> Option<(i32, i32)> {
     let ni = n as i32;
-    if free(occ, ni, cx, cy) {
+    if free(occ, ni, cx, cy, amph) {
         return Some((cx, cy));
     }
     for r in 1..60i32 {
@@ -1154,7 +1178,7 @@ pub fn nearest_free(occ: &[u8], n: usize, cx: i32, cy: i32) -> Option<(i32, i32)
                 if dx.abs() != r && dy.abs() != r {
                     continue;
                 }
-                if free(occ, ni, cx + dx, cy + dy) {
+                if free(occ, ni, cx + dx, cy + dy, amph) {
                     let d = dx * dx + dy * dy;
                     if best.map_or(true, |b| d < b.2) {
                         best = Some((cx + dx, cy + dy, d));
@@ -1170,17 +1194,18 @@ pub fn nearest_free(occ: &[u8], n: usize, cx: i32, cy: i32) -> Option<(i32, i32)
 }
 
 /// A* over the occupancy grid. Returns waypoints in reverse order (pop from the back),
-/// ending at `to` or the nearest reachable point.
-pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, sc: &mut PathScratch) -> Vec<V2> {
+/// ending at `to` or the nearest reachable point. `amph`: the unit also drives under water
+/// (`OCC_DEEP` cells).
+pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, amph: bool, sc: &mut PathScratch) -> Vec<V2> {
     let ni = n as i32;
     let cell = |p: V2| ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
     let (sx, sy) = cell(from);
     let (tx0, ty0) = cell(to);
-    let Some((tx, ty)) = nearest_free(occ, n, tx0.clamp(0, ni - 1), ty0.clamp(0, ni - 1)) else {
+    let Some((tx, ty)) = nearest_free_for(occ, n, tx0.clamp(0, ni - 1), ty0.clamp(0, ni - 1), amph) else {
         return vec![to];
     };
     let goal_pos = if (tx, ty) == (tx0, ty0) { to } else { v2((tx as f32 + 0.5) * CELL, (ty as f32 + 0.5) * CELL) };
-    if line_clear(occ, n, from, goal_pos) {
+    if line_clear(occ, n, from, goal_pos, amph) {
         return vec![goal_pos];
     }
     if sc.g.len() != n * n {
@@ -1227,10 +1252,10 @@ pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, sc: &mut PathScratch) -
         let (x, y) = (i as i32 % ni, i as i32 / ni);
         for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
             let (nx, ny) = (x + dx, y + dy);
-            if !free(occ, ni, nx, ny) {
+            if !free(occ, ni, nx, ny, amph) {
                 continue;
             }
-            if dx != 0 && dy != 0 && (!free(occ, ni, x + dx, y) || !free(occ, ni, x, y + dy)) {
+            if dx != 0 && dy != 0 && (!free(occ, ni, x + dx, y, amph) || !free(occ, ni, x, y + dy, amph)) {
                 continue;
             }
             let j = (ny * ni + nx) as usize;
@@ -1259,7 +1284,7 @@ pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, sc: &mut PathScratch) -
     let mut a = 0;
     while a < raw.len() - 1 {
         let mut b = raw.len() - 1;
-        while b > a + 1 && !line_clear(occ, n, raw[a], raw[b]) {
+        while b > a + 1 && !line_clear(occ, n, raw[a], raw[b], amph) {
             b -= 1;
         }
         out.push(raw[b]);
@@ -1303,9 +1328,13 @@ mod tests {
         assert_eq!(m.surface(c), 8.0);
         assert_eq!(m.water_at(v2(80.0, 80.0)), 0.0);
         assert_eq!(m.surface(v2(80.0, 80.0)), 10.0);
-        // Deep water blocks, the far ground does not.
+        // Water 2 deep stops land units but not amphibious ones, the far ground stops nobody.
         let (cx, cy) = m.cell_of(c);
-        assert_eq!(m.blocked[cy as usize * m.n + cx as usize], 1);
+        assert_eq!(m.blocked[cy as usize * m.n + cx as usize], OCC_DEEP);
+        let mut deep = m.clone();
+        deep.heights.iter_mut().for_each(|h| *h -= 3.0);
+        deep.rebuild_blocked();
+        assert_eq!(deep.blocked[cy as usize * m.n + cx as usize], 1, "5 under the lake: too deep for amphibious units");
         assert_eq!(m.blocked[40 * m.n + 40], 0);
         // The pointer ray stops at the lake's surface.
         let hit = m.raycast(Vec3::new(40.0, 50.0, 40.0), Vec3::NEG_Y).unwrap();

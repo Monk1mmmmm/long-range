@@ -490,7 +490,15 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Transports** (`transport: {capacity}` in the unit JSON; `cargo` = slots a unit takes, 0 = not carriable):
   riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
-  `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated).
+  `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated), except infantry in
+  a land transport (the Tavria APC): `deaths` throws them out like a garrison's (`garrison_eject_damage`).
+- **Tavria APC** (requested: protects infantry): `deflect: {below, take}` in the unit JSON (10 / 0.1) - a single hit
+  under `below` raw damage (after the hit angle, before the armor table) does only `take` of it (`deaths`), so rifles
+  and machine guns barely scratch it; 400 hp. `move.amphibious: true` (land units only): it also drives along the
+  bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
+  cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
+  submerged, shells stop at the surface and guns have no line of fire. `--combattest` "Tavria" / "River" lines
+  (alone: `LR_TEST=apc`).
 - **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
   `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);
   a map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points

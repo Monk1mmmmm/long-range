@@ -219,6 +219,8 @@
     "tooltip_hp_armor_stealth": "HP {:.0}   Armor {}{}",
     "tooltip_hp_armor": "HP {:.0}   Armor {}",
     "tooltip_reactive": "Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them",
+    "tooltip_deflect": "Small-arms proof: hits under {:.0} damage do only {:.0}% of it",
+    "tooltip_amphibious": "Amphibious: drives under water up to {:.0} deep",
     "tooltip_weapon": "{}: {:.0} {} dmg",
     "tooltip_salvo": " x{}",
     "tooltip_reload": " every {:.1}s, range {:.0}",
@@ -331,7 +333,7 @@
     },
     "apc": {
       "name": "Tavria",
-      "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed."
+      "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed. Bullets and machine-gun fire glance off its hull; riders get out alive when it is destroyed. Amphibious: drives along the bottom of rivers and lakes up to 4 deep, out of reach of guns."
     },
     "buggy": {
       "name": "Buggy",
@@ -1032,6 +1034,8 @@
     "body_move_turn_tip": "How fast it turns on the spot.",
     "body_move_altitude": "Flying height",
     "body_move_altitude_tip": "Aircraft: height above the ground.",
+    "body_move_amphibious": "Amphibious",
+    "body_move_amphibious_tip": "Land units: also drives along the bottom of water up to 4 deep, slower there, where shells and guns cannot reach it.",
     "intel_vision": "Vision range",
     "intel_vision_tip": "How far it sees (hills, trees and rocks may block it, see the rules switches).",
     "intel_spot_time": "Time to spot, hiding (s)",
@@ -1088,6 +1092,10 @@
     "reactive_charges_tip": "Missile hits it can take the edge off. Each hit uses one; a full repair replaces them all.",
     "reactive_block": "Block",
     "reactive_block_tip": "Share of a missile hit's damage a charge stops (0 - 1).",
+    "deflect_below": "Below",
+    "deflect_below_tip": "A single hit doing less damage than this (after the hit angle, before the armor table) is deflected.",
+    "deflect_take": "Takes",
+    "deflect_take_tip": "Share of a deflected hit's damage that still counts (0 - 1).",
     "death_damage": "Damage",
     "death_damage_tip": "Damage of the explosion when it is destroyed.",
     "death_radius": "Radius",
@@ -1115,6 +1123,8 @@
     "field_work_tip": "Sandbags or a trench piece: shots fly through it and lose its cover share to it, units cross it, nobody aims at it unless ordered to. Blasts and the shots it stops wear it down.",
     "reactive_armor": "Reactive armor",
     "reactive_armor_tip": "Explosive tiles that go off when a missile hits (AT troopers, Robins) and stop most of its damage, one hit per charge.",
+    "deflect_armor": "Small-arms proof",
+    "deflect_armor_tip": "Rifle bullets and machine-gun rounds glance off: weak single hits do only a small share of their damage.",
     "explodes_when_destroyed": "Explodes when destroyed",
     "explodes_tip": "A blast that hurts everything around it.",
     "icon_and_model": "Icon and model"

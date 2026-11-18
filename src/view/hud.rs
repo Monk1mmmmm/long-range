@@ -2692,6 +2692,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if let Some(era) = bd.reactive {
             lines.push(tr!("hud_unit_info.tooltip_reactive", era.charges, era.block * 100.0));
         }
+        if let Some(df) = bd.deflect {
+            lines.push(tr!("hud_unit_info.tooltip_deflect", df.below, df.take * 100.0));
+        }
+        if bd.mv.amphibious {
+            lines.push(tr!("hud_unit_info.tooltip_amphibious", crate::map::AMPHIBIOUS_DEPTH));
+        }
         for w in &bd.weapons {
             let mut t = tr!("hud_unit_info.tooltip_weapon", weapon_name(w), w.damage, w.damage_type);
             if w.salvo > 1 {
