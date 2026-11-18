@@ -473,7 +473,7 @@ impl Frame<'_> {
         let step = self.d(d).footprint.max(1) as f32 * CELL;
         let mut out: Vec<V2> = vec![];
         let mut last: Option<V2> = None;
-        let mut add = |out: &mut Vec<V2>, p: V2| {
+        let add = |out: &mut Vec<V2>, p: V2| {
             if !out.contains(&p) && out.len() < 200 {
                 out.push(p);
             }
