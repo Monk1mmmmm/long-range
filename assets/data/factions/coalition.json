@@ -1616,11 +1616,11 @@
    "name": "Bastion",
    "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 320 damage at range 90, slow turret.",
    "tier": 3,
-   "hp": 1400,
+   "hp": 800,
    "armor": "MediumTank",
    "cost": {
     "mass": 1300,
-    "energy": 6000,
+    "energy": 12000,
     "time": 2200
    },
    "size": [
