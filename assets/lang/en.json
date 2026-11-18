@@ -439,6 +439,10 @@
       "name": "Hornet",
       "desc": "Gunship. Hovers and rakes ground units with riot gun bursts, infantry first."
     },
+    "dove": {
+      "name": "Dove",
+      "desc": "Suicide drone. Cheap, slow and fragile: any anti-air swats it down. Flies at its target and dives into it with a heavy mortar round."
+    },
     "air_transport": {
       "name": "Stork",
       "desc": "Transport aircraft. Lifts eight land units over cliffs and water (L load, K unload). Unarmed."
@@ -722,6 +726,7 @@
     "gauss_cannon": "Gauss Cannon",
     "heavy_machinegun": "Heavy Machinegun",
     "mortar": "Mortar",
+    "mortar_warhead": "Mortar Warhead",
     "rotary_cannon_air": "Rotary Cannon (Air)",
     "rotary_cannon_ground": "Rotary Cannon (Ground)",
     "twin_flak_cannon": "Twin Flak Cannon",
@@ -1153,6 +1158,8 @@
     "prefer_tip": "Which enemies it shoots first when several are in range: armored (units of category armored: tanks) or infantry. none = the nearest.",
     "snipe": "Sniper rifle",
     "snipe_tip": "A hit on a building kills one enemy rider inside instead of damaging the building; it never shoots buildings without enemy riders.",
+    "suicide": "Suicide drone",
+    "suicide_tip": "Firing launches the unit itself at the target (a homing dive) and removes it, without a wreck or death blast. Give the weapon 1 round of ammunition.",
     "sound": "Sound",
     "sound_tip": "Shot sound; none = chosen by weapon kind.",
     "turret_yaw_speed": "Traverse (deg/s)",

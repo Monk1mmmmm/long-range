@@ -2050,6 +2050,8 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
             // Mortars and howitzers pick a charge for a steep (about 65 degree) arc instead of
             // always lobbing at full power, which would keep shells in the air for ages.
             WeaponKind::HighArc => ballistic(d, to.y, (g * d / 0.766).sqrt().clamp(8.0, w.speed * 1.5), g, true, true).unwrap(),
+            // A suicide drone dives straight at it.
+            WeaponKind::Missile if w.suicide => (fm::atan2(to.y, d.max(0.1)), d / w.speed.max(1.0), w.speed),
             WeaponKind::Missile => (if w.launch_pitch > 0.0 { w.launch_pitch.to_radians() } else { 0.35 }, d / w.speed.max(1.0), w.speed),
             WeaponKind::Bomb => (0.0, 0.0, 0.0),
         };
@@ -2205,7 +2207,7 @@ fn weapons(
     mut game: ResMut<Game>,
     mut rng: ResMut<SimRng>,
     mut fx: ResMut<FxLog>,
-    effects: Res<Effects>,
+    mut effects: ResMut<Effects>,
     mut commands: Commands,
 ) {
     let g = defs.rules.gravity;
@@ -2464,6 +2466,12 @@ fn weapons(
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+            if w.suicide {
+                // The drone is the warhead: it is gone, quietly (no wreck, no death blast).
+                effects.damage.push((u.id, 1.0e9, 0));
+                effects.reclaimed.push(u.id);
+                break;
+            }
         }
     }
 }
@@ -2526,8 +2534,13 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
     let (vel, kind, pos) = match w.kind {
         WeaponKind::Bomb => ((body.vel + st.fix).at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
         WeaponKind::Missile => {
-            let d = dir_from(st.yaw, st.pitch.max(0.3));
-            (d * w.speed, PROJ_MISSILE, origin + d * 0.5)
+            if w.suicide {
+                let d = dir_from(st.yaw, st.pitch);
+                (d * w.speed, PROJ_MISSILE, body.pos.at(body.y))
+            } else {
+                let d = dir_from(st.yaw, st.pitch.max(0.3));
+                (d * w.speed, PROJ_MISSILE, origin + d * 0.5)
+            }
         }
         _ => {
             let speed = if st.speed > 0.0 { st.speed } else { w.speed };

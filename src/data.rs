@@ -672,6 +672,10 @@ pub struct WeaponDef {
     /// the building alone; the weapon never shoots at buildings without enemy riders.
     #[serde(default)]
     pub snipe: bool,
+    /// Suicide drone: firing launches the unit itself at the target as a homing missile (a
+    /// straight dive from where it flies) and removes it, without a wreck or death blast.
+    #[serde(default)]
+    pub suicide: bool,
     /// Target priority: "armored" shoots units of category `armored` (tanks) first, "infantry" shoots
     /// infantry first; otherwise (or when none is in range) the nearest enemy.
     #[serde(default)]
