@@ -381,6 +381,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Charges left are the `Reactive` component (in `unit_state!`); `build_progress` puts them all back when a repair
   brings the unit to full health. `--combattest` infantry "Reactive armor" line. The Bastion (requested T3 tank against
   AT infantry) is the Crony mesh at 1.3x, 800 hp, 1300 mass / 12000 energy, MediumTank armor.
+- **Suicide drones** (weapon `suicide: true`, with `ammo: 1`; the T2 Dove): when the weapon fires, the unit itself is
+  launched at the target as a homing missile (a straight dive from where it flies, `solve`/`fire`) and removed
+  quietly (`Effects.reclaimed`: no wreck, no death blast). The Dove: 70 mass, 40 hp, speed 5.5, altitude 6, a 180
+  Explosive / radius 4 warhead, range 14; the AI treats it as a bomber. `--combattest` air "Doves" lines: 4 kill an
+  Overtaker unopposed; with a radar tower an MBFAG downs 4 of 6, a T1 AA turret all 6.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
 - **Game browser** (main menu "Join game" -> `Screen::Browse`, `main.rs::browser_ui`): a table of the games found by UDP

@@ -3910,6 +3910,26 @@ fn air_tests(defs: &Defs) {
             450,
         );
     }
+    // Dove suicide drones: a workable payload, but slow and fragile, so even T1 anti-air stops them.
+    run(
+        "4 Doves attack-move onto 3 parked Overtakers",
+        &[Side { name: "dove", owner: 0, n: 4, at: v2(80.0, 190.0), yaw: e }, Side { name: "overtaker", owner: 1, n: 3, at: v2(190.0, 190.0), yaw: w }],
+        &|ids| vec![(0, every(ids, "dove"), Order::AttackMove(v2(200.0, 190.0)))],
+        450,
+    );
+    for aa in ["mbfag", "aa_turret"] {
+        run(
+            &format!("6 Doves attack-move onto 2 Overtakers guarded by a {aa} (and a radar tower)"),
+            &[
+                Side { name: "dove", owner: 0, n: 6, at: v2(60.0, 190.0), yaw: e },
+                Side { name: "overtaker", owner: 1, n: 2, at: v2(190.0, 190.0), yaw: w },
+                Side { name: aa, owner: 1, n: 1, at: v2(196.0, 200.0), yaw: w },
+                Side { name: "radar_tower", owner: 1, n: 1, at: v2(215.0, 190.0), yaw: w },
+            ],
+            &|ids| vec![(0, every(ids, "dove"), Order::AttackMove(v2(200.0, 190.0)))],
+            600,
+        );
+    }
     run(
         "Hornet flies over 2 tanks with 4 troopers just behind them, all in range (target priority: infantry first)",
         &[Side { name: "gunship", owner: 0, n: 1, at: v2(110.0, 190.0), yaw: e }, Side { name: "crony", owner: 1, n: 2, at: v2(150.0, 190.0), yaw: w }, Side { name: "trooper", owner: 1, n: 4, at: v2(158.0, 190.0), yaw: w }],

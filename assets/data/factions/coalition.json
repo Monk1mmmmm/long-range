@@ -2101,6 +2101,63 @@
    ]
   },
   {
+   "id": "dove",
+   "name": "Dove",
+   "desc": "Suicide drone. Cheap, slow and fragile: any anti-air swats it down. Flies at its target and dives into it with a heavy mortar round.",
+   "tier": 2,
+   "hp": 40,
+   "armor": "Air",
+   "cost": {
+    "mass": 70,
+    "energy": 700,
+    "time": 250
+   },
+   "size": [
+    0.5,
+    0.2,
+    0.7
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_scout.glb",
+    "albedo": "models/air_scout_albedo.png",
+    "team_mask": "models/air_scout_team.png",
+    "normal": "models/air_scout_normal.png",
+    "scale": 0.06
+   },
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 5.5,
+    "turn": 70,
+    "altitude": 6
+   },
+   "vision": 26,
+   "weapons": [
+    {
+     "name": "Mortar Warhead",
+     "damage": 180,
+     "range": 14,
+     "reload": 1.0,
+     "speed": 18,
+     "kind": "missile",
+     "damage_type": "Explosive",
+     "radius": 4.0,
+     "turn_rate": 240,
+     "ammo": 1,
+     "suicide": true,
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
    "id": "air_transport",
    "name": "Stork",
    "desc": "Transport aircraft. Lifts eight land units over cliffs and water (L load, K unload). Unarmed.",

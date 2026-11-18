@@ -290,6 +290,7 @@ pub const WEAPON_FIELDS: &[Field] = &[
     num("launch_pitch", tx!("preset_weapons.launch_pitch"), 0.0, 90.0, tx!("preset_weapons.launch_pitch_tip")),
     f("prefer", tx!("preset_weapons.prefer"), Kind::Choice(PRIORITIES, "none"), tx!("preset_weapons.prefer_tip")),
     no("snipe", tx!("preset_weapons.snipe"), tx!("preset_weapons.snipe_tip")),
+    no("suicide", tx!("preset_weapons.suicide"), tx!("preset_weapons.suicide_tip")),
     f("sound", tx!("preset_weapons.sound"), Kind::Pick(Src::Sound, true), tx!("preset_weapons.sound_tip")),
 ];
 
