@@ -57,6 +57,11 @@ pub enum Order {
     LoadArea { pos: V2, radius: f32 },
     /// Transports: set the cargo down spread over the circle.
     Unload { pos: V2, radius: f32 },
+    /// Ferry route (SupCom). For a transport, one point of a route it flies round and round, like a
+    /// patrol: at the `pick` point (the beacon) it loads own units waiting there, at the point before
+    /// it on the loop it sets them down, the points between are waypoints. For any other unit: go to
+    /// the beacon at `pos` and wait for a ferry; once carried, it goes on with its next orders.
+    Ferry { pos: V2, pick: bool },
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -547,6 +552,11 @@ pub fn carriable(d: &crate::data::UnitDef) -> bool {
     !d.is_structure() && !d.is_air() && d.cargo > 0 && d.transport.is_none()
 }
 
+/// Can this unit type fly or drive a ferry route (`Order::Ferry`)? Mobile transports only.
+pub fn ferries(d: &crate::data::UnitDef) -> bool {
+    d.transport.is_some() && !d.is_structure()
+}
+
 /// Per-tick read-only view of every unit, so systems can look at other units
 /// without fighting over component borrows.
 /// How far below its base a unit's hit box reaches: its body height is the ground at its centre,
@@ -595,6 +605,10 @@ pub struct Cen {
     pub revival: u32,
     /// Sandbags, a trench: cover, not a target (`UnitDef::is_fieldwork`).
     pub fieldwork: bool,
+    /// A unit waiting for a ferry: the beacon its first order (`Order::Ferry`) sends it to.
+    pub ferry_wait: Option<V2>,
+    /// A transport on a ferry route: the route's beacon (pickup point).
+    pub beacon: Option<V2>,
 }
 impl Cen {
     /// An unfinished revival site: scavengers build it, engineers do not.

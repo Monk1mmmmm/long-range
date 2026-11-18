@@ -45,7 +45,7 @@ impl HudAssets {
     /// Textures of the order-button icons, created on first use.
     fn order_icons(&mut self, ctx: &egui::Context) -> HashMap<&'static str, TextureHandle> {
         if self.orders.is_empty() {
-            for k in ["move", "attack_move", "patrol", "ground", "reclaim", "stop", "pause", "resume", "repeat", "upgrade", "assist", "mass", "energy", "time", "power", "capture", "revive", "terraform", "load", "unload", "flag"] {
+            for k in ["move", "attack_move", "patrol", "ground", "reclaim", "stop", "pause", "resume", "repeat", "upgrade", "assist", "mass", "energy", "time", "power", "capture", "revive", "terraform", "load", "unload", "ferry", "flag"] {
                 let px = icons::render_order(k);
                 self.orders.insert(k, ctx.load_texture(format!("order_{k}"), egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &px), egui::TextureOptions::LINEAR));
             }
@@ -93,6 +93,9 @@ fn spread(pts: &[V2], k: usize) -> Vec<V2> {
     }
     pick.into_iter().map(|i| pts[i]).collect()
 }
+
+/// Ferry routes and beacons.
+const FERRY_COLOR: Color = Color::srgba(0.75, 0.6, 1.0, 0.85);
 
 /// Can a `rider` get into `host`? Transports take whatever is carriable, buildings infantry only.
 fn rides_in(rider: &UnitDef, host: &UnitDef) -> bool {
@@ -166,6 +169,8 @@ enum Context {
     AttackGround(V2),
     Capture(Vec<u32>, u32),
     Load(Vec<u32>, u32),
+    /// A beacon of our ferry routes: the units go there and wait to be carried.
+    Ferry(Vec<u32>, V2),
     Assist(Vec<u32>, u32),
     /// `reclaim` take the wreck apart, `revive` bring it back (scavengers on a whole wreck).
     Wreck { reclaim: Vec<u32>, revive: Vec<u32>, id: u32 },
@@ -262,6 +267,26 @@ struct Frame<'a> {
 }
 
 impl Frame<'_> {
+    /// The beacons (pickup points) of the ferry routes of player `me`'s transports.
+    fn beacons(&self, me: u8) -> Vec<V2> {
+        let mut ships: Vec<&Info> = self.infos.values().filter(|u| u.owner == me && u.host == 0 && ferries(self.d(u.def))).collect();
+        ships.sort_by_key(|u| u.id);
+        let mut out: Vec<V2> = vec![];
+        for u in ships {
+            for o in &u.orders {
+                if let Order::Ferry { pos, pick: true } = o {
+                    if !out.iter().any(|b| b.dist(*pos) < 4.0) {
+                        out.push(*pos);
+                    }
+                }
+            }
+        }
+        out
+    }
+    /// Our beacon under a click at `p`, if any.
+    fn beacon_near(&self, me: u8, p: V2) -> Option<V2> {
+        self.beacons(me).into_iter().filter(|b| b.dist(p) < 4.0).min_by(|a, b| a.dist(p).partial_cmp(&b.dist(p)).unwrap())
+    }
     fn selected<'b>(&'b self, view: &ViewState) -> Vec<&'b Info> {
         view.sel.iter().filter_map(|id| self.infos.get(id)).filter(|u| u.owner == view.me).collect()
     }
@@ -479,6 +504,13 @@ impl Frame<'_> {
                 }
             }
         }
+        // A ferry beacon: whatever can be carried goes there and waits.
+        if let Some(b) = self.beacon_near(view.me, ground) {
+            let riders: Vec<u32> = units.iter().filter(|u| carriable(self.d(u.def))).map(|u| u.id).collect();
+            if !riders.is_empty() {
+                return Context::Ferry(riders, b);
+            }
+        }
         // A wreck: engineers reclaim it, scavengers bring it back to life (debris, which cannot
         // come back, they reclaim too).
         let builders: Vec<u32> = units.iter().filter(|u| self.d(u.def).can_assist()).map(|u| u.id).collect();
@@ -648,6 +680,7 @@ fn can_do(d: &UnitDef, o: &Order) -> bool {
         Order::Reclaim(_) | Order::ReclaimArea { .. } => d.is_engineer() || d.is_scavenger(),
         Order::Attack(_) | Order::AttackGround { .. } => d.armed() && !d.is_scavenger(),
         Order::Load(_) | Order::LoadArea { .. } | Order::Unload { .. } => d.transport.is_some() && !d.is_garrison(),
+        Order::Ferry { pick, .. } => ferries(d) || (*pick && carriable(d)),
         Order::Assist(_) | Order::Move(_) | Order::AttackMove(_) | Order::Patrol(_) => true,
     }
 }
@@ -665,7 +698,7 @@ fn distribute_orders(defs: &Defs, map: &MapData, infos: &HashMap<u32, Info>, wre
     let mut pool: Vec<Order> = vec![];
     for u in &units {
         for o in &u.orders {
-            if !matches!(o, Order::Patrol(_)) && !pool.contains(o) {
+            if !matches!(o, Order::Patrol(_) | Order::Ferry { .. }) && !pool.contains(o) {
                 pool.push(*o);
             }
         }
@@ -690,7 +723,8 @@ fn distribute_orders(defs: &Defs, map: &MapData, infos: &HashMap<u32, Info>, wre
             | Order::ReviveArea { pos, .. }
             | Order::Terraform { pos, .. }
             | Order::LoadArea { pos, .. }
-            | Order::Unload { pos, .. } => pos,
+            | Order::Unload { pos, .. }
+            | Order::Ferry { pos, .. } => pos,
             Order::Attack(id) | Order::Assist(id) | Order::Reclaim(id) | Order::Capture(id) | Order::Revive(id) | Order::Load(id) => by_id(id).unwrap_or(fallback),
         }
     };
@@ -1180,7 +1214,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if !view.menu_open {
         if lmb_down && !over_hud {
             match view.mode {
-                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim | Mode::Assist | Mode::Capture | Mode::Revive | Mode::Terraform | Mode::Load | Mode::Unload => view.drag_start = Some(ground),
+                Mode::Place(_) | Mode::GroundAttack | Mode::Reclaim | Mode::Assist | Mode::Capture | Mode::Revive | Mode::Terraform | Mode::Load | Mode::Unload | Mode::Ferry => view.drag_start = Some(ground),
                 Mode::AttackMove | Mode::Patrol | Mode::Move => {
                     view.path = vec![ground];
                     view.pathing = Some(0);
@@ -1281,6 +1315,41 @@ pub fn ui_system(mut p: UiParams) -> Result {
                             Some(_) => {}
                             None if !carriers.is_empty() && radius >= 1.5 => out.push(Command::Orders { ids: carriers, orders: vec![Order::LoadArea { pos: start, radius }], queue: shift }),
                             None => {}
+                        }
+                    }
+                    Mode::Ferry => {
+                        let sel = fr.selected(view);
+                        let ships: Vec<&Info> = sel.iter().copied().filter(|u| ferries(fr.d(u.def))).collect();
+                        let riders: Vec<u32> = sel.iter().filter(|u| carriable(fr.d(u.def))).map(|u| u.id).collect();
+                        // Units without a transport in the selection go to the beacon clicked on.
+                        let mut beacon = fr.beacon_near(view.me, start);
+                        if !ships.is_empty() {
+                            let ids: Vec<u32> = ships.iter().map(|u| u.id).collect();
+                            let route = |u: &Info| u.orders.iter().find_map(|o| if let Order::Ferry { pos, pick: true } = o { Some(*pos) } else { None });
+                            match ships.iter().map(|u| route(u)).collect::<Option<Vec<V2>>>().filter(|_| shift) {
+                                // Shift on a route: one more point after the drop point, which becomes a waypoint.
+                                Some(b) => beacon = b.first().copied(),
+                                None => {
+                                    // A new route, its beacon where the transports are (or where their queues end).
+                                    let ends: Vec<V2> = ships
+                                        .iter()
+                                        .map(|u| {
+                                            let last = u.orders.iter().rev().find_map(|o| match o {
+                                                Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) | Order::Unload { pos: p, .. } | Order::LoadArea { pos: p, .. } => Some(*p),
+                                                _ => None,
+                                            });
+                                            if shift { last.unwrap_or(u.pos) } else { u.pos }
+                                        })
+                                        .collect();
+                                    let b = ends.iter().fold(v2(0.0, 0.0), |a, p| a + *p) * (1.0 / ends.len() as f32);
+                                    out.push(Command::Orders { ids: ids.clone(), orders: vec![Order::Ferry { pos: b, pick: true }], queue: shift });
+                                    beacon = Some(b);
+                                }
+                            }
+                            out.push(Command::Orders { ids, orders: vec![Order::Ferry { pos: start, pick: false }], queue: true });
+                        }
+                        if let (Some(b), false) = (beacon, riders.is_empty()) {
+                            out.push(Command::Orders { ids: riders, orders: vec![Order::Ferry { pos: b, pick: true }], queue: shift });
                         }
                     }
                     Mode::Unload => {
@@ -1424,6 +1493,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     Context::AttackGround(pos) => out.push(order(view.sel.clone(), Order::AttackGround { pos, radius: 0.0 })),
                     Context::Capture(ids, id) => out.push(order(ids, Order::Capture(id))),
                     Context::Load(ids, id) => out.push(order(ids, Order::Load(id))),
+                    Context::Ferry(ids, b) => out.push(order(ids, Order::Ferry { pos: b, pick: true })),
                     Context::Assist(ids, id) => out.push(order(ids, Order::Assist(id))),
                     Context::Wreck { reclaim, revive, id } => {
                         if !reclaim.is_empty() {
@@ -1564,6 +1634,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             if jp(KeyCode::KeyK) {
                 view.mode = Mode::Unload;
+            }
+            if jp(KeyCode::KeyF) {
+                view.mode = Mode::Ferry;
             }
             if jp(KeyCode::KeyJ) {
                 view.mode = Mode::Revive;
@@ -1757,6 +1830,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.75, 0.3, 0.8));
                     (Some(*pos), Color::srgba(1.0, 0.75, 0.3, 0.8))
                 }
+                Order::Ferry { pos, pick } => {
+                    if !pick {
+                        ring(g, map, *pos, 0.8, FERRY_COLOR);
+                    }
+                    (Some(*pos), FERRY_COLOR)
+                }
                 Order::Revive(id) => (wrecks.iter().find(|w| w.0 == *id).map(|w| w.1), Color::srgba(0.5, 0.9, 1.0, 0.8)),
                 Order::Capture(id) => (infos.get(id).map(|t| t.pos), Color::srgba(0.8, 0.5, 1.0, 0.8)),
                 Order::ReclaimArea { pos, radius } => {
@@ -1769,6 +1848,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 last = pt;
             }
         }
+        // A ferry route is a loop: back from its last point to its first.
+        if ferries(fr.d(u.def)) {
+            if let Some(first) = u.orders.iter().find_map(|o| if let Order::Ferry { pos, .. } = o { Some(*pos) } else { None }) {
+                ground_line(g, map, last, first, FERRY_COLOR);
+            }
+        }
+    }
+    // Ferry beacons: a post with two rings, always shown.
+    for b in fr.beacons(me) {
+        ring(g, map, b, 1.2, FERRY_COLOR);
+        ring(g, map, b, 2.0, FERRY_COLOR);
+        let base = b.at(map.surface(b));
+        g.line(base, base + Vec3::Y * 5.0, FERRY_COLOR);
     }
     // Build and reclaim beams.
     for u in infos.values() {
@@ -1835,8 +1927,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 }
             }
         }
-        Mode::GroundAttack | Mode::Reclaim | Mode::Revive | Mode::Load | Mode::Unload | Mode::Terraform => {
+        Mode::GroundAttack | Mode::Reclaim | Mode::Revive | Mode::Load | Mode::Unload | Mode::Ferry | Mode::Terraform => {
             let c = match view.mode {
+                Mode::Ferry => FERRY_COLOR,
                 Mode::Reclaim => Color::srgba(0.6, 1.0, 0.4, 1.0),
                 Mode::Revive => Color::srgba(0.5, 0.9, 1.0, 1.0),
                 Mode::Load => Color::srgba(0.4, 0.8, 1.0, 1.0),
@@ -2632,6 +2725,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if any_holder && action("unload", tr!("hud_orders.unload"), "K", view.mode == Mode::Unload) {
             new_mode = Some(Mode::Unload);
         }
+        let can_ferry = any_transport || (units.iter().any(|u| carriable(fr.d(u.def))) && !fr.beacons(view.me).is_empty());
+        if can_ferry && action("ferry", if any_transport { tr!("hud_orders.ferry") } else { tr!("hud_orders.ferry_wait") }, "F", view.mode == Mode::Ferry) {
+            new_mode = Some(Mode::Ferry);
+        }
         if can_reclaim && faf && action("assist", tr!("hud_orders.assist"), "I", view.mode == Mode::Assist) {
             new_mode = Some(Mode::Assist);
         }
@@ -2777,6 +2874,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 Context::AttackGround(_) => Some(CursorKind::Ground),
                 Context::Capture(..) => Some(CursorKind::Capture),
                 Context::Load(..) => Some(CursorKind::Load),
+                Context::Ferry(..) => Some(CursorKind::Ferry),
                 Context::Assist(..) => Some(CursorKind::Assist),
                 Context::Wreck { reclaim, .. } => Some(if reclaim.is_empty() { CursorKind::Revive } else { CursorKind::Reclaim }),
                 Context::Feature(..) => Some(CursorKind::Reclaim),
@@ -2797,6 +2895,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             Mode::Capture => Some(CursorKind::Capture),
             Mode::Load => Some(CursorKind::Load),
             Mode::Unload => Some(CursorKind::Unload),
+            Mode::Ferry => Some(CursorKind::Ferry),
             Mode::Terraform => Some(CursorKind::Terraform),
             Mode::Place(_) => None,
         }
@@ -2828,6 +2927,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
         Mode::Load if selected.iter().any(|u| fr.d(u.def).transport.is_some() && !fr.d(u.def).is_structure()) => tr!("hud_orders.hint_load_units").to_string(),
         Mode::Load => tr!("hud_orders.hint_board").to_string(),
         Mode::Unload => tr!("hud_orders.hint_unload").to_string(),
+        Mode::Ferry if selected.iter().any(|u| ferries(fr.d(u.def))) => tr!("hud_orders.hint_ferry").to_string(),
+        Mode::Ferry => tr!("hud_orders.hint_ferry_wait").to_string(),
         Mode::Place(d) if fr.d(d).needs_deposit => tr!("hud_orders.hint_build_deposit", unit_name(fr.d(d))),
         Mode::Place(d) if fr.d(d).is_fieldwork() => tr!("hud_orders.hint_build_fieldwork", unit_name(fr.d(d))),
         Mode::Place(d) => tr!("hud_orders.hint_build", unit_name(fr.d(d))),

@@ -2845,6 +2845,37 @@ fn combattest() {
         println!("== Transport aircraft (capacity {cap}) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down and drove on to their queued goal");
         assert!(most == cap as usize && moved == most && left == 10 - most && in_apc == 3 && out == 3, "transports");
     }
+    // 9b. Ferry route: a transport shuttles between its beacon and the drop point until everybody
+    // waiting at the beacon is across; they then go on with the orders queued behind the ferry.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let stork = spawn(world, &map, "air_transport", 0, v2(60.0, 60.0), 0.0);
+        let tanks: Vec<u32> = (0..12).map(|k| spawn(world, &map, "crony", 0, v2(70.0 + (k % 4) as f32 * 2.5, 48.0 + (k / 4) as f32 * 2.5), 0.0)).collect();
+        world.flush();
+        let (beacon, drop, on) = (v2(64.0, 56.0), v2(250.0, 250.0), v2(262.0, 236.0));
+        order(world, vec![stork], Order::Ferry { pos: beacon, pick: true });
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Ferry { pos: drop, pick: false }], queue: true }));
+        order(world, tanks.clone(), Order::Ferry { pos: beacon, pick: true });
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: tanks.clone(), orders: vec![Order::Move(on)], queue: true }));
+        let (mut trips, mut was_full, mut done) = (0, false, None);
+        for t in 0..4000u32 {
+            world.run_schedule(SimTick);
+            let mut q = world.query::<&Hosted>();
+            let n = q.iter(world).filter(|h| h.0 == stork).count();
+            if n > 0 && !was_full {
+                trips += 1;
+            }
+            was_full = n > 0;
+            let mut q = world.query::<(&Unit, &Body, Has<Hosted>)>();
+            if done.is_none() && q.iter(world).filter(|(u, b, h)| tanks.contains(&u.id) && !h && b.pos.dist(on) < 9.0).count() == tanks.len() {
+                done = Some(t);
+            }
+        }
+        let route = world.query::<(&Unit, &Orders)>().iter(world).find(|(u, _)| u.id == stork).map_or(false, |(_, o)| o.0.iter().any(|o| matches!(o, Order::Ferry { pick: true, .. })));
+        println!("== Ferry: 12 tanks waiting at the beacon, all across and at their queued goal after {done:?} ticks in {trips} trips; route kept: {route}");
+        assert!(done.is_some() && trips >= 2 && route, "ferry");
+    }
     // 10. Control points: the team that holds fewer points loses its score and then the game.
     {
         let (mut app, map) = flat_world(192);
@@ -4334,7 +4365,7 @@ fn nettest() {
 fn icon_sheet(path: &str) {
     use longrange::view::{cursor, icons};
     let defs = load_defs();
-    let orders = ["move", "attack_move", "patrol", "ground", "reclaim", "revive", "capture", "terraform", "load", "unload", "assist", "stop", "pause", "resume", "repeat", "upgrade", "mass", "energy", "time", "power", "flag"];
+    let orders = ["move", "attack_move", "patrol", "ground", "reclaim", "revive", "capture", "terraform", "load", "unload", "ferry", "assist", "stop", "pause", "resume", "repeat", "upgrade", "mass", "energy", "time", "power", "flag"];
     let (cell, cols) = (icons::ICON + 8, 12);
     let n0 = defs.units.len() + orders.len();
     let cur0 = (n0 + cols - 1) / cols * cols;

@@ -491,6 +491,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
   `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated).
+  Riders keep their orders: what is queued behind boarding is carried out after they are set down (`carry` only
+  drops a `Load` of their own transport and a leading `Ferry`).
+  **Ferry** (SupCom, `Order::Ferry { pos, pick }`, HUD key F): a mobile transport's route is a loop of `Ferry` orders
+  rotated like a patrol: the `pick` one is the beacon (where the transports stood when ordered), the one before it on
+  the loop the drop point (set down there with an inserted `Unload`), any between are waypoints (Shift adds points
+  after the drop point, `apply_commands` inserts them before the beacon). Other units given `Ferry` (right-click a
+  beacon, or F + click) wait at the beacon (`Cen::ferry_wait`); transports there load them nearest first and leave
+  when full or when nobody who fits is waiting within `FERRY_PICK` or still coming within `FERRY_COMING`. A waiting
+  unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
+  new orders). `--combattest` "Ferry" line: 12 tanks across in 2 trips, then on to their queued goal.
 - **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
   `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);
   a map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points
