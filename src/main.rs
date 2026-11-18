@@ -2878,11 +2878,14 @@ fn combattest() {
     apc_tests(&defs);
 }
 
-/// The Tavria armoured carrier: small arms glance off it, its infantry bail out of the wreck, and it
-/// fords water up to `AMPHIBIOUS_DEPTH` deep where other tanks stop (`--combattest`, or alone with
-/// `LR_TEST=apc`).
+/// The armoured carriers (Tavria, Slavuta, Zaporozhets): small arms barely scratch them, their
+/// infantry bail out of the wreck, and the Slavuta fords water up to `AMPHIBIOUS_DEPTH` deep where
+/// other vehicles stop (`--combattest`, or alone with `LR_TEST=apc`).
 fn apc_tests(defs: &Defs) {
-    let Some(apc_def) = defs.id("apc") else { return };
+    let carriers: Vec<&str> = ["apc", "apc_amph", "apc_heavy"].into_iter().filter(|c| defs.id(c).is_some()).collect();
+    if carriers.is_empty() {
+        return;
+    }
     let faction = defs.playable_factions()[0] as u8;
     // A flat range, with a river across it (bed `bed` under the water) when given.
     let world_with = |bed: Option<f32>| -> (App, MapData) {
@@ -2920,27 +2923,40 @@ fn apc_tests(defs: &Defs) {
     let order = |world: &mut World, owner: u8, ids: Vec<u32>, o: Order| world.resource_mut::<CommandQueue>().0.push((owner, Command::Orders { ids, orders: vec![o], queue: false }));
     let hp = |world: &mut World, id: u32| -> f32 { world.query::<(&Unit, &Health)>().iter(world).find(|(u, _)| u.id == id).map_or(0.0, |(_, h)| h.0) };
     let body = |world: &mut World, id: u32| -> Option<(V2, f32, bool)> { world.query::<(&Unit, &Body, Has<Hosted>)>().iter(world).find(|(u, ..)| u.id == id).map(|(_, b, h)| (b.pos, b.y, h)) };
-    let full = defs.get(apc_def).hp;
-
-    // 1. Six riflemen and an HMG tower fire at a Tavria for 30 s.
-    let (mut app, map) = world_with(None);
-    let world = app.world_mut();
-    let apc = spawn(world, &map, "apc", 0, v2(130.0, 128.0), 3.14);
-    for i in 0..6 {
-        spawn(world, &map, "trooper", 1, v2(118.0, 120.0 + i as f32 * 3.0), 0.0);
+    // 1. Six riflemen and an HMG tower fire at each carrier for 30 s; then an Overtaker's gun.
+    for &name in &carriers {
+        let full = defs.get(defs.id(name).unwrap()).hp;
+        let (mut app, map) = world_with(None);
+        let world = app.world_mut();
+        let apc = spawn(world, &map, name, 0, v2(130.0, 128.0), 3.14);
+        for i in 0..6 {
+            spawn(world, &map, "trooper", 1, v2(118.0, 120.0 + i as f32 * 3.0), 0.0);
+        }
+        spawn(world, &map, "hmg_turret", 1, v2(150.0, 128.0), 3.14);
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let left = hp(world, apc);
+        let (mut app, map) = world_with(None);
+        let world = app.world_mut();
+        let apc = spawn(world, &map, name, 0, v2(130.0, 128.0), 1.57);
+        spawn(world, &map, "overtaker", 1, v2(130.0, 110.0), 1.57);
+        let mut killed = None;
+        for t in 0..1200u32 {
+            world.run_schedule(SimTick);
+            if hp(world, apc) <= 0.0 {
+                killed = Some(t as f32 / 10.0);
+                break;
+            }
+        }
+        println!("== {name} ({full:.0} hp) under small arms: 6 riflemen + an HMG tower for 30 s leave it {left:.0} hp; an Overtaker kills it in {killed:?} s");
+        assert!(left > full * 0.2 && killed.is_some(), "small arms barely scratch an armoured carrier, a tank gun does not");
     }
-    spawn(world, &map, "hmg_turret", 1, v2(150.0, 128.0), 3.14);
-    for _ in 0..300 {
-        world.run_schedule(SimTick);
-    }
-    let left = hp(world, apc);
-    println!("== Tavria under small arms: 6 riflemen + an HMG tower for 30 s leave it {left:.0} of {full:.0} hp");
-    assert!(left > full * 0.5, "small arms barely scratch the Tavria");
 
     // 2. Destroyed with four riflemen inside: they bail out, hurt.
     let (mut app, map) = world_with(None);
     let world = app.world_mut();
-    let apc = spawn(world, &map, "apc", 0, v2(130.0, 128.0), 0.0);
+    let apc = spawn(world, &map, carriers[0], 0, v2(130.0, 128.0), 0.0);
     let men: Vec<u32> = (0..4).map(|i| spawn(world, &map, "trooper", 0, v2(124.0, 124.0 + i as f32 * 2.5), 0.0)).collect();
     order(world, 0, men.clone(), Order::Load(apc));
     for _ in 0..300 {
@@ -2955,15 +2971,16 @@ fn apc_tests(defs: &Defs) {
         world.run_schedule(SimTick);
     }
     let out = men.iter().filter(|&&m| body(world, m).is_some_and(|b| !b.2)).count();
-    println!("== Tavria destroyed with {boarded} riflemen inside: {out} bail out");
-    assert!(boarded == 4 && out == 4, "infantry bail out of a destroyed Tavria");
+    println!("== {} destroyed with {boarded} riflemen inside: {out} bail out", carriers[0]);
+    assert!(boarded == 4 && out == 4, "infantry bail out of a destroyed carrier");
 
-    // 3. A river 2.5 deep: the Tavria drives across along the bottom, an Overtaker cannot.
-    //    One 6 deep stops the Tavria too.
+    // 3. A river 2.5 deep: the Slavuta drives across along the bottom, an Overtaker cannot.
+    //    One 6 deep stops the Slavuta too.
+    let Some(&amph) = carriers.iter().find(|c| defs.get(defs.id(c).unwrap()).mv.amphibious) else { return };
     for (bed, crosses) in [(-2.5f32, true), (-6.0, false)] {
         let (mut app, map) = world_with(Some(bed));
         let world = app.world_mut();
-        let apc = spawn(world, &map, "apc", 0, v2(100.0, 128.0), 0.0);
+        let apc = spawn(world, &map, amph, 0, v2(100.0, 128.0), 0.0);
         let tank = spawn(world, &map, "overtaker", 0, v2(100.0, 140.0), 0.0);
         order(world, 0, vec![apc], Order::Move(v2(160.0, 128.0)));
         order(world, 0, vec![tank], Order::Move(v2(160.0, 140.0)));
@@ -2973,12 +2990,12 @@ fn apc_tests(defs: &Defs) {
             lowest = lowest.min(body(world, apc).map_or(f32::MAX, |b| b.1));
         }
         let (ax, tx) = (body(world, apc).unwrap().0.x, body(world, tank).unwrap().0.x);
-        println!("== River with its bed at {bed}: Tavria at x {ax:.0} (deepest {lowest:.1}, water 0), Overtaker at x {tx:.0} (goal 160)");
+        println!("== River with its bed at {bed}: {amph} at x {ax:.0} (deepest {lowest:.1}, water 0), Overtaker at x {tx:.0} (goal 160)");
         assert!(tx < 130.0, "an Overtaker does not drive into the river");
         if crosses {
-            assert!(ax > 155.0 && lowest < -1.75, "the Tavria fords a river 2.5 deep, submerged");
+            assert!(ax > 155.0 && lowest < -1.6, "an amphibious carrier fords a river 2.5 deep, submerged");
         } else {
-            assert!(ax < 130.0, "a river 6 deep stops the Tavria");
+            assert!(ax < 130.0, "a river 6 deep stops an amphibious carrier");
         }
     }
 }

@@ -495,11 +495,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
   takes 0.1 of it (`LightTank`, `MediumTank`, `APC`); the other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.
-- **Tavria APC** (requested: protects infantry): armor class `APC` (Normal 0.1, Autocannon 0.5, AP and Explosive 1.0,
-  SmallArms 0.1: a LightTank that also shrugs off riot guns and takes less from autocannons); 400 hp. `move.amphibious: true` (land units only): it also drives along the
+- **Armoured carriers** (requested, named after ZAZ cars; unarmed, `built_by` land): T1 Tavria (`apc`: 220 hp LightTank,
+  fast 5.8, 4 slots), T2 Slavuta (`apc_amph`: 300 hp LightTank, 5.2, 6 slots, amphibious), T2 Zaporozhets
+  (`apc_heavy`: 700 hp, armor class `APC` - Normal 0.1, Autocannon 0.5, AP and Explosive 1.0, SmallArms 0.1 -, slow
+  3.4, 8 slots). `move.amphibious: true` (land units only): it also drives along the
   bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
-  submerged, shells stop at the surface and guns have no line of fire. `--combattest` "Tavria" / "River" lines
+  submerged, shells stop at the surface and guns have no line of fire. `--combattest` carrier and "River" lines
   (alone: `LR_TEST=apc`).
 - **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
   `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);
