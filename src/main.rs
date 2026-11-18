@@ -3142,7 +3142,8 @@ fn infantry_tests(defs: &Defs) {
         }
     }
     println!("== Cover: a Crony shelling an Overtaker for 30 s does {:.0} damage in the open, {:.0} with a boulder in between ({:.0}% of the boulder left)", lost[0], lost[1], left * 100.0);
-    assert!(lost[0] > 0.0 && lost[1] > 0.0 && lost[1] < lost[0] * 0.6, "cover");
+    // (Shells dig the target into a pit; its rim makes the guns aim higher, partly over the boulder.)
+    assert!(lost[0] > 0.0 && lost[1] > 0.0 && lost[1] < lost[0] * 0.7, "cover");
 
     // 1b. Armor angle: a Crony shelling an Overtaker for 30 s that faces it, shows it its side, or
     // turns its back on it.

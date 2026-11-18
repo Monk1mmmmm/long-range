@@ -157,6 +157,13 @@ pub struct WeaponState {
     /// Rearming progress of the next round (0..1, weapons with `rearm`).
     #[serde(default)]
     pub rearm: f32,
+    /// Direct fire: height above the target's centre the gun aims at so the shell clears the
+    /// ground in front of it (a hull-down target is shot at its top), and whether no part of
+    /// the target can be hit without the shell hitting the ground first.
+    #[serde(default)]
+    pub lift: f32,
+    #[serde(default)]
+    pub blocked: bool,
 }
 
 impl WeaponState {
