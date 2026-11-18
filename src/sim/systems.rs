@@ -686,8 +686,9 @@ fn think(
         let (any_land, any_air) = (df.weapons.iter().any(|w| w.hits_land), df.weapons.iter().any(|w| w.hits_air));
         let air_range = df.weapons.iter().filter(|w| w.hits_air).map(|w| w.range).fold(0.0, f32::max);
         let reach = |target_r: f32| df.build_range().max(2.0) + target_r + df.radius();
-        // Every gun with a target has it behind the ground (direct fire only, as last tick's
-        // `weapons` found): standing here shoots nothing, so the unit closes in instead.
+        // Every gun with a target has the ground, a building or a friend in its line of fire
+        // (direct fire only, as last tick's `weapons` found): standing here shoots nothing, so
+        // the unit closes in instead.
         let no_shot = |tid: Option<u32>| {
             weapons.as_ref().is_some_and(|ws| {
                 let aimed = ws.list.iter().filter(|s| s.target != 0 && tid.map_or(true, |t| s.target == t));
@@ -2064,76 +2065,135 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
     best
 }
 
-/// Whether a shell laid with `sol` (pitch lowered by `dip`) gets into the target's cylinder
-/// (radius `r` around `sol.point`) before it touches the ground or water. Follows the real
-/// arc, which `fire` makes exact under the tick integration.
-fn shell_clears(map: &MapData, origin: Vec3, sol: &Solution, r: f32, dip: f32, g: f32) -> bool {
-    let to = sol.point - origin;
-    let end = Vec2::new(to.x, to.z).length() - r;
-    if end <= 0.5 {
-        return true;
-    }
-    let pitch = sol.pitch - dip;
-    let (cp, sp) = (fm::cos(pitch).max(0.01), fm::sin(pitch));
-    let (dx, dz) = (fm::cos(sol.yaw), fm::sin(sol.yaw));
-    let vh = sol.speed.max(1.0) * cp;
-    let (tan, k) = (sp / cp, g / (2.0 * vh * vh));
-    let steps = (end / 0.8).ceil() as i32;
-    for i in 1..=steps {
-        let s = end * i as f32 / steps as f32;
-        let (x, z) = (origin.x + dx * s, origin.z + dz * s);
-        if origin.y + s * tan - k * s * s <= map.height(x, z).max(map.water_xz(x, z) - 0.5) {
-            return false;
-        }
-    }
-    true
-}
-
-/// Direct fire: the height above the target's centre to aim at so the shell reaches the target
-/// rather than the ground in front of it, even when spread throws it a little low. A target
-/// partly behind a crest is aimed at higher up; `None` when no part of it can be hit.
-fn clear_aim(w: &WeaponDef, map: &MapData, origin: Vec3, c: &Cen, g: f32) -> Option<f32> {
-    let dip = w.spread.to_radians() * 0.3;
-    for (lift, dip) in [(0.0, dip), (0.2, dip), (0.4, dip), (0.4, 0.0)] {
-        let lift = lift * c.hit_h;
-        let sol = solve(w, origin, c.center() + Vec3::Y * lift, c.vel, g);
-        if shell_clears(map, origin, &sol, c.hit_r, dip, g) {
-            return Some(lift);
-        }
-    }
-    None
-}
-
-/// Direct fire target choice: preferred class first, then nearest, but an enemy the gun can
-/// hit without shooting into the ground beats one it cannot. Returns the aim height too.
-#[allow(clippy::too_many_arguments)]
-fn pick_clear<'a>(
+/// Who fires a direct-fire shot, for working out what it would run into on the way.
+struct Lane<'a> {
     census: &'a Census,
-    map: &MapData,
-    w: &WeaponDef,
-    origin: Vec3,
-    pos: V2,
+    map: &'a MapData,
     team: u8,
+    friendly_fire: bool,
+    grace: f32,
+    /// The shooter and the garrison it fires from: shots never hit those.
+    shooter: u32,
+    host: u32,
     g: f32,
-    skip: u32,
-    preferred: impl Fn(&Cen) -> bool,
-) -> Option<(&'a Cen, Option<f32>)> {
-    let m2 = w.min_range * w.min_range;
-    let mut list: Vec<(bool, f32, u32)> = vec![];
-    census.near(pos, w.range, |c| {
-        let d2 = (c.pos - pos).len2();
-        if c.id != skip && d2 >= m2 && census.valid_target(c, team, w.hits_land, w.hits_air) {
-            list.push((!preferred(c), d2, c.id));
-        }
-    });
-    list.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
-    for &(_, _, id) in list.iter().take(4) {
-        let c = census.get(id)?;
-        if let Some(lift) = clear_aim(w, map, origin, c, g) {
-            return Some((c, Some(lift)));
-        }
+}
+
+/// A cylinder a shell must stay out of: (centre, radius, bottom, top).
+type Obstacle = (V2, f32, f32, f32);
+
+impl Lane<'_> {
+    /// What a shell from `from` to `to` would hit instead of `target` (as `projectiles` decides
+    /// hits): buildings, and own (with friendly fire) or neutral units. Own units right beside the
+    /// shooter are flown past, as in `projectiles`. An enemy unit in the way is no reason to hold
+    /// fire: the shot hits an enemy either way.
+    fn obstacles(&self, w: &WeaponDef, from: Vec3, to: V2, target: u32) -> Vec<Obstacle> {
+        let from2 = flat(from);
+        let mut list = vec![];
+        self.census.near((from2 + to) * 0.5, from2.dist(to) * 0.5 + 8.0, |c| {
+            if c.id == target || c.id == self.shooter || c.id == self.host || c.hp <= 0.0 || c.hosted || c.fieldwork {
+                return;
+            }
+            if if c.air { !w.hits_air } else { !w.hits_land } {
+                return;
+            }
+            let own = c.team == self.team;
+            if own && (!self.friendly_fire || c.pos.dist(from2) - c.hit_r < self.grace) {
+                return;
+            }
+            if own || c.structure || !hostile(self.team, c.team) {
+                let r = if c.structure { c.hit_r * 1.1 } else { c.hit_r } + 0.12;
+                list.push((c.pos, r, c.y - 0.3, c.y + c.hit_h + 0.3));
+            }
+        });
+        list
     }
-    list.first().and_then(|e| census.get(e.2)).filter(|_| skip == 0).map(|c| (c, None))
+
+    /// Whether a shell laid with `sol` (pitch lowered by `dip`) gets into the target's cylinder
+    /// (radius `r` around `sol.point`) before it touches the ground or water or runs into one of
+    /// `obst` (widened by `side`, the sideways spread per unit of distance). Follows the real
+    /// arc, which `fire` makes exact under the tick integration.
+    fn clears(&self, origin: Vec3, sol: &Solution, r: f32, dip: f32, side: f32, obst: &[Obstacle]) -> bool {
+        let to = sol.point - origin;
+        let end = Vec2::new(to.x, to.z).length() - r;
+        if end <= 0.5 {
+            return true;
+        }
+        let pitch = sol.pitch - dip;
+        let (cp, sp) = (fm::cos(pitch).max(0.01), fm::sin(pitch));
+        let dir = V2::from_angle(sol.yaw);
+        let vh = sol.speed.max(1.0) * cp;
+        let (tan, k) = (sp / cp, self.g / (2.0 * vh * vh));
+        let y = |s: f32| origin.y + s * tan - k * s * s;
+        let steps = (end / 0.8).ceil() as i32;
+        for i in 1..=steps {
+            let s = end * i as f32 / steps as f32;
+            let (x, z) = (origin.x + dir.x * s, origin.z + dir.y * s);
+            if y(s) <= self.map.height(x, z).max(self.map.water_xz(x, z) - 0.5) {
+                return false;
+            }
+        }
+        let o = flat(origin);
+        obst.iter().all(|&(c, cr, lo, hi)| {
+            let rel = c - o;
+            let along = rel.dot(dir);
+            let r = cr + along.max(0.0) * side;
+            let across = rel.dot(dir.perp()).abs();
+            if across >= r || along + r <= 0.5 || along - r >= end {
+                return true;
+            }
+            // The stretch of the flight above the cylinder's footprint; the arc's height there
+            // (one end, the other, and its top if that lies between) must miss [lo, hi].
+            let half = (r * r - across * across).sqrt();
+            let (s0, s1) = ((along - half).max(0.5), (along + half).min(end));
+            if s0 > s1 {
+                return true;
+            }
+            let apex = (tan / (2.0 * k)).clamp(s0, s1);
+            let ys = [y(s0), y(s1), y(apex)];
+            let (min, max) = (ys.iter().copied().fold(f32::MAX, f32::min), ys.iter().copied().fold(f32::MIN, f32::max));
+            max < lo || min > hi
+        })
+    }
+
+    /// Direct fire: the height above the target's centre to aim at so the shell reaches the target
+    /// rather than the ground, a building or a friend in front of it, even when spread throws it a
+    /// little off. A target partly behind a crest is aimed at higher up; `None` when no part of it
+    /// can be hit.
+    fn aim(&self, w: &WeaponDef, origin: Vec3, c: &Cen) -> Option<f32> {
+        let spread = w.spread.to_radians();
+        let obst = self.obstacles(w, origin, c.pos + c.vel * (c.pos.dist(flat(origin)) / w.speed.max(1.0)), c.id);
+        let dip = spread * 0.6 * 0.5;
+        for (lift, dip, side) in [(0.0, dip, spread * 0.5), (0.2, dip, spread * 0.5), (0.4, dip, spread * 0.5), (0.4, 0.0, 0.0)] {
+            let lift = lift * c.hit_h;
+            let sol = solve(w, origin, c.center() + Vec3::Y * lift, c.vel, self.g);
+            if self.clears(origin, &sol, c.hit_r, dip, side, &obst) {
+                return Some(lift);
+            }
+        }
+        None
+    }
+
+    /// Direct fire target choice: preferred class first, then nearest, but an enemy the gun can
+    /// hit without shooting into the ground, a building or a friend beats one it cannot. Returns
+    /// the aim height too; with `skip` (the current target) only a target in the clear.
+    fn pick(&self, w: &WeaponDef, origin: Vec3, pos: V2, skip: u32, preferred: impl Fn(&Cen) -> bool) -> Option<(&Cen, Option<f32>)> {
+        let m2 = w.min_range * w.min_range;
+        let mut list: Vec<(bool, f32, u32)> = vec![];
+        self.census.near(pos, w.range, |c| {
+            let d2 = (c.pos - pos).len2();
+            if c.id != skip && d2 >= m2 && self.census.valid_target(c, self.team, w.hits_land, w.hits_air) {
+                list.push((!preferred(c), d2, c.id));
+            }
+        });
+        list.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
+        for &(_, _, id) in list.iter().take(4) {
+            let c = self.census.get(id)?;
+            if let Some(lift) = self.aim(w, origin, c) {
+                return Some((c, Some(lift)));
+            }
+        }
+        list.first().and_then(|e| self.census.get(e.2)).filter(|_| skip == 0).map(|c| (c, None))
+    }
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -2189,6 +2249,16 @@ fn weapons(
         }
         let plane = df.is_plane();
         let (focus, ground) = (ws.focus, ws.ground);
+        let lane = Lane {
+            census: &census,
+            map: &map,
+            team,
+            friendly_fire: defs.rules.friendly_fire,
+            grace: defs.rules.cover_grace,
+            shooter: u.id,
+            host: hosted.map_or(0, |h| h.0),
+            g,
+        };
         for (wi, w) in df.weapons.iter().enumerate() {
             let Some(st) = ws.list.get_mut(wi) else { continue };
             st.cd = (st.cd - DT).max(0.0);
@@ -2256,7 +2326,7 @@ fn weapons(
                     target = census.get(best.1);
                 } else if target.is_none() && (st.target != 0 || (tick + u.id) % 3 == 0) {
                     target = if direct {
-                        let pick = pick_clear(&census, &map, w, origin, body.pos, team, g, 0, &preferred);
+                        let pick = lane.pick(w, origin, body.pos, 0, &preferred);
                         if let Some((_, lift)) = pick {
                             checked = true;
                             st.lift = lift.unwrap_or(0.0);
@@ -2280,11 +2350,11 @@ fn weapons(
             match target.filter(|_| direct && gpoint.is_none()) {
                 Some(c) => {
                     if !checked && (c.id != st.target || (tick + u.id + wi as u32) % 3 == 0) {
-                        let lift = clear_aim(w, &map, origin, c, g);
+                        let lift = lane.aim(w, origin, c);
                         st.lift = lift.unwrap_or(0.0);
                         st.blocked = lift.is_none();
                         if st.blocked && c.id != focus {
-                            if let Some((alt, Some(lift))) = pick_clear(&census, &map, w, origin, body.pos, team, g, c.id, &preferred) {
+                            if let Some((alt, Some(lift))) = lane.pick(w, origin, body.pos, c.id, &preferred) {
                                 target = Some(alt);
                                 st.lift = lift;
                                 st.blocked = false;

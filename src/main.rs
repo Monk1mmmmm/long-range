@@ -3167,6 +3167,31 @@ fn infantry_tests(defs: &Defs) {
         assert!(lost[0] > 0.0 && lost[0] < lost[1] && lost[1] < lost[2], "armor angle");
     }
 
+    // 1c. Line of fire: a Crony does not shell a neutral house, nor (with friendly fire) an own
+    // tank, standing between it and the nearest enemy; it shoots another enemy in the clear.
+    for (blocker, owner) in [("house", NEUTRAL), ("overtaker", 0)] {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        world.resource_mut::<Defs>().rules.friendly_fire = owner == 0;
+        let gun = spawn(world, &map, "crony", 0, v2(100.0, 129.0), 0.0);
+        set_hp(world, gun, 1.0e6);
+        spawn(world, &map, "radar_car", 0, v2(96.0, 135.0), 0.0);
+        let wall = spawn(world, &map, blocker, owner, v2(125.0, 129.0), 0.0);
+        set_hp(world, wall, 1.0e6);
+        let hidden = spawn(world, &map, "radar_car", 1, v2(150.0, 129.0), 0.0);
+        let open = spawn(world, &map, "radar_car", 1, v2(140.0, 170.0), 0.0);
+        set_hp(world, hidden, 1.0e6);
+        set_hp(world, open, 1.0e6);
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let (lost_wall, lost_hidden, lost_open) = (1.0e6 - hp(world, wall), 1.0e6 - hp(world, hidden), 1.0e6 - hp(world, open));
+        println!(
+            "== Line of fire: a Crony with {blocker} (owner {owner}) in front of the nearest enemy, 30 s: {blocker} lost {lost_wall:.0}, enemy behind it {lost_hidden:.0}, enemy in the clear {lost_open:.0}"
+        );
+        assert!(lost_wall < 1.0 && lost_open > 0.0, "line of fire past a {blocker}");
+    }
+
     // 2. An idle trooper moves behind the nearest tree, away from the enemy it can see.
     {
         let tree = v2(128.0, 104.0);
