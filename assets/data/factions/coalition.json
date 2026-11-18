@@ -3818,7 +3818,7 @@
    "name": "Sandbags",
    "desc": "A stretch of sandbag wall; drag to build a line. Enemy shots that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry take cover behind it. Units can cross it.",
    "tier": 2,
-   "hp": 250,
+   "hp": 1000,
    "armor": "Structure",
    "cost": {
     "mass": 8,
