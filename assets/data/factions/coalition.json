@@ -320,6 +320,7 @@
    "desc": "Armored assault bot. Cheap plasma gun that also hurts armor.",
    "tier": 1,
    "hp": 65,
+   "regen": 0.54,
    "armor": "Light",
    "cost": {
     "mass": 65,
@@ -390,6 +391,7 @@
    "desc": "Infantry with a guided anti-tank missile and three rounds of it; spent rounds come back one a minute for mass. Slow to reload; best fired from cover or from a building.",
    "tier": 2,
    "hp": 90,
+   "regen": 0.75,
    "armor": "Light",
    "cost": {
     "mass": 170,
@@ -464,6 +466,7 @@
    "desc": "Marksman with a long rifle. Slow, accurate shots; also picks off infantry inside buildings from afar without harming the building.",
    "tier": 2,
    "hp": 55,
+   "regen": 0.46,
    "armor": "Light",
    "cost": {
     "mass": 140,
@@ -536,6 +539,7 @@
    "desc": "Infantry with a shoulder-fired homing anti-air missile and four rounds of it; spent rounds come back one a minute for mass. Aircraft only.",
    "tier": 2,
    "hp": 80,
+   "regen": 0.67,
    "armor": "Light",
    "cost": {
     "mass": 150,

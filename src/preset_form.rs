@@ -176,6 +176,7 @@ pub const UNIT_GENERAL: &[Field] = &[
     f("desc", tx!("preset_units.general_desc"), Kind::Text, tx!("preset_units.general_desc_tip")),
     f("tier", tx!("preset_units.general_tier"), Kind::Int(0, 0, 9), tx!("preset_units.general_tier_tip")),
     num("hp", tx!("preset_units.general_hp"), 100.0, BIG, tx!("preset_units.general_hp_tip")),
+    num("regen", tx!("preset_units.general_regen"), 0.0, 1000.0, tx!("preset_units.general_regen_tip")),
     f("armor", tx!("preset_units.general_armor"), Kind::Pick(Src::Armor, false), tx!("preset_units.general_armor_tip")),
     f("categories", tx!("preset_units.general_categories"), Kind::TagsFrom(Src::Category), tx!("preset_units.general_categories_tip")),
     f("built_by", tx!("preset_units.general_built_by"), Kind::Pick(Src::BuildCat, true), tx!("preset_units.general_built_by_tip")),
