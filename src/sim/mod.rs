@@ -578,6 +578,8 @@ pub struct Cen {
     pub revival: u32,
     /// Sandbags, a trench: cover, not a target (`UnitDef::is_fieldwork`).
     pub fieldwork: bool,
+    /// A mobile constructor (engineer, commander, scavenger): shot before buildings.
+    pub engineer: bool,
 }
 impl Cen {
     /// An unfinished revival site: scavengers build it, engineers do not.
@@ -652,20 +654,30 @@ impl Census {
     pub fn valid_target(&self, c: &Cen, team: u8, land: bool, air: bool) -> bool {
         c.hp > 0.0 && !c.hosted && !c.fieldwork && hostile(team, c.team) && c.known_to(team) && if c.air { air } else { land }
     }
-    /// Like `nearest_enemy`, but an enemy for which `preferred` holds beats any other, however far.
+    /// Like `nearest_enemy`, but an enemy for which `preferred` holds beats any other, however far,
+    /// and while an engineer is among the candidates, every other enemy beats a building.
     pub fn pick_enemy(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool, preferred: impl Fn(&Cen) -> bool) -> Option<&Cen> {
-        let mut best: Option<(bool, f32, usize)> = None;
+        let mut list: Vec<(bool, bool, f32, u32, usize)> = vec![];
         let m2 = min_range * min_range;
         self.near(pos, range, |c| {
             let d2 = (c.pos - pos).len2();
             if d2 >= m2 && self.valid_target(c, team, land, air) {
-                let p = preferred(c);
-                if best.map_or(true, |b| (p && !b.0) || (p == b.0 && d2 < b.1)) {
-                    best = Some((p, d2, self.index[&c.id]));
-                }
+                list.push((!preferred(c), c.structure, d2, c.id, self.index[&c.id]));
             }
         });
-        best.map(|b| &self.list[b.2])
+        let eng = list.iter().any(|e| self.list[e.4].engineer);
+        list.iter()
+            .min_by(|a, b| a.0.cmp(&b.0).then((eng && a.1).cmp(&(eng && b.1))).then(a.2.total_cmp(&b.2)).then(a.3.cmp(&b.3)))
+            .map(|e| &self.list[e.4])
+    }
+    /// An enemy engineer the weapon could take instead of a building.
+    pub fn engineer_near(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool) -> bool {
+        let m2 = min_range * min_range;
+        let mut found = false;
+        self.near(pos, range, |c| {
+            found = found || (c.engineer && (c.pos - pos).len2() >= m2 && self.valid_target(c, team, land, air));
+        });
+        found
     }
     pub fn nearest_enemy(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool) -> Option<&Cen> {
         let mut best: Option<(f32, usize)> = None;
