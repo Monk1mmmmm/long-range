@@ -13,6 +13,18 @@ New
 - Sandbags and trenches can be built along a line of any shape: draw it with the right mouse button.
 - Right-clicking a trench with infantry selected spreads them over all of it.
 - Troopers heal by themselves, back to full health in about two minutes.
+- "Relaxed" data preset, for a calmer game (pick it in the lobby under the data preset). It keeps the core -
+  long range, slow aim, scouting and radar decide who shoots - but drops the hidden rules and softens the rest:
+  - no friendly fire; trees, rocks, wrecks and buildings no longer block sight (hills still do), and units see
+    everything within 12 (was 6); troopers are seen as soon as they are in view (no spotting delay);
+  - mobile units have 1.3x hp, the commander 1.6x;
+  - armor angle matters less (front 0.75, rear 1.25 instead of 0.6 / 1.5);
+  - unlimited missiles for the AT and SAM Troopers (no rearming); shorter set-up times: AT Trooper none, Pike
+    Mortar 1.5 s, Bohdana 3 s;
+  - start with 1000 mass / 6000 energy (was 650 / 4000); an energy stall slows mass much less; radar costs half
+    the upkeep and blips stay 25 s (was 10);
+  - falling debris hurts nobody, units thrown out of a destroyed building take less damage, and control points
+    drain at half the rate.
 - Hotkeys: Ctrl+R shares the selection's queued orders out among the selected units (as in FAF); `/` selects
   the nearest extractor of the lowest tier, Shift+`/` adds the next one.
 
@@ -36,6 +48,7 @@ Changed
 Under the hood
 - `tools/blend.py` exports Blender models for the game (parts, animations, team/light/dark/metal materials,
   `--watch` re-exports on every save); see `tools/README.md`.
+- `tools/relaxed_preset.py` makes the Relaxed preset from the built-in data; run it again after the data changes.
 - `tools/model_bounds.py` compares model bounds with the units' JSON size and hit box.
 - Preset editor: new unit setting "Regeneration (hp/s)", rules `splash_direct` / `splash_armored`, weapon
   settings `splash` and `suicide`.
