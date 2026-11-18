@@ -492,10 +492,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
   `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated), except infantry in
   a land transport (the Tavria APC): `deaths` throws them out like a garrison's (`garrison_eject_damage`).
-- **Tavria APC** (requested: protects infantry): armor class `APC` (rules.json: Normal 0.1, Autocannon 0.5, AP and
-  Explosive 1.0, SmallArms 0.1), so rifles and machine guns barely scratch it while cannons, missiles and artillery do
-  full damage; 400 hp. Rifles (Trooper, Sniper Trooper) fire the damage type `SmallArms`, whose column equals AP for
-  every other armor class (added so rifles could be told from tank guns). `move.amphibious: true` (land units only): it also drives along the
+- **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
+  takes 0.1 of it (`LightTank`, `MediumTank`, `APC`); the other classes take what they take from `Normal` (Light 1,
+  Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.
+- **Tavria APC** (requested: protects infantry): armor class `APC` (Normal 0.1, Autocannon 0.5, AP and Explosive 1.0,
+  SmallArms 0.1: a LightTank that also shrugs off riot guns and takes less from autocannons); 400 hp. `move.amphibious: true` (land units only): it also drives along the
   bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
   submerged, shells stop at the surface and guns have no line of fire. `--combattest` "Tavria" / "River" lines
