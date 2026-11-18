@@ -340,7 +340,11 @@
     },
     "apc_heavy": {
       "name": "Zaporozhets",
-      "desc": "Heavy armoured carrier. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. Slow. Unarmed."
+      "desc": "Heavy armoured carrier. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. A roof machine gun keeps infantry off it. Slow."
+    },
+    "apc_heavy3": {
+      "name": "Hetman",
+      "desc": "Assault carrier, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns."
     },
     "buggy": {
       "name": "Buggy",
@@ -736,6 +740,7 @@
     "homing_aa_missile": "Homing AA Missile",
     "gauss_cannon": "Gauss Cannon",
     "heavy_machinegun": "Heavy Machinegun",
+    "twin_heavy_machinegun": "Twin Heavy Machinegun",
     "mortar": "Mortar",
     "mortar_warhead": "Mortar Warhead",
     "rotary_cannon_air": "Rotary Cannon (Air)",

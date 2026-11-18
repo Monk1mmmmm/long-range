@@ -415,7 +415,7 @@
     "armored"
    ],
    "name": "Zaporozhets",
-   "desc": "Heavy armoured carrier. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. Slow. Unarmed.",
+   "desc": "Heavy armoured carrier. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. A roof machine gun keeps infantry off it. Slow.",
    "tier": 2,
    "hp": 910,
    "armor": "APC",
@@ -538,6 +538,28 @@
    },
    "built_by": "land",
    "select_sound": "select_vehicle",
+   "weapons": [
+    {
+     "name": "Heavy Machinegun",
+     "prefer": "infantry",
+     "damage": 3,
+     "damage_type": "SmallArms",
+     "range": 30,
+     "reload": 0.8,
+     "speed": 100,
+     "kind": "direct",
+     "salvo": 3,
+     "salvo_delay": 0.08,
+     "spread": 0.6,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90
+     },
+     "targets": [
+      "land"
+     ]
+    }
+   ],
    "move": {
     "kind": "land",
     "speed": 3.4,
@@ -548,6 +570,225 @@
    "vision": 22,
    "transport": {
     "capacity": 8
+   }
+  },
+  {
+   "id": "apc_heavy3",
+   "categories": [
+    "armored"
+   ],
+   "name": "Hetman",
+   "desc": "Assault carrier, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns.",
+   "tier": 3,
+   "hp": 1300,
+   "armor": "APC",
+   "reactive": {
+    "charges": 4,
+    "block": 0.75
+   },
+   "cost": {
+    "mass": 650,
+    "energy": 6500,
+    "time": 2200
+   },
+   "size": [
+    2.8,
+    2.2,
+    5.0
+   ],
+   "hit_box": [
+    2.8,
+    2.2,
+    5.0
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "cargo",
+     "frame"
+    ]
+   },
+   "model": {
+    "boxes": [
+     {
+      "pos": [
+       0,
+       0.65,
+       0
+      ],
+      "size": [
+       2.8,
+       0.75,
+       5.0
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       1.6,
+       0.3
+      ],
+      "size": [
+       2.6,
+       1.1,
+       3.9
+      ],
+      "color": "team"
+     },
+     {
+      "pos": [
+       0,
+       1.45,
+       -2.0
+      ],
+      "size": [
+       2.4,
+       0.85,
+       0.7
+      ],
+      "color": "dark"
+     },
+     {
+      "pos": [
+       0,
+       1.3,
+       -2.45
+      ],
+      "size": [
+       2.0,
+       0.5,
+       0.3
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       1.45,
+       1.35,
+       0.3
+      ],
+      "size": [
+       0.15,
+       1.0,
+       3.8
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       -1.45,
+       1.35,
+       0.3
+      ],
+      "size": [
+       0.15,
+       1.0,
+       3.8
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0,
+       2.25,
+       0.9
+      ],
+      "size": [
+       1.6,
+       0.25,
+       2.0
+      ],
+      "color": "metal"
+     },
+     {
+      "pos": [
+       0.9,
+       1.75,
+       -1.1
+      ],
+      "size": [
+       0.5,
+       0.35,
+       0.9
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       -0.9,
+       1.75,
+       -1.1
+      ],
+      "size": [
+       0.5,
+       0.35,
+       0.9
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       0.9,
+       1.75,
+       1.6
+      ],
+      "size": [
+       0.5,
+       0.35,
+       0.9
+      ],
+      "color": "light"
+     },
+     {
+      "pos": [
+       -0.9,
+       1.75,
+       1.6
+      ],
+      "size": [
+       0.5,
+       0.35,
+       0.9
+      ],
+      "color": "light"
+     }
+    ]
+   },
+   "built_by": "land",
+   "select_sound": "select_vehicle",
+   "weapons": [
+    {
+     "name": "Twin Heavy Machinegun",
+     "prefer": "infantry",
+     "damage": 3,
+     "damage_type": "SmallArms",
+     "range": 34,
+     "reload": 0.8,
+     "speed": 100,
+     "kind": "direct",
+     "salvo": 6,
+     "salvo_delay": 0.05,
+     "spread": 0.6,
+     "turret": {
+      "yaw_speed": 120,
+      "pitch_speed": 90
+     },
+     "targets": [
+      "land"
+     ]
+    }
+   ],
+   "move": {
+    "kind": "land",
+    "speed": 3.3,
+    "reverse": 2.3,
+    "accel": 2.0,
+    "turn": 65
+   },
+   "vision": 24,
+   "transport": {
+    "capacity": 10
    }
   },
   {

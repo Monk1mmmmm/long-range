@@ -2882,7 +2882,7 @@ fn combattest() {
 /// infantry bail out of the wreck, and the Slavuta fords water up to `AMPHIBIOUS_DEPTH` deep where
 /// other vehicles stop (`--combattest`, or alone with `LR_TEST=apc`).
 fn apc_tests(defs: &Defs) {
-    let carriers: Vec<&str> = ["apc", "apc_amph", "apc_heavy"].into_iter().filter(|c| defs.id(c).is_some()).collect();
+    let carriers: Vec<&str> = ["apc", "apc_amph", "apc_heavy", "apc_heavy3"].into_iter().filter(|c| defs.id(c).is_some()).collect();
     if carriers.is_empty() {
         return;
     }
@@ -2922,6 +2922,11 @@ fn apc_tests(defs: &Defs) {
     };
     let order = |world: &mut World, owner: u8, ids: Vec<u32>, o: Order| world.resource_mut::<CommandQueue>().0.push((owner, Command::Orders { ids, orders: vec![o], queue: false }));
     let hp = |world: &mut World, id: u32| -> f32 { world.query::<(&Unit, &Health)>().iter(world).find(|(u, _)| u.id == id).map_or(0.0, |(_, h)| h.0) };
+    let set_hp = |world: &mut World, id: u32, v: f32| {
+        if let Some((_, mut h)) = world.query::<(&Unit, &mut Health)>().iter_mut(world).find(|(u, _)| u.id == id) {
+            h.0 = v;
+        }
+    };
     let body = |world: &mut World, id: u32| -> Option<(V2, f32, bool)> { world.query::<(&Unit, &Body, Has<Hosted>)>().iter(world).find(|(u, ..)| u.id == id).map(|(_, b, h)| (b.pos, b.y, h)) };
     // 1. Six riflemen and an HMG tower fire at each carrier for 30 s; then an Overtaker's gun.
     for &name in &carriers {
@@ -2951,6 +2956,33 @@ fn apc_tests(defs: &Defs) {
         }
         println!("== {name} ({full:.0} hp) under small arms: 6 riflemen + an HMG tower for 30 s leave it {left:.0} hp; an Overtaker kills it in {killed:?} s");
         assert!(left > full * 0.2 && killed.is_some(), "small arms barely scratch an armoured carrier, a tank gun does not");
+    }
+
+    // 1b. Two AT troopers fire missiles at each heavy carrier for 60 s: reactive armor takes the edge off.
+    //     And its roof machine gun against three riflemen.
+    for &name in carriers.iter().filter(|c| !defs.get(defs.id(c).unwrap()).weapons.is_empty()) {
+        let (mut app, map) = world_with(None);
+        let world = app.world_mut();
+        let apc = spawn(world, &map, name, 0, v2(135.0, 129.0), 3.14);
+        set_hp(world, apc, 1.0e5);
+        for i in 0..2 {
+            let at = spawn(world, &map, "at_trooper", 1, v2(100.0, 125.0 + i as f32 * 6.0), 0.0);
+            set_hp(world, at, 1.0e6);
+        }
+        for _ in 0..600 {
+            world.run_schedule(SimTick);
+        }
+        let lost = 1.0e5 - hp(world, apc);
+        let (mut app, map) = world_with(None);
+        let world = app.world_mut();
+        spawn(world, &map, name, 0, v2(130.0, 128.0), 3.14);
+        let men: Vec<u32> = (0..3).map(|i| spawn(world, &map, "trooper", 1, v2(112.0, 124.0 + i as f32 * 4.0), 0.0)).collect();
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let dead = men.iter().filter(|&&m| hp(world, m) <= 0.0).count();
+        println!("== {name}: 2 AT troopers in 60 s take {lost:.0} hp (reactive armor: {}); its machine gun kills {dead} of 3 riflemen in 30 s", defs.get(defs.id(name).unwrap()).reactive.is_some());
+        assert!(dead > 0, "a carrier's machine gun kills riflemen");
     }
 
     // 2. Destroyed with four riflemen inside: they bail out, hurt.
