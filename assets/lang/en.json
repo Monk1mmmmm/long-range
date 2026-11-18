@@ -219,6 +219,7 @@
     "tooltip_hp_armor_stealth": "HP {:.0}   Armor {}{}",
     "tooltip_hp_armor": "HP {:.0}   Armor {}",
     "tooltip_reactive": "Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them",
+    "tooltip_amphibious": "Amphibious: drives under water up to {:.0} deep",
     "tooltip_weapon": "{}: {:.0} {} dmg",
     "tooltip_salvo": " x{}",
     "tooltip_reload": " every {:.1}s, range {:.0}",
@@ -331,7 +332,19 @@
     },
     "apc": {
       "name": "Tavria",
-      "desc": "Armoured carrier. Takes six land units under armour (L load, K unload). Unarmed."
+      "desc": "Light armoured carrier. Fast and cheap: takes four land units under thin armour (L load, K unload), proof against rifles and machine guns but not much more. Unarmed."
+    },
+    "apc_amph": {
+      "name": "Slavuta",
+      "desc": "Amphibious armoured carrier. The Tavria's light hull made watertight: takes six land units (L load, K unload) and drives along the bottom of rivers and lakes up to 4 deep, out of reach of guns, slower there. Unarmed."
+    },
+    "apc_heavy": {
+      "name": "Zaporozhets",
+      "desc": "Infantry fighting vehicle, heavily armoured. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. A roof machine gun keeps infantry off it. Slow."
+    },
+    "apc_heavy3": {
+      "name": "Hetman",
+      "desc": "Heavy infantry fighting vehicle, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns."
     },
     "buggy": {
       "name": "Buggy",
@@ -727,6 +740,7 @@
     "homing_aa_missile": "Homing AA Missile",
     "gauss_cannon": "Gauss Cannon",
     "heavy_machinegun": "Heavy Machinegun",
+    "twin_heavy_machinegun": "Twin Heavy Machinegun",
     "mortar": "Mortar",
     "mortar_warhead": "Mortar Warhead",
     "rotary_cannon_air": "Rotary Cannon (Air)",
@@ -1032,6 +1046,8 @@
     "body_move_turn_tip": "How fast it turns on the spot.",
     "body_move_altitude": "Flying height",
     "body_move_altitude_tip": "Aircraft: height above the ground.",
+    "body_move_amphibious": "Amphibious",
+    "body_move_amphibious_tip": "Land units: also drives along the bottom of water up to 4 deep, slower there, where shells and guns cannot reach it.",
     "intel_vision": "Vision range",
     "intel_vision_tip": "How far it sees (hills, trees and rocks may block it, see the rules switches).",
     "intel_spot_time": "Time to spot, hiding (s)",

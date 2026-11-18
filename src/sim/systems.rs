@@ -1746,6 +1746,9 @@ fn build_progress(
     }
 }
 
+/// Speed of an amphibious unit under water, as a share of its speed on land.
+const AMPHIBIOUS_SPEED: f32 = 0.6;
+
 #[allow(clippy::type_complexity)]
 fn locomotion(
     mut q: Query<(&Unit, &mut Body, &mut Mover, &mut Orders), (Without<UnderConstruction>, Without<Hosted>)>,
@@ -1762,20 +1765,21 @@ fn locomotion(
     // Path searches (A*, the slowest thing a tick can do) are planned first: the first `paths_left`
     // land units in id order that need a new path, exactly those the loop below would serve. They
     // only read the occupancy grid, which nothing changes in here, so they run in parallel.
-    let mut wanted: Vec<(u32, V2, V2)> = vec![];
+    let mut wanted: Vec<(u32, V2, V2, bool)> = vec![];
     for (u, body, m, _) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         if wanted.len() as i32 >= nav.paths_left {
             break;
         }
-        if let Some(g) = needs_path(defs.get(u.def), m) {
-            wanted.push((u.id, body.pos, g));
+        let df = defs.get(u.def);
+        if let Some(g) = needs_path(df, m) {
+            wanted.push((u.id, body.pos, g, df.mv.amphibious));
         }
     }
     nav.paths_left -= wanted.len() as i32;
     let occ = &nav.occ;
-    let found = par_map(&wanted, 1, |&(_, from, to)| {
+    let found = par_map(&wanted, 1, |&(_, from, to, amph)| {
         thread_local!(static SCRATCH: std::cell::RefCell<PathScratch> = Default::default());
-        SCRATCH.with(|sc| find_path(occ, map.n, from, to, &mut sc.borrow_mut()))
+        SCRATCH.with(|sc| find_path(occ, map.n, from, to, amph, &mut sc.borrow_mut()))
     });
     let mut paths: Vec<(u32, Vec<V2>)> = wanted.iter().map(|w| w.0).zip(found).collect();
     paths.reverse();
@@ -1863,7 +1867,7 @@ fn locomotion(
                 let occ = &nav.occ;
                 let blocked = |p: V2| -> bool {
                     let (cx, cy) = ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
-                    cx < 0 || cy < 0 || cx >= n || cy >= n || !crate::map::passable(occ[(cy * n + cx) as usize])
+                    cx < 0 || cy < 0 || cx >= n || cy >= n || !crate::map::passable_for(occ[(cy * n + cx) as usize], mv.amphibious)
                 };
                 while m.path.len() > 1 && body.pos.dist(*m.path.last().unwrap()) < 1.0 {
                     m.path.pop();
@@ -1900,7 +1904,11 @@ fn locomotion(
                 let face = if m.reversing { wrap(desired + PI) } else { desired };
                 body.yaw = turn_toward(body.yaw, face, turn * DT);
                 let off = wrap(face - body.yaw).abs();
-                let top = if m.reversing { mv.reverse } else { mv.speed };
+                let mut top = if m.reversing { mv.reverse } else { mv.speed };
+                if mv.amphibious && map.h(body.pos) < map.water_at(body.pos) - 0.3 {
+                    // Driving along the bottom: slower than on land.
+                    top *= AMPHIBIOUS_SPEED;
+                }
                 let mut want = if off < 0.35 {
                     top
                 } else if off < 1.0 {
@@ -1956,6 +1964,7 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
         pos: V2,
         r: f32,
         air: bool,
+        amph: bool,
         moving: bool,
     }
     let mut items: Vec<It> = vec![];
@@ -1966,7 +1975,7 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
             continue;
         }
         grid.entry(((b.pos.x / G) as i32, (b.pos.y / G) as i32, d.is_air())).or_default().push(items.len());
-        items.push(It { e, pos: b.pos, r: d.radius(), air: d.is_air(), moving: m.goal.is_some() });
+        items.push(It { e, pos: b.pos, r: d.radius(), air: d.is_air(), amph: d.mv.amphibious, moving: m.goal.is_some() });
     }
     for (i, a) in items.iter().enumerate() {
         let mut acc = v2(0.0, 0.0);
@@ -1993,7 +2002,7 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
         if acc.len2() > 0.0 {
             let push = if acc.len() > 0.5 { acc.norm() * 0.5 } else { acc };
             let np = map.clamp(a.pos + push);
-            if a.air || nav.at(&map, np) == 0 {
+            if a.air || nav.at(&map, np) == 0 || (a.amph && nav.at(&map, np) == crate::map::OCC_DEEP) {
                 if let Ok((_, _, mut body, _)) = q.get_mut(a.e) {
                     body.pos = np;
                     if !a.air {
@@ -3174,9 +3183,12 @@ fn deaths(
         if d.is_structure() {
             nav.dirty = true;
         }
-        if d.is_garrison() {
-            // Infantry inside are thrown out of the ruin, hurt (unless it was taken apart quietly).
-            let inside: Vec<&Cen> = census.list.iter().filter(|r| r.host == u.id && r.done).collect();
+        let carrier = d.transport.is_some() && d.mv.kind == MoveKind::Land;
+        if d.is_garrison() || carrier {
+            // Infantry inside are thrown out of the ruin, hurt (unless it was taken apart quietly);
+            // infantry riding an armoured carrier bail out of the wreck the same way (anything else
+            // in it - vehicles, a commander - dies with it).
+            let inside: Vec<&Cen> = census.list.iter().filter(|r| r.host == u.id && r.done && (!carrier || defs.get(r.def).is_infantry())).collect();
             for (k, r) in inside.iter().enumerate() {
                 let p = set_down(&map, &nav, b.pos + V2::from_angle(k as f32 * 2.4 + u.id as f32) * (d.radius() + 1.0));
                 commands.entity(r.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: (p - b.pos).angle(), vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));

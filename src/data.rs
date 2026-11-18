@@ -500,6 +500,10 @@ pub struct Move {
     pub turn: f32,
     #[serde(default)]
     pub altitude: f32,
+    /// Land units only: also drives along the bottom of water up to `map::AMPHIBIOUS_DEPTH` deep
+    /// (submerged, out of reach of shells and guns).
+    #[serde(default)]
+    pub amphibious: bool,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -1316,6 +1320,9 @@ impl Defs {
             }
             if u.reactive.is_some_and(|r| !(0.0..=1.0).contains(&r.block)) {
                 return Err(format!("{}: reactive armor block goes from 0 to 1", u.id));
+            }
+            if u.mv.amphibious && u.mv.kind != MoveKind::Land {
+                return Err(format!("{}: only land units can be amphibious", u.id));
             }
             if !u.is_structure() && u.footprint != 0 {
                 return Err(format!("{}: mobile units must not have a footprint", u.id));

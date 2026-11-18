@@ -205,6 +205,7 @@ pub const UNIT_BODY: &[Field] = &[
     num("move.accel", tx!("preset_units.body_move_accel"), 1.0, 1000.0, tx!("preset_units.body_move_accel_tip")),
     num("move.turn", tx!("preset_units.body_move_turn"), 0.0, 3600.0, tx!("preset_units.body_move_turn_tip")),
     num("move.altitude", tx!("preset_units.body_move_altitude"), 0.0, 1000.0, tx!("preset_units.body_move_altitude_tip")),
+    no("move.amphibious", tx!("preset_units.body_move_amphibious"), tx!("preset_units.body_move_amphibious_tip")),
 ];
 
 pub const UNIT_INTEL: &[Field] = &[

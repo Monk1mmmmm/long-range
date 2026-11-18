@@ -1863,6 +1863,7 @@
     {
      "name": "Garrison MG",
      "damage": 3,
+     "damage_type": "SmallArms",
      "range": 40,
      "reload": 0.5,
      "speed": 75,
