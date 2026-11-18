@@ -1,0 +1,30 @@
+# Deletes the claude/* branches whose every commit is already in main (merged work only; a branch with
+# anything main lacks is kept and listed). Started by hand from the Actions tab ("Run workflow").
+name: Delete merged branches
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete merged claude/* branches
+        run: |
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          for ref in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/claude/'); do
+            b=${ref#origin/}
+            n=$(git rev-list --count "origin/main..$ref")
+            if [ "$n" = 0 ]; then
+              echo "deleting $b"
+              git push origin --delete "$b"
+            else
+              echo "keeping $b: $n commit(s) not in main"
+            fi
+          done
