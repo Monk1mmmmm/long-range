@@ -1,6 +1,7 @@
 # Builds the release bundles on GitHub's machines and publishes them as a GitHub release.
 # Runs when a tag v* is pushed (git tag v0.9.0 && git push origin v0.9.0), or by hand from the Actions tab
-# for an existing tag. The release text is that tag's "## vX.Y.Z" section of CHANGELOG.md.
+# ("Run workflow" on main): that builds the chosen branch and creates the tag v<Cargo.toml version> on it.
+# The release text is that tag's "## vX.Y.Z" section of CHANGELOG.md.
 # The bundles are the same as scripts/release.sh (Linux) and scripts/release.ps1 (Windows, MSVC) make.
 name: Release
 
@@ -10,14 +11,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build and publish (it must exist), e.g. v0.9.0"
-        required: true
+        description: "Tag, e.g. v0.9.0 (empty: v + the version in Cargo.toml). Made on the chosen branch if it does not exist."
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 env:
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  TAG_IN: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.tag }}
   CARGO_TERM_COLOR: never
 
 jobs:
@@ -25,8 +27,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
+      - name: Tag
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "TAG=${TAG_IN:-v$v}" >> "$GITHUB_ENV"
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libx11-dev libxkbcommon-dev libwayland-dev pkg-config zip
       - uses: Swatinem/rust-cache@v2
@@ -46,8 +51,11 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
+      - name: Tag
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "TAG=${TAG_IN:-v$v}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: Build and bundle
         shell: pwsh
@@ -63,8 +71,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
+      - name: Tag
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "TAG=${TAG_IN:-v$v}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -78,7 +89,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           elif [ -s notes.md ]; then
-            gh release create "$TAG" dist/* --verify-tag --title "Long Range $TAG" --notes-file notes.md
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "Long Range $TAG" --notes-file notes.md
           else
-            gh release create "$TAG" dist/* --verify-tag --title "Long Range $TAG" --generate-notes
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "Long Range $TAG" --generate-notes
           fi
