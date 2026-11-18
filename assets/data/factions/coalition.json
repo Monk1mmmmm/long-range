@@ -3759,7 +3759,7 @@
   {
    "id": "sandbags",
    "name": "Sandbags",
-   "desc": "A stretch of sandbag wall; drag to build a line. Enemy shots that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry take cover behind it. Units can cross it.",
+   "desc": "A stretch of sandbag wall; draw a line of any shape with the right mouse button (or drag a straight one) to build it. Enemy shots that fly through it lose half their damage to it, until it is shot or bombed to pieces. Infantry take cover behind it. Units can cross it.",
    "tier": 2,
    "hp": 250,
    "armor": "Structure",
@@ -3845,7 +3845,7 @@
   {
    "id": "trench",
    "name": "Trench",
-   "desc": "A piece of trench; drag to build a line. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time.",
+   "desc": "A piece of trench; draw a line of any shape with the right mouse button (or drag a straight one) to build it. The ground is dug out and stays dug when the trench is destroyed. Infantry standing in it lose only part of every hit and blast to it - the rest goes into the trench, which gives way in time.",
    "tier": 2,
    "hp": 400,
    "armor": "Structure",
