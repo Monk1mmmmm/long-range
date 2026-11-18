@@ -196,6 +196,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   with hotbuild keys chosen by unit role in `hud::hot_key`.
 - Releases: `scripts/release.sh` / `release.ps1` make two archives per platform in `dist/` (game + assets,
   editor + assets) and publish them with `gh`. They first delete everything else in `dist/` (older versions).
+  `.github/workflows/release.yml` does the same on GitHub's machines (Linux + Windows MSVC) when a tag `v*` is pushed
+  (or by hand from the Actions tab for an existing tag): bump `Cargo.toml`, add the `## vX.Y.Z` CHANGELOG section, tag, push the tag.
   Commit every finished incremental change right away (one commit per change, short message saying what it does),
   so several sessions working in this tree at once do not pile up one big uncommitted diff. Stage only the files
   you changed (`git add <paths>`, never `git add -A` / `.`): other sessions' work may be uncommitted in the same tree.

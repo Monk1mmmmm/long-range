@@ -1,0 +1,84 @@
+# Builds the release bundles on GitHub's machines and publishes them as a GitHub release.
+# Runs when a tag v* is pushed (git tag v0.9.0 && git push origin v0.9.0), or by hand from the Actions tab
+# for an existing tag. The release text is that tag's "## vX.Y.Z" section of CHANGELOG.md.
+# The bundles are the same as scripts/release.sh (Linux) and scripts/release.ps1 (Windows, MSVC) make.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (it must exist), e.g. v0.9.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  CARGO_TERM_COLOR: never
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libx11-dev libxkbcommon-dev libwayland-dev pkg-config zip
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the tag matches Cargo.toml
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ "v$v" = "$TAG" ] || { echo "tag $TAG but Cargo.toml says $v"; exit 1; }
+      - name: Build and bundle
+        run: scripts/release.sh --only linux --no-upload --tag "$TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz
+          compression-level: 0
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and bundle
+        shell: pwsh
+        run: scripts/release.ps1 -Only windows -NoUpload -Tag $env:TAG
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          compression-level: 0
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          awk -v tag="## $TAG" '$0 == tag {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          elif [ -s notes.md ]; then
+            gh release create "$TAG" dist/* --verify-tag --title "Long Range $TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" dist/* --verify-tag --title "Long Range $TAG" --generate-notes
+          fi
