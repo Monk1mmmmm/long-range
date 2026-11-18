@@ -141,8 +141,11 @@ fn census_build(
             structure: d.is_structure(),
             radius: d.radius(),
             height: d.height(),
-            hit_r: d.hit_radius(),
-            hit_h: d.hit_height(),
+            hit_w: d.hit_box()[0] * 0.5,
+            hit_h: d.hit_box()[1],
+            hit_l: d.hit_box()[2] * 0.5,
+            hit_r: d.hit_box()[0].max(d.hit_box()[2]) * 0.5,
+            face: V2::from_angle(b.yaw),
             seen: i.seen,
             radar: i.radar,
             work: builder.map_or(0, |b| b.work),
@@ -2101,8 +2104,7 @@ impl Lane<'_> {
                 return;
             }
             if own || c.structure || !hostile(self.team, c.team) {
-                let r = if c.structure { c.hit_r * 1.1 } else { c.hit_r } + 0.12;
-                list.push((c.pos, r, c.y - 0.3, c.y + c.hit_h + 0.3));
+                list.push((c.pos, c.hit_r, c.y - HIT_BELOW, c.y + c.hit_h));
             }
         });
         list
@@ -2166,7 +2168,7 @@ impl Lane<'_> {
         for (lift, dip, side) in [(0.0, dip, spread * 0.5), (0.2, dip, spread * 0.5), (0.4, dip, spread * 0.5), (0.4, 0.0, 0.0)] {
             let lift = lift * c.hit_h;
             let sol = solve(w, origin, c.center() + Vec3::Y * lift, c.vel, self.g);
-            if self.clears(origin, &sol, c.hit_r, dip, side, &obst) {
+            if self.clears(origin, &sol, c.hit_w.min(c.hit_l), dip, side, &obst) {
                 return Some(lift);
             }
         }
@@ -2613,7 +2615,7 @@ fn projectiles(
                 let max = p.turn.to_radians() * DT;
                 let nd = if ang <= max || ang < 1e-4 { want } else { cur.lerp(want, max / ang).normalize_or_zero() };
                 vel = nd * speed;
-                if (t.center() - a).length() < speed * DT + t.hit_r * 0.7 {
+                if t.hit_dist(a) < speed * DT {
                     hit = Some((t.center(), t.id));
                 }
             }
@@ -2624,7 +2626,6 @@ fn projectiles(
         if hit.is_none() {
             let seg = b - a;
             let seg2 = Vec2::new(seg.x, seg.z);
-            let len2 = seg2.length_squared().max(1e-6);
             let mut best: Option<(f32, u32)> = None;
             let mid = flat((a + b) * 0.5);
             census.near(mid, seg2.length() * 0.5 + 8.0, |c| {
@@ -2642,12 +2643,7 @@ fn projectiles(
                 if if c.air { !p.hits_air } else { !p.hits_land } {
                     return;
                 }
-                let rel = Vec2::new(c.pos.x - a.x, c.pos.y - a.z);
-                let t = (rel.dot(seg2) / len2).clamp(0.0, 1.0);
-                let at = a + seg * t;
-                let horiz = Vec2::new(at.x - c.pos.x, at.z - c.pos.y).length();
-                let r = if c.structure { c.hit_r * 1.1 } else { c.hit_r } + 0.12;
-                if horiz < r && at.y > c.y - 0.3 && at.y < c.y + c.hit_h + 0.3 && best.map_or(true, |x| t < x.0) {
+                if let Some(t) = c.hit_seg(a, b).filter(|t| best.map_or(true, |x| *t < x.0)) {
                     best = Some((t, c.id));
                 }
             });
@@ -2702,9 +2698,7 @@ fn projectiles(
                 if c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
                     return;
                 }
-                let horiz = (c.pos.dist(flat(at)) - c.hit_r * 0.7).max(0.0);
-                let vert = if at.y < c.y { c.y - at.y } else { (at.y - c.y - c.hit_h).max(0.0) };
-                let d = (horiz * horiz + vert * vert).sqrt();
+                let d = c.hit_dist(at);
                 if d < p.radius {
                     // Infantry in a trench are sheltered from a blast that is not in there with them.
                     let open = trench_of(&census, &defs, c).filter(|t| !in_cell(flat(at), t.2)).map_or(1.0, |t| 1.0 - t.1);
@@ -3211,8 +3205,7 @@ fn deaths(
             effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
         }
         census.near(pos, radius + 4.0, |c| {
-            let flat = (c.pos.dist(pos) - c.hit_r * 0.7).max(0.0);
-            let d = (flat * flat + (c.y - y) * (c.y - y)).sqrt();
+            let d = c.hit_dist(pos.at(y));
             if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
                 effects.damage.push((c.id, damage * blast_share(d, radius), blast_type));
             }
