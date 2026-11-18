@@ -3,6 +3,43 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.9.0
+
+Not compatible with v0.8.0 in multiplayer: everybody needs this version.
+
+New
+- T2 Dove suicide drone: a cheap flying bomb (70 mass, 40 hp) that dives into its target with a 180-damage
+  warhead. Four kill an Overtaker; anti-air with radar cover shoots most of them down on the way in.
+- Sandbags and trenches can be built along a line of any shape: draw it with the right mouse button.
+- Right-clicking a trench with infantry selected spreads them over all of it.
+- Troopers heal by themselves, back to full health in about two minutes.
+- Hotkeys: Ctrl+R shares the selection's queued orders out among the selected units (as in FAF); `/` selects
+  the nearest extractor of the lowest tier, Shift+`/` adds the next one.
+
+Changed
+- Direct-fire guns follow the shell's real arc: they aim higher at hull-down targets and hold fire instead of
+  shooting into a hill, a building, a neutral unit or (with friendly fire) an own unit in the way; they then
+  pick another target in the clear. Units on an attack order or attack-move close in when none of their guns
+  has a clear shot. Shells also fly the arc they were laid for (they used to drop a little short).
+- Splash damage: a shell does full damage only to the unit it hits. Others in the blast take less, fading to
+  nothing at its edge: 40% at the centre for direct-fire guns, all of it for artillery, bombs and missiles.
+  Armored units take half of any splash, death blasts included.
+- Hit boxes follow the models: every unit is hit as a box of its model's shape (without gun barrels) instead of
+  a padded cylinder, so low, long tanks are harder to hit from the front. Aircraft are at least 0.6 in every
+  direction.
+- Sandbags: 1000 hp (was 250). They now shelter from shots coming from any side, and infantry take cover
+  behind anybody's sandbags.
+- Bastion: 800 hp (was 1400), 12000 energy (was 6000).
+- Porter interceptor: damage 22 (was 25), turn rate 80 (was 85), so Harrier fighter-bombers beat as many
+  Porters; three Porters (the same mass) still beat two Harriers.
+
+Under the hood
+- `tools/blend.py` exports Blender models for the game (parts, animations, team/light/dark/metal materials,
+  `--watch` re-exports on every save); see `tools/README.md`.
+- `tools/model_bounds.py` compares model bounds with the units' JSON size and hit box.
+- Preset editor: new unit setting "Regeneration (hp/s)", rules `splash_direct` / `splash_armored`, weapon
+  settings `splash` and `suicide`.
+
 ## v0.8.0
 
 Not compatible with v0.7.1 in multiplayer: everybody needs this version. The game list does not show games of
