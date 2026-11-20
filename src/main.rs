@@ -3661,6 +3661,7 @@ fn fieldwork_tests(defs: &Defs) {
         println!("== Trench: {} of 4 pieces built, floor {:.2} below the ground, pieces stand at {:.2}, cells passable: {free}", trenches.iter().filter(|t| t.3).count(), 2.0 - floor, 2.0 - trenches.first().map_or(0.0, |t| t.2));
         assert!(trenches.len() == 4 && trenches.iter().all(|t| t.3) && (2.0 - floor - 0.8).abs() < 0.01 && free, "trench line");
         assert!(trenches.iter().all(|t| (t.2 - floor).abs() < 0.01), "trench pieces follow the ground");
+        assert!(world.query::<&Unit>().iter(world).filter(|u| u.def == id_of("trench")).all(|u| u.owner == NEUTRAL), "finished field works are neutral");
         // A second work cannot go on top of one.
         assert!(!can_place(defs, world.resource::<MapData>(), &world.resource::<Nav>().occ, id_of("sandbags"), spots[0]), "works do not stack");
         for t in &trenches {

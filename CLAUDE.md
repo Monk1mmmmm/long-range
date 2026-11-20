@@ -332,7 +332,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   least 0.7 tall) on the far side from the closest known armed enemy within `cover_threat_range`, within
   `cover_search` of `Mover.anchor` (0.6x of it around themselves when fighting). Re-chosen every 5 ticks and
   kept in `Mover.cover`; a new order or Stop clears it (Stop also moves the anchor to where they stand).
-  Field works are cover for every side: anybody's sandbags soak shots from anybody (`soak_works`, except within
+  Field works are cover for every side (finished ones belong to `NEUTRAL`, `build_progress`): anybody's sandbags soak shots from anybody (`soak_works`, except within
   `cover_grace` of the shooter) and infantry hide behind any sandbags; any trench shelters whoever stands in it.
   Right-clicking a trench piece no enemy infantry hold (`hud::Frame::trench_spots`) spreads the selected infantry
   over the whole joined trench, one per piece (`hud::spread`: evenly when fewer men than pieces, pieces our other
