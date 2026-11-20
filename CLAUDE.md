@@ -60,7 +60,7 @@ fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
 each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control points mode), `LR_COMP=1` (lists
-what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
+what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
 (screenshot of a running game after `secs` of game time, then quit). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per tick and its slowest tick), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 

@@ -4540,7 +4540,18 @@ fn tank_tests(defs: &Defs) {
         ("crony", 1, "mbfag", 3),
         ("crony", 1, "pike", 3),
     ];
-    for wood in [false, true] {
+    let custom: Vec<(String, usize, String, usize)> = std::env::var("LR_FIGHTS")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|f| {
+            let p: Vec<&str> = f.split(':').collect();
+            (p.len() == 4).then(|| (p[0].to_string(), p[1].parse().unwrap(), p[2].to_string(), p[3].parse().unwrap()))
+        })
+        .collect();
+    let custom: Vec<(&str, usize, &str, usize)> = custom.iter().map(|(a, b, c, d)| (a.as_str(), *b, c.as_str(), *d)).collect();
+    let fights: &[(&str, usize, &str, usize)] = if custom.is_empty() { fights } else { &custom };
+    let woods: &[bool] = if std::env::var("LR_OPEN").is_ok() { &[false] } else { &[false, true] };
+    for &wood in woods {
         println!("== Tanks, equal mass, {}", if wood { "trees scattered around" } else { "open ground" });
         for &(tank, nt, foe, nf) in fights {
             for seed in [1u64, 2, 3] {
