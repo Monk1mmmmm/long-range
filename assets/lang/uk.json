@@ -130,6 +130,10 @@
     "join_address": "З'єднатися"
   },
   "settings": {
+    "tab_general": "Загальні",
+    "tab_graphics": "Графіка",
+    "tab_interface": "Інтерфейс",
+    "tab_sound": "Звук",
     "detail_low": "Низька (без тіней)",
     "medium": "Середня",
     "high": "Висока",
