@@ -7,6 +7,7 @@
  "units": [
   {
    "id": "commander",
+   "cargo": 4,
    "name": "Commander",
    "desc": "Command mech. Builds the base. Lose it and you lose the battle.",
    "tier": 1,
@@ -85,6 +86,7 @@
   },
   {
    "id": "engineer",
+   "cargo": 4,
    "name": "Engineer",
    "desc": "Builds tier 1 structures, assists, repairs and reclaims.",
    "tier": 1,
@@ -137,6 +139,7 @@
   },
   {
    "id": "scavenger",
+   "cargo": 4,
    "name": "Scavenger",
    "desc": "Cannot build. Reclaims wrecks, debris, trees and rocks, or revives wrecks as working units for your side (right-click a wreck, or J and drag a circle).",
    "tier": 1,
@@ -781,6 +784,7 @@
   },
   {
    "id": "buggy",
+   "cargo": 4,
    "name": "Buggy",
    "desc": "Land scout. Fast, fragile, long sight - the eyes of your guns.",
    "tier": 1,
@@ -1141,6 +1145,7 @@
   },
   {
    "id": "overtaker",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1231,6 +1236,7 @@
   },
   {
    "id": "pike",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1299,6 +1305,7 @@
   },
   {
    "id": "mbfag",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1391,6 +1398,7 @@
   },
   {
    "id": "flak_carrier",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1461,6 +1469,7 @@
   },
   {
    "id": "mobile_sam",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1538,6 +1547,7 @@
   },
   {
    "id": "radar_car",
+   "cargo": 4,
    "name": "UC-01R Radar",
    "desc": "Mobile T1 radar: finds unstealthed units within 120. Hills block it. Needs energy.",
    "tier": 1,
@@ -1584,6 +1594,7 @@
   },
   {
    "id": "radar_car2",
+   "cargo": 4,
    "name": "UC-02R Radar",
    "desc": "Mobile T2 radar: finds unstealthed units within 180 and stealth 1 units (T2 aircraft) within 110. Hills block it. Costly to run.",
    "tier": 2,
@@ -1660,6 +1671,7 @@
   },
   {
    "id": "radar_car3",
+   "cargo": 4,
    "name": "UC-03R Radar",
    "desc": "Mobile T3 radar: finds unstealthed units within 260, stealth 1 units within 180 and stealth 2 units (T3 aircraft) within 100. Infantry never show on radar. Hills block it. Very costly to run.",
    "tier": 3,
@@ -1751,6 +1763,7 @@
   },
   {
    "id": "crony",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1843,6 +1856,7 @@
   },
   {
    "id": "dragoon",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1912,6 +1926,7 @@
   },
   {
    "id": "robin",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -1978,6 +1993,7 @@
   },
   {
    "id": "sparky",
+   "cargo": 4,
    "name": "Sparky",
    "desc": "Field engineer. Builds up to tier 2 and, alone, field works: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar.",
    "tier": 2,
@@ -2054,6 +2070,7 @@
   },
   {
    "id": "engineer2",
+   "cargo": 4,
    "name": "Engineer Mk2",
    "desc": "Builds tier 1-2 structures.",
    "tier": 2,
@@ -2106,6 +2123,7 @@
   },
   {
    "id": "bohdana",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -2174,6 +2192,7 @@
   },
   {
    "id": "bastion",
+   "cargo": 4,
    "categories": [
     "armored"
    ],
@@ -2270,6 +2289,7 @@
   },
   {
    "id": "engineer3",
+   "cargo": 4,
    "name": "Engineer Mk3",
    "desc": "Builds every structure.",
    "tier": 3,

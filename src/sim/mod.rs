@@ -552,6 +552,12 @@ pub fn carriable(d: &crate::data::UnitDef) -> bool {
     !d.is_structure() && !d.is_air() && d.cargo > 0 && d.transport.is_none()
 }
 
+/// Can `rider` get into the transport `host`? Land transports (APCs) take infantry only; air
+/// transports take any carriable unit (vehicles cost more slots through their `cargo`).
+pub fn fits(host: &crate::data::UnitDef, rider: &crate::data::UnitDef) -> bool {
+    carriable(rider) && (host.is_air() || rider.is_infantry())
+}
+
 /// Can this unit type fly or drive a ferry route (`Order::Ferry`)? Mobile transports only.
 pub fn ferries(d: &crate::data::UnitDef) -> bool {
     d.transport.is_some() && !d.is_structure()
