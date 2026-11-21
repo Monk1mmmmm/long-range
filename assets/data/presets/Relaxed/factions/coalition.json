@@ -3235,9 +3235,9 @@
    "hp": 1600,
    "armor": "Structure",
    "cost": {
-    "mass": 450,
-    "energy": 3600,
-    "time": 900
+    "mass": 300,
+    "energy": 2400,
+    "time": 700
    },
    "size": [
     6.0,
@@ -3280,9 +3280,9 @@
    "hp": 1200,
    "armor": "Structure",
    "cost": {
-    "mass": 1200,
-    "energy": 9000,
-    "time": 2400
+    "mass": 800,
+    "energy": 6000,
+    "time": 1800
    },
    "size": [
     12.0,
