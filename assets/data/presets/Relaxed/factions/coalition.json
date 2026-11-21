@@ -1315,7 +1315,7 @@
      "damage_type": "Explosive",
      "radius": 4.0,
      "min_range": 25,
-     "spread": 0.6,
+     "spread": 5.0,
      "aim_time": 0.5,
      "hold": 1.5,
      "turret": {
