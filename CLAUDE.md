@@ -60,7 +60,9 @@ fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
 each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control points mode), `LR_COMP=1` (lists
-what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
+what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_EVERY=300`
+(report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
+distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
 (screenshot of a running game after `secs` of game time, then quit). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per tick and its slowest tick), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 
@@ -202,6 +204,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   so several sessions working in this tree at once do not pile up one big uncommitted diff. Stage only the files
   you changed (`git add <paths>`, never `git add -A` / `.`): other sessions' work may be uncommitted in the same tree.
   Do not push, tag or publish a release without being asked.
+- The user wants sub-agents on weaker/cheaper models used where they help (searching and summarising code, running
+  and tabulating test batches, building a baseline to compare with, self-contained pieces of work), keeping the
+  design and the edits of shared files in the main session.
 
 ## Source map
 
@@ -502,7 +507,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `APC` - Normal 0.1, Autocannon 0.5, AP and Explosive 1.0, SmallArms
   0.1 -, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
   mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp APC,
-  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The AI builds none of them (`brain::info` files transports apart from the army). `move.amphibious: true` (land units only): it also drives along the
+  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): it also drives along the
   bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
   submerged, shells stop at the surface and guns have no line of fire. `--combattest` carrier and "River" lines
@@ -586,12 +591,38 @@ and the APC are JSON box models. The Stork uses the mod's hooked stock UEF trans
   - mass discipline: factories and upgrades only add spending while `spend_m` stays below a multiple of the
     income (a stall slows extractors too); planned generators count (`coming_e`), or every engineer starts one;
   - engineers that only assist or reclaim are free for real jobs (an Assist order never ends by itself);
-  - micro: longer guns back off from shorter ones, artillery ground-fires remembered buildings, mobile radar
+  - the attack moves in bounds (`Brain::step`, `BOUND`): the body's formation stands round the step, and the
+    next step is taken once 60% of the marching units (those not firing) are there, or after 30 s from where
+    they are; so fast units wait for slow ones. Spotters (binoculars/vision well beyond their own guns) walk
+    16 ahead (a muster point for zone defence was tried and made duels against Simple slower: removed). The march centre is the plain mean of the marching non-artillery units (weighted by worth, one
+    idle Bohdana far behind dragged it back). It counts as a fight only when known enemies within the reach of
+    most of the body's guns (75th percentile, 30-90) add up to 10% of its strength or one is within 45: a lone
+    scout no longer stops the march. In a fight the body forms a crescent round the enemy's centre (every unit at
+    0.8 of its range, sorted by side so nobody crosses, up to ~90 deg: the wings hit side armor; direct-fire
+    tanks drive there with Move, infantry and set-up weapons stop at the first target), and direct-fire guns in
+    reach focus fire (`Order::Attack`) greedily on the target they kill fastest for its worth, only as many
+    guns as kill it in ~3 s;
+  - production counters what the enemy fields (`Brain::counter`, from `mix`/`emix`/`missiles`, decaying
+    memories of the enemy's mobile mass by armor class, its damage by type, its missile share): a type's weight
+    scales with its damage against those armor classes (rules armor table), inversely with the enemy damage its
+    own armor takes, and up with reactive armor while the enemy uses missiles. `Profile.infantry` is the share
+    of the army that is infantry; one field engineer (`Info.works`: builds field works) digs `Profile.works`
+    trench pieces across the rally point (+ sandbags at the ends, a bunker behind); idle infantry there drops into
+    them by itself (`cover_spot` prefers trenches). Land carriers (`Role::Carrier`, armed or not, one per 6 infantry,
+    at most 3) ferry infantry waiting at the rally point to the attacking body. The infantry share is scaled by
+    how well the infantry types answer the enemy compared with the vehicles (0.2-1.5x). Direct guns up to range 110 are tanks (Bastion, Robin, AT trooper), not artillery. No extractor
+    upgrades while the enemy army is far bigger than ours;
+  - storming: infantry with `assault` attacks (= storms) an enemy-held building or an enemy infantry's trench
+    piece within 45 when its summed assault beats the holders' x `garrison_defense` x 1.5; suicide drones get
+    `Attack` on the dearest known enemy vehicles near the army or our zones, as many as kill each;
+  - micro: longer guns back off from shorter ones, indirect artillery ground-fires remembered buildings, mobile radar
     follows the army;
   - scavengers (`Profile.scav`, built while whole wrecks lie in safe zones): `ReviveArea` on the dearest
     wreck, then `ReclaimArea` for what cannot come back;
-  - garrisons (`Profile.garrison`): infantry waiting near the rally point or the start walks into buildings
-    there (`Order::Load`); buildings the front has left behind are emptied (`Unload` on the building);
+  - garrisons (`Profile.garrison`): infantry waiting near the rally point (70) or the start (50) walks into
+    buildings there (`Order::Load`), the body's infantry into buildings within 45 of the step it passes (towns
+    stand between the bases: only looking near the rally point, the AI never garrisoned anything on most maps);
+    buildings neither near the rally point nor the attack are emptied (`Unload` on the building);
   - air transports: zones carry the number of their land mass (`Zone::comp`). Jobs of an idle transport, in
     order: an engineer to a land mass with free deposits (it then builds extractors there only), army units
     from the rally point to an enemy that cannot be reached by land (they fight on their own over there,
@@ -600,8 +631,8 @@ and the APC are JSON box models. The Stork uses the mod's hooked stock UEF trans
   Test a change with duels against `simple` on a few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); the
   new types should win all of them.
 - The hostile side only holds positions; it has no AI.
-- The AI does not terraform, storm enemy-held buildings on purpose or use the land transport (APC). The
-  `Simple` type uses no scavengers, transports or garrisons at all.
+- The AI does not terraform or flank on purpose beyond the crescent. The `Simple` type uses no scavengers,
+  transports, garrisons, field works or storming at all.
 - The minimap picture and the cached fog/radar shadows do not follow craters and terraforming; the
   minimap does not show trees and rocks or scorch marks. Ground layers do not change with craters (only scorch).
 - Netplay sends commands only (about 20 bytes per tick). Every client holds the full game state, so fog of war
