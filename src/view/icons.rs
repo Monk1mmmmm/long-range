@@ -189,7 +189,7 @@ pub fn icon_size(d: &UnitDef) -> f32 {
 }
 
 /// Order-button icons (original artwork, drawn from distance fields like the unit icons).
-/// Kinds: move, attack_move, patrol, ground, reclaim, stop, pause, resume, repeat, upgrade, assist.
+/// Kinds: move, attack_move, patrol, ground, reclaim, stop, pause, resume, repeat, upgrade, assist, ferry...
 /// Distance field of an order glyph; coordinates are in about -1..1 with y down.
 fn order_sd(kind: &str, x: f32, y: f32) -> f32 {
     let t = 0.085;
@@ -258,6 +258,10 @@ fn order_sd(kind: &str, x: f32, y: f32) -> f32 {
                 let crate_sd = seg(x, y, -0.05, -0.5, 0.75, -0.5).min(seg(x, y, 0.75, -0.5, 0.75, 0.5)).min(seg(x, y, 0.75, 0.5, -0.05, 0.5)) - t;
                 crate_sd.min(if kind == "load" { arrow(x, y, -0.85, 0.0, 0.4, 0.0, 0.38) } else { arrow(x, y, 0.4, 0.0, -0.85, 0.0, 0.38) })
             }
+            // A ferry route: the beacon (a ring) and a loop of arrows out and back.
+            "ferry" => ring(x, y, -0.62, 0.0, 0.24)
+                .min(arrow(x, y, -0.3, -0.32, 0.82, -0.32, 0.32))
+                .min(arrow(x, y, 0.82, 0.32, -0.3, 0.32, 0.32)),
             // Resource symbols, enlarged versions of the unit-icon glyphs.
             "mass" => poly(x, y, &[(0.0, -0.72), (0.62, -0.36), (0.62, 0.36), (0.0, 0.72), (-0.62, 0.36), (-0.62, -0.36)]),
             "energy" => glyph_sd("bolt", x * 0.42, y * 0.42) / 0.42,

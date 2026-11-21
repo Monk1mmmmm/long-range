@@ -116,12 +116,13 @@ fn census_build(
     mut wrecks: ResMut<WreckList>,
     game: Res<Game>,
     defs: Res<Defs>,
-    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>, Option<&Revival>, Option<&Weapons>)>,
+    q: Query<(Entity, &Unit, &Body, &Health, &Intel, Has<UnderConstruction>, Option<&Hosted>, Option<&Builder>, Option<&Factory>, Has<Upgrading>, Has<Paused>, Option<&Revival>, Option<&Weapons>, &Orders)>,
     wq: Query<&Wreck>,
 ) {
     census.clear();
-    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused, rev, weapons) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, h, i, uc, host, builder, factory, upgrading, paused, rev, weapons, orders) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
+        let (ferry_wait, beacon) = ferry_state(d, &orders.0);
         census.push(Cen {
             e,
             id: u.id,
@@ -155,6 +156,8 @@ fn census_build(
             firing: weapons.map_or(false, |w| w.list.iter().any(|x| x.cd > 0.0 || x.burst > 0)),
             revival: if uc { rev.map_or(0, |r| r.0) } else { 0 },
             fieldwork: d.is_fieldwork(),
+            ferry_wait,
+            beacon,
         });
     }
     wrecks.0.clear();
@@ -167,7 +170,7 @@ fn census_build(
 fn apply_commands(
     mut queue: ResMut<CommandQueue>,
     log: Option<ResMut<TurnLog>>,
-    census: Res<Census>,
+    mut census: ResMut<Census>,
     defs: Res<Defs>,
     map: Res<MapData>,
     game: Res<Game>,
@@ -179,6 +182,7 @@ fn apply_commands(
     if let Some(mut log) = log {
         log.0 = queue.0.clone();
     }
+    let touched = !queue.0.is_empty();
     for (pl, c) in queue.0.drain(..) {
         if !game.players.get(pl as usize).map_or(false, |p| p.alive) {
             continue;
@@ -247,6 +251,12 @@ fn apply_commands(
                             *radius = radius.clamp(0.0, 60.0);
                         }
                         Order::Load(_) if df.transport.is_none() && !carriable(df) => continue,
+                        Order::Ferry { pos, pick } => {
+                            if !(ferries(df) || (*pick && carriable(df))) {
+                                continue;
+                            }
+                            *pos = map.clamp(*pos);
+                        }
                         Order::Build { def: bd, pos } => {
                             if !df.builds.contains(bd) || !df.is_engineer() {
                                 continue;
@@ -282,6 +292,18 @@ fn apply_commands(
                         ord.0.push(o);
                         if !has {
                             ord.0.push(Order::Patrol(from));
+                        }
+                    } else if let (Order::Ferry { pick: false, .. }, true) = (o, ferries(df)) {
+                        // A further point of a ferry route goes in after its drop point, which is the
+                        // entry before the beacon on the loop; a route without a beacon gets one where
+                        // the transport is.
+                        match ord.0.iter().position(|x| matches!(x, Order::Ferry { pick: true, .. })) {
+                            Some(0) => ord.0.push(o),
+                            Some(i) => ord.0.insert(i, o),
+                            None => {
+                                ord.0.push(Order::Ferry { pos: from, pick: true });
+                                ord.0.push(o);
+                            }
                         }
                     } else {
                         ord.0.push(o);
@@ -423,6 +445,28 @@ fn apply_commands(
                 }
             }
         }
+    }
+    // Ferry routes and waiting units as the new orders have them: a unit sent to a beacon in the
+    // same tick as its transport must not find it unserved and give up.
+    if touched {
+        for i in 0..census.list.len() {
+            if let Ok((u, _, ord, ..)) = q.get(census.list[i].e) {
+                let (wait, beacon) = ferry_state(defs.get(u.def), &ord.0);
+                census.list[i].ferry_wait = wait;
+                census.list[i].beacon = beacon;
+            }
+        }
+    }
+}
+
+/// A unit's ferry fields in the census (`Cen::ferry_wait`, `Cen::beacon`) from its orders.
+fn ferry_state(d: &crate::data::UnitDef, orders: &[Order]) -> (Option<V2>, Option<V2>) {
+    if ferries(d) {
+        (None, orders.iter().find_map(|o| if let Order::Ferry { pos, pick: true } = o { Some(*pos) } else { None }))
+    } else if let Some(Order::Ferry { pos, .. }) = orders.first() {
+        (Some(*pos), None)
+    } else {
+        (None, None)
     }
 }
 
@@ -681,6 +725,9 @@ fn think(
         let arrive = if plane { 9.0 } else { 0.8 };
         let mut goal: Option<V2> = None;
         let mut pop = false;
+        // Popped orders that go round again (ferry routes; patrols always do), and an order to do first.
+        let mut rotate = false;
+        let mut push_front: Option<Order> = None;
         let mut work = 0u32;
         let mut focus = 0u32;
         let mut ground: Option<(V2, f32)> = None;
@@ -1126,6 +1173,85 @@ fn think(
                     }
                 }
             }
+            Some(Order::Ferry { pos: c, pick }) if ferries(df) => {
+                let aboard = census.list.iter().any(|t| t.host == id) || effects.loaded.iter().any(|l| l.1 == id);
+                // The next route point round the loop: when it is the beacon, this is the drop point.
+                let next_pick = orders.0.iter().skip(1).find_map(|o| if let Order::Ferry { pick, .. } = o { Some(*pick) } else { None });
+                match (pick, next_pick) {
+                    // What is left of a route that lost its beacon or all its other points: done.
+                    (true, None) => pop = true,
+                    (false, None) => {
+                        pop = true;
+                        if aboard {
+                            push_front = Some(Order::Unload { pos: c, radius: FERRY_DROP });
+                        }
+                    }
+                    (true, Some(_)) => {
+                        let free = room(&effects, id, df.transport.as_ref().map_or(0, |t| t.capacity));
+                        if pos.dist(c) > FERRY_PICK + 4.0 {
+                            goal = Some(c);
+                        } else {
+                            // The nearest unit waiting at this beacon that fits; leave with what is aboard
+                            // once nobody who fits is waiting or on the way.
+                            let mut best: Option<(f32, u32)> = None;
+                            let mut coming = false;
+                            census.near(c, FERRY_COMING, |t| {
+                                let td = defs.get(t.def);
+                                if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || !carriable(td) || td.cargo as i32 > free || !t.ferry_wait.is_some_and(|w| w.dist(c) <= FERRY_SAME) || effects.loaded.iter().any(|l| l.0 == t.id) {
+                                    return;
+                                }
+                                if t.pos.dist(c) > FERRY_PICK {
+                                    coming = true;
+                                    return;
+                                }
+                                let d = pos.dist(t.pos);
+                                if best.map_or(true, |b| d < b.0 || (d == b.0 && t.id < b.1)) {
+                                    best = Some((d, t.id));
+                                }
+                            });
+                            if let Some(t) = best.and_then(|b| census.get(b.1)) {
+                                if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() {
+                                    commands.entity(t.e).insert(Hosted(id));
+                                    effects.loaded.push((t.id, id));
+                                } else {
+                                    goal = Some(t.pos);
+                                }
+                            } else if aboard && !coming {
+                                pop = true;
+                                rotate = true;
+                            } else if pos.dist(c) > arrive {
+                                goal = Some(c);
+                            }
+                        }
+                    }
+                    // A waypoint.
+                    (false, Some(false)) => {
+                        if pos.dist(c) <= arrive.max(3.0) {
+                            pop = true;
+                            rotate = true;
+                        } else {
+                            goal = Some(c);
+                        }
+                    }
+                    // The drop point: everybody out (the Unload order flies there first), then back.
+                    (false, Some(true)) => {
+                        pop = true;
+                        rotate = true;
+                        if aboard {
+                            push_front = Some(Order::Unload { pos: c, radius: FERRY_DROP });
+                        }
+                    }
+                }
+            }
+            Some(Order::Ferry { pos: c, .. }) => {
+                // Waiting for a ferry at its beacon; given up when no transport of ours serves it any more.
+                let served = census.list.iter().any(|t| t.owner == owner && t.beacon.is_some_and(|b| b.dist(c) <= FERRY_SAME));
+                if !served || is_struct {
+                    pop = true;
+                } else if pos.dist(c) > 3.0 {
+                    goal = Some(c);
+                }
+            }
             Some(Order::LoadArea { pos: c, radius }) => {
                 pop = true;
                 if let Some(tr) = df.transport.as_ref().filter(|_| !is_struct) {
@@ -1192,7 +1318,8 @@ fn think(
                                 p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                             }
                         }
-                        commands.entity(t.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));
+                        // Their own orders stay: what they were told to do before or while riding.
+                        commands.entity(t.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
                     }
                     pop = true;
                 }
@@ -1260,15 +1387,26 @@ fn think(
         }
         if pop && !orders.0.is_empty() {
             let o = orders.0.remove(0);
-            if let Order::Patrol(_) = o {
+            if rotate || matches!(o, Order::Patrol(_)) {
                 orders.0.push(o);
             }
             if let Some(m) = mover.as_mut() {
                 m.stuck = 0;
             }
         }
+        if let Some(o) = push_front {
+            orders.0.insert(0, o);
+        }
     }
 }
+
+/// Ferry routes: units within `FERRY_PICK` of the beacon are fetched, a transport waits for those
+/// heading there from within `FERRY_COMING`; beacons closer than `FERRY_SAME` are the same one.
+/// Riders are set down over a circle of `FERRY_DROP`.
+const FERRY_PICK: f32 = 12.0;
+const FERRY_COMING: f32 = 40.0;
+const FERRY_SAME: f32 = 4.0;
+const FERRY_DROP: f32 = 6.0;
 
 /// Can unit type `df` of `team` get into `t`? Transports take their own side; infantry also
 /// walk into an empty (neutral) building or one their side already holds. A map building whose
@@ -2018,9 +2156,16 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
     }
 }
 
-/// Units riding in a transport (or waiting inside a factory) travel with it.
-fn carry(census: Res<Census>, mut riders: Query<(&Hosted, &mut Body)>, hosts: Query<&Body, Without<Hosted>>) {
-    for (h, mut b) in &mut riders {
+/// Units riding in a transport (or waiting inside a factory) travel with it. They keep the rest of
+/// their orders for when they are set down; only an order to board the transport they are in is done.
+fn carry(census: Res<Census>, mut riders: Query<(&Hosted, &mut Body, &mut Orders)>, hosts: Query<&Body, Without<Hosted>>) {
+    for (h, mut b, mut o) in &mut riders {
+        if o.0.contains(&Order::Load(h.0)) {
+            o.0.retain(|o| *o != Order::Load(h.0));
+        }
+        if let Some(Order::Ferry { .. }) = o.0.first() {
+            o.0.remove(0);
+        }
         if let Some(host) = census.get(h.0).and_then(|c| hosts.get(c.e).ok()) {
             b.pos = host.pos;
             b.y = host.y;
