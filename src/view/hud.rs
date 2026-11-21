@@ -2407,7 +2407,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if hov {
             hud.text(Pos2::new(idle_r.min.x - 6.0, idle_r.center().y), Align2::RIGHT_CENTER, tr!("hud_unit_info.idle_engineers_hint"), font(12.0), Color32::WHITE);
             if lmb_down {
-                new_sel = Some(idle.iter().map(|x| x.0).collect());
+                if now - view.idle_click < 0.4 {
+                    new_sel = Some(idle.iter().map(|x| x.0).collect());
+                    view.idle_click = -10.0;
+                } else {
+                    view.idle_cycle = (view.idle_cycle + 1) % idle.len();
+                    new_sel = Some(vec![idle[view.idle_cycle].0]);
+                    view.idle_click = now;
+                }
             } else if rmb_down {
                 view.idle_cycle = (view.idle_cycle + 1) % idle.len();
                 new_sel = Some(vec![idle[view.idle_cycle].0]);
