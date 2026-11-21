@@ -531,8 +531,8 @@
       "desc": "Point defense. Shreds bots and scouts, bounces off armor."
     },
     "gauss_turret": {
-      "name": "Gauss Turret",
-      "desc": "Anti-armor emplacement. High-arc fire, range 30-90, very slow traverse."
+      "name": "Pike-G Gauss Turret",
+      "desc": "Anti-armor emplacement. High-arc fire, range 30-105, very slow traverse."
     },
     "aa_turret": {
       "name": "Dart Railgun",
