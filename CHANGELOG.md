@@ -3,6 +3,26 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.10.3
+
+Balance changes to the standard game. Not compatible with v0.10.2 in multiplayer: everybody needs this version.
+
+Changed
+- Overtaker M1 moved from T1 to T2.
+- Crony M1: 530 hp (was 500), reloads in 3.5 s (4), aims in 0.8 s (1), turret turns 22 deg/s (15).
+- Bastion is now a Crony with reactive armor and marginally better stats: 620 mass (1300) but 6000 energy, 680 hp,
+  220 damage at range 85, the Crony's speed and turret, a slightly smaller model.
+- Robin: its guided missile does 900 damage (500), enough to kill a Crony or an Overtaker head on in one hit.
+- Dragoon ARV: armour-piercing autocannon.
+- Faust SAM: reloads in 12 s (25).
+- Hetman: close to the Zaporozhets but a little dearer, 330 mass / 4000 energy (650 / 6500), 750 hp (1000), a
+  lighter twin machine gun; keeps its reactive armor.
+- Pike Mortar: 300 mass / 1500 energy (220 / 1200), blast radius 4 (5).
+- Power Plant: 300 mass / 2400 energy (450 / 3600), Solar Field: 800 / 6000 (1200 / 9000): T2 and T3 power now give
+  clearly more energy for the mass than windmills.
+- Finished sandbags and trench pieces belong to nobody: cover for every side.
+- Crony and Bastion icons carry a bar (heavy tank), the Overtaker keeps the plain one.
+
 ## v0.10.1
 
 Only the Relaxed data preset changes; the standard game is the same as v0.10.0. Everybody in a multiplayer
