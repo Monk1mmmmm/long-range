@@ -2123,6 +2123,8 @@ fn selftest() {
     }
     let t0 = std::time::Instant::now();
     let mut alive = vec![true; n];
+    // LR_EVERY=600 prints the report every that many ticks (default 3000: every five minutes).
+    let every = std::env::var("LR_EVERY").ok().and_then(|s| s.parse::<u32>().ok()).unwrap_or(3000).max(1);
     for t in 0..36000u32 {
         world.run_schedule(SimTick);
         let game = world.resource::<Game>().clone();
@@ -2132,7 +2134,7 @@ fn selftest() {
                 println!("   -- {} is out after {}s", p.name, t / 10);
             }
         }
-        if t % 3000 == 0 || game.winner.is_some() {
+        if t % every == 0 || game.winner.is_some() {
             let snap = make_snapshot(world);
             let bytes = bincode::serialize(&snap).map(|b| b.len()).unwrap_or(0);
             println!("t={:5}s units={} projectiles={} wrecks={} features touched={} state={}B hash={:016x} wall={:?}", t / 10, snap.units.len(), snap.projectiles.len(), snap.wrecks.len(), snap.features.len(), bytes, state_hash(&snap), t0.elapsed());
