@@ -158,6 +158,7 @@ fn census_build(
             fieldwork: d.is_fieldwork(),
             ferry_wait,
             beacon,
+            engineer: !d.is_structure() && (d.is_engineer() || d.is_scavenger()),
         });
     }
     wrecks.0.clear();
@@ -2374,21 +2375,27 @@ impl Lane<'_> {
     /// the aim height too; with `skip` (the current target) only a target in the clear.
     fn pick(&self, w: &WeaponDef, origin: Vec3, pos: V2, skip: u32, preferred: impl Fn(&Cen) -> bool) -> Option<(&Cen, Option<f32>)> {
         let m2 = w.min_range * w.min_range;
-        let mut list: Vec<(bool, f32, u32)> = vec![];
+        let mut list: Vec<(bool, bool, f32, u32)> = vec![];
+        let mut eng = false;
         self.census.near(pos, w.range, |c| {
             let d2 = (c.pos - pos).len2();
             if c.id != skip && d2 >= m2 && self.census.valid_target(c, self.team, w.hits_land, w.hits_air) {
-                list.push((!preferred(c), d2, c.id));
+                eng |= c.engineer;
+                list.push((!preferred(c), c.structure, d2, c.id));
             }
         });
-        list.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
-        for &(_, _, id) in list.iter().take(4) {
+        // While an engineer is in reach, buildings come after every other enemy.
+        if !eng {
+            list.iter_mut().for_each(|e| e.1 = false);
+        }
+        list.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.total_cmp(&b.2)).then(a.3.cmp(&b.3)));
+        for &(_, _, _, id) in list.iter().take(4) {
             let c = self.census.get(id)?;
             if let Some(lift) = self.aim(w, origin, c) {
                 return Some((c, Some(lift)));
             }
         }
-        list.first().and_then(|e| self.census.get(e.2)).filter(|_| skip == 0).map(|c| (c, None))
+        list.first().and_then(|e| self.census.get(e.3)).filter(|_| skip == 0).map(|c| (c, None))
     }
 }
 
@@ -2499,16 +2506,22 @@ fn weapons(
                     target = Some(c);
                 } else if let Some(c) = census.get(st.target).filter(|c| in_envelope(c) && census.valid_target(c, team, w.hits_land, w.hits_air)) {
                     // A weapon with a priority drops a target of another class to look for a preferred one.
-                    if (tick + u.id) % 20 != 0 && !(prioritised && !preferred(c)) {
+                    // So does one shooting a building while an enemy engineer is in reach.
+                    let leave = c.structure
+                        && (tick + u.id) % 5 == 0
+                        && census.engineer_near(body.pos, team, reach, w.min_range, w.hits_land, w.hits_air);
+                    if (tick + u.id) % 20 != 0 && !(prioritised && !preferred(c)) && !leave {
                         target = Some(c);
                     }
                 }
                 if bomb && census.get(focus).is_none() {
                     // Without an attack order a bomber drops on whatever it is lined up with:
                     // the target ahead whose stick would land closest.
+                    // Buildings only while no enemy engineer is in reach.
                     let mut best = (f32::MAX, 0u32);
+                    let eng = census.engineer_near(body.pos, team, reach, 0.0, w.hits_land, w.hits_air);
                     census.near(body.pos, reach, |c| {
-                        if !census.valid_target(c, team, w.hits_land, w.hits_air) {
+                        if !census.valid_target(c, team, w.hits_land, w.hits_air) || (eng && c.structure) {
                             return;
                         }
                         let d = drop(c.center(), c.vel);
@@ -2529,10 +2542,8 @@ fn weapons(
                             st.blocked = lift.is_none();
                         }
                         pick.map(|p| p.0)
-                    } else if prioritised {
-                        census.pick_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air, preferred)
                     } else {
-                        census.nearest_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air)
+                        census.pick_enemy(body.pos, team, w.range, w.min_range, w.hits_land, w.hits_air, preferred)
                     };
                 }
             }

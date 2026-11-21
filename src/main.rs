@@ -3463,6 +3463,37 @@ fn infantry_tests(defs: &Defs) {
         assert!(lost_wall < 1.0 && lost_open > 0.0, "line of fire past a {blocker}");
     }
 
+    // 1d. Engineers before buildings: a Crony shelling a windmill switches to an engineer that
+    // comes into reach further away, and leaves the windmill alone while the engineer is there.
+    {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let gun = spawn(world, &map, "crony", 0, v2(100.0, 129.0), 0.0);
+        set_hp(world, gun, 1.0e6);
+        spawn(world, &map, "radar_car", 0, v2(96.0, 135.0), 0.0);
+        // Shell holes would sink the engineer out of the line of fire.
+        world.resource_mut::<Defs>().rules.craters = false;
+        let mill = spawn(world, &map, "windmill", 1, v2(135.0, 129.0), 0.0);
+        set_hp(world, mill, 1.0e6);
+        for _ in 0..150 {
+            world.run_schedule(SimTick);
+        }
+        let before = 1.0e6 - hp(world, mill);
+        let eng = spawn(world, &map, "engineer", 1, v2(150.0, 150.0), 0.0);
+        set_hp(world, eng, 1.0e6);
+        // A shell already in the air may still land on the windmill.
+        for _ in 0..40 {
+            world.run_schedule(SimTick);
+        }
+        let mid = 1.0e6 - hp(world, mill);
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let (mill_lost, eng_lost) = (1.0e6 - hp(world, mill) - mid, 1.0e6 - hp(world, eng));
+        println!("== Engineers first: a Crony did {before:.0} to a windmill in 15 s; with an engineer further off, 30 s: windmill {mill_lost:.0}, engineer {eng_lost:.0}");
+        assert!(before > 0.0 && mill_lost < 1.0 && eng_lost > 0.0, "engineers are shot before buildings");
+    }
+
     // 2. An idle trooper moves behind the nearest tree, away from the enemy it can see.
     {
         let tree = v2(128.0, 104.0);

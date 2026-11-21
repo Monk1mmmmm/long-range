@@ -259,6 +259,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   clear shot (`WeaponState.blocked`) the gun takes another enemy in the clear (not an ordered one), and units on
   Attack / attack-move whose guns are all blocked close in. `fire` adds half a tick of gravity so shells fly the
   arc they were laid for. `--combattest` "Line of fire" lines.
+- **Engineers before buildings**: while an enemy engineer (any mobile builder: engineers, commander, scavengers;
+  `Cen::engineer`) is in a weapon's reach, enemy buildings rank below every other enemy (`Census::pick_enemy`,
+  `Lane::pick`, the bomber's line-up choice), and a gun on a building drops it every 5 ticks for one. A weapon's
+  `prefer` class still comes first, an attack order still wins, and a building in the clear still beats an engineer
+  with no line of fire. `--combattest` "Engineers first" line.
 - **Bombers** (SupCom style, `systems.rs::bomb_drop`): a bomb weapon's reach is at least the forward
   throw (speed x fall time) + 12, whatever its JSON `range`. The stick is released so that its middle
   bomb lands on the target (moving targets are led) and every bomb gets the same small sideways push
