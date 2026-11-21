@@ -437,9 +437,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
   the picture in `LobbyInfo.preview`.
 - **Model scale**: JSON `scale` = the blueprint's `UniformScale` for stock SupCom models (factories,
-  storages, pumps, air, engineers...). The mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
+  storages, pumps, air...). The mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) and the box-model
-  APC are 2.5x that, with sizes and footprints to match. Civilian map buildings were doubled
+  APC are 2.5x that, with sizes and footprints to match. Engineers (T1 x1.6, T2 x1.5, Sparky x2.5, T3 x1.25
+  over the blueprint) and the buggy (a further x1.75) were enlarged on request to about the length of their
+  tier's tanks (Pike / Robin / Bohdana), with `size` and `hit_box` scaled along. Civilian map buildings were doubled
   on request (Mining Town 5x, stock UEF civilian 2x; box models, sizes and footprints too: a house takes 2x2
   cells). Towns are dense: one free cell (a street ~1.5 tanks wide) between footprints, never touching
   (footprints block movement) - the editor's `add_settlements` packs lots nearest the town centre, `osm_map.py`

@@ -98,11 +98,11 @@
     "time": 260
    },
    "size": [
-    0.7,
-    0.8,
-    0.6
+    1.1,
+    1.3,
+    0.95
    ],
-   "hit_box": [1.1, 0.75, 1.15],
+   "hit_box": [1.75, 1.2, 1.85],
    "icon": {
     "shape": "land",
     "glyphs": [
@@ -114,7 +114,7 @@
     "albedo": "models/engineer_albedo.png",
     "team_mask": "models/engineer_team.png",
     "normal": "models/engineer_normal.png",
-    "scale": 0.15
+    "scale": 0.24
    },
    "built_by": "land",
    "move": {
@@ -796,11 +796,11 @@
     "time": 120
    },
    "size": [
-    1.0,
-    1.0,
-    1.625
+    1.875,
+    1.125,
+    1.875
    ],
-   "hit_box": [1.05, 0.6, 1.05],
+   "hit_box": [1.85, 1.05, 1.85],
    "icon": {
     "shape": "land",
     "glyphs": [
@@ -811,7 +811,7 @@
     "mesh": "models/buggy.glb",
     "albedo": "models/buggy_albedo.png",
     "team_mask": "models/buggy_team.png",
-    "scale": 0.2
+    "scale": 0.35
    },
    "portrait": "icons/units/buggy.png",
    "built_by": "land",
@@ -2005,11 +2005,11 @@
     "time": 1000
    },
    "size": [
-    0.65,
-    0.6,
-    0.8
+    1.6,
+    1.5,
+    2
    ],
-   "hit_box": [0.65, 0.55, 0.8],
+   "hit_box": [1.6, 1.4, 2],
    "icon": {
     "shape": "land",
     "glyphs": [
@@ -2022,7 +2022,7 @@
     "albedo": "models/sparky_albedo.png",
     "team_mask": "models/sparky_team.png",
     "normal": "models/sparky_normal.png",
-    "scale": 0.05
+    "scale": 0.125
    },
    "built_by": "land",
    "move": {
@@ -2082,11 +2082,11 @@
     "time": 800
    },
    "size": [
-    0.7,
-    0.9,
-    0.9
+    1.05,
+    1.35,
+    1.35
    ],
-   "hit_box": [1.4, 1.15, 1.4],
+   "hit_box": [2.1, 1.7, 2.1],
    "icon": {
     "shape": "land",
     "glyphs": [
@@ -2098,7 +2098,7 @@
     "albedo": "models/engineer2_albedo.png",
     "team_mask": "models/engineer2_team.png",
     "normal": "models/engineer2_normal.png",
-    "scale": 0.16
+    "scale": 0.24
    },
    "built_by": "land",
    "move": {
@@ -2301,11 +2301,11 @@
     "time": 2100
    },
    "size": [
-    0.85,
-    0.9,
-    1.3
+    1.05,
+    1.1,
+    1.6
    ],
-   "hit_box": [1.75, 1.5, 2.1],
+   "hit_box": [2.2, 1.9, 2.6],
    "icon": {
     "shape": "land",
     "glyphs": [
@@ -2317,7 +2317,7 @@
     "albedo": "models/engineer3_albedo.png",
     "team_mask": "models/engineer3_team.png",
     "normal": "models/engineer3_normal.png",
-    "scale": 0.2
+    "scale": 0.25
    },
    "built_by": "land",
    "move": {
