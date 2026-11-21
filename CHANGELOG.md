@@ -17,6 +17,8 @@ Added
   garrisonable building close by.
 
 Changed
+- Weapons shoot enemy engineers (and other mobile builders) before buildings: a gun shooting a building switches
+  to an engineer that comes into reach.
 - The hotkey preset setting is back: the default keys are the default again, the FAF alternative keymap can be
   chosen in the settings.
 - Idle engineers button: click selects one, double-click selects all.
