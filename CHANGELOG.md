@@ -3,6 +3,27 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.11.3
+
+The skirmish AIs use buildings, transports and amphibious carriers far more, and artillery can be found by radar.
+The game rules changed (a new switch), so everybody in a multiplayer game needs the same version.
+
+Added
+- Counter-battery radar (rule switch, on by default): while a mortar or howitzer shell flies inside an enemy's
+  radar range, the gun that fired it shows on that enemy's radar, so long guns can fire back. Mortar spam now
+  gives itself away.
+- Hovering a transport or a garrison building in sight shows how many of its slots are taken.
+
+Changed
+- AI infantry that is outnumbered, hurt or under artillery fire takes shelter in the nearest building.
+- AI landings: a party of infantry is flown or driven to buildings near the enemy or ahead of the attack and holds
+  them. On maps with rivers the AI builds an amphibious carrier and crosses the water instead of using the bridges.
+  The Rusher lands most often.
+- The AI runs down enemy artillery that shells its zones, rally point or army.
+- The AI no longer tries to build again and again on a spot where building failed (the engineer could not build
+  there, died there, or the site was destroyed); such spots are left alone for a while.
+- AI factories no longer keep producing in a full mass stall.
+
 ## v0.11.2
 
 Transports get ferry routes, and the Pike-G Gauss Turret is retuned. Unit data changed, so everybody in a
