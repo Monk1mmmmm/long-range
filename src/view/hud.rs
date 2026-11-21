@@ -2007,12 +2007,21 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if hover == Some(k) {
             bg.circle_stroke(s.sp, s.rpx.max(11.0) + 2.0, Stroke::new(1.0, rgba(255, 255, 255, 150)));
             // Other players' units: say what it is, and how much of it is left if we can see it.
-            if !s.mine {
-                let text = match (d, infos.get(&s.id).filter(|_| s.contact == Contact::Visible)) {
+            // Transports and garrisons in sight (own ones too): how many of their slots are taken.
+            let slots = d.and_then(|d| d.transport.as_ref()).filter(|_| s.contact == Contact::Visible).map(|t| {
+                let used: u32 = infos.values().filter(|c| c.host == s.id && c.built.is_none()).map(|c| fr.d(c.def).cargo as u32).sum();
+                tr!("hud_map.slots_taken", used, t.capacity)
+            });
+            if !s.mine || slots.is_some() {
+                let mut text = match (d, infos.get(&s.id).filter(|_| s.contact == Contact::Visible)) {
+                    (Some(d), Some(_)) if s.mine => unit_name(d).to_string(),
                     (Some(d), Some(u)) => format!("{}  {:.0} / {:.0}", unit_name(d), u.hp.max(0.0), d.hp),
                     (Some(d), None) => tr!("hud_map.not_in_sight", unit_name(d)),
                     (None, _) => tr!("hud_map.unknown_contact").to_string(),
                 };
+                if let Some(sl) = slots {
+                    text = format!("{}  ·  {}", text, sl);
+                }
                 let at = Pos2::new(s.sp.x, s.sp.y + s.rpx.max(11.0) + 6.0);
                 let galley = ctx.fonts_mut(|f| f.layout_no_wrap(text, FontId::proportional(13.0), Color32::WHITE));
                 let r = egui::Rect::from_center_size(Pos2::new(at.x, at.y + galley.size().y * 0.5), galley.size() + egui::vec2(10.0, 4.0));

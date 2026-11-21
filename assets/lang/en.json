@@ -187,6 +187,7 @@
   "hud_map": {
     "not_in_sight": "{} (not in sight)",
     "unknown_contact": "Unknown contact",
+    "slots_taken": "{} / {} slots taken",
     "revive_one": "Revive {}:",
     "revive_many": "Revive {} {0|wreck|wrecks|wrecks}:",
     "reclaim": "Reclaim:"
@@ -848,6 +849,8 @@
     "switch_sight_blocked_by_buildings_tip": "Finished buildings (yours, enemy and map buildings) block the view behind them up to their height. Infantry inside a building still look out from its roof, and a building never hides itself. Off: sight passes through buildings.",
     "switch_radar_blocked_by_terrain": "Hills block radar",
     "switch_radar_blocked_by_terrain_tip": "Radar needs a clear line over the terrain, looking from 'Radar eye height' above the unit. Off: radar sees through hills.",
+    "switch_counter_battery": "Counter-battery radar",
+    "switch_counter_battery_tip": "Radar that has a mortar or howitzer shell in flight within its range finds the gun that fired it: the gun shows as a radar contact while its shells fly, so long guns can shoot back. Off: artillery stays hidden unless spotted.",
     "switch_ghosts_show_destroyed": "Dim destroyed remembered buildings",
     "switch_ghosts_show_destroyed_tip": "An enemy building you have seen and then lost sight of stays on your map as you last saw it. When it is destroyed while nobody of your team looks, its model turns dim (as in SupCom), so you know it is gone without scouting. Off: it looks intact until you see the empty spot.",
     "switch_friendly_fire": "Friendly fire",

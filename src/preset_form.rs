@@ -75,6 +75,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("sight_blocked_by_reclaimables", tx!("preset_rules.switch_sight_blocked_by_reclaimables"), tx!("preset_rules.switch_sight_blocked_by_reclaimables_tip")),
     yes("sight_blocked_by_buildings", tx!("preset_rules.switch_sight_blocked_by_buildings"), tx!("preset_rules.switch_sight_blocked_by_buildings_tip")),
     yes("radar_blocked_by_terrain", tx!("preset_rules.switch_radar_blocked_by_terrain"), tx!("preset_rules.switch_radar_blocked_by_terrain_tip")),
+    yes("counter_battery", tx!("preset_rules.switch_counter_battery"), tx!("preset_rules.switch_counter_battery_tip")),
     yes("ghosts_show_destroyed", tx!("preset_rules.switch_ghosts_show_destroyed"), tx!("preset_rules.switch_ghosts_show_destroyed_tip")),
     yes("friendly_fire", tx!("preset_rules.switch_friendly_fire"), tx!("preset_rules.switch_friendly_fire_tip")),
 ];

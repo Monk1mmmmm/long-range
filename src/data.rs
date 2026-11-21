@@ -358,6 +358,10 @@ pub struct Rules {
     /// Hills block radar.
     #[serde(default = "yes")]
     pub radar_blocked_by_terrain: bool,
+    /// Counter-battery radar: a team's radar that has an artillery shell in flight in range finds
+    /// the gun that fired it (it shows as a radar contact while its shells fly).
+    #[serde(default = "yes")]
+    pub counter_battery: bool,
     /// A remembered enemy building that was destroyed out of sight shows dimmed (SupCom style; view only).
     #[serde(default = "yes")]
     pub ghosts_show_destroyed: bool,
@@ -458,6 +462,7 @@ impl Rules {
             (self.sight_blocked_by_reclaimables, "trees, rocks and wrecks blocking sight"),
             (self.sight_blocked_by_buildings, "buildings blocking sight"),
             (self.radar_blocked_by_terrain, "hills blocking radar"),
+            (self.counter_battery, "counter-battery radar"),
             (self.ghosts_show_destroyed, "dimming remembered buildings destroyed out of sight"),
         ] {
             if !on {

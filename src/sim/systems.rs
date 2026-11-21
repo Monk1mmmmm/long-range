@@ -473,7 +473,8 @@ fn ferry_state(d: &crate::data::UnitDef, orders: &[Order]) -> (Option<V2>, Optio
 /// Who sees whom. Both sight and radar need a clear line over the terrain; radar looks from higher
 /// up and reaches further, sight tells what the contact is.
 #[allow(clippy::too_many_arguments)]
-fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, mut q: Query<&mut Intel>) {
+#[allow(clippy::too_many_arguments)]
+fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, shells: Query<&Projectile>, mut q: Query<&mut Intel>) {
     // Trees, rocks, wrecks and buildings block sight like hills do (not radar); the rules can switch each off.
     let standing = census.list.iter().filter(|c| c.structure && c.done && !c.hosted).map(|c| (c.id, c.def, c.pos));
     let block = sight_block(&features, &wrecks, standing, &defs, &map);
@@ -542,6 +543,31 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             from: if c.hosted { c.host } else { c.id },
         });
     }
+    // Counter-battery radar: an artillery shell in flight inside a team's radar range gives away
+    // the gun that fired it (the shell flies high: no line of sight needed). Bit masks are or-ed,
+    // so the order of the shells does not matter.
+    let mut traced: std::collections::BTreeMap<u32, u16> = Default::default();
+    if defs.rules.counter_battery {
+        for p in &shells {
+            if p.kind != PROJ_SHELL || p.shooter == 0 {
+                continue;
+            }
+            let Some(gun) = census.get(p.shooter) else { continue };
+            if !defs.get(gun.def).weapons.iter().any(|w| w.hits_land && matches!(w.kind, WeaponKind::Arc | WeaponKind::HighArc)) {
+                continue;
+            }
+            let at = v2(p.pos.x, p.pos.z);
+            let mut mask = 0u16;
+            for v in viewers.iter().filter(|v| v.radar2[0] > 0.0 && hostile(v.team, gun.team)) {
+                if (v.pos - at).len2() < v.radar2[0] {
+                    mask |= 1 << v.team;
+                }
+            }
+            if mask != 0 {
+                *traced.entry(p.shooter).or_default() |= mask;
+            }
+        }
+    }
     // Who sees each unit depends only on the viewers and the terrain, so the units are worked out
     // in parallel (the sight lines are most of the tick) and written back in order.
     let map = &*map;
@@ -581,8 +607,9 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     });
     let step = |secs: f32| if secs > 0.0 { ((SPOTTED as f32 * DT / secs) as u32).clamp(1, SPOTTED as u32) as u16 } else { SPOTTED };
     let forget = step(defs.rules.spot_forget);
-    for (c, (mut seen, radar, near)) in census.list.iter_mut().zip(found) {
+    for (c, (mut seen, mut radar, near)) in census.list.iter_mut().zip(found) {
         let Ok(mut i) = q.get_mut(c.e) else { continue };
+        radar |= traced.get(&c.id).copied().unwrap_or(0);
         // Spotting delay: a team that has the unit in view gets on with making it out, quickly
         // while it moves or fires, slowly while it keeps still; out of view the progress drains.
         let d = defs.get(c.def);

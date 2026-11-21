@@ -3312,6 +3312,31 @@ fn infantry_tests(defs: &Defs) {
         assert!(hp_after >= defs.get(defs.id("bastion").unwrap()).hp && back == full, "a full repair replaces the reactive armor");
     }
 
+    // Counter-battery radar: a Pike shells a tank 90 away; the tank's side has a radar car 80
+    // beyond it, out of reach of the Pike itself but covering where its shells come down.
+    if defs.id("pike").is_some() && defs.id("radar_car").is_some() {
+        let mut found = [None; 2];
+        for (k, on) in [true, false].into_iter().enumerate() {
+            let (mut app, map) = world_with(&[]);
+            let world = app.world_mut();
+            world.resource_mut::<Defs>().rules.counter_battery = on;
+            let pike = spawn(world, &map, "pike", 0, v2(30.0, 128.0), 0.0);
+            spawn(world, &map, "radar_car", 0, v2(34.0, 134.0), 0.0);
+            let tank = spawn(world, &map, "overtaker", 1, v2(120.0, 128.0), 3.14);
+            set_hp(world, tank, 1.0e6);
+            spawn(world, &map, "radar_car", 1, v2(200.0, 128.0), 3.14);
+            for t in 0..600 {
+                world.run_schedule(SimTick);
+                let traced = world.query::<(&Unit, &Intel)>().iter(world).any(|(u, i)| u.id == pike && i.radar & 2 != 0);
+                if traced && found[k].is_none() {
+                    found[k] = Some(t as f32 / 10.0);
+                }
+            }
+        }
+        println!("== Counter-battery: a Pike firing into enemy radar cover is found after {}; with the rule off {}", found[0].map_or("never".to_string(), |s| format!("{s:.1} s")), found[1].map_or("never".to_string(), |s| format!("after {s:.1} s")));
+        assert!(found[0].is_some() && found[1].is_none(), "counter-battery radar finds the gun only with the rule on");
+    }
+
     // 1. A boulder between a tank and its target soaks up part of every shot.
     let mut lost = [0.0f32; 2];
     let mut left = 1.0;
