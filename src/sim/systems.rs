@@ -757,6 +757,7 @@ fn think(
         let mut rotate = false;
         let mut push_front: Option<Order> = None;
         let mut work = 0u32;
+        let mut new_site: Option<V2> = None;
         let mut focus = 0u32;
         let mut ground: Option<(V2, f32)> = None;
         let w0 = df.weapons.first();
@@ -905,17 +906,27 @@ fn think(
                         }
                     });
                     let pending = effects.sites.iter().find(|s| s.1 == bp).copied();
+                    // The site was started (by this unit's order) and has been destroyed since.
+                    let lost = builder.as_ref().map_or(false, |b| b.site == Some(bp));
                     match (site, pending) {
                         (Some(s), _) => {
                             if s.done || s.def != bd || s.team != team {
                                 pop = true;
-                            } else if pos.dist(bp) > r {
-                                goal = Some(bp);
                             } else {
-                                work = s.id;
+                                new_site = Some(bp);
+                                if pos.dist(bp) > r {
+                                    goal = Some(bp);
+                                } else {
+                                    work = s.id;
+                                }
                             }
                         }
-                        (None, Some(p)) => work = if p.0 == bd { p.2 } else { 0 },
+                        (None, Some(p)) => {
+                            new_site = Some(bp);
+                            work = if p.0 == bd { p.2 } else { 0 };
+                        }
+                        // Destroyed while under construction: skip it and go on with the queue.
+                        (None, None) if lost => pop = true,
                         (None, None) => {
                             if pos.dist(bp) > r {
                                 goal = Some(bp);
@@ -925,6 +936,7 @@ fn think(
                                 // Trees and rocks on the plot are flattened.
                                 features.clear_square(bp, defs.get(bd).footprint);
                                 effects.sites.push((bd, bp, sid));
+                                new_site = Some(bp);
                                 work = sid;
                             } else {
                                 pop = true;
@@ -1402,6 +1414,7 @@ fn think(
         }
         if let Some(b) = builder.as_mut() {
             b.work = work;
+            b.site = new_site;
         }
         if let Some(m) = mover.as_mut() {
             m.goal = goal;

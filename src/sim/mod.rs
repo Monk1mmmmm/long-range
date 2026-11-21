@@ -191,6 +191,9 @@ pub struct Weapons {
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug, Default)]
 pub struct Builder {
     pub work: u32,
+    /// Where the front `Build` order's site stood while this unit worked on it: if the site is
+    /// gone later (destroyed), the order is dropped instead of placing the building again.
+    pub site: Option<V2>,
 }
 
 #[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
@@ -1706,7 +1709,7 @@ mod tests {
             upgrading: Some(Upgrading(0.2)),
             capture: Some(Capture { by: 2, progress: 0.5 }),
             weapons: Some(Weapons { focus: 4, ..default() }),
-            builder: Some(Builder { work: 11 }),
+            builder: Some(Builder { work: 11, site: Some(p) }),
             factory: Some(Factory { queue: vec![1, 2], repeat: true, rally: Some(p), building: 12 }),
             hosted: Some(Hosted(13)),
             paused: Some(Paused),
