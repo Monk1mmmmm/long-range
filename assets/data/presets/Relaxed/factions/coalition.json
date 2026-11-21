@@ -945,7 +945,7 @@
     "infantry"
    ],
    "name": "AT Trooper",
-   "desc": "Infantry with a guided anti-tank missile and three rounds of it; spent rounds come back one a minute for mass. Slow to reload; best fired from cover or from a building.",
+   "desc": "Infantry with a guided anti-tank missile and six rounds of it; spent rounds come back one a minute for mass. Slow to reload; best fired from cover or from a building.",
    "tier": 2,
    "hp": 117,
    "regen": 0.75,
@@ -1098,7 +1098,7 @@
     "infantry"
    ],
    "name": "SAM Trooper",
-   "desc": "Infantry with a shoulder-fired homing anti-air missile and four rounds of it; spent rounds come back one a minute for mass. Aircraft only.",
+   "desc": "Infantry with a shoulder-fired homing anti-air missile and six rounds of it; spent rounds come back one a minute for mass. Aircraft only.",
    "tier": 2,
    "hp": 104,
    "regen": 0.67,

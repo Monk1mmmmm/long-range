@@ -42,6 +42,7 @@
  "sight_blocked_by_terrain": true,
  "sight_blocked_by_reclaimables": false,
  "radar_blocked_by_terrain": true,
+ "counter_battery": true,
  "ghosts_show_destroyed": true,
  "near_sight": 12,
  "_comment_terrain": "Craters: depth = crater_scale x sqrt(damage), never deeper than crater_max_depth below the original ground; 0 = no craters. Terraforming moves terraform_rate height per build power and second, at terraform_energy per unit, within terraform_max of the original ground.",
