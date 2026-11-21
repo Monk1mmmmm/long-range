@@ -3,6 +3,27 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.11.0
+
+The skirmish AIs (every type except Simple) play with the newer game features and fight as one army. The game
+rules and unit data are unchanged, but everybody in a multiplayer game still needs the same version.
+
+Changed
+- Attacks advance in bounds: the army waits at each step until most of it has arrived, so fast units no longer
+  run ahead of slow ones, and spotters with binoculars walk in front. A lone scout no longer halts the march.
+- In a fight the army forms a crescent round the enemy (the wings hit side armour), and direct-fire guns
+  concentrate on one target at a time, only as many as it takes to kill it quickly.
+- Production answers what the enemy fields: damage against its armour classes, how little of its damage the
+  unit's own armour takes, reactive armour against missile users. Infantry is built in proportion to how useful
+  it is against the enemy.
+- The AI garrisons buildings: near its rally point, and in the towns its attack passes through (before, it
+  only looked near its base and almost never garrisoned anything).
+- A field engineer digs a trench line with sandbags and a bunker at the rally point; waiting infantry uses them.
+- APCs and infantry fighting vehicles ferry waiting infantry up to the attacking army.
+- Infantry storms enemy-held buildings and trenches it clearly outnumbers.
+- Suicide drones are sent at the most valuable enemy vehicles, as many as each kill takes.
+- No extractor upgrades while the enemy army is much bigger.
+
 ## v0.10.3
 
 Balance changes to the standard game. Not compatible with v0.10.2 in multiplayer: everybody needs this version.
