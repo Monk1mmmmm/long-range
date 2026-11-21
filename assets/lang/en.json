@@ -204,6 +204,7 @@
     "stealth_2": "   Stealth 2: only T3 radar finds it",
     "stealth_3": "   Invisible to radar",
     "idle_engineers_hint": "Idle engineers: click selects one, double-click selects all, right-click also goes to the next one",
+    "idle_factories_hint": "Idle factories: click selects one, double-click selects all, arrow lists types",
     "tier": "Tier {}",
     "rearming": "no ammo {:.0}s",
     "no_ammo": "no ammo",

@@ -1171,11 +1171,26 @@ pub fn ui_system(mut p: UiParams) -> Result {
         v
     };
     let idle_r = rect(sw - 56.0, TOP + 12.0 + game.players.len() as f32 * 16.0, 48.0, 48.0);
+    // Idle factories (below it): finished, nothing queued or being built, not upgrading.
+    let idle_fac: Vec<(DefId, Vec<(u32, V2)>)> = {
+        let mut v: Vec<(u32, DefId, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.upg.is_none() && !u.paused && defs.get(u.def).is_factory() && u.factory.as_ref().map_or(false, |f| f.queue.is_empty() && f.building == 0)).map(|u| (u.id, u.def, u.pos)).collect();
+        v.sort_by_key(|x| x.0);
+        let mut kinds: Vec<DefId> = v.iter().map(|x| x.1).collect();
+        kinds.sort();
+        kinds.dedup();
+        kinds.into_iter().map(|k| (k, v.iter().filter(|x| x.1 == k).map(|x| (x.0, x.2)).collect())).collect()
+    };
+    let fac_total: usize = idle_fac.iter().map(|x| x.1.len()).sum();
+    let fac_r = rect(sw - 56.0, idle_r.min.y + 54.0, 48.0, 48.0);
+    let fac_arrow = rect(sw - 56.0, fac_r.max.y + 2.0, 48.0, 14.0);
+    let fac_type_r = |i: usize| rect(sw - 56.0, fac_arrow.max.y + 4.0 + i as f32 * 52.0, 48.0, 48.0);
+    let fac_zone = if fac_total == 0 { None } else { Some(egui::Rect::from_min_max(fac_r.min, if view.fac_open { fac_type_r(idle_fac.len() - 1).max } else { fac_arrow.max })) };
     // The production queue of a selected factory is a strip of icons above the panel.
     let has_queue = view.sel.iter().filter_map(|id| infos.get(id)).any(|u| u.factory.as_ref().map_or(false, |f| !f.queue.is_empty()));
     let queue_band = has_queue && mouse.x >= panel.min.x && mouse.y >= panel.min.y - QUEUE_H - 4.0 && mouse.y < panel.min.y;
     let over_hud = mouse.y < TOP || mm.contains(mouse) || (!view.sel.is_empty() && panel.contains(mouse)) || view.menu_open
         || (!idle.is_empty() && idle_r.contains(mouse))
+        || fac_zone.map_or(false, |z| z.contains(mouse))
         || queue_band
         || view.queue_drag.is_some()
         || view.settings_open
@@ -2620,6 +2635,60 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 view.idle_cycle = (view.idle_cycle + 1) % idle.len();
                 new_sel = Some(vec![idle[view.idle_cycle].0]);
                 view.cam_target = idle[view.idle_cycle].1;
+            }
+        }
+    }
+    if fac_total > 0 {
+        // Which type the main button shows and picks from (DefId::MAX = every type).
+        let hov = button(fac_r, false);
+        let cur = idle_fac[view.fac_cycle % idle_fac.len()].0;
+        {
+            let d = defs.get(cur);
+            hud.image(p.assets.icon(&ctx, d).id(), egui::Rect::from_center_size(fac_r.center() - egui::vec2(0.0, 5.0), egui::vec2(30.0, 30.0)), UV, my_col);
+        }
+        hud.text(Pos2::new(fac_r.max.x - 4.0, fac_r.max.y - 2.0), Align2::RIGHT_BOTTOM, fac_total.to_string(), font(15.0), rgba(255, 230, 90, 255));
+        let arrow_hov = button(fac_arrow, view.fac_open);
+        hud.text(fac_arrow.center(), Align2::CENTER_CENTER, if view.fac_open { "\u{25B2}" } else { "\u{25BC}" }, font(10.0), Color32::WHITE);
+        let pick = |kind: DefId, new_sel: &mut Option<Vec<u32>>, view: &mut ViewState| {
+            let all: Vec<(u32, V2)> = idle_fac.iter().filter(|x| kind == DefId::MAX || x.0 == kind).flat_map(|x| x.1.iter().copied()).collect();
+            if all.is_empty() {
+                return;
+            }
+            if now - view.fac_click.0 < 0.4 && view.fac_click.1 == kind {
+                *new_sel = Some(all.iter().map(|x| x.0).collect());
+                view.fac_click = (-10.0, DefId::MAX - 1);
+            } else {
+                view.fac_cycle += 1;
+                let one = all[view.fac_cycle % all.len()];
+                *new_sel = Some(vec![one.0]);
+                view.cam_target = one.1;
+                view.fac_click = (now, kind);
+            }
+        };
+        if hov {
+            hud.text(Pos2::new(fac_r.min.x - 6.0, fac_r.center().y), Align2::RIGHT_CENTER, tr!("hud_unit_info.idle_factories_hint"), font(12.0), Color32::WHITE);
+            if lmb_down {
+                pick(DefId::MAX, &mut new_sel, view);
+            }
+        }
+        if arrow_hov && lmb_down {
+            view.fac_open = !view.fac_open;
+        }
+        if view.fac_open {
+            for (i, (kind, list)) in idle_fac.iter().enumerate() {
+                let r = fac_type_r(i);
+                let h = button(r, false);
+                {
+                    let d = defs.get(*kind);
+                    hud.image(p.assets.icon(&ctx, d).id(), egui::Rect::from_center_size(r.center() - egui::vec2(0.0, 5.0), egui::vec2(30.0, 30.0)), UV, my_col);
+                }
+                hud.text(Pos2::new(r.max.x - 4.0, r.max.y - 2.0), Align2::RIGHT_BOTTOM, list.len().to_string(), font(15.0), rgba(255, 230, 90, 255));
+                if h {
+                    hud.text(Pos2::new(r.min.x - 6.0, r.center().y), Align2::RIGHT_CENTER, unit_name(defs.get(*kind)), font(12.0), Color32::WHITE);
+                    if lmb_down {
+                        pick(*kind, &mut new_sel, view);
+                    }
+                }
             }
         }
     }
