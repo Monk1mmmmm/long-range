@@ -73,6 +73,7 @@ pub struct Ai {
     wave: u32,
     rng: Rng,
     brain: brain::Brain,
+    tries: Tries,
 }
 
 impl Ai {
@@ -80,7 +81,7 @@ impl Ai {
         Ai::with_kind(player, seed, AiKind::Simple)
     }
     pub fn with_kind(player: u8, seed: u64, kind: AiKind) -> Ai {
-        Ai { player, kind, reclaim: true, wave: 0, rng: Rng(seed.wrapping_mul(31).wrapping_add(player as u64 * 7919) | 1), brain: Default::default() }
+        Ai { player, kind, reclaim: true, wave: 0, rng: Rng(seed.wrapping_mul(31).wrapping_add(player as u64 * 7919) | 1), brain: Default::default(), tries: Default::default() }
     }
     /// What the AI is up to (for the self-test's report).
     pub fn debug(&self) -> String {
@@ -122,7 +123,10 @@ pub struct Mine {
     pub builds: Vec<(DefId, V2)>,
 }
 
-pub(crate) fn find_spot(rng: &mut Rng, defs: &Defs, map: &MapData, occ: &[u8], d: DefId, center: V2) -> Option<V2> {
+/// A free spot for building `d` near `center` (rings outwards), skipping the places `ok` turns
+/// down (`Tries::ok`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn find_spot_where(rng: &mut Rng, defs: &Defs, map: &MapData, occ: &[u8], d: DefId, center: V2, ok: impl Fn(V2) -> bool) -> Option<V2> {
     let step = (defs.get(d).footprint + 1) as f32 * CELL;
     for ring in 1..14i32 {
         let mut cands = vec![];
@@ -137,12 +141,135 @@ pub(crate) fn find_spot(rng: &mut Rng, defs: &Defs, map: &MapData, occ: &[u8], d
             let k = rng.below(cands.len());
             let (i, j) = cands.swap_remove(k);
             let p = snap(defs, map, d, center + v2(i as f32 * step, j as f32 * step));
-            if can_place(defs, map, occ, d, p) {
+            if can_place(defs, map, occ, d, p) && ok(p) {
                 return Some(p);
             }
         }
     }
     None
+}
+
+/// Build orders the AI gave, and the spots where they came to nothing: the engineer got there and
+/// could not build, died on the way or at the site, never arrived, or the site was destroyed
+/// before it was finished. Such a spot is left alone for a while, twice as long after every
+/// further failure, so the AI does not send engineer after engineer to the same place.
+#[derive(Default)]
+pub(crate) struct Tries {
+    open: Vec<Try>,
+    /// (where, radius, left alone until, failures)
+    bad: Vec<(V2, f32, u32, u32)>,
+}
+
+struct Try {
+    def: DefId,
+    pos: V2,
+    eng: u32,
+    /// Where the engineer was last seen.
+    at: V2,
+    since: u32,
+    /// The site stood once.
+    started: bool,
+}
+
+impl Tries {
+    /// How long a spot is left alone after its first failure (ticks).
+    const BAN: u32 = 900;
+
+    pub fn ok(&self, p: V2, tick: u32) -> bool {
+        !self.bad.iter().any(|b| tick < b.2 && b.0.dist(p) < b.1)
+    }
+
+    /// A build order given.
+    pub fn note(&mut self, def: DefId, pos: V2, eng: u32, at: V2, tick: u32) {
+        if !self.open.iter().any(|o| o.def == def && o.pos.dist(pos) < 0.5) {
+            self.open.push(Try { def, pos, eng, at, since: tick, started: false });
+        }
+    }
+
+    fn fail(&mut self, p: V2, r: f32, tick: u32) {
+        match self.bad.iter_mut().find(|b| b.0.dist(p) < b.1.max(r)) {
+            Some(b) => {
+                b.3 += 1;
+                b.1 = b.1.max(r);
+                b.2 = tick + (Self::BAN << (b.3 - 1).min(3));
+            }
+            None => self.bad.push((p, r, tick + Self::BAN, 1)),
+        }
+    }
+
+    /// Checks the open orders. `eng(id, spot)` says where an engineer is and where in its list
+    /// of build orders that spot is (None: it is gone). Returns engineers to call off: their
+    /// spot was given up on.
+    pub fn update(&mut self, defs: &Defs, census: &Census, me: u8, tick: u32, eng: impl Fn(u32, V2) -> Option<(V2, Option<usize>)>) -> Vec<u32> {
+        let mut stop = vec![];
+        let mut failed: Vec<(V2, f32)> = vec![];
+        self.open.retain_mut(|o| {
+            // Ours (finished field works belong to nobody), or somebody else's.
+            let mut site: Option<(bool, bool)> = None;
+            census.near(o.pos, 1.0, |c| {
+                if c.structure && c.pos.dist(o.pos) < 0.5 && c.hp > 0.0 {
+                    site = Some((c.def == o.def && (c.owner == me || (c.done && c.owner == NEUTRAL)), c.done));
+                }
+            });
+            let r = defs.get(o.def).footprint as f32 * CELL * 0.5 + 2.0;
+            let e = eng(o.eng, o.pos).map(|(at, k)| {
+                o.at = at;
+                // Still waiting for its turn: the clock starts when the engineer sets out for it.
+                if k.map_or(false, |k| k > 0) {
+                    o.since = tick;
+                }
+                (at, k.is_some())
+            });
+            let near = o.at.dist(o.pos) < r + 10.0;
+            match (site, e) {
+                (Some((true, true)), _) => false,
+                (Some((false, _)), _) => {
+                    failed.push((o.pos, r));
+                    false
+                }
+                (Some((true, false)), e) => {
+                    o.started = true;
+                    // Its engineer left it: the AI gives a new order if it wants it finished.
+                    e.map_or(false, |e| e.1)
+                }
+                // Started and gone again: destroyed while being built, the place is under fire.
+                (None, e) if o.started => {
+                    failed.push((o.pos, r + 6.0));
+                    if let Some((_, true)) = e {
+                        stop.push(o.eng);
+                    }
+                    false
+                }
+                // Killed at the site or close to it.
+                (None, None) => {
+                    if near {
+                        failed.push((o.pos, r + 6.0));
+                    }
+                    false
+                }
+                // Arrived and could not build there (an order replaced far away does not count).
+                (None, Some((_, false))) => {
+                    if near {
+                        failed.push((o.pos, r));
+                    }
+                    false
+                }
+                (None, Some((_, true))) if tick > o.since + 1800 => {
+                    // Three minutes and still not there: it cannot get through.
+                    failed.push((o.pos, r));
+                    stop.push(o.eng);
+                    false
+                }
+                _ => true,
+            }
+        });
+        for (p, r) in failed {
+            self.fail(p, r, tick);
+        }
+        // Spots forgiven a while after their ban ran out.
+        self.bad.retain(|b| tick < b.2 + 6000);
+        stop
+    }
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -237,6 +364,15 @@ pub fn ai_system(
             || (p.income_e - p.spend_e < 10.0 && p.energy < p.max_energy * 0.9)
             || p.income_e < 40.0 + mexes as f32 * 6.0 + (land_facs + air_facs) as f32 * 40.0;
 
+        // Build spots that came to nothing are left alone for a while.
+        let tick = game.tick;
+        let quit = ai.tries.update(&defs, &census, me, tick, |id, at| {
+            all.binary_search_by_key(&id, |x| x.0.id).ok().map(|k| (all[k].1.pos, all[k].2 .0.iter().filter(|o| matches!(o, Order::Build { .. })).position(|o| matches!(o, Order::Build { pos, .. } if pos.dist(at) < 0.5))))
+        });
+        if !quit.is_empty() {
+            out.push(Command::Stop { ids: quit });
+        }
+
         // --- builders
         for (u, b, orders, _, uc, _, hosted) in all.iter().copied() {
             let df = defs.get(u.def);
@@ -250,10 +386,13 @@ pub fn ai_system(
             let near_dep = map
                 .deposits
                 .iter()
-                .filter(|d| !claimed.iter().any(|c| c.dist(**d) < 1.0))
+                .filter(|d| !claimed.iter().any(|c| c.dist(**d) < 1.0) && ai.tries.ok(**d, tick))
                 .filter(|d| d.dist(start) < if is_com { 34.0 } else { world * 0.45 + ai.wave as f32 * 12.0 })
                 .min_by(|a, c| a.dist(b.pos).partial_cmp(&c.dist(b.pos)).unwrap());
-            let spot = |ai: &mut Ai, d: DefId, at: V2| find_spot(&mut ai.rng, &defs, &map, &nav.occ, d, at).map(|s| (d, s));
+            let spot = |ai: &mut Ai, d: DefId, at: V2| {
+                let Ai { rng, tries, .. } = ai;
+                find_spot_where(rng, &defs, &map, &nav.occ, d, at, |q| tries.ok(q, tick)).map(|s| (d, s))
+            };
             if land_facs == 0 && mexes >= 2 && power >= 2 {
                 choice = cheapest(&|d| is_fac(d, "land")).and_then(|d| spot(ai, d, start + to_center * 9.0));
             } else if need_power {
@@ -289,6 +428,7 @@ pub fn ai_system(
             match choice {
                 Some((d, pos)) => {
                     count[d as usize] += 1;
+                    ai.tries.note(d, pos, u.id, b.pos, tick);
                     out.push(Command::Orders { ids: vec![u.id], orders: vec![Order::Build { def: d, pos }], queue: false });
                 }
                 None => {

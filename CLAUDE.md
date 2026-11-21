@@ -266,7 +266,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   attack-move go for ground targets first when they carry bombs (fighter-bomber), else aircraft first.
   Missiles lead their target; `launch_pitch` (deg) makes a SAM launch near-vertically.
 - **Switches** (`rules.json`, the form's "Switches" section): `terraforming`, `craters`, `wrecks`,
-  `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `sight_blocked_by_buildings`, `radar_blocked_by_terrain` (all default on),
+  `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `sight_blocked_by_buildings`, `radar_blocked_by_terrain`, `counter_battery` (all default on),
   `near_sight` (6: always seen within it). The lobby lists those switched off (`Rules::switched_off`).
   A new rule needs a `Field` in `preset_form.rs` too, or it only shows in the JSON view.
 - **Armor angle** (`rules.armor_front/side/rear`, 0.6 / 1.0 / 1.5): a projectile hitting an armored unit (category
@@ -280,6 +280,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Armored units (not structures) take `splash_armored` of any splash, death blasts included. `--combattest` "Splash" line.
 - **Spotting**: weapons only engage targets their team sees or has on radar. Radar needs line of sight
   over terrain (`map.los`).
+- **Counter-battery radar** (`rules.counter_battery`): in `visibility`, an artillery shell in flight (a `PROJ_SHELL` whose
+  shooter has an `arc`/`high_arc` land weapon) within a hostile team's level-1 radar range (no line of sight: shells fly
+  high) sets the shooter's `radar` bit for that team that tick, so it shows as a radar contact while its shells fly and
+  long guns (and the AI) can answer. No new state: worked out from the projectiles each tick. `--combattest` infantry
+  "Counter-battery" line. This is the answer to mortar spam: Pikes out-range tanks (realistic: a 120 mm mortar reaches
+  7 km), but every volley gives them away.
 - **Binoculars** (`binoculars: {range, angle, turn, scan}` in the unit JSON; Trooper and Sniper Trooper: 140, 20 deg):
   a narrow view cone on top of the round `vision`, same line-of-sight rules. `systems::aim_binoculars` (inside
   `visibility`) keeps its direction and target in `Intel.look` / `Intel.lock` (snapshotted): it follows the
@@ -339,6 +345,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   kept in `Mover.cover`; a new order or Stop clears it (Stop also moves the anchor to where they stand).
   Field works are cover for every side (finished ones belong to `NEUTRAL`, `build_progress`): anybody's sandbags soak shots from anybody (`soak_works`, except within
   `cover_grace` of the shooter) and infantry hide behind any sandbags; any trench shelters whoever stands in it.
+  Hovering a transport or garrison in sight shows its slots taken (`hud_map.slots_taken`).
   Right-clicking a trench piece no enemy infantry hold (`hud::Frame::trench_spots`) spreads the selected infantry
   over the whole joined trench, one per piece (`hud::spread`: evenly when fewer men than pieces, pieces our other
   men hold left to them); the rest of the selection moves to the click.
@@ -638,6 +645,24 @@ and the APC are JSON box models. The Stork uses the mod's hooked stock UEF trans
     from the rally point to an enemy that cannot be reached by land (they fight on their own over there,
     "abroad"), raiders to a raid zone far away. Passengers get `Load(transport)` and are left alone while in
     `Brain::boarding`. An AI cut off by water builds more air, and techs its air factory for a transport.
+  - shelter: infantry outnumbered 1.5:1 near it, hurt with enemies about, or in reach of known enemy artillery walks
+    into the nearest garrisonable building within 25 (`Brain::held` keeps it there at least 60 s; a building is never
+    emptied while enemies or enemy guns are near it);
+  - landings (`Profile.landing`, Rusher 1.0, Adaptive 0.7, Zones 0.6, Overseer 0.4 / air 0.8, Turtle 0.15): a party of
+    infantry (`Brain::party`, as many as the transports lift, up to ~12) waits at the rally point; idle air transports or
+    land carriers (amphibious ones count zones reachable through shallow water, `Zone::acomp/areach`) take it to a group of
+    neutral or own buildings near the enemy or ahead of the attack (scored by enemy buildings near, front, the attack
+    target, a river crossing for amphibious carriers; rejected when known enemies or anti-air there are too strong).
+    Riders get `[Load(carrier), Load(house)]`: set down beside the town they walk in. One at a time, every 2-5 min.
+    `Brain::wet` (water between the starts) makes the first carrier an amphibious one (Slavuta);
+  - artillery hunts: known enemy indirect-fire units reaching our zones, the rally point or the march get a zone-defence
+    detachment (up to 40% of the free force), nearest units first;
+  - build spots (`ai::Tries`, also used by Simple): a build order whose engineer could not build at the spot, died there,
+    did not get there within 3 min, or whose site was destroyed unfinished bans the spot for 90 s, doubling per further
+    failure (`find_spot_where`); the engineer is called off;
+  - `LR_AIOFF=landing,tries,...` (also infantry, works, carrier, crescent, focus, bounds, outgunned) switches parts off for tests.
+  The report line ends with `landings N (air/amphibious/land) shelters N hunts N`. Premade maps have the towns
+  (`LR_MAP=ivano_frankivsk_city`); generated `--selftest` maps have no buildings.
   Test a change with duels against `simple` on a few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); the
   new types should win all of them.
 - The hostile side only holds positions; it has no AI.
