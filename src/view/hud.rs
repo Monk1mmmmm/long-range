@@ -97,9 +97,9 @@ fn spread(pts: &[V2], k: usize) -> Vec<V2> {
 /// Ferry routes and beacons.
 const FERRY_COLOR: Color = Color::srgba(0.75, 0.6, 1.0, 0.85);
 
-/// Can a `rider` get into `host`? Transports take whatever is carriable, buildings infantry only.
+/// Can a `rider` get into `host`? Air transports take whatever is carriable, land transports and buildings infantry only.
 fn rides_in(rider: &UnitDef, host: &UnitDef) -> bool {
-    host.transport.is_some() && carriable(rider) && (!host.is_garrison() || rider.is_infantry())
+    host.transport.is_some() && crate::sim::fits(host, rider) && (!host.is_garrison() || rider.is_infantry())
 }
 
 /// Plain per-frame copy of a unit's state, so UI code does not juggle ECS borrows.
@@ -492,7 +492,7 @@ impl Frame<'_> {
                 let sd = s.def.map(|d| self.d(d));
                 // A transport: units that can ride get in. A unit, with transports selected: they fetch it.
                 let riders: Vec<u32> = units.iter().filter(|u| sd.map_or(false, |hd| rides_in(self.d(u.def), hd))).map(|u| u.id).collect();
-                let carriers: Vec<u32> = units.iter().filter(|u| self.d(u.def).transport.is_some() && !self.d(u.def).is_structure() && u.id != s.id).map(|u| u.id).collect();
+                let carriers: Vec<u32> = units.iter().filter(|u| self.d(u.def).transport.is_some() && !self.d(u.def).is_structure() && u.id != s.id && sd.map_or(true, |d| fits(self.d(u.def), d))).map(|u| u.id).collect();
                 if sd.map_or(false, |d| d.transport.is_some()) && !riders.is_empty() {
                     return Context::Load(riders, s.id);
                 } else if sd.map_or(false, carriable) && s.mine && !carriers.is_empty() {
@@ -1311,7 +1311,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                                 out.push(Command::Orders { ids: riders, orders: vec![Order::Load(s.id)], queue: shift })
                             }
                             // Click on a unit: the selected transports fetch it.
-                            Some((s, d)) if carriable(d) && s.mine && !carriers.is_empty() => out.push(Command::Orders { ids: carriers, orders: vec![Order::Load(s.id)], queue: shift }),
+                            Some((s, d)) if carriable(d) && s.mine && sel.iter().any(|u| carriers.contains(&u.id) && fits(fr.d(u.def), d)) => {
+                                let ids: Vec<u32> = sel.iter().filter(|u| carriers.contains(&u.id) && fits(fr.d(u.def), d)).map(|u| u.id).collect();
+                                out.push(Command::Orders { ids, orders: vec![Order::Load(s.id)], queue: shift })
+                            }
                             Some(_) => {}
                             None if !carriers.is_empty() && radius >= 1.5 => out.push(Command::Orders { ids: carriers, orders: vec![Order::LoadArea { pos: start, radius }], queue: shift }),
                             None => {}

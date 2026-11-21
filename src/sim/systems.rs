@@ -1116,7 +1116,7 @@ fn think(
                     // An occupiable building does not fetch anybody: infantry walk in.
                 } else if let Some(tr) = &df.transport {
                     // A transport fetching one unit.
-                    if let Some(t) = census.get(tid).filter(|t| t.owner == owner && t.done && !t.hosted && t.hp > 0.0 && carriable(defs.get(t.def))) {
+                    if let Some(t) = census.get(tid).filter(|t| t.owner == owner && t.done && !t.hosted && t.hp > 0.0 && fits(df, defs.get(t.def))) {
                         let free = room(&effects, id, tr.capacity) >= defs.get(t.def).cargo as i32 && !effects.loaded.iter().any(|l| l.0 == tid);
                         if free && !near(t) {
                             goal = Some(t.pos);
@@ -1197,7 +1197,7 @@ fn think(
                             let mut coming = false;
                             census.near(c, FERRY_COMING, |t| {
                                 let td = defs.get(t.def);
-                                if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || !carriable(td) || td.cargo as i32 > free || !t.ferry_wait.is_some_and(|w| w.dist(c) <= FERRY_SAME) || effects.loaded.iter().any(|l| l.0 == t.id) {
+                                if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || !fits(df, td) || td.cargo as i32 > free || !t.ferry_wait.is_some_and(|w| w.dist(c) <= FERRY_SAME) || effects.loaded.iter().any(|l| l.0 == t.id) {
                                     return;
                                 }
                                 if t.pos.dist(c) > FERRY_PICK {
@@ -1258,7 +1258,7 @@ fn think(
                     let free = room(&effects, id, tr.capacity);
                     let mut best: Option<(f32, u32)> = None;
                     census.near(c, radius.max(1.0), |t| {
-                        if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || t.id == id || !carriable(defs.get(t.def)) || defs.get(t.def).cargo as i32 > free {
+                        if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || t.id == id || !fits(df, defs.get(t.def)) || defs.get(t.def).cargo as i32 > free {
                             return;
                         }
                         if effects.loaded.iter().any(|l| l.0 == t.id) {
@@ -1418,7 +1418,7 @@ fn may_board(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, t
         let empty = || !census.list.iter().any(|r| r.host == t.id && r.hp > 0.0);
         df.is_infantry() && (t.team == team || t.owner == NEUTRAL || (map_building && empty()))
     } else {
-        t.team == team
+        t.team == team && (td.transport.is_none() || fits(td, df))
     }
 }
 

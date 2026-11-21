@@ -495,6 +495,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Craters are limited so they never block a cell or dig below the water (`sim::dig_crater`), which keeps
   pathfinding and the AI out of trouble. Terraforming may build walls and pits.
 - **Transports** (`transport: {capacity}` in the unit JSON; `cargo` = slots a unit takes, 0 = not carriable):
+  land transports (APCs) take infantry only; air transports take any land unit, but a vehicle (engineers, commander,
+  tanks, cars: `cargo` 4 in the JSON) takes 4 slots where a trooper takes 1, so a Stork (8) lifts 2 vehicles or 8 men
+  (`sim::fits(host, rider)` decides who may get in, `carriable` only whether a unit can ride at all);
   riders get the `Hosted(transport)` component, the same one units inside a factory have, so every system
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
   `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated), except infantry in
@@ -508,7 +511,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   beacon, or F + click) wait at the beacon (`Cen::ferry_wait`); transports there load them nearest first and leave
   when full or when nobody who fits is waiting within `FERRY_PICK` or still coming within `FERRY_COMING`. A waiting
   unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
-  new orders). `--combattest` "Ferry" line: 12 tanks across in 2 trips, then on to their queued goal.
+  new orders). `--combattest` "Ferry" line: 6 tanks across in 3 trips, then on to their queued goal.
 - **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
   takes 0.1 of it (`LightTank`, `MediumTank`, `APC`); the other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.

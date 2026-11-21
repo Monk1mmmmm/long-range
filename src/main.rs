@@ -2822,7 +2822,7 @@ fn combattest() {
         let stork = spawn(world, &map, "air_transport", 0, v2(90.0, 100.0), 0.0);
         let apc = spawn(world, &map, "apc", 0, v2(100.0, 140.0), 0.0);
         let tanks: Vec<u32> = (0..10).map(|k| spawn(world, &map, "crony", 0, v2(100.0 + (k % 5) as f32 * 2.5, 100.0 + (k / 5) as f32 * 2.5), 0.0)).collect();
-        let riders: Vec<u32> = (0..3).map(|k| spawn(world, &map, "overtaker", 0, v2(110.0 + k as f32 * 2.5, 146.0), 0.0)).collect();
+        let riders: Vec<u32> = (0..3).map(|k| spawn(world, &map, "trooper", 0, v2(110.0 + k as f32 * 2.5, 146.0), 0.0)).collect();
         world.flush();
         order(world, vec![stork], Order::LoadArea { pos: v2(105.0, 101.0), radius: 12.0 });
         world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0 }], queue: true }));
@@ -2844,8 +2844,8 @@ fn combattest() {
         let left = q.iter(world).filter(|(u, b, h)| tanks.contains(&u.id) && !h && b.pos.dist(v2(105.0, 101.0)) < 14.0).count();
         let out = q.iter(world).filter(|(u, b, h)| riders.contains(&u.id) && !h && b.pos.dist(v2(166.0, 148.0)) < 7.0).count();
         let cap = defs.get(defs.id("air_transport").unwrap()).transport.as_ref().map_or(0, |t| t.capacity);
-        println!("== Transport aircraft (capacity {cap}) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down and drove on to their queued goal");
-        assert!(most == cap as usize && moved == most && left == 10 - most && in_apc == 3 && out == 3, "transports");
+        println!("== Transport aircraft (capacity {cap}, a tank takes 4 slots) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down and drove on to their queued goal");
+        assert!(most == cap as usize / 4 && moved == most && left == 10 - most && in_apc == 3 && out == 3, "transports");
     }
     // 9b. Ferry route: a transport shuttles between its beacon and the drop point until everybody
     // waiting at the beacon is across; they then go on with the orders queued behind the ferry.
@@ -2853,7 +2853,7 @@ fn combattest() {
         let (mut app, map) = flat_world(192);
         let world = app.world_mut();
         let stork = spawn(world, &map, "air_transport", 0, v2(60.0, 60.0), 0.0);
-        let tanks: Vec<u32> = (0..12).map(|k| spawn(world, &map, "crony", 0, v2(70.0 + (k % 4) as f32 * 2.5, 48.0 + (k / 4) as f32 * 2.5), 0.0)).collect();
+        let tanks: Vec<u32> = (0..6).map(|k| spawn(world, &map, "crony", 0, v2(70.0 + (k % 4) as f32 * 2.5, 48.0 + (k / 4) as f32 * 2.5), 0.0)).collect();
         world.flush();
         let (beacon, drop, on) = (v2(64.0, 56.0), v2(250.0, 250.0), v2(262.0, 236.0));
         order(world, vec![stork], Order::Ferry { pos: beacon, pick: true });
@@ -2875,7 +2875,7 @@ fn combattest() {
             }
         }
         let route = world.query::<(&Unit, &Orders)>().iter(world).find(|(u, _)| u.id == stork).map_or(false, |(_, o)| o.0.iter().any(|o| matches!(o, Order::Ferry { pick: true, .. })));
-        println!("== Ferry: 12 tanks waiting at the beacon, all across and at their queued goal after {done:?} ticks in {trips} trips; route kept: {route}");
+        println!("== Ferry: 6 tanks waiting at the beacon, all across and at their queued goal after {done:?} ticks in {trips} trips; route kept: {route}");
         assert!(done.is_some() && trips >= 2 && route, "ferry");
     }
     // 10. Control points: the team that holds fewer points loses its score and then the game.
@@ -3187,10 +3187,10 @@ fn scavenger_tests(defs: &Defs) {
     println!("== Scavenger teamwork: both wrecks revived after {revived:?} ticks; two on one revival: {shared}, assisting scavenger helped: {helped}, engineer helped revive: {eng_worked}");
     assert!(revived.is_some() && shared && helped && !eng_worked, "scavenger teamwork");
 
-    // 4. A commander riding in an APC dies with it, and so does its side.
+    // 4. A commander riding in a transport aircraft dies with it, and so does its side.
     let com = world.query::<&Unit>().iter(world).find(|u| u.owner == 0 && defs.factions[faction as usize].commander == Some(u.def)).map(|u| u.id).expect("commander");
     let cpos = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == com).map(|(_, b)| b.pos).unwrap();
-    let apc = spawn(world, "apc", 0, cpos + v2(4.0, 0.0));
+    let apc = spawn(world, "air_transport", 0, cpos + v2(4.0, 0.0));
     order(world, vec![com], Order::Load(apc));
     let mut boarded = false;
     for _ in 0..300u32 {
@@ -3206,7 +3206,7 @@ fn scavenger_tests(defs: &Defs) {
     }
     let alive = world.resource::<Game>().players[0].alive;
     let com_left = world.query::<&Unit>().iter(world).any(|u| u.id == com);
-    println!("== Commander in an APC: boarded {boarded}; APC destroyed -> commander still there: {com_left}, player alive: {alive}");
+    println!("== Commander in a transport aircraft: boarded {boarded}; APC destroyed -> commander still there: {com_left}, player alive: {alive}");
     assert!(boarded && !com_left && !alive, "commander in a transport");
 }
 
