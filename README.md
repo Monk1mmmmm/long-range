@@ -34,7 +34,12 @@ To give the game to someone else, copy the exe together with `assets/`.
 
 A Vulkan, DirectX 12 or OpenGL capable GPU is required. **Settings** (main menu or Esc menu) lets you pick
 the graphics API, shadows, anti-aliasing, v-sync and fullscreen; if the 3D view is black or broken, try
-another graphics API there. Graphics errors are written to `render-errors.log` next to the game.
+another graphics API there. Graphics errors are written to `render-errors.log` in the settings folder.
+
+Settings (`settings.json`) and logs live in your user folder, so they survive updates and a moved game folder:
+`%APPDATA%\LongRange` on Windows, `~/Library/Application Support/LongRange` on macOS, `~/.config/longrange` on
+Linux (`LR_CONFIG=<folder>` overrides it). A `settings.json` left next to `assets` by an older version is taken over
+on the first start.
 
 ## LAN play
 
