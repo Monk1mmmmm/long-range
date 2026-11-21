@@ -36,7 +36,7 @@
  "splash_direct": 0.4,
  "splash_armored": 1.0,
  "_comment_switches": "Game features that can be switched off: terraforming, craters, wrecks left by destroyed units, hills blocking sight, trees/rocks/wrecks blocking sight, hills blocking radar, enemy buildings remembered from sight shown dimmed once destroyed out of sight (ghosts_show_destroyed, view only). near_sight: everything closer than this to a unit is seen regardless.",
- "terraforming": true,
+ "terraforming": false,
  "craters": true,
  "wrecks": true,
  "sight_blocked_by_terrain": true,

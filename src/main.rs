@@ -2784,6 +2784,7 @@ fn combattest() {
     {
         let (mut app, map) = flat_world(192);
         let world = app.world_mut();
+        world.resource_mut::<Defs>().rules.terraforming = true; // off in the default data
         let pike = spawn(world, &map, "pike", 0, v2(100.0, 180.0), 0.0);
         let eng = spawn(world, &map, "engineer", 0, v2(100.0, 100.0), 0.0);
         world.flush();
