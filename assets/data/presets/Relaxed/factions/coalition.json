@@ -580,12 +580,12 @@
    "name": "Hetman",
    "desc": "Heavy infantry fighting vehicle, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns.",
    "tier": 3,
-   "hp": 1300,
+   "hp": 975,
    "armor": "APC",
    "cost": {
-    "mass": 650,
-    "energy": 6500,
-    "time": 2200
+    "mass": 330,
+    "energy": 4000,
+    "time": 1500
    },
    "size": [
     2.8,
@@ -759,11 +759,11 @@
      "prefer": "infantry",
      "damage": 3,
      "damage_type": "SmallArms",
-     "range": 34,
+     "range": 32,
      "reload": 0.8,
      "speed": 100,
      "kind": "direct",
-     "salvo": 6,
+     "salvo": 4,
      "salvo_delay": 0.05,
      "spread": 0.6,
      "turret": {
@@ -777,7 +777,7 @@
    ],
    "move": {
     "kind": "land",
-    "speed": 3.3,
+    "speed": 3.4,
     "reverse": 2.3,
     "accel": 2.0,
     "turn": 65
@@ -1169,7 +1169,7 @@
    ],
    "name": "Overtaker M1",
    "desc": "Light tank. Quick flanker with a 75 mm gauss cannon.",
-   "tier": 1,
+   "tier": 2,
    "hp": 390,
    "armor": "LightTank",
    "cost": {
@@ -1267,8 +1267,8 @@
    "hp": 286,
    "armor": "LightTank",
    "cost": {
-    "mass": 220,
-    "energy": 1200,
+    "mass": 300,
+    "energy": 1500,
     "time": 1200
    },
    "size": [
@@ -1313,7 +1313,7 @@
      "speed": 50,
      "kind": "high_arc",
      "damage_type": "Explosive",
-     "radius": 5.0,
+     "radius": 4.0,
      "min_range": 25,
      "spread": 0.6,
      "aim_time": 0.5,
@@ -1812,7 +1812,7 @@
    "name": "Crony M1",
    "desc": "Main battle tank. Slow turret, heavy armor, 200 damage at range 80.",
    "tier": 2,
-   "hp": 650,
+   "hp": 689,
    "armor": "MediumTank",
    "cost": {
     "mass": 560,
@@ -1832,7 +1832,8 @@
    "icon": {
     "shape": "land",
     "glyphs": [
-     "plus"
+     "plus",
+     "bar"
     ]
    },
    "model": {
@@ -1858,15 +1859,15 @@
      "prefer": "armored",
      "damage": 200,
      "range": 80,
-     "reload": 4.0,
+     "reload": 3.5,
      "speed": 60,
      "kind": "direct",
      "damage_type": "AP",
      "radius": 1.25,
      "spread": 0.25,
-     "aim_time": 1.0,
+     "aim_time": 0.8,
      "turret": {
-      "yaw_speed": 15,
+      "yaw_speed": 22,
       "pitch_speed": 60,
       "yaw_bone": "Turret",
       "pitch_bone": "Turret_Barrel",
@@ -1957,7 +1958,7 @@
      "reload": 8.0,
      "speed": 70,
      "kind": "direct",
-     "damage_type": "Autocannon",
+     "damage_type": "AP",
      "salvo": 7,
      "salvo_delay": 0.15,
      "spread": 0.4,
@@ -2024,7 +2025,7 @@
     {
      "name": "Guided Missile",
      "prefer": "armored",
-     "damage": 500,
+     "damage": 900,
      "range": 90,
      "reload": 30.0,
      "speed": 24,
@@ -2176,29 +2177,30 @@
     "armored"
    ],
    "name": "Bastion",
-   "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 320 damage at range 90, slow turret.",
+   "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 220 damage at range 85, slow turret.",
    "tier": 3,
-   "hp": 1040,
+   "hp": 884,
    "armor": "MediumTank",
    "cost": {
-    "mass": 1300,
-    "energy": 12000,
-    "time": 2200
+    "mass": 620,
+    "energy": 6000,
+    "time": 1000
    },
    "size": [
-    2.438,
-    1.625,
-    3.9
+    2.063,
+    1.375,
+    3.3
    ],
    "hit_box": [
-    2.4,
-    1.75,
-    3.45
+    2.035,
+    1.485,
+    2.915
    ],
    "icon": {
     "shape": "land",
     "glyphs": [
-     "plus"
+     "plus",
+     "bar"
     ]
    },
    "model": {
@@ -2206,33 +2208,33 @@
     "albedo": "models/crony_albedo.png",
     "team_mask": "models/crony_team.png",
     "normal": "models/crony_normal.png",
-    "scale": 0.2275
+    "scale": 0.1925
    },
    "portrait": "icons/units/crony.png",
    "built_by": "land",
    "move": {
     "kind": "land",
-    "speed": 2.2,
-    "reverse": 2.0,
-    "accel": 0.7,
-    "turn": 38
+    "speed": 2.6,
+    "reverse": 2.4,
+    "accel": 0.9,
+    "turn": 45
    },
    "vision": 32,
    "weapons": [
     {
      "name": "Heavy Gauss Cannon",
      "prefer": "armored",
-     "damage": 320,
-     "range": 90,
-     "reload": 5.0,
+     "damage": 220,
+     "range": 85,
+     "reload": 3.5,
      "speed": 65,
      "kind": "direct",
      "damage_type": "AP",
      "radius": 1.5,
      "spread": 0.25,
-     "aim_time": 1.2,
+     "aim_time": 0.8,
      "turret": {
-      "yaw_speed": 12,
+      "yaw_speed": 22,
       "pitch_speed": 50,
       "yaw_bone": "Turret",
       "pitch_bone": "Turret_Barrel",
@@ -3894,7 +3896,7 @@
   {
    "id": "sam",
    "name": "Faust SAM",
-   "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 25 s.",
+   "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 12 s.",
    "tier": 2,
    "hp": 1100,
    "armor": "Structure",
@@ -4044,7 +4046,7 @@
      "damage": 900,
      "damage_type": "AP",
      "range": 150,
-     "reload": 25.0,
+     "reload": 12.0,
      "speed": 45,
      "kind": "missile",
      "turn_rate": 150,

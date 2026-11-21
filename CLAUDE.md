@@ -368,8 +368,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
-  gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Overtaker/Pike/MBFAG/
-  radar car, T2 Crony/Dragoon/Robin/Sparky, T3 Bohdana. Change `tier` in JSON to move a unit.
+  gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/
+  radar car, T2 Overtaker/Crony/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request). Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
   SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (box models), UC-02R/03R mobile radars
   (radar car mesh scaled up with box dishes), T3 Swift fast assault transport (box model, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (interceptor mesh, stealth 2, own
@@ -396,7 +396,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit directly (`projectiles`, `PROJ_MISSILE`) uses up a charge and loses `block` of its damage, with a small blast.
   Charges left are the `Reactive` component (in `unit_state!`); `build_progress` puts them all back when a repair
   brings the unit to full health. `--combattest` infantry "Reactive armor" line. The Bastion (requested T3 tank against
-  AT infantry) is the Crony mesh at 1.3x, 800 hp, 1300 mass / 12000 energy, MediumTank armor.
+  AT infantry) is a Crony with reactive armor and marginally better stats (Crony mesh at 1.1x, 680 hp vs 530, 220 damage
+  at 85 vs 200 at 80, same speed and turret), about the Crony's mass (620 vs 560) but 4x its energy (6000), MediumTank armor.
+  The Robin's 900-damage missile kills a Crony or Overtaker head on in one hit; the Bastion's charges stop that.
 - **Suicide drones** (weapon `suicide: true`, with `ammo: 1`; the T2 Dove): when the weapon fires, the unit itself is
   launched at the target as a homing missile (a straight dive from where it flies, `solve`/`fire`) and removed
   quietly (`Effects.reclaimed`: no wreck, no death blast). The Dove: 70 mass, 40 hp, speed 5.5, altitude 6, a 180
@@ -499,8 +501,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   LightTank, fast 5.8, 4 slots, unarmed), T2 Slavuta (`apc_amph`: 300 hp LightTank, 5.2, 6 slots, amphibious, unarmed),
   T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `APC` - Normal 0.1, Autocannon 0.5, AP and Explosive 1.0, SmallArms
   0.1 -, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
-  mobile units do not upgrade in place: 1000 hp APC, reactive armor 4 x 0.75 like the Bastion, 10 slots, twin machine
-  gun ~22 dps). The AI builds none of them (`brain::info` files transports apart from the army). `move.amphibious: true` (land units only): it also drives along the
+  mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp APC,
+  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The AI builds none of them (`brain::info` files transports apart from the army). `move.amphibious: true` (land units only): it also drives along the
   bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
   submerged, shells stop at the surface and guns have no line of fire. `--combattest` carrier and "River" lines

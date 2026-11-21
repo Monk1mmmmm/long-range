@@ -424,7 +424,7 @@
     },
     "bastion": {
       "name": "Bastion",
-      "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 320 damage at range 90, slow turret."
+      "desc": "Heavy tank with explosive reactive armor: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. 220 damage at range 85, slow turret."
     },
     "engineer3": {
       "name": "Engineer Mk3",
@@ -540,7 +540,7 @@
     },
     "sam": {
       "name": "Faust SAM",
-      "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 25 s."
+      "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 12 s."
     },
     "aa_turret3": {
       "name": "Phalanx Railgun Battery",
