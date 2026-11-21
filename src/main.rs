@@ -740,6 +740,7 @@ fn leave_game(world: &mut World) {
     view::stop_view(world);
     clear_game(world);
     world.remove_resource::<Ais>();
+    world.remove_resource::<ClientAi>();
     world.remove_resource::<TurnLog>();
 }
 
@@ -913,7 +914,13 @@ fn session_update(world: &mut World) {
                     if toggle && me != OBSERVER {
                         client.send(&C2S::Pause(sim.paused.is_none()));
                     }
-                    let local = if me == OBSERVER { vec![] } else { local };
+                    let mut local = if me == OBSERVER { vec![] } else { local };
+                    // LR_WATCH=1 on a client: an AI plays this player too (testing).
+                    if me != OBSERVER && std::env::var("LR_WATCH").is_ok() {
+                        let mut st = world.remove_resource::<ClientAi>().unwrap_or(ClientAi(Some(Ai::with_kind(me, 7, AI_KINDS[0])), u32::MAX));
+                        local.extend(client_ai(world, &mut st.0, &mut st.1));
+                        world.insert_resource(st);
+                    }
                     for m in sim.issue(world, local) {
                         client.send(&m);
                     }
@@ -1293,6 +1300,22 @@ fn menu_ui(world: &mut World) {
         let k = playable.iter().position(|x| *x == f as usize).unwrap_or(0);
         playable.get((k + 1) % playable.len().max(1)).copied().unwrap_or(0) as u8
     };
+    // LR_HOST=1 opens a host lobby at once (it starts with an AI once a player joined), LR_JOIN=<ip>
+    // joins that host at once: testing multiplayer without clicking through the menus.
+    static AUTO_NET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+    if matches!(app.screen, Screen::Menu) && AUTO_NET.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        if std::env::var("LR_HOST").is_ok() {
+            match new_lobby(&app.name, &defs) {
+                Ok(l) => next = Some(Screen::HostLobby(l)),
+                Err(e) => app.message = e,
+            }
+        } else if let Ok(addr) = std::env::var("LR_JOIN") {
+            match Client::connect(&addr, &app.name, defs.hash) {
+                Ok(client) => next = Some(Screen::ClientLobby(ClientLobby { client, info: None, pending: None, tex: None, have_map: None })),
+                Err(e) => app.message = e.to_string(),
+            }
+        }
+    }
     if app.skirmish {
         // `--skirmish`: straight into a game against three AIs.
         app.skirmish = false;
@@ -1616,6 +1639,11 @@ fn menu_ui(world: &mut World) {
                             }
                         });
                     });
+                    if std::env::var("LR_HOST").is_ok() && l.slots.iter().any(|s| s.conn != 0) {
+                        // Some seconds in the lobby first, the way people start.
+                        static JOINED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+                        start = JOINED.get_or_init(std::time::Instant::now).elapsed().as_secs() >= 8;
+                    }
                     if start && !l.slots.iter().any(|s| s.kind >= 2) {
                         app.message = tr!("lobby.nobody_plays").into();
                         start = false;
@@ -4260,6 +4288,28 @@ fn air_tests(defs: &Defs) {
     );
 }
 
+#[derive(Resource)]
+struct ClientAi(Option<Ai>, u32);
+
+/// An AI playing a client's own player (testing): it thinks on the client's shown state and its
+/// commands go the way a human's do (`ClientSim::issue`: predicted at once, sent to the host).
+/// Runs at most once per shown tick (`last`).
+fn client_ai(world: &mut World, ai: &mut Option<Ai>, last: &mut u32) -> Vec<Command> {
+    use bevy::ecs::system::RunSystemOnce;
+    let tick = world.resource::<Game>().tick;
+    if tick == *last {
+        return vec![];
+    }
+    *last = tick;
+    let Some(a) = ai.take() else { return vec![] };
+    world.insert_resource(Ais(vec![a]));
+    let before = world.resource::<CommandQueue>().0.len();
+    let _ = world.run_system_once(longrange::ai::ai_system);
+    let cmds = world.resource_mut::<CommandQueue>().0.drain(before..).map(|(_, c)| c).collect();
+    *ai = world.remove_resource::<Ais>().and_then(|mut a| a.0.pop());
+    cmds
+}
+
 /// Loopback check of discovery, the handshake and the netplay: a host with three AIs and a client
 /// that predicts ahead play for ten minutes of game time (`LR_TICKS` to change); the client's
 /// confirmed state must stay identical to the host's although the client rolls back and
@@ -4287,14 +4337,29 @@ fn nettest() {
     }
     let mut happ = headless(defs.clone());
     let ticks: u32 = std::env::var("LR_TICKS").ok().and_then(|s| s.parse().ok()).unwrap_or(6000);
-    let mut map = MapData::generate(128, 7, 4);
-    map.scatter_features(&defs.rules.features, 7, 1.0);
+    // LR_MAP=<name>: a premade 4-player map (with its neutral buildings) instead of a generated one.
+    let map = match std::env::var("LR_MAP") {
+        Ok(name) => MapData::load(&asset_root().join("maps").join(&name)).unwrap_or_else(|e| panic!("map {name}: {e}")),
+        Err(_) => {
+            let mut map = MapData::generate(128, 7, 4);
+            map.scatter_features(&defs.rules.features, 7, 1.0);
+            map
+        }
+    };
     let faction = defs.playable_factions()[0] as u8;
-    let setup: Vec<PlayerSetup> = (0..4).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, faction }).collect();
+    // LR_PLAYERS=3: fewer players than the map has starts (the lobby's default leaves slots open).
+    let players = std::env::var("LR_PLAYERS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4).clamp(2, map.starts.len());
+    let setup: Vec<PlayerSetup> = (0..players).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, faction }).collect();
     host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1, data: None });
     let hw = happ.world_mut();
     setup_game(hw, map, &setup);
-    hw.insert_resource(Ais(vec![Ai::new(0, 7), Ai::new(2, 7), Ai::new(3, 7)]));
+    // LR_AI=zones,overseer,... picks the three AIs in turn (default: Simple, as before).
+    let kinds: Vec<AiKind> = std::env::var("LR_AI").ok().map(|s| s.split(',').filter_map(AiKind::parse).collect()).filter(|v: &Vec<AiKind>| !v.is_empty()).unwrap_or(vec![AiKind::Simple]);
+    let ais: Vec<Ai> = (0..players as u8).filter(|p| *p != 1).collect::<Vec<u8>>().iter().enumerate().map(|(k, &p)| Ai::with_kind(p, 7, kinds[k % kinds.len()])).collect();
+    for ai in &ais {
+        hw.resource_mut::<Game>().players[ai.player as usize].ai_kind = ai.kind.id();
+    }
+    hw.insert_resource(Ais(ais));
     let mut hsim = HostSim::new(hw);
     host.send(conn, &frame(TAG_SNAP, bincode::serialize(&make_snapshot(hw)).unwrap()));
 
@@ -4321,10 +4386,20 @@ fn nettest() {
     let com = cw.query::<(&Unit, &Body)>().iter(cw).find(|(u, _)| u.owner == 1).map(|(u, b)| (u.id, b.pos)).expect("own commander");
 
     let (mut mismatches, mut turn_bytes, mut late, mut shots, mut most_units) = (0, 0usize, 0, 0u32, 0usize);
+    // LR_CLIENT_AI=zones: an AI of that type plays the client's player through the client's commands.
+    let mut cai = std::env::var("LR_CLIENT_AI").ok().and_then(|s| AiKind::parse(&s)).map(|k| Ai::with_kind(1, 7, k));
+    let mut cai_tick = u32::MAX;
+    let mut cai_cmds = 0usize;
     for t in 0..ticks {
         csim.lead = if t < ticks / 2 { 3 } else { 1 };
-        // The client orders its units around every few seconds.
-        if t % 50 == 7 {
+        if cai.is_some() {
+            let cmds = client_ai(cw, &mut cai, &mut cai_tick);
+            cai_cmds += cmds.len();
+            for m in csim.issue(cw, cmds) {
+                client.send(&m);
+            }
+        } else if t % 50 == 7 {
+            // The client orders its units around every few seconds.
             let to = com.1 + v2(15.0 * ((t / 50) % 3) as f32, 6.0 * ((t / 50) % 2) as f32);
             let ids: Vec<u32> = cw.query::<&Unit>().iter(cw).filter(|u| u.owner == 1).map(|u| u.id).collect();
             for m in csim.issue(cw, vec![Command::Orders { ids, orders: vec![Order::Move(to)], queue: false }]) {
@@ -4378,9 +4453,13 @@ fn nettest() {
     let hs = make_snapshot(hw);
     println!("host tick {end}: {} units, {} projectiles; full state {} bytes, turns averaged {} bytes", hs.units.len(), hs.projectiles.len(), bincode::serialize(&hs).unwrap().len(), turn_bytes / ticks as usize);
     println!("during the game: {shots} shots fired, up to {most_units} units, next id {}", hs.game.next_id);
+    if cai_cmds > 0 {
+        println!("the client's AI gave {cai_cmds} commands");
+    }
     println!("{late} of the client's commands reached the host late; its shown tick {} is {} ahead of the confirmed one", cw.resource::<Game>().tick, cw.resource::<Game>().tick - csim.confirmed_tick());
     println!("state hash host {:016x} client {:016x}, mismatches reported during the game: {mismatches}", state_hash(&hs), csim.confirmed_hash());
-    assert!(late > 0, "the late-command path was not exercised");
+    // An AI playing the client gives its orders when it likes, not in the jittery second half.
+    assert!(late > 0 || cai_cmds > 0, "the late-command path was not exercised");
     assert_eq!(state_hash(&hs), csim.confirmed_hash(), "host and client diverged");
     assert_eq!(mismatches, 0);
 

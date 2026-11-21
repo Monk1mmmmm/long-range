@@ -34,7 +34,8 @@ cargo run --release
 cargo run -- --skirmish           # straight into a game vs 3 AIs
 cargo run -- --selftest           # headless 4-AI match, prints economy/tier stats (LR_MAP=name: on a premade map)
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
-cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n)
+cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n,
+                                  # LR_AI=zones,.. AI types, LR_CLIENT_AI=zones an AI plays the client, LR_MAP=name, LR_PLAYERS=3)
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
 cargo run -- --ground out.png     # every ground texture in one picture, plus table vs measured average colours
 cargo run --bin lr-editor         # map editor
@@ -55,7 +56,8 @@ python3 tools/model_bounds.py                             # model bounds of ever
 ```
 
 Debug environment variables: `LR_SPEED=8` (fast-forward a hosted game), `LR_WATCH=1` (an AI also plays the local
-slot), `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmish`), `LR_DUEL=1` (stages a tank
+slot, on a client too: its orders go the way a human's do), `LR_HOST=1` (host a lobby at start; it starts 8 s after a
+player joined) and `LR_JOIN=<ip>` (join it at start): two windows play a multiplayer game without clicking, `LR_REVEAL=1` (no fog of war), `LR_MAP=<name>` (premade map for `--skirmish`), `LR_DUEL=1` (stages a tank
 fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED=n` (another map and AI seed
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
