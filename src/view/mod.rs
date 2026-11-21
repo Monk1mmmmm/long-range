@@ -41,6 +41,9 @@ pub enum Mode {
     /// Transports: click a unit or drag a circle. Other units: click a transport.
     Load,
     Unload,
+    /// Transports: click the drop point of a ferry route (shift: add points); the beacon is where they
+    /// are. Other units: click a beacon to wait there for the ferry.
+    Ferry,
     Place(DefId),
 }
 

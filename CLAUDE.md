@@ -499,6 +499,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   already skips them. Orders: `Load(id)` (a transport fetches that unit / a unit boards that transport),
   `LoadArea`, `Unload`. Riders die with their transport (a commander inside: its side is defeated), except infantry in
   a land transport (the Tavria APC): `deaths` throws them out like a garrison's (`garrison_eject_damage`).
+  Riders keep their orders: what is queued behind boarding is carried out after they are set down (`carry` only
+  drops a `Load` of their own transport and a leading `Ferry`).
+  **Ferry** (SupCom, `Order::Ferry { pos, pick }`, HUD key F): a mobile transport's route is a loop of `Ferry` orders
+  rotated like a patrol: the `pick` one is the beacon (where the transports stood when ordered), the one before it on
+  the loop the drop point (set down there with an inserted `Unload`), any between are waypoints (Shift adds points
+  after the drop point, `apply_commands` inserts them before the beacon). Other units given `Ferry` (right-click a
+  beacon, or F + click) wait at the beacon (`Cen::ferry_wait`); transports there load them nearest first and leave
+  when full or when nobody who fits is waiting within `FERRY_PICK` or still coming within `FERRY_COMING`. A waiting
+  unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
+  new orders). `--combattest` "Ferry" line: 12 tanks across in 2 trips, then on to their queued goal.
 - **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
   takes 0.1 of it (`LightTank`, `MediumTank`, `APC`); the other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.

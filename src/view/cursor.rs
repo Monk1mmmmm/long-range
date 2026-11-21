@@ -25,11 +25,12 @@ pub enum CursorKind {
     Capture,
     Load,
     Unload,
+    Ferry,
     Terraform,
 }
 
 impl CursorKind {
-    pub const ALL: [CursorKind; 12] = [
+    pub const ALL: [CursorKind; 13] = [
         CursorKind::Move,
         CursorKind::AttackMove,
         CursorKind::Patrol,
@@ -41,6 +42,7 @@ impl CursorKind {
         CursorKind::Capture,
         CursorKind::Load,
         CursorKind::Unload,
+        CursorKind::Ferry,
         CursorKind::Terraform,
     ];
 
@@ -64,6 +66,7 @@ impl CursorKind {
             CursorKind::Capture => ("capture", [1.0, 0.9, 0.35]),
             CursorKind::Load => ("load", [0.4, 0.8, 1.0]),
             CursorKind::Unload => ("unload", [1.0, 0.75, 0.3]),
+            CursorKind::Ferry => ("ferry", [0.75, 0.6, 1.0]),
             CursorKind::Terraform => ("terraform", [0.85, 0.65, 0.35]),
         }
     }

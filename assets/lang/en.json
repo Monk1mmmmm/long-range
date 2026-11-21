@@ -249,6 +249,8 @@
     "load": "Load units (drag = area)",
     "board": "Board a transport",
     "unload": "Unload (drag = area)",
+    "ferry": "Ferry route: click the drop point (Shift: more points)",
+    "ferry_wait": "Wait for a ferry: click a beacon",
     "assist": "Assist / repair (scavengers: help revive and reclaim)",
     "stop": "Stop",
     "repeat_build_on": "Repeat build: on",
@@ -270,6 +272,8 @@
     "hint_load_units": "LOAD: click a unit, or drag a circle to pick up everything inside",
     "hint_board": "LOAD: click the transport to board (infantry: or a building to occupy)",
     "hint_unload": "UNLOAD: click or drag a circle; the cargo is set down spread over it",
+    "hint_ferry": "FERRY: click where to set the cargo down (Shift: add points); units waiting at the beacon where the transports are get carried there, again and again",
+    "hint_ferry_wait": "FERRY: click a ferry beacon; the units wait there to be carried and then go on with their next orders",
     "hint_build_deposit": "BUILD {}: click a deposit, or drag a circle to queue every deposit inside",
     "hint_build": "BUILD {}: click, or drag for a row at any angle (hold Ctrl for a filled block). Shift keeps placing.",
     "hint_build_fieldwork": "BUILD {}: draw a line of any shape with the right button, or click / drag a straight line with the left. Shift keeps placing."
@@ -531,8 +535,8 @@
       "desc": "Point defense. Shreds bots and scouts, bounces off armor."
     },
     "gauss_turret": {
-      "name": "Gauss Turret",
-      "desc": "Anti-armor emplacement. High-arc fire, range 30-90, very slow traverse."
+      "name": "Pike-G Gauss Turret",
+      "desc": "Anti-armor emplacement. High-arc fire, range 30-105, very slow traverse."
     },
     "aa_turret": {
       "name": "Dart Railgun",
