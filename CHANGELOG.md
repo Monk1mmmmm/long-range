@@ -3,6 +3,13 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+Changed
+- Settings and logs are kept in your user folder (`%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application
+  Support/LongRange`; `LR_CONFIG` overrides it) instead of next to `assets`, so they persist across versions. An old
+  `settings.json` is imported on the first start.
+
 ## v0.12.0
 
 New ways to order infantry and find idle units, and many balance changes. Unit data and game rules changed, so

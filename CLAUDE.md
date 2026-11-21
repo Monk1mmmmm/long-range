@@ -86,7 +86,7 @@ scripts already build sequentially. Compiling the crate itself takes about a min
 ### Renderer compatibility (old Intel iGPUs)
 
 `settings::render_plugin(&Settings)` / `tolerate_render_errors()` / `apply_settings` (in `src/settings.rs`, which
-also holds the `Settings` resource saved to `settings.json` and the shared settings window) are used by both binaries:
+also holds the `Settings` resource saved to `settings.json` in `settings::base_dir()` - the user's config folder, not next to `assets`, so it survives new versions: `%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application Support/LongRange`, override `LR_CONFIG`; an old `settings.json` next to `assets` is imported once; logs go there too - and the shared settings window) are used by both binaries:
 Windows defaults to DX12 (the Intel Vulkan driver `igvk64.dll` crashes at start-up on HD 520/530),
 MSAA is off, and validation errors are logged instead of quitting (Bevy 0.20's default handler exits the app).
 The renderer is always Bevy's full one (GPU occlusion culling on). A "Compatible" renderer that disabled
@@ -195,7 +195,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - Owners 250/251 are the neutral and hostile sides (teams 14/15). Neutral units are never auto-targeted.
 - 2-10 players (`sim::MAX_PLAYERS`). `Intel.seen/radar` are `u16` team bitmasks. A map's number of start
   positions decides the lobby slot count; `MapData::generate(cells, seed, players)` is k-fold symmetric.
-- Hotkeys: two presets in `view/hud.rs` (`ViewState.preset`, saved to `settings.json` next to `assets/`):
+- Hotkeys: two presets in `view/hud.rs` (`ViewState.preset`, saved to `settings.json` in the user config folder):
   default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
   with hotbuild keys chosen by unit role in `hud::hot_key`.
 - Releases: `scripts/release.sh` / `release.ps1` make two archives per platform in `dist/` (game + assets,

@@ -1,4 +1,4 @@
-//! Player settings (`settings.json` next to the `assets` folder), the renderer configuration
+//! Player settings (`settings.json` in the user's config folder, see `base_dir`), the renderer configuration
 //! derived from them, and the settings window shared by the main menu and the in-game menu.
 use crate::view::terrain::MainCamera;
 use bevy::prelude::*;
@@ -59,16 +59,54 @@ impl Default for Settings {
     }
 }
 
-fn base_dir() -> std::path::PathBuf {
+/// The folder next to `assets` (where `settings.json` and the logs used to live; replaced by `base_dir`).
+fn legacy_dir() -> std::path::PathBuf {
     crate::data::asset_root().parent().map(|p| p.to_path_buf()).unwrap_or_default()
+}
+
+/// The user's own folder for settings and logs, which stays when the game is updated or moved
+/// (a new version is a new folder with its own `assets`): `LR_CONFIG` if set, else
+/// `%APPDATA%\LongRange` (Windows), `~/Library/Application Support/LongRange` (macOS) or
+/// `$XDG_CONFIG_HOME/longrange` / `~/.config/longrange`. Made on first use; when it cannot be
+/// made (no home folder, read-only disk) the folder next to `assets` is used as before.
+pub fn base_dir() -> std::path::PathBuf {
+    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(std::path::PathBuf::from);
+        let dir = if let Some(d) = env("LR_CONFIG") {
+            Some(d)
+        } else if cfg!(windows) {
+            env("APPDATA").map(|d| d.join("LongRange"))
+        } else if cfg!(target_os = "macos") {
+            env("HOME").map(|d| d.join("Library").join("Application Support").join("LongRange"))
+        } else {
+            env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|d| d.join(".config"))).map(|d| d.join("longrange"))
+        };
+        dir.filter(|d| std::fs::create_dir_all(d).is_ok()).unwrap_or_else(legacy_dir)
+    })
+    .clone()
 }
 
 impl Settings {
     pub fn path() -> std::path::PathBuf {
         base_dir().join("settings.json")
     }
+    /// Reads the settings. A first start with this version takes over the `settings.json` a
+    /// version from before the user folder left next to `assets` (that file is not touched, so
+    /// an older version keeps working) and saves it in the user folder.
     pub fn load() -> Settings {
-        std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        let read = |p: std::path::PathBuf| std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Settings>(&t).ok());
+        if let Some(s) = read(Self::path()) {
+            return s;
+        }
+        let old = legacy_dir().join("settings.json");
+        if old != Self::path() {
+            if let Some(s) = read(old) {
+                s.save();
+                return s;
+            }
+        }
+        Settings::default()
     }
     pub fn save(&self) {
         let _ = std::fs::write(Self::path(), serde_json::to_string_pretty(self).unwrap_or_default());
@@ -278,7 +316,7 @@ mod linux_gl {
 /// wgpu's OpenGL backend reports the same harmless texture-view "heuristics" message several times
 /// per frame (thousands of lines a minute); that module is silenced, its shader errors are kept.
 ///
-/// Everything logged also goes to `<program>.log` next to `settings.json` (the one of the run before
+/// Everything logged also goes to `<program>.log` in `base_dir` next to `settings.json` (the one of the run before
 /// is kept as `<program>-previous.log`), and a panic writes its message and backtrace there, so a
 /// crash leaves a record even when the game was not started from a console.
 pub fn log_plugin() -> bevy::log::LogPlugin {
@@ -286,7 +324,7 @@ pub fn log_plugin() -> bevy::log::LogPlugin {
     bevy::log::LogPlugin { filter, custom_layer: log_file_layer, ..default() }
 }
 
-/// `<program>.log` next to `settings.json`.
+/// `<program>.log` in `base_dir`.
 pub fn log_path() -> std::path::PathBuf {
     let stem = std::env::current_exe().ok().and_then(|e| e.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_else(|| "longrange".into());
     base_dir().join(format!("{stem}.log"))
