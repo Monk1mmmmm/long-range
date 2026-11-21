@@ -17,6 +17,7 @@
     "tagline": "flow economy  -  long guns  -  scouts win wars",
     "host_game": "Host game / Skirmish vs AI",
     "join_game": "Join game",
+    "replays": "Replays",
     "game_data_presets": "Game data presets",
     "quit": "Quit",
     "editor_hint": "Map editor: run the lr-editor program.   F11 fullscreen."
@@ -129,6 +130,32 @@
     "by_address": "Join by address",
     "join_address": "Connect"
   },
+  "replays": {
+    "title": "Replays",
+    "folder": "Folder: {}",
+    "none": "No replays yet. Every game you play or watch is saved here.",
+    "col_date": "Date",
+    "col_map": "Map",
+    "col_players": "Players",
+    "col_length": "Length",
+    "col_result": "Result",
+    "col_version": "Version",
+    "just_now": "just now",
+    "minutes_ago": "{} min ago",
+    "hours_ago": "{} h ago",
+    "days_ago": "{} d ago",
+    "versus": " vs ",
+    "won_by": "Won by {}",
+    "cut_off": "cut off",
+    "cut_off_tip": "The game did not end normally (the program was closed or crashed): the replay stops a few seconds before that.",
+    "other_version_tip": "Recorded with another version of the game.",
+    "other_version": "Recorded with version {}: this version may play it back differently.",
+    "watch": "Watch",
+    "delete": "Delete",
+    "delete_confirm": "Really delete?",
+    "refresh": "Refresh",
+    "load_failed": "Could not open the replay: {}"
+  },
   "settings": {
     "detail_low": "Low (no shadows)",
     "medium": "Medium",
@@ -151,6 +178,9 @@
     "auto_garrison": "Buildings",
     "auto_garrison_tip": "Idle infantry walk into an empty or own garrisonable building close by.",
     "auto_garrison_on": "Infantry enter nearby buildings",
+    "replays": "Replays",
+    "replays_tip": "Every game is recorded to the replays folder (next to settings.json). Watch them from the main menu: Replays.",
+    "replays_on": "Save a replay of every game",
     "anti_aliasing": "Anti-aliasing",
     "fullscreen": "Fullscreen",
     "sound_effects": "Sound effects",
@@ -299,6 +329,16 @@
     "back_to_game": "Back to game",
     "resign": "Resign",
     "quit_to_main_menu": "Quit to main menu"
+  },
+  "hud_replay": {
+    "replay": "REPLAY",
+    "slower": "Slower",
+    "faster": "Faster",
+    "vision_all": "Everything",
+    "vision_tip": "See the game as a player does: their fog of war, radar and economy.",
+    "seeking": "Jumping...",
+    "end": "End of the replay. Resume plays it again from the start.",
+    "desync": "From {} on the game plays differently than it was recorded (another game version?)."
   },
   "hud_help": {
     "title": "CONTROLS",

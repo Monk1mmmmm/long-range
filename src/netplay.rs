@@ -118,13 +118,21 @@ pub struct ClientSim {
     pub host_player: Option<u8>,
     pub peers: Vec<(u8, Option<std::net::IpAddr>)>,
     pub ai_reclaim: bool,
+    /// Confirmed turns (every tick, also those without commands) and state fingerprints for the
+    /// replay, taken by the session each frame.
+    pub log: Vec<crate::replay::Turn>,
+    pub log_hashes: Vec<(u32, u64)>,
+    /// A full state from the host took the game back to this tick (after host migration): the
+    /// replay drops what it recorded after it.
+    pub rewound: Option<u32>,
+    logged: u32,
 }
 
 impl ClientSim {
     /// `state` is the starting state, already loaded into the world (`join_game`).
     pub fn new(me: u8, state: Snapshot) -> ClientSim {
         let fx_high = state.game.tick;
-        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None, host_player: None, peers: vec![], ai_reclaim: true }
+        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None, host_player: None, peers: vec![], ai_reclaim: true, log: vec![], log_hashes: vec![], rewound: None, logged: fx_high }
     }
 
     pub fn confirmed_tick(&self) -> u32 {
@@ -218,21 +226,40 @@ impl ClientSim {
                 self.confirmed = s;
                 self.resyncs += 1;
                 k = self.confirmed.game.tick;
+                if k < self.logged {
+                    self.log.retain(|t| t.0 <= k);
+                    self.log_hashes.retain(|t| t.0 <= k);
+                    self.rewound = Some(k);
+                    self.logged = k;
+                }
             }
             restore(world, &self.confirmed);
             for (tick, cmds) in std::mem::take(&mut self.turns) {
+                let plain: Vec<(u8, Command)> = cmds.iter().map(|(p, _, c)| (*p, c.clone())).collect();
                 if tick <= k {
-                    continue; // already part of a full state
+                    // Already part of a full state; still one of the game's turns.
+                    if tick > self.logged {
+                        self.log.push((tick, plain));
+                        self.logged = tick;
+                    }
+                    continue;
                 }
                 if tick != k + 1 {
                     return Err("Lost synchronisation with the host.".into());
                 }
                 let acked = cmds.iter().filter(|c| c.0 == self.me).map(|c| c.1).max().unwrap_or(0);
                 self.pending.retain(|p| p.1 > acked);
-                step(world, cmds.into_iter().map(|(p, _, c)| (p, c)).collect(), &mut self.fx_high);
+                self.log.push((tick, plain.clone()));
+                self.logged = tick;
+                step(world, plain, &mut self.fx_high);
                 k = tick;
                 if k % HASH_EVERY == 0 {
-                    out.push(C2S::Hash { tick: k, hash: state_hash(&make_snapshot(world)) });
+                    let hash = state_hash(&make_snapshot(world));
+                    out.push(C2S::Hash { tick: k, hash });
+                    // A machine that has diverged once may have recorded wrong fingerprints since.
+                    if k % crate::replay::HASH_EVERY == 0 && self.resyncs == 0 {
+                        self.log_hashes.push((k, hash));
+                    }
                 }
             }
             self.confirmed = make_snapshot(world);

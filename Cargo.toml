@@ -14,6 +14,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 bincode = "1.3"
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 libm = "0.2"
+# Replays: the start block (map, data, state) is deflated.
+flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 # build.rs: the Windows program icon (res/longrange.rc).

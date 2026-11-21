@@ -7,6 +7,7 @@ pub mod map;
 pub mod net;
 pub mod netplay;
 pub mod preset_form;
+pub mod replay;
 pub mod settings;
 pub mod sim;
 pub mod surface;

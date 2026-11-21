@@ -49,13 +49,15 @@ pub struct Settings {
     pub neutral_icons: bool,
     /// Idle own infantry walk into an empty or own garrisonable building standing close by (`hud::auto_garrison`).
     pub auto_garrison: bool,
+    /// Every game is recorded to `replays/` next to this file (`replay.rs`); the main menu plays them back.
+    pub save_replays: bool,
     /// Interface language (`assets/lang/<code>.json`, "en" = English); empty = from the system (`i18n::system_language`).
     pub language: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, language: String::new() }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, save_replays: true, language: String::new() }
     }
 }
 
@@ -556,6 +558,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label(tr!("settings.auto_garrison")).on_hover_text(tr!("settings.auto_garrison_tip"));
         ui.checkbox(&mut s.auto_garrison, tr!("settings.auto_garrison_on"));
+        ui.end_row();
+        ui.label(tr!("settings.replays")).on_hover_text(tr!("settings.replays_tip"));
+        ui.checkbox(&mut s.save_replays, tr!("settings.replays_on"));
         ui.end_row();
         ui.label(tr!("settings.anti_aliasing"));
         let aa = |a: &str| match a {

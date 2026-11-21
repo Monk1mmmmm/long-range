@@ -157,6 +157,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - The AI runs on the host only; its commands reach clients inside the turns. Its working state (`ai::Ai`,
   `brain::Brain`) is not part of the simulation state: after a host migration the new host starts fresh AIs of
   the same types (`Player.ai_kind`) and they rebuild what they know from the world.
+- **Replays** (`replay.rs`, `Settings.save_replays`, default on; `LR_NOREPLAY=1` skips recording): a replay is what a
+  client joins with (map, `DataPack`, starting `Snapshot`, deflated) plus every confirmed tick's commands, written in
+  chunks while the game runs (the newest `TAIL` ticks stay in memory: after host migration a client may be rewound,
+  `ClientSim.rewound`) and a state fingerprint every `replay::HASH_EVERY` ticks. The host records the turns it makes,
+  a client what it confirms (`ClientSim.log`, drained by the session), so every player and observer gets one.
+  Files: `replays/*.lrr` next to `settings.json`, the oldest beyond `replay::KEEP` are deleted, games under 15 s
+  leave none. Main menu "Replays" (`main.rs::replays_ui`) lists them; watching is `Role::Replay` (`replay_update`):
+  re-simulates as `OBSERVER` with pause/speed/time line/vision (`ViewState.replay`, `hud::replay_bar`); jumping back
+  restores the nearest state kept every `HASH_EVERY` ticks. A fingerprint mismatch (another version) is shown, not
+  fatal. `--nettest` writes the host's and the client's replay and plays both back.
 - A player who leaves resigns (`Command::Resign`) and the game goes on. When the host leaves (connection closed, or
   silent for `HOST_SILENT_SECS`), the remaining humans take over (host migration, `main.rs::take_over`): the host
   sends `S2C::Peers` (human players + addresses) at the start and whenever someone leaves; the lowest-numbered
@@ -224,6 +234,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/ai/brain.rs` | the zone AI behind every other type: unit roles from the JSON (`info`), per-type numbers (`Profile`), zones, enemy memory, strategy, economy (`eco`), army (`army`) |
 | `src/net.rs` | TCP host/client, UDP LAN discovery, message types |
 | `src/netplay.rs` | `HostSim` (turn scheduling, hash check) and `ClientSim` (prediction, rollback, resync) |
+| `src/replay.rs` | replays: file format, `Recorder` (fed by `main.rs::session_update`), list/load, `Playback` (re-simulation, jumping back via kept states) |
 | `src/view/mod.rs` | view state, unit visuals, interpolation, turret animation |
 | `src/view/hud.rs` | camera, selection, orders, overlays, HUD panels (one egui pass) |
 | `src/view/intel.rs` | fog grid, terrain-shadowed radar coverage, contact memory (ghosts/blips) |

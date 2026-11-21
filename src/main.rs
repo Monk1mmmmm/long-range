@@ -11,6 +11,7 @@ use longrange::{tr, tx};
 use longrange::map::*;
 use longrange::net::*;
 use longrange::netplay::{ClientSim, HostSim};
+use longrange::replay::{self, Playback, Recorder, ReplayInfo, ReplayStart};
 use longrange::sim::*;
 use longrange::sim::Command;
 use longrange::view::{self, terrain::MainCamera, LocalCommands, ViewState};
@@ -354,6 +355,17 @@ enum Role {
     /// the connection being made to the player taking over (that player, the result to come).
     /// `skip`: players who could not take over.
     Client { client: Client, sim: ClientSim, heard: f32, rejoin: Option<(u8, std::sync::mpsc::Receiver<Result<Client, String>>)>, skip: Vec<u8> },
+    /// Playing back a replay: no network, the commands come from the file.
+    Replay(Box<ReplayRun>),
+}
+
+/// A replay being watched (`replay::Playback` plus the controls' state).
+struct ReplayRun {
+    pb: Playback,
+    speed: f32,
+    paused: bool,
+    /// Jumping to this tick.
+    seek: Option<u32>,
 }
 
 /// A host that sends nothing for this long (turns arrive ten times a second, pongs every
@@ -405,6 +417,40 @@ struct Session {
     paused: Option<u8>,
     /// Host: commands (with their player) that came in while no tick was due; the next tick takes them.
     held: Vec<(u8, Command)>,
+    /// The replay being recorded (`Settings::save_replays`).
+    rec: Option<Recorder>,
+}
+
+/// Starts recording a game that begins with `map` and `state`, as player `me` sees it
+/// (none when replays are switched off in the settings, or `LR_NOREPLAY` is set).
+fn start_recording(world: &World, map: &MapData, state: &Snapshot, me: u8) -> Option<Recorder> {
+    if !world.resource::<longrange::settings::Settings>().save_replays || std::env::var("LR_NOREPLAY").is_ok() {
+        return None;
+    }
+    let pack = (*world.resource::<Defs>().pack).clone();
+    let info = ReplayInfo::new(&state.game, &map.name, &pack.name, me);
+    let start = ReplayStart { map: map.clone(), pack, state: state.clone() };
+    match Recorder::start(&replay::dir(), &info, &start) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            warn!("cannot record a replay in {}: {e}", replay::dir().display());
+            None
+        }
+    }
+}
+
+/// Opens a replay file for watching: its game data, the map and the starting state, seen by everybody.
+fn start_replay(world: &mut World, path: &std::path::Path, base: &Defs) -> Result<Session, String> {
+    let l = replay::load(path)?;
+    let defs = Defs::from_pack(l.start.pack.clone())?;
+    // Model and picture files a preset brought along (a client's recording of a host's preset).
+    if !l.start.pack.files.is_empty() {
+        l.start.pack.store_assets(&asset_root());
+    }
+    world.insert_resource(if defs.hash == base.hash { base.clone() } else { defs });
+    let pb = Playback::begin(world, l);
+    view::start_view(world, OBSERVER, true);
+    Ok(Session { role: Role::Replay(Box::new(ReplayRun { pb, speed: 1.0, paused: false, seek: None })), acc: 0.0, paused: None, held: vec![], rec: None })
 }
 
 /// The preset editor: a preset is a named copy of the game data that can be changed freely.
@@ -546,6 +592,8 @@ enum Screen {
     ClientLobby(ClientLobby),
     /// The list of games to join.
     Browse(Browser),
+    /// The saved replays.
+    Replays(ReplayList),
     Game(Session),
 }
 
@@ -566,6 +614,153 @@ impl Browser {
     fn has_map(&mut self, name: &str) -> bool {
         *self.have_map.entry(name.to_string()).or_insert_with(|| asset_root().join("maps").join(name).join("map.json").exists())
     }
+}
+
+/// The replay browser: the files in `replay::dir()`, newest first.
+struct ReplayList {
+    items: Vec<replay::Summary>,
+    selected: Option<usize>,
+    /// The delete button was pressed once: the next press deletes.
+    confirm: bool,
+}
+
+impl ReplayList {
+    fn new() -> ReplayList {
+        let items = replay::list(&replay::dir());
+        ReplayList { selected: (!items.is_empty()).then_some(0), items, confirm: false }
+    }
+}
+
+enum ReplayAction {
+    Watch(std::path::PathBuf),
+    Back,
+}
+
+/// "3 min ago", or the date (UTC) for anything older than a week.
+fn replay_age(date: u64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let ago = now.saturating_sub(date);
+    if ago < 60 {
+        tr!("replays.just_now").into()
+    } else if ago < 3600 {
+        tr!("replays.minutes_ago", ago / 60)
+    } else if ago < 86400 {
+        tr!("replays.hours_ago", ago / 3600)
+    } else if ago < 7 * 86400 {
+        tr!("replays.days_ago", ago / 86400)
+    } else {
+        let (y, m, d, h, mi, _) = replay::utc(date);
+        format!("{y:04}-{m:02}-{d:02} {h:02}:{mi:02}")
+    }
+}
+
+/// The players of a replay, team by team: "A, B vs C".
+fn replay_players(info: &replay::ReplayInfo) -> String {
+    let mut teams: Vec<u8> = info.players.iter().map(|p| p.team).collect();
+    teams.sort();
+    teams.dedup();
+    teams.iter().map(|&t| info.players.iter().filter(|p| p.team == t).map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")).collect::<Vec<_>>().join(tr!("replays.versus"))
+}
+
+fn replays_ui(ui: &mut egui::Ui, l: &mut ReplayList, message: &str, width: f32, height: f32) -> Option<ReplayAction> {
+    use egui::Color32;
+    let mut act = None;
+    ui.label(egui::RichText::new(tr!("replays.title")).size(34.0).color(Color32::from_rgb(255, 215, 100)));
+    ui.label(egui::RichText::new(tr!("replays.folder", replay::dir().display())).size(12.0).weak());
+    ui.add_space(8.0);
+    if l.items.is_empty() {
+        ui.add_space(30.0);
+        ui.label(tr!("replays.none"));
+        ui.add_space(30.0);
+    } else {
+        let clock = |t: u32| {
+            let s = t / 10;
+            if s >= 3600 {
+                format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+            } else {
+                format!("{}:{:02}", s / 60, s % 60)
+            }
+        };
+        egui::ScrollArea::vertical().max_height((height - 170.0).max(200.0)).auto_shrink([false, true]).show(ui, |ui| {
+            ui.set_width(width);
+            egui::Grid::new("replays").striped(true).num_columns(6).spacing([16.0, 6.0]).show(ui, |ui| {
+                for h in [tr!("replays.col_date"), tr!("replays.col_map"), tr!("replays.col_players"), tr!("replays.col_length"), tr!("replays.col_result"), tr!("replays.col_version")] {
+                    ui.label(egui::RichText::new(h).strong());
+                }
+                ui.end_row();
+                for (k, r) in l.items.iter().enumerate() {
+                    let (y, m, d, h, mi, _) = replay::utc(r.info.date);
+                    let resp = ui.selectable_label(l.selected == Some(k), replay_age(r.info.date)).on_hover_text(format!("{y:04}-{m:02}-{d:02} {h:02}:{mi:02} UTC\n{}", r.name()));
+                    if resp.clicked() {
+                        l.selected = Some(k);
+                        l.confirm = false;
+                    }
+                    if resp.double_clicked() {
+                        act = Some(ReplayAction::Watch(r.path.clone()));
+                    }
+                    ui.label(&r.info.map);
+                    ui.add(egui::Label::new(replay_players(&r.info)).truncate()).on_hover_text(replay_players(&r.info));
+                    ui.label(clock(r.ticks));
+                    match r.winner {
+                        Some(w) => {
+                            let names: Vec<&str> = r.info.players.iter().filter(|p| p.team == w).map(|p| p.name.as_str()).collect();
+                            ui.label(tr!("replays.won_by", names.join(", ")));
+                        }
+                        None if !r.finished => {
+                            ui.label(egui::RichText::new(tr!("replays.cut_off")).weak()).on_hover_text(tr!("replays.cut_off_tip"));
+                        }
+                        None => {
+                            ui.label("-");
+                        }
+                    }
+                    if r.same_version() {
+                        ui.label(&r.info.version);
+                    } else {
+                        ui.colored_label(Color32::from_rgb(255, 170, 90), &r.info.version).on_hover_text(tr!("replays.other_version_tip"));
+                    }
+                    ui.end_row();
+                }
+            });
+        });
+    }
+    ui.add_space(10.0);
+    let sel = l.selected.filter(|&k| k < l.items.len());
+    ui.horizontal(|ui| {
+        if ui.add_enabled(sel.is_some(), egui::Button::new(egui::RichText::new(tr!("replays.watch")).size(17.0)).min_size(egui::vec2(180.0, 38.0))).clicked() {
+            if let Some(k) = sel {
+                act = Some(ReplayAction::Watch(l.items[k].path.clone()));
+            }
+        }
+        let del = if l.confirm { tr!("replays.delete_confirm") } else { tr!("replays.delete") };
+        if ui.add_enabled(sel.is_some(), egui::Button::new(del).min_size(egui::vec2(150.0, 38.0))).clicked() {
+            if let Some(k) = sel {
+                if l.confirm {
+                    let _ = std::fs::remove_file(&l.items[k].path);
+                    l.items.remove(k);
+                    l.selected = if l.items.is_empty() { None } else { Some(k.min(l.items.len() - 1)) };
+                    l.confirm = false;
+                } else {
+                    l.confirm = true;
+                }
+            }
+        }
+        if ui.add(egui::Button::new(tr!("replays.refresh")).min_size(egui::vec2(120.0, 38.0))).clicked() {
+            *l = ReplayList::new();
+        }
+        if ui.add(egui::Button::new(tr!("common.back")).min_size(egui::vec2(120.0, 38.0))).clicked() {
+            act = Some(ReplayAction::Back);
+        }
+    });
+    if let Some(k) = sel {
+        if !l.items[k].same_version() {
+            ui.colored_label(Color32::from_rgb(255, 170, 90), tr!("replays.other_version", &l.items[k].info.version));
+        }
+    }
+    if !message.is_empty() {
+        ui.add_space(8.0);
+        ui.colored_label(Color32::from_rgb(255, 120, 105), message);
+    }
+    act
 }
 
 /// Top-level application state (kept off the ECS threads: it owns sockets).
@@ -709,9 +904,11 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         world.flush();
         world.insert_resource(game);
     }
+    let start_state = make_snapshot(world);
+    let rec = start_recording(world, &sent_map, &start_state, me);
     // Clients get the map and the complete starting state; from then on only commands travel.
     if !remote.is_empty() {
-        let state = frame(TAG_SNAP, bincode::serialize(&make_snapshot(world)).map_err(|e| e.to_string())?);
+        let state = frame(TAG_SNAP, bincode::serialize(&start_state).map_err(|e| e.to_string())?);
         // Players whose game data differs from ours (a preset, another version) get ours,
         // together with the model and picture files the standard game does not have.
         let defs = world.resource::<Defs>().clone();
@@ -733,7 +930,83 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     let sim = HostSim::new(world);
     l.host.set_started("");
     view::start_view(world, me, true);
-    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None, held: vec![] })
+    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None, held: vec![], rec })
+}
+
+/// One frame of a replay: plays on at its speed, jumps where the time line asks, and keeps the
+/// HUD's replay bar up to date.
+fn replay_update(world: &mut World, r: &mut ReplayRun, acc: &mut f32, toggle: bool) {
+    // Simulation time per frame is limited, so a fast speed in a big game slows down instead of freezing.
+    const BUDGET: std::time::Duration = std::time::Duration::from_millis(40);
+    let dt = world.resource::<Time>().delta_secs().min(0.25);
+    if toggle {
+        r.paused = !r.paused;
+        // Play at the end: from the start again.
+        if !r.paused && Playback::tick(world) >= r.pb.end {
+            r.seek = Some(r.pb.first);
+        }
+    }
+    let mut vision = None;
+    if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+        if let Some(bar) = v.replay.as_mut() {
+            if let Some(t) = bar.want_seek.take() {
+                r.seek = Some(t);
+            }
+            if let Some(sp) = bar.want_speed.take() {
+                r.speed = sp;
+            }
+            vision = bar.want_vision.take();
+        }
+    }
+    if let Some(p) = vision {
+        // Another player's view: their fog, radar and what they remember (from now on).
+        let n = world.resource::<MapData>().n;
+        {
+            let mut v = world.resource_mut::<ViewState>();
+            v.me = p;
+            v.sel.clear();
+        }
+        world.insert_resource(view::intel::IntelMemory::default());
+        world.insert_resource(view::intel::FogGrid::new(n));
+    }
+    let clock = std::time::Instant::now();
+    if let Some(t) = r.seek {
+        let t = t.clamp(r.pb.first, r.pb.end);
+        r.pb.rewind(world, t);
+        while Playback::tick(world) < t && clock.elapsed() < BUDGET {
+            r.pb.step(world, true);
+        }
+        if Playback::tick(world) >= t {
+            r.seek = None;
+        }
+        *acc = 0.0;
+    } else if !r.paused {
+        *acc += dt * r.speed;
+        while *acc >= DT && Playback::tick(world) < r.pb.end && clock.elapsed() < BUDGET {
+            *acc -= DT;
+            r.pb.step(world, false);
+        }
+        if *acc > DT * 3.0 {
+            *acc = 0.0;
+        }
+        if Playback::tick(world) >= r.pb.end {
+            r.paused = true;
+            *acc = 0.0;
+        }
+    }
+    flush_limbo(world);
+    let tick = Playback::tick(world);
+    if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+        v.paused = r.paused.then_some(OBSERVER);
+        let bar = v.replay.get_or_insert_with(Default::default);
+        bar.tick = tick;
+        bar.first = r.pb.first;
+        bar.end = r.pb.end;
+        bar.speed = r.speed;
+        bar.paused = r.paused;
+        bar.seeking = r.seek.is_some();
+        bar.desync = r.pb.desync;
+    }
 }
 
 fn leave_game(world: &mut World) {
@@ -871,6 +1144,12 @@ fn session_update(world: &mut World) {
                     s.acc -= DT;
                     n += 1;
                     let turn = sim.tick(world, std::mem::take(&mut cmds), !remote.is_empty());
+                    if let (Some(rec), S2C::Turn { tick, cmds }) = (s.rec.as_mut(), &turn) {
+                        rec.push(*tick, cmds.iter().map(|(p, _, c)| (*p, c.clone())).collect());
+                        if tick % replay::HASH_EVERY == 0 {
+                            rec.hash(*tick, state_hash(&make_snapshot(world)));
+                        }
+                    }
                     if !remote.is_empty() {
                         if let Ok(data) = bincode::serialize(&turn) {
                             let f = frame(TAG_MSG, data);
@@ -958,6 +1237,21 @@ fn session_update(world: &mut World) {
                             Err(why) => over = Some(why),
                         }
                     }
+                    // The turns the host confirmed go into the replay.
+                    if let Some(rec) = s.rec.as_mut() {
+                        if let Some(t) = sim.rewound.take() {
+                            rec.rewind(t);
+                        }
+                        for (t, c) in sim.log.drain(..) {
+                            rec.push(t, c);
+                        }
+                        for (t, h) in sim.log_hashes.drain(..) {
+                            rec.hash(t, h);
+                        }
+                    } else {
+                        sim.log.clear();
+                        sim.log_hashes.clear();
+                    }
                 }
                 // Who takes over: the human player with the lowest number who has not failed
                 // to already. Every client works it out from the same list, so they agree.
@@ -981,6 +1275,7 @@ fn session_update(world: &mut World) {
                     v.net_note = note;
                 }
             }
+            Role::Replay(r) => replay_update(world, r, &mut s.acc, toggle),
         }
         if let Some(role) = promoted {
             s.role = role;
@@ -993,10 +1288,17 @@ fn session_update(world: &mut World) {
         }
     }
     if let Some(msg) = over {
+        if let Screen::Game(s) = &mut app.screen {
+            if let Some(rec) = s.rec.as_mut() {
+                rec.finish(world.get_resource::<Game>().and_then(|g| g.winner));
+            }
+        }
+        // Back from watching a replay: to the replay list.
+        let watched = matches!(&app.screen, Screen::Game(s) if matches!(s.role, Role::Replay(_)));
         leave_game(world);
         restore_defs(world, &app.base_defs);
         app.message = msg;
-        app.screen = Screen::Menu;
+        app.screen = if watched { Screen::Replays(ReplayList::new()) } else { Screen::Menu };
     }
     world.insert_non_send(app);
 }
@@ -1356,7 +1658,7 @@ fn menu_ui(world: &mut World) {
     let list_h = (lobby_h - pic - 100.0).max(300.0);
     egui::Area::new(egui::Id::new("menu")).anchor(egui::Align2::CENTER_TOP, [0.0, 20.0]).show(&ctx, |ui| {
         ui.vertical_centered(|ui| {
-            let lobby = matches!(app.screen, Screen::HostLobby(_) | Screen::ClientLobby(_) | Screen::Browse(_));
+            let lobby = matches!(app.screen, Screen::HostLobby(_) | Screen::ClientLobby(_) | Screen::Browse(_) | Screen::Replays(_));
             ui.set_max_width(if lobby { lobby_w } else { 560.0 });
             match &mut app.screen {
                 Screen::Menu => {
@@ -1386,6 +1688,11 @@ fn menu_ui(world: &mut World) {
                     ui.add_space(6.0);
                     if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.join_game")).size(18.0))).clicked() {
                         next = Some(Screen::Browse(Browser::new()));
+                        app.message.clear();
+                    }
+                    ui.add_space(6.0);
+                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.replays"))).clicked() {
+                        next = Some(Screen::Replays(ReplayList::new()));
                         app.message.clear();
                     }
                     ui.add_space(14.0);
@@ -1669,7 +1976,7 @@ fn menu_ui(world: &mut World) {
                 }
                 Screen::ClientLobby(l) => {
                     let mut lost: Option<String> = None;
-                    let mut started: Option<ClientSim> = None;
+                    let mut started: Option<(ClientSim, Option<Recorder>)> = None;
                     loop {
                         match l.client.frames.try_recv() {
                             Ok(Some((TAG_MSG, data))) => match bincode::deserialize::<S2C>(&data) {
@@ -1699,9 +2006,10 @@ fn menu_ui(world: &mut World) {
                             },
                             Ok(Some((_, data))) => {
                                 if let (Some((map, you)), Ok(snap)) = (l.pending.take(), bincode::deserialize::<Snapshot>(&data)) {
+                                    let rec = start_recording(world, &map, &snap, you);
                                     join_game(world, map, &snap);
                                     view::start_view(world, you, true);
-                                    started = Some(ClientSim::new(you, snap));
+                                    started = Some((ClientSim::new(you, snap), rec));
                                     break;
                                 }
                             }
@@ -1768,9 +2076,9 @@ fn menu_ui(world: &mut World) {
                             back = ui.add_sized([left_w - 20.0, 34.0], egui::Button::new(tr!("lobby.leave"))).clicked();
                         }
                     }
-                    if let Some(sim) = started {
+                    if let Some((sim, rec)) = started {
                         if let Screen::ClientLobby(l) = std::mem::replace(&mut app.screen, Screen::Menu) {
-                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim, heard: 0.0, rejoin: None, skip: vec![] }, acc: 0.0, paused: None, held: vec![] }));
+                            next = Some(Screen::Game(Session { role: Role::Client { client: l.client, sim, heard: 0.0, rejoin: None, skip: vec![] }, acc: 0.0, paused: None, held: vec![], rec }));
                         }
                     } else if let Some(why) = lost {
                         app.message = why;
@@ -1797,6 +2105,23 @@ fn menu_ui(world: &mut World) {
                         None => {}
                     }
                 }
+                Screen::Replays(r) => match replays_ui(ui, r, &app.message, lobby_w, lobby_h) {
+                    Some(ReplayAction::Watch(path)) => match start_replay(world, &path, &app.base_defs) {
+                        Ok(s) => {
+                            next = Some(Screen::Game(s));
+                            app.message.clear();
+                        }
+                        Err(e) => {
+                            restore_defs(world, &app.base_defs);
+                            app.message = tr!("replays.load_failed", e);
+                        }
+                    },
+                    Some(ReplayAction::Back) => {
+                        next = Some(Screen::Menu);
+                        app.message.clear();
+                    }
+                    None => {}
+                },
                 Screen::Game(_) | Screen::Presets(_) => {}
             }
         });
@@ -4382,6 +4707,7 @@ fn nettest() {
     let players = std::env::var("LR_PLAYERS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4).clamp(2, map.starts.len());
     let setup: Vec<PlayerSetup> = (0..players).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, faction }).collect();
     host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1, data: None });
+    let replay_map = map.clone();
     let hw = happ.world_mut();
     setup_game(hw, map, &setup);
     // LR_AI=zones,overseer,... picks the three AIs in turn (default: Simple, as before).
@@ -4392,7 +4718,10 @@ fn nettest() {
     }
     hw.insert_resource(Ais(ais));
     let mut hsim = HostSim::new(hw);
-    host.send(conn, &frame(TAG_SNAP, bincode::serialize(&make_snapshot(hw)).unwrap()));
+    let replay_start = make_snapshot(hw);
+    host.send(conn, &frame(TAG_SNAP, bincode::serialize(&replay_start).unwrap()));
+    // What the host would record for its replay.
+    let (mut host_turns, mut host_hashes): (Vec<replay::Turn>, Vec<(u32, u64)>) = (vec![], vec![]);
 
     let mut capp = headless(defs.clone());
     let cw = capp.world_mut();
@@ -4454,7 +4783,14 @@ fn nettest() {
                 _ => {}
             }
         }
-        let turn = bincode::serialize(&hsim.tick(hw, vec![], true)).unwrap();
+        let turn = hsim.tick(hw, vec![], true);
+        if let S2C::Turn { tick, cmds } = &turn {
+            host_turns.push((*tick, cmds.iter().map(|(p, _, c)| (*p, c.clone())).collect()));
+            if tick % replay::HASH_EVERY == 0 {
+                host_hashes.push((*tick, state_hash(&make_snapshot(hw))));
+            }
+        }
+        let turn = bincode::serialize(&turn).unwrap();
         shots += hw.resource::<FxLog>().tick.iter().filter(|f| f.kind == FX_MUZZLE).count() as u32;
         if t % 100 == 0 {
             most_units = most_units.max(hw.query::<&Unit>().iter(hw).count());
@@ -4493,6 +4829,12 @@ fn nettest() {
     assert!(late > 0 || cai_cmds > 0, "the late-command path was not exercised");
     assert_eq!(state_hash(&hs), csim.confirmed_hash(), "host and client diverged");
     assert_eq!(mismatches, 0);
+    // Replays: the host's and the client's recordings, written to files and played back, end in the same state.
+    let client_turns = std::mem::take(&mut csim.log);
+    let client_hashes = std::mem::take(&mut csim.log_hashes);
+    let want = state_hash(&hs);
+    check_replay(&defs, &replay_map, &replay_start, host_turns, host_hashes, end, want, "host");
+    check_replay(&defs, &replay_map, &replay_start, client_turns, client_hashes, end, want, "client");
 
     // Divergence repair: change the host's state behind the client's back. The client's next
     // fingerprint is wrong, the host answers with its full state, and they agree again.
@@ -4663,6 +5005,44 @@ fn nettest() {
         }
     }
     println!("nettest OK");
+}
+
+/// `--nettest`: records `turns` the way a game does (through a file), plays the file back in a
+/// fresh world and checks the state at `end` against `want`, also after jumping back half way.
+fn check_replay(defs: &Defs, map: &MapData, start: &Snapshot, turns: Vec<replay::Turn>, hashes: Vec<(u32, u64)>, end: u32, want: u64, who: &str) {
+    let dir = std::env::temp_dir().join(format!("lr-nettest-replays-{}", std::process::id()));
+    let info = ReplayInfo::new(&start.game, &map.name, &defs.pack.name, 0);
+    let mut rec = Recorder::start(&dir, &info, &ReplayStart { map: map.clone(), pack: (*defs.pack).clone(), state: start.clone() }).expect("replay file");
+    let n = turns.iter().filter(|t| !t.1.is_empty()).count();
+    for (t, c) in turns {
+        rec.push(t, c);
+    }
+    for (t, h) in &hashes {
+        rec.hash(*t, *h);
+    }
+    rec.finish(None);
+    let path = rec.path.clone();
+    let size = std::fs::metadata(&path).map_or(0, |m| m.len());
+    let l = replay::load(&path).expect("load replay");
+    assert_eq!(l.end, end, "{who}'s replay ends early");
+    let mut app = headless(Defs::from_pack(l.start.pack.clone()).expect("replay data"));
+    let w = app.world_mut();
+    let mut pb = Playback::begin(w, l);
+    while Playback::tick(w) < end {
+        pb.step(w, false);
+    }
+    let got = state_hash(&make_snapshot(w));
+    pb.rewind(w, end / 2);
+    let back = Playback::tick(w);
+    while Playback::tick(w) < end {
+        pb.step(w, true);
+    }
+    let again = state_hash(&make_snapshot(w));
+    println!("{who}'s replay: {n} ticks with commands, {} fingerprints, {size} bytes; played back to tick {end}: same state {}, again from tick {back}: {}", hashes.len(), got == want, again == want);
+    assert_eq!(got, want, "{who}'s replay plays back differently");
+    assert_eq!(again, want, "{who}'s replay differs after jumping back");
+    assert!(pb.desync.is_none() && !hashes.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Developer aid: `--icons FILE.png` draws every strategic icon, order icon and mouse cursor

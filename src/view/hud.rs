@@ -3225,6 +3225,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
         text_c(sw * 0.5, TOP + 44.0, tr!("hud_screens.commander_lost"), 20.0, rgba(255, 130, 105, 255));
     }
 
+    replay_bar(&ctx, view, game, sw, sh);
+
     let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("top")));
     if view.show_help {
         let lines = [
@@ -3303,6 +3305,85 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     let _ = bcol;
     Ok(())
+}
+
+/// Playback speeds of a replay.
+const REPLAY_SPEEDS: [f32; 8] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+
+/// Replay controls above the bottom panel: pause, speed, the time line (click or drag to jump),
+/// and whose view to see the game from.
+fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, sh: f32) {
+    let Some(mut bar) = view.replay.take() else { return };
+    let clock = |t: u32| {
+        let s = t / 10;
+        if s >= 3600 {
+            format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+        } else {
+            format!("{}:{:02}", s / 60, s % 60)
+        }
+    };
+    let w = 760.0f32.min(sw - 16.0);
+    let y = sh - PANEL_H - QUEUE_H - 64.0;
+    let mut toggle = false;
+    let mut vision = view.me;
+    egui::Area::new(egui::Id::new("replay_bar")).fixed_pos(Pos2::new((sw - w) * 0.5, y)).show(ctx, |ui| {
+        egui::Frame::window(ui.style()).fill(rgba(16, 20, 27, 235)).show(ui, |ui| {
+            ui.set_width(w - 16.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(tr!("hud_replay.replay")).strong().color(rgba(255, 215, 100, 255)));
+                let play = if bar.paused { tr!("common.resume") } else { tr!("common.pause") };
+                if ui.add_sized([74.0, 22.0], egui::Button::new(play)).clicked() {
+                    toggle = true;
+                }
+                let k = REPLAY_SPEEDS.iter().position(|&s| s >= bar.speed - 1e-3).unwrap_or(2);
+                if ui.add_enabled(k > 0, egui::Button::new(" - ")).on_hover_text(tr!("hud_replay.slower")).clicked() {
+                    bar.want_speed = Some(REPLAY_SPEEDS[k - 1]);
+                }
+                let sp = if bar.speed < 1.0 { format!("x{}", bar.speed) } else { format!("x{}", bar.speed as u32) };
+                ui.add_sized([40.0, 22.0], egui::Label::new(sp));
+                if ui.add_enabled(k + 1 < REPLAY_SPEEDS.len(), egui::Button::new(" + ")).on_hover_text(tr!("hud_replay.faster")).clicked() {
+                    bar.want_speed = Some(REPLAY_SPEEDS[k + 1]);
+                }
+                let shown = bar.drag.unwrap_or(bar.tick);
+                ui.label(format!("{} / {}", clock(shown.saturating_sub(bar.first)), clock(bar.end.saturating_sub(bar.first))));
+                let mut t = shown;
+                ui.spacing_mut().slider_width = (w - 560.0).max(120.0);
+                let r = ui.add(egui::Slider::new(&mut t, bar.first..=bar.end.max(bar.first + 1)).show_value(false));
+                if r.dragged() {
+                    bar.drag = Some(t);
+                } else if r.drag_stopped() || r.changed() {
+                    bar.want_seek = Some(t);
+                    bar.drag = None;
+                } else if bar.drag.is_some() && !r.dragged() {
+                    bar.want_seek = bar.drag.take();
+                }
+                let name = |p: u8| game.players.get(p as usize).map_or(tr!("hud_replay.vision_all").to_string(), |pl| pl.name.clone());
+                egui::ComboBox::from_id_salt("replay_vision").width(130.0).selected_text(name(vision)).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut vision, crate::sim::OBSERVER, tr!("hud_replay.vision_all"));
+                    for k in 0..game.players.len() {
+                        ui.selectable_value(&mut vision, k as u8, name(k as u8));
+                    }
+                })
+                .response
+                .on_hover_text(tr!("hud_replay.vision_tip"));
+            });
+            if bar.seeking {
+                ui.label(egui::RichText::new(tr!("hud_replay.seeking")).color(rgba(255, 230, 130, 255)));
+            } else if bar.tick >= bar.end {
+                ui.label(egui::RichText::new(tr!("hud_replay.end")).color(rgba(255, 230, 130, 255)));
+            }
+            if let Some(d) = bar.desync {
+                ui.label(egui::RichText::new(tr!("hud_replay.desync", clock(d.saturating_sub(bar.first)))).color(rgba(255, 120, 105, 255)));
+            }
+        });
+    });
+    if toggle {
+        view.pause_toggle = true;
+    }
+    if vision != view.me {
+        bar.want_vision = Some(vision);
+    }
+    view.replay = Some(bar);
 }
 
 fn ld_is_factory(units: &[&Info], fr: &Frame) -> bool {
