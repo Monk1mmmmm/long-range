@@ -3502,9 +3502,9 @@ fn infantry_tests(defs: &Defs) {
         }
     }
 
-    // 3c. Limited ammunition: an AT trooper with three missiles against five light tanks kills
-    // three at most, then falls silent while its side has no mass; given mass, it rearms one
-    // round per `rearm` seconds and fires again.
+    // 3c. Limited ammunition: an AT trooper with `ammo` missiles against five Pike mortars kills
+    // that many at most, then falls silent while its side has no mass; given mass, it rearms one
+    // round per `rearm` seconds and fires again (the round may only damage a tank, not kill it).
     if let Some(w) = defs.id("at_trooper").and_then(|d| defs.get(d).weapons.first()).filter(|w| w.ammo > 0) {
         let rounds = w.ammo;
         let (mut app, map) = world_with(&[]);
@@ -3529,6 +3529,16 @@ fn infantry_tests(defs: &Defs) {
         println!("== Ammunition: an AT trooper with {rounds} missiles vs 5 Pike mortars for 200 s, no mass: fired {fired}, killed {killed}");
         assert!(fired == rounds && killed <= rounds as usize, "limited ammunition");
         if w.rearm > 0.0 && killed < tanks.len() {
+            let left_hp = |world: &mut World| -> f32 {
+                let mut sum = 0.0;
+                for id in &tanks {
+                    if body(world, *id).is_some() {
+                        sum += hp(world, *id);
+                    }
+                }
+                sum
+            };
+            let hp_before = left_hp(world);
             let mut spent = 0.0;
             for _ in 0..((w.rearm * 10.0) as u32 + 300) {
                 set_mass(world, 100.0);
@@ -3537,13 +3547,14 @@ fn infantry_tests(defs: &Defs) {
                 spent += 100.0 + p.income_m * 0.1 - p.mass;
             }
             let killed2 = tanks.iter().filter(|id| body(world, **id).is_none()).count();
+            let hp_after = left_hp(world);
             println!(
-                "== Rearm: {:.0} s with mass: {spent:.0} mass spent ({:.0} per round), {} more killed",
+                "== Rearm: {:.0} s with mass: {spent:.0} mass spent ({:.0} per round), {} more killed, hp of the rest {hp_before:.0} -> {hp_after:.0}",
                 w.rearm + 30.0,
                 w.rearm_mass,
                 killed2 - killed
             );
-            assert!(spent >= w.rearm_mass * 0.99 && spent <= w.rearm_mass * 2.0 + 1.0 && killed2 > killed, "rearming");
+            assert!(spent >= w.rearm_mass * 0.99 && spent <= w.rearm_mass * 2.0 + 1.0 && (killed2 > killed || hp_after < hp_before - 1.0), "rearming");
         }
     }
 
