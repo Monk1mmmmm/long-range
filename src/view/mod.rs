@@ -79,6 +79,8 @@ pub struct ViewState {
     pub tick_time: f64,
     pub settings_open: bool,
     pub show_help: bool,
+    /// Hotkey preset: 0 = default, 1 = FAF alternative.
+    pub preset: u8,
     /// Hotbuild cycling: (key, index, time, last definition).
     pub hot: (Option<KeyCode>, usize, f64, DefId),
     /// A run of a factory queue being dragged: (factory id, index of the run).
@@ -98,6 +100,11 @@ pub struct ViewState {
     pub mass_overflow: (bool, f64),
     /// Height of the screen in egui points, from the last HUD pass (model level of detail).
     pub screen_h: f32,
+}
+
+/// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
+pub fn load_preset() -> u8 {
+    (crate::settings::Settings::load().hotkeys == "faf_alternative") as u8
 }
 
 impl ViewState {
@@ -130,6 +137,7 @@ impl ViewState {
             tick_time: 0.0,
             settings_open: false,
             show_help: false,
+            preset: load_preset(),
             hot: (None, 0, 0.0, DefId::MAX),
             queue_drag: None,
             terra_delta: 0.0,
