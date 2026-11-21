@@ -264,7 +264,7 @@ fn apply_commands(
                             }
                             *pos = snap(&defs, &map, *bd, *pos);
                         }
-                        Order::Capture(_) if !df.is_engineer() => continue,
+                        Order::Capture(_) if !df.is_engineer() && !(game.infantry_capture && df.is_infantry()) => continue,
                         Order::Revive(_) if !df.is_scavenger() => continue,
                         Order::Attack(_) if df.is_scavenger() => continue,
                         // Only scavengers build what is being revived.
@@ -1049,6 +1049,18 @@ fn think(
                     }
                     _ => pop = true,
                 },
+            },
+            // Infantry capture (lobby option): walk up to it and take it while nobody guards it.
+            Some(Order::Capture(tid)) if !df.is_engineer() => match census.get(tid) {
+                Some(t) if infantry && game.infantry_capture && t.hp > 0.0 && t.done && !t.hosted && t.team != team && t.known_to(team) && seizable(defs.get(t.def)) => {
+                    if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
+                        goal = Some(t.pos);
+                    } else if !guarded(&census, &defs, t) {
+                        effects.seize.push((tid, owner));
+                        work = tid;
+                    }
+                }
+                _ => pop = true,
             },
             Some(Order::Capture(tid)) => match census.get(tid) {
                 Some(t) if df.is_engineer() && t.hp > 0.0 && t.done && !t.hosted && !t.air && t.team != team && t.known_to(team) && !defs.factions.iter().any(|f| f.commander == Some(t.def)) && !defs.get(t.def).is_garrison() => {
@@ -3218,7 +3230,21 @@ fn apply_reclaim(
     }
 }
 
-/// Capture work queued by engineers this tick. A unit nobody works on slowly shakes it off.
+/// An armed, finished mobile unit of `t`'s side stands within `infantry_capture_guard` of it:
+/// infantry cannot capture it.
+fn guarded(census: &Census, defs: &Defs, t: &Cen) -> bool {
+    let r = defs.rules.infantry_capture_guard;
+    let mut any = false;
+    census.near(t.pos, r + t.radius, |c| {
+        if !any && c.team == t.team && !c.structure && !c.hosted && c.done && c.hp > 0.0 && c.pos.dist(t.pos) <= r + t.radius && defs.get(c.def).armed() {
+            any = true;
+        }
+    });
+    any
+}
+
+/// Capture work queued by engineers (and infantry, `Effects.seize`) this tick. A unit nobody
+/// works on slowly shakes it off.
 #[allow(clippy::type_complexity)]
 fn apply_capture(
     mut q: Query<(Entity, &mut Unit, &mut Orders, Option<&mut Capture>, Option<&mut Factory>, Option<&mut Weapons>, Option<&mut Mover>)>,
@@ -3229,8 +3255,9 @@ fn apply_capture(
     mut commands: Commands,
 ) {
     let jobs: Vec<(u32, f32, u8)> = effects.capture.drain(..).collect();
+    let seize: Vec<(u32, u8)> = effects.seize.drain(..).collect();
     for (e, mut u, mut orders, cap, factory, weapons, mover) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
-        let Some(by) = jobs.iter().find(|j| j.0 == u.id).map(|j| j.2) else {
+        let Some(by) = jobs.iter().find(|j| j.0 == u.id).map(|j| j.2).or_else(|| seize.iter().find(|j| j.0 == u.id).map(|j| j.1)) else {
             if let Some(mut c) = cap {
                 c.progress -= DT * 0.1;
                 if c.progress <= 0.0 {
@@ -3245,10 +3272,18 @@ fn apply_capture(
         let step = work / (d.cost.time.max(1.0) * defs.rules.capture_time);
         let energy = d.cost.energy * defs.rules.capture_energy * step;
         let Some(pl) = game.players.get_mut(by as usize) else { continue };
+        // Infantry work is free (an engineer short of energy still lets them go on).
+        let men = seize.iter().filter(|j| j.0 == u.id && j.1 == by).count() as f32;
+        let mut step = step;
         if pl.energy < energy {
+            step = 0.0;
+        } else {
+            pl.energy -= energy;
+        }
+        step += men * DT / defs.rules.infantry_capture_secs.max(0.1);
+        if step <= 0.0 {
             continue;
         }
-        pl.energy -= energy;
         let progress = cap.as_ref().filter(|c| c.by == by).map_or(0.0, |c| c.progress) + step;
         if progress < 1.0 {
             match cap {

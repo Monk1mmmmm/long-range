@@ -62,7 +62,7 @@ fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
 each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control points mode), `LR_COMP=1` (lists
-what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_EVERY=300`
+what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_INFCAP=1` (the lobby option "infantry capture buildings"), `LR_EVERY=300`
 (report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
 distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
@@ -385,6 +385,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   soften close-quarters damage), the holders do not fire out while stormed, and once it is clear one attacker steps in.
   Before this a trench could only be shot out: 6 riflemen on attack-move lost to 4 in a trench. `--combattest` fieldworks
   "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
+- **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, off by default; Cossacks
+  style): infantry may take `Order::Capture` (right-click an enemy or neutral building, or the Capture button) on any
+  building `sim::seizable` (not factories, garrisons - those are stormed - or field works). At the building it queues
+  `Effects.seize`; `apply_capture` adds `DT / rules.infantry_capture_secs` (20) per man, free of energy, but nothing
+  while an armed finished mobile unit of the building's side is within `rules.infantry_capture_guard` (15,
+  `systems::guarded`). With infantry and other units selected, the infantry capture and the rest attack. The zone AI
+  sends up to 4 infantry within 40 at a known unguarded enemy building. `--combattest` infantry "Infantry capture" lines.
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/

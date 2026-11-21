@@ -380,6 +380,16 @@ pub struct Game {
     /// (the view puts them into its contact memory; the simulation's intel is unchanged).
     #[serde(default)]
     pub reveal_props: bool,
+    /// Lobby option: infantry capture enemy buildings other than factories (`seizable`), Cossacks
+    /// style: free, while no armed unit of the building's side stands near it.
+    #[serde(default)]
+    pub infantry_capture: bool,
+}
+
+/// A building infantry may capture when `Game.infantry_capture` is on: not a factory, a
+/// garrison (those are stormed) or a field work.
+pub fn seizable(d: &crate::data::UnitDef) -> bool {
+    d.is_structure() && !d.is_factory() && !d.is_garrison() && !d.is_fieldwork()
 }
 
 pub const MODE_ANNIHILATION: u8 = 0;
@@ -780,6 +790,8 @@ pub struct Effects {
     pub sites: Vec<(DefId, V2, u32)>,
     /// Capture work done this tick: (target id, build power x time, player).
     pub capture: Vec<(u32, f32, u8)>,
+    /// Infantry capturing this tick (`Game.infantry_capture`): (target id, player), one per man.
+    pub seize: Vec<(u32, u8)>,
     /// Wrecks turned back into units this tick: (wreck id, new unit id).
     pub revived: Vec<(u32, u32)>,
     /// Reclaim work on live buildings this tick: (unit id, mass, player).

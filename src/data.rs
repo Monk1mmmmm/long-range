@@ -33,6 +33,12 @@ pub fn asset_root() -> PathBuf {
 fn capture_energy() -> f32 {
     0.3
 }
+fn infantry_capture_secs() -> f32 {
+    20.0
+}
+fn infantry_capture_guard() -> f32 {
+    15.0
+}
 fn eye_height() -> f32 {
     1.5
 }
@@ -316,6 +322,13 @@ pub struct Rules {
     /// Share of the target's energy cost a capture uses up.
     #[serde(default = "capture_energy")]
     pub capture_energy: f32,
+    /// Lobby option "infantry capture buildings" (`Game.infantry_capture`): seconds one
+    /// infantryman takes to take a building over (n men take 1/n of it), free of energy.
+    #[serde(default = "infantry_capture_secs")]
+    pub infantry_capture_secs: f32,
+    /// ... and an armed enemy unit within this distance of the building stops it.
+    #[serde(default = "infantry_capture_guard")]
+    pub infantry_capture_guard: f32,
     #[serde(default = "yes")]
     pub friendly_fire: bool,
     /// Armored units (category `armored`) take this share of a hit on their front, side or rear,

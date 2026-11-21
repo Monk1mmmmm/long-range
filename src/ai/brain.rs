@@ -1495,9 +1495,9 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             Order::Move(q) | Order::AttackMove(q) => m.orders == 0 && m.pos.dist(q) < if defs.get(m.def).is_air() { 22.0 } else { 8.0 },
             _ => false,
         };
-        // A unit on its way into a building, a trench or a carrier (or storming one) keeps at it;
+        // A unit on its way into a building, a trench or a carrier (or storming or capturing one) keeps at it;
         // the march or the defence would otherwise call it back every second.
-        let loading = matches!(m.order, Some(Order::Load(_))) && matches!(o, Order::Move(_) | Order::AttackMove(_));
+        let loading = matches!(m.order, Some(Order::Load(_)) | Some(Order::Capture(_))) && matches!(o, Order::Move(_) | Order::AttackMove(_));
         if !arrived && !loading && !same(m.order, o) {
             orders.insert(m.id, o);
         }
@@ -2397,6 +2397,29 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         }
     }
     b.acts[1] += storms;
+
+    // --- infantry capture (lobby option): infantry near an enemy building no known armed enemy
+    // guards walks up and takes it over (up to 4 men each; factories and garrisons excepted)
+    if game.infantry_capture {
+        let guard = defs.rules.infantry_capture_guard + 10.0;
+        let mut takers: Vec<&Mine> = land.iter().filter(|m| b.info[m.def as usize].infantry && !b.boarding.contains_key(&m.id) && !matches!(m.order, Some(Order::Load(_)) | Some(Order::Capture(_))) && !orders.contains_key(&m.id)).copied().collect();
+        for (id, s) in b.memory.iter().filter(|(_, s)| s.structure && s.known && s.hp > 0.0 && hostile(team, s.team) && seizable(defs.get(s.def))) {
+            if takers.is_empty() {
+                break;
+            }
+            let guarded = b.memory.values().any(|o| o.known && !o.structure && o.team == s.team && defs.get(o.def).armed() && o.pos.dist(s.pos) < guard);
+            if guarded || land.iter().any(|m| m.order == Some(Order::Capture(*id))) {
+                continue;
+            }
+            let mut near: Vec<&Mine> = takers.iter().filter(|m| m.pos.dist(s.pos) < 40.0).copied().collect();
+            near.sort_by(|x, y| x.pos.dist(s.pos).total_cmp(&y.pos.dist(s.pos)).then(x.id.cmp(&y.id)));
+            near.truncate(4);
+            for m in &near {
+                orders.insert(m.id, Order::Capture(*id));
+            }
+            takers.retain(|m| !near.iter().any(|n| n.id == m.id));
+        }
+    }
 
     // --- land carriers (APCs): infantry waiting at the rally point rides up to the attacking body
     // and is set down behind it; empty carriers wait at the rally point
