@@ -534,36 +534,60 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
     let mut close = false;
     ui.heading(tr!("common.settings"));
     ui.add_space(6.0);
-    egui::Grid::new("settings_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-        ui.label(tr!("settings.language"));
-        let langs = crate::i18n::languages();
-        let current = crate::i18n::language();
-        let shown = langs.iter().find(|(c, _)| *c == current).map_or(current.clone(), |(_, n)| n.clone());
-        egui::ComboBox::from_id_salt("language").selected_text(shown).show_ui(ui, |ui| {
-            for (code, name) in &langs {
-                if ui.selectable_label(*code == current, name).clicked() {
-                    s.language = code.clone();
-                    crate::i18n::set_language(code);
-                }
-            }
+    let mut tab: u8 = ui.data_mut(|d| d.get_temp(egui::Id::new("settings_tab"))).unwrap_or(0);
+    ui.horizontal(|ui| {
+        for (k, l) in [tr!("settings.tab_general"), tr!("settings.tab_graphics"), tr!("settings.tab_interface"), tr!("settings.tab_sound")].iter().enumerate() {
+            ui.selectable_value(&mut tab, k as u8, *l);
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("settings_tab"), tab));
+    ui.separator();
+    ui.set_min_width(480.0);
+    match tab {
+        0 => {
+            egui::Grid::new("settings_general").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                ui.label(tr!("settings.language"));
+                let langs = crate::i18n::languages();
+                let current = crate::i18n::language();
+                let shown = langs.iter().find(|(c, _)| *c == current).map_or(current.clone(), |(_, n)| n.clone());
+                egui::ComboBox::from_id_salt("language").selected_text(shown).show_ui(ui, |ui| {
+                    for (code, name) in &langs {
+                        if ui.selectable_label(*code == current, name).clicked() {
+                            s.language = code.clone();
+                            crate::i18n::set_language(code);
+                        }
+                    }
+                });
+        ui.end_row();
+        ui.label(tr!("settings.hotkeys"));
+        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { tr!("settings.faf_alternative") } else { tr!("common.default") }).show_ui(ui, |ui| {
+            ui.selectable_value(&mut s.hotkeys, "default".to_string(), tr!("common.default"));
+            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), tr!("settings.faf_alternative"));
         });
         ui.end_row();
-        ui.label(tr!("settings.graphics_api"));
-        let name = |b: &str| match b {
-            "dx12" => "DirectX 12",
-            "vulkan" => "Vulkan",
-            "gl" => "OpenGL",
-            _ => tr!("settings.automatic"),
-        };
-        egui::ComboBox::from_id_salt("backend").selected_text(name(&s.backend)).show_ui(ui, |ui| {
-            let mut options = vec!["auto", "vulkan", "gl"];
-            if cfg!(windows) {
-                options.insert(1, "dx12");
-            }
-            for b in options {
-                ui.selectable_value(&mut s.backend, b.to_string(), name(b));
-            }
+        ui.label(tr!("settings.auto_garrison")).on_hover_text(tr!("settings.auto_garrison_tip"));
+        ui.checkbox(&mut s.auto_garrison, tr!("settings.auto_garrison_on"));
+        ui.end_row();
         });
+        }
+        1 => {
+            egui::Grid::new("settings_graphics").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                ui.label(tr!("settings.graphics_api"));
+                let name = |b: &str| match b {
+                    "dx12" => "DirectX 12",
+                    "vulkan" => "Vulkan",
+                    "gl" => "OpenGL",
+                    _ => tr!("settings.automatic"),
+                };
+                egui::ComboBox::from_id_salt("backend").selected_text(name(&s.backend)).show_ui(ui, |ui| {
+                    let mut options = vec!["auto", "vulkan", "gl"];
+                    if cfg!(windows) {
+                        options.insert(1, "dx12");
+                    }
+                    for b in options {
+                        ui.selectable_value(&mut s.backend, b.to_string(), name(b));
+                    }
+                });
         ui.end_row();
         ui.label(tr!("settings.shadows"));
         egui::ComboBox::from_id_salt("shadows").selected_text([tr!("settings.off"), tr!("settings.low"), tr!("settings.high")][s.shadows.min(2) as usize]).show_ui(ui, |ui| {
@@ -571,29 +595,6 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
                 ui.selectable_value(&mut s.shadows, k as u8, *l);
             }
         });
-        ui.end_row();
-        ui.label(tr!("common.trees_and_rocks"));
-        egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(2) as usize])).show_ui(ui, |ui| {
-            for (k, l) in FLORA_DETAIL.iter().enumerate() {
-                ui.selectable_value(&mut s.flora_detail, k as u8, tr(l));
-            }
-        });
-        ui.end_row();
-        ui.label(tr!("settings.effects")).on_hover_text(tr!("settings.effects_tip"));
-        egui::ComboBox::from_id_salt("effects").selected_text(tr(EFFECTS[s.effects.min(2) as usize])).show_ui(ui, |ui| {
-            for (k, l) in EFFECTS.iter().enumerate() {
-                ui.selectable_value(&mut s.effects, k as u8, tr(l));
-            }
-        });
-        ui.end_row();
-        ui.label(tr!("settings.remembered_buildings")).on_hover_text(tr!("settings.remembered_buildings_tip"));
-        ui.checkbox(&mut s.ghost_models, tr!("settings.show_models_in_the_fog"));
-        ui.end_row();
-        ui.label(tr!("settings.neutral_buildings")).on_hover_text(tr!("settings.neutral_buildings_tip"));
-        ui.checkbox(&mut s.neutral_icons, tr!("settings.show_icons"));
-        ui.end_row();
-        ui.label(tr!("settings.auto_garrison")).on_hover_text(tr!("settings.auto_garrison_tip"));
-        ui.checkbox(&mut s.auto_garrison, tr!("settings.auto_garrison_on"));
         ui.end_row();
         ui.label(tr!("settings.anti_aliasing"));
         let aa = |a: &str| match a {
@@ -613,35 +614,59 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.label(tr!("settings.fullscreen"));
         ui.checkbox(&mut s.fullscreen, "(F11)");
         ui.end_row();
-        ui.label(tr!("settings.sound_effects"));
-        if crate::view::sound::AVAILABLE {
-            ui.add(egui::Slider::new(&mut s.sfx_volume, 0.0..=1.0).show_value(false));
-        } else {
-            ui.label(egui::RichText::new(tr!("settings.no_sound")).weak());
-        }
+        ui.label(tr!("common.trees_and_rocks"));
+        egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(2) as usize])).show_ui(ui, |ui| {
+            for (k, l) in FLORA_DETAIL.iter().enumerate() {
+                ui.selectable_value(&mut s.flora_detail, k as u8, tr(l));
+            }
+        });
+        ui.end_row();
+        ui.label(tr!("settings.effects")).on_hover_text(tr!("settings.effects_tip"));
+        egui::ComboBox::from_id_salt("effects").selected_text(tr(EFFECTS[s.effects.min(2) as usize])).show_ui(ui, |ui| {
+            for (k, l) in EFFECTS.iter().enumerate() {
+                ui.selectable_value(&mut s.effects, k as u8, tr(l));
+            }
+        });
         ui.end_row();
         ui.label(tr!("settings.projectile_size"));
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!("settings.suffix_px")));
         ui.end_row();
-        ui.label(tr!("settings.map_icons_from_zoom"));
-        ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(tr!("settings.suffix_camera_distance")));
-        ui.end_row();
-        ui.label(tr!("settings.units_under_icons")).on_hover_text(tr!("settings.units_under_icons_tip"));
-        ui.checkbox(&mut s.model_lod, tr!("settings.hide_models"));
-        ui.end_row();
-        ui.label(tr!("settings.map_icon_size"));
-        ui.add(egui::Slider::new(&mut s.icon_scale, 0.5..=3.0).step_by(0.05).suffix("x"));
-        ui.end_row();
-        ui.label(tr!("settings.build_menu_icon_size"));
-        ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(tr!("settings.suffix_pt")));
-        ui.end_row();
-        ui.label(tr!("settings.hotkeys"));
-        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { tr!("settings.faf_alternative") } else { tr!("common.default") }).show_ui(ui, |ui| {
-            ui.selectable_value(&mut s.hotkeys, "default".to_string(), tr!("common.default"));
-            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), tr!("settings.faf_alternative"));
         });
-        ui.end_row();
-    });
+        }
+        2 => {
+            egui::Grid::new("settings_interface").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                ui.label(tr!("settings.map_icons_from_zoom"));
+                ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(tr!("settings.suffix_camera_distance")));
+                ui.end_row();
+                ui.label(tr!("settings.map_icon_size"));
+                ui.add(egui::Slider::new(&mut s.icon_scale, 0.5..=3.0).step_by(0.05).suffix("x"));
+                ui.end_row();
+                ui.label(tr!("settings.units_under_icons")).on_hover_text(tr!("settings.units_under_icons_tip"));
+                ui.checkbox(&mut s.model_lod, tr!("settings.hide_models"));
+                ui.end_row();
+                ui.label(tr!("settings.build_menu_icon_size"));
+                ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(tr!("settings.suffix_pt")));
+                ui.end_row();
+                ui.label(tr!("settings.remembered_buildings")).on_hover_text(tr!("settings.remembered_buildings_tip"));
+                ui.checkbox(&mut s.ghost_models, tr!("settings.show_models_in_the_fog"));
+                ui.end_row();
+                ui.label(tr!("settings.neutral_buildings")).on_hover_text(tr!("settings.neutral_buildings_tip"));
+                ui.checkbox(&mut s.neutral_icons, tr!("settings.show_icons"));
+                ui.end_row();
+                });
+        }
+        _ => {
+            egui::Grid::new("settings_sound").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                ui.label(tr!("settings.sound_effects"));
+                if crate::view::sound::AVAILABLE {
+                    ui.add(egui::Slider::new(&mut s.sfx_volume, 0.0..=1.0).show_value(false));
+                } else {
+                    ui.label(egui::RichText::new(tr!("settings.no_sound")).weak());
+                }
+                ui.end_row();
+                });
+        }
+    }
     ui.add_space(6.0);
     ui.label(egui::RichText::new(tr!("settings.running_on", adapter)).weak());
     let needs_restart = s.backend != started_with.backend;

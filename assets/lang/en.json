@@ -130,6 +130,10 @@
     "join_address": "Connect"
   },
   "settings": {
+    "tab_general": "General",
+    "tab_graphics": "Graphics",
+    "tab_interface": "Interface",
+    "tab_sound": "Sound",
     "detail_low": "Low (no shadows)",
     "medium": "Medium",
     "high": "High",
