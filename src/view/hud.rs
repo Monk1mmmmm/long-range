@@ -336,6 +336,16 @@ impl Frame<'_> {
         riders.sort_by_key(|r| r.id);
         riders
     }
+    /// Garrisonable buildings our own units are inside.
+    fn occupied(&self, view: &ViewState) -> std::collections::HashSet<u32> {
+        self.infos
+            .values()
+            .filter(|r| r.owner == view.me && r.built.is_none())
+            .filter_map(|r| self.infos.get(&r.host))
+            .filter(|h| self.d(h.def).is_garrison() && self.d(h.def).is_structure())
+            .map(|h| h.id)
+            .collect()
+    }
     fn d(&self, id: DefId) -> &UnitDef {
         self.defs.get(id)
     }
@@ -1573,7 +1583,13 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         Some(h) => {
                             let (id, d) = (seen[h].id, seen[h].def.unwrap_or(0));
                             if now - view.last_click.0 < 0.35 && view.last_click.1 == d {
-                                let same: Vec<u32> = seen.iter().filter(|s| s.mine && s.on_screen && s.def == Some(d)).map(|s| s.id).collect();
+                                // An occupied garrison takes every building on screen our infantry hold, whatever its type.
+                                let held = fr.occupied(view);
+                                let same: Vec<u32> = if held.contains(&id) {
+                                    seen.iter().filter(|s| s.mine && s.on_screen && held.contains(&s.id)).map(|s| s.id).collect()
+                                } else {
+                                    seen.iter().filter(|s| s.mine && s.on_screen && s.def == Some(d)).map(|s| s.id).collect()
+                                };
                                 if shift {
                                     for s in same {
                                         if !view.sel.contains(&s) {
