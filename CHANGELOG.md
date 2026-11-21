@@ -3,6 +3,31 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.0
+
+New ways to order infantry and find idle units, and many balance changes. Unit data and game rules changed, so
+everybody in a multiplayer game needs the same version.
+
+Added
+- Dragging a Load circle with infantry selected sends them into every building in it: own and empty buildings
+  are filled, the nearest man to the nearest building, and buildings enemy infantry hold are stormed first.
+- Idle factories button (next to the idle engineers one), with a list of factory types: click selects one,
+  double-click selects all.
+- Setting "Infantry enter nearby buildings" (off by default): idle infantry walks into an empty or own
+  garrisonable building close by.
+
+Changed
+- The hotkey preset setting is back: the default keys are the default again, the FAF alternative keymap can be
+  chosen in the settings.
+- Idle engineers button: click selects one, double-click selects all.
+- Land transports (APCs) take infantry only. In air transports a vehicle takes 4 slots and a trooper 1, so a
+  Stork lifts 2 vehicles or 8 men.
+- Terraforming is off by default (in the built-in data and the Relaxed preset); presets can switch it back on.
+- AT Trooper and SAM Trooper carry 6 rounds (were 3 and 4).
+- Pike Mortar shells scatter much more (spread 0.6 -> 5 degrees).
+- Engineers (T1-T3, Sparky) and the Buggy are bigger, about the size of their tier's tanks; their hit boxes grew
+  with them.
+
 ## v0.11.3
 
 The skirmish AIs use buildings, transports and amphibious carriers far more, and artillery can be found by radar.
