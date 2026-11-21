@@ -3829,6 +3829,7 @@ dependencies = [
  "bevy_egui",
  "bincode",
  "embed-resource",
+ "flate2",
  "gltf",
  "image",
  "libm",

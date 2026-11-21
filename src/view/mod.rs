@@ -107,6 +107,28 @@ pub struct ViewState {
     pub screen_h: f32,
     /// Game tick of the last automatic garrisoning pass (`hud::auto_garrison`).
     pub auto_garrison_tick: u32,
+    /// Playing back a replay: the controls the HUD shows (`hud::replay_bar`), shared with the session.
+    pub replay: Option<ReplayBar>,
+}
+
+/// Replay controls. The session fills in where the playback is; the HUD sets the `want_*` requests.
+#[derive(Clone, Default, Debug)]
+pub struct ReplayBar {
+    pub tick: u32,
+    pub first: u32,
+    pub end: u32,
+    pub speed: f32,
+    pub paused: bool,
+    /// Jumping to another tick (simulating there without effects).
+    pub seeking: bool,
+    /// First tick whose state differs from the recording.
+    pub desync: Option<u32>,
+    /// The time line being dragged: the tick under the handle.
+    pub drag: Option<u32>,
+    pub want_seek: Option<u32>,
+    pub want_speed: Option<f32>,
+    /// See the game as this player (`sim::OBSERVER`: everything).
+    pub want_vision: Option<u8>,
 }
 
 /// Hotkey preset from the saved settings: 0 = default, 1 = FAF alternative.
@@ -158,6 +180,7 @@ impl ViewState {
             net_note: None,
             mass_overflow: (false, -100.0),
             screen_h: 720.0,
+            replay: None,
             auto_garrison_tick: 0,
         }
     }

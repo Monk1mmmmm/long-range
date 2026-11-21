@@ -5,10 +5,21 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+Added
+- Replays: every game is recorded (setting "Save a replay of every game", on by default) to the `replays` folder
+  next to `settings.json`. Main menu - Replays lists them (date, map, players, length, result, version); Watch plays
+  one back with pause, speeds x0.25 to x32, a time line to jump forwards and back, and a choice of seeing everything
+  or what one player saw. Replays of another game version may play back differently (shown in the list and
+  during playback).
+
 Changed
 - Settings and logs are kept in your user folder (`%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application
   Support/LongRange`; `LR_CONFIG` overrides it) instead of next to `assets`, so they persist across versions. An old
   `settings.json` is imported on the first start.
+- The settings window is split into General, Graphics, Interface and Sound tabs.
+
+Fixed
+- Engineers skip a queued building whose site was destroyed instead of rebuilding it.
 
 ## v0.12.0
 
