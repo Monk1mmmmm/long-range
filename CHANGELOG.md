@@ -3,7 +3,7 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## v0.12.0
+## v0.11.2
 
 Transports get ferry routes, and the Pike-G Gauss Turret is retuned. Unit data changed, so everybody in a
 multiplayer game needs the same version.
@@ -13,6 +13,7 @@ Added
   Units right-clicked onto a beacon wait there, the transports load them and carry them across, over and over.
 
 Changed
+- The hotkey preset switch is gone: the FAF alternative keys are now the only (and default) keymap.
 - Units keep their queued orders through a transport ride: what was queued behind boarding is carried out after
   they are set down.
 - The Gauss Turret is now the Pike-G Gauss Turret (derived from the Pike Mortar), range 90 -> 105.

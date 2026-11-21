@@ -18,8 +18,6 @@ pub struct Settings {
     pub antialiasing: String,
     pub vsync: bool,
     pub fullscreen: bool,
-    /// "default" or "faf_alternative".
-    pub hotkeys: String,
     /// Player name used in the lobby; empty = the system user name.
     pub name: String,
     /// Size in points of the strategic icon in the corner of a build menu button.
@@ -53,7 +51,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, language: String::new() }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, language: String::new() }
     }
 }
 
@@ -591,12 +589,6 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label(tr!("settings.build_menu_icon_size"));
         ui.add(egui::Slider::new(&mut s.menu_icon, 10.0..=40.0).step_by(1.0).suffix(tr!("settings.suffix_pt")));
-        ui.end_row();
-        ui.label(tr!("settings.hotkeys"));
-        egui::ComboBox::from_id_salt("hotkeys").selected_text(if s.hotkeys == "faf_alternative" { tr!("settings.faf_alternative") } else { tr!("common.default") }).show_ui(ui, |ui| {
-            ui.selectable_value(&mut s.hotkeys, "default".to_string(), tr!("common.default"));
-            ui.selectable_value(&mut s.hotkeys, "faf_alternative".to_string(), tr!("settings.faf_alternative"));
-        });
         ui.end_row();
     });
     ui.add_space(6.0);

@@ -1522,15 +1522,13 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let mut do_stop = false;
     let mut do_upgrade = false;
     let mut do_repeat = false;
-    view.preset = (p.settings.hotkeys == "faf_alternative") as u8;
-    let faf = view.preset == 1;
     if p.keys.just_pressed(KeyCode::Escape) {
         if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
             view.mode = Mode::None;
             view.pathing = None;
             view.drag_start = None;
-        } else if faf && has_sel && !view.menu_open {
-            // FAF alternative preset: Esc is "stop"; the menu is on F10.
+        } else if has_sel && !view.menu_open {
+            // Esc is "stop"; the menu is on F10.
             do_stop = true;
         } else {
             view.menu_open = !view.menu_open;
@@ -1542,7 +1540,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if p.keys.just_pressed(KeyCode::F1) {
         view.show_help = !view.show_help;
     }
-    // Pausing the whole game: Pause key or Ctrl+P (both presets), the top bar button, the menu.
+    // Pausing the whole game: Pause key or Ctrl+P , the top bar button, the menu.
     if p.keys.just_pressed(KeyCode::Pause) || (ctrl && p.keys.just_pressed(KeyCode::KeyP) && !ctx.egui_wants_keyboard_input()) {
         view.pause_toggle = true;
     }
@@ -1553,7 +1551,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     if !view.menu_open && !ctx.egui_wants_keyboard_input() {
         let jp = |k: KeyCode| p.keys.just_pressed(k);
-        // --- selection shortcuts (same in both presets, FAF bindings)
+        // --- selection shortcuts (FAF bindings)
         let pick = |f: &dyn Fn(&UnitDef) -> bool, on_screen: bool| -> Vec<u32> {
             seen.iter().filter(|s| s.mine && (!on_screen || s.on_screen) && s.def.map_or(false, |d| f(defs.get(d)))).map(|s| s.id).collect()
         };
@@ -1628,7 +1626,6 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         // --- commands
         if has_sel && !ctrl {
-            // Same keys in both presets.
             if jp(KeyCode::KeyL) {
                 view.mode = Mode::Load;
             }
@@ -1641,67 +1638,49 @@ pub fn ui_system(mut p: UiParams) -> Result {
             if jp(KeyCode::KeyJ) {
                 view.mode = Mode::Revive;
             }
-            if faf {
-                if jp(KeyCode::KeyQ) {
-                    view.mode = Mode::Reclaim;
+            if jp(KeyCode::KeyQ) {
+                view.mode = Mode::Reclaim;
+            }
+            if jp(KeyCode::KeyW) {
+                view.mode = if alt { Mode::Patrol } else { Mode::Move };
+            }
+            if jp(KeyCode::KeyI) || jp(KeyCode::KeyT) {
+                view.mode = Mode::Assist;
+            }
+            if jp(KeyCode::KeyR) {
+                view.mode = Mode::GroundAttack;
+            }
+            do_repeat = jp(KeyCode::Backquote);
+            do_upgrade = jp(KeyCode::KeyO);
+            // Hotbuild: one key per building/unit class, repeated presses cycle through the class.
+            for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC, KeyCode::KeyV, KeyCode::KeyD, KeyCode::KeyS, KeyCode::KeyG, KeyCode::KeyM, KeyCode::KeyY] {
+                if !jp(key) {
+                    continue;
                 }
-                if jp(KeyCode::KeyW) {
-                    view.mode = if alt { Mode::Patrol } else { Mode::Move };
+                let units = fr.selected(view);
+                let Some(lead) = units.iter().find(|u| !fr.d(u.def).builds.is_empty()).copied() else { continue };
+                let ld = fr.d(lead.def);
+                let mut cands: Vec<DefId> = ld.builds.iter().copied().filter(|d| hot_key(fr.d(*d)) == Some(key)).collect();
+                cands.sort_by_key(|d| std::cmp::Reverse(fr.d(*d).tier));
+                if cands.is_empty() {
+                    continue;
                 }
-                if jp(KeyCode::KeyI) || jp(KeyCode::KeyT) {
-                    view.mode = Mode::Assist;
-                }
-                if jp(KeyCode::KeyR) {
-                    view.mode = Mode::GroundAttack;
-                }
-                do_repeat = jp(KeyCode::Backquote);
-                do_upgrade = jp(KeyCode::KeyO);
-                // Hotbuild: one key per building/unit class, repeated presses cycle through the class.
-                for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC, KeyCode::KeyV, KeyCode::KeyD, KeyCode::KeyS, KeyCode::KeyG, KeyCode::KeyM, KeyCode::KeyY] {
-                    if !jp(key) {
-                        continue;
-                    }
-                    let units = fr.selected(view);
-                    let Some(lead) = units.iter().find(|u| !fr.d(u.def).builds.is_empty()).copied() else { continue };
-                    let ld = fr.d(lead.def);
-                    let mut cands: Vec<DefId> = ld.builds.iter().copied().filter(|d| hot_key(fr.d(*d)) == Some(key)).collect();
-                    cands.sort_by_key(|d| std::cmp::Reverse(fr.d(*d).tier));
-                    if cands.is_empty() {
-                        continue;
-                    }
-                    let cycling = view.hot.0 == Some(key) && now - view.hot.2 < 1.2;
-                    let idx = if cycling { (view.hot.1 + 1) % cands.len() } else { 0 };
-                    let d = cands[idx];
-                    if ld.is_factory() {
-                        let n: i16 = if shift { 5 } else { 1 };
-                        for f in units.iter().filter(|u| u.def == lead.def) {
-                            if cycling && view.hot.3 != d {
-                                // Swap the unit queued by the previous press for the next one in the class.
-                                out.push(Command::Produce { factory: f.id, def: view.hot.3, count: -n });
-                            }
-                            out.push(Command::Produce { factory: f.id, def: d, count: n });
+                let cycling = view.hot.0 == Some(key) && now - view.hot.2 < 1.2;
+                let idx = if cycling { (view.hot.1 + 1) % cands.len() } else { 0 };
+                let d = cands[idx];
+                if ld.is_factory() {
+                    let n: i16 = if shift { 5 } else { 1 };
+                    for f in units.iter().filter(|u| u.def == lead.def) {
+                        if cycling && view.hot.3 != d {
+                            // Swap the unit queued by the previous press for the next one in the class.
+                            out.push(Command::Produce { factory: f.id, def: view.hot.3, count: -n });
                         }
-                    } else {
-                        view.mode = Mode::Place(d);
+                        out.push(Command::Produce { factory: f.id, def: d, count: n });
                     }
-                    view.hot = (Some(key), idx, now, d);
+                } else {
+                    view.mode = Mode::Place(d);
                 }
-            } else {
-                if jp(KeyCode::KeyA) {
-                    view.mode = Mode::AttackMove;
-                }
-                if jp(KeyCode::KeyP) {
-                    view.mode = Mode::Patrol;
-                }
-                if jp(KeyCode::KeyG) {
-                    view.mode = Mode::GroundAttack;
-                }
-                if jp(KeyCode::KeyE) {
-                    view.mode = Mode::Reclaim;
-                }
-                do_stop |= jp(KeyCode::KeyS);
-                do_upgrade = jp(KeyCode::KeyU);
-                do_repeat = jp(KeyCode::KeyR);
+                view.hot = (Some(key), idx, now, d);
             }
         }
         if jp(KeyCode::Period) && !ctrl {
@@ -2634,7 +2613,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     }
                 };
                 stat(&hud, r.min.x + 1.0, r.max.y - 15.0, 10.5, "mass", &format!("{:.0}", bd.cost.mass), rgba(190, 215, 240, 255));
-                if let (true, Some(k)) = (faf, hot_key(bd)) {
+                if let Some(k) = hot_key(bd) {
                     hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 30.0), Align2::RIGHT_TOP, key_letter(k), font(10.5), rgba(150, 230, 255, 255));
                 }
                 if bd.tier > 1 {
@@ -2691,23 +2670,23 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let can_reclaim = can_assist || units.iter().any(|u| fr.d(u.def).is_scavenger());
         let can_capture = units.iter().any(|u| fr.d(u.def).is_engineer());
         if any_mobile {
-            if faf && action("move", tr!("hud_orders.move"), "W", view.mode == Mode::Move) {
+            if action("move", tr!("hud_orders.move"), "W", view.mode == Mode::Move) {
                 new_mode = Some(Mode::Move);
             }
-            if action("attack_move", tr!("hud_orders.attack_move"), if faf { "Alt+RMB" } else { "A" }, view.mode == Mode::AttackMove) {
+            if action("attack_move", tr!("hud_orders.attack_move"), "Alt+RMB", view.mode == Mode::AttackMove) {
                 new_mode = Some(Mode::AttackMove);
             }
-            if action("patrol", tr!("hud_orders.patrol"), if faf { "Alt+W" } else { "P" }, view.mode == Mode::Patrol) {
+            if action("patrol", tr!("hud_orders.patrol"), "Alt+W", view.mode == Mode::Patrol) {
                 new_mode = Some(Mode::Patrol);
             }
         }
-        if any_armed && action("ground", if faf { tr!("hud_orders.attack_ground_fire") } else { tr!("hud_orders.ground_fire") }, if faf { "R" } else { "G" }, view.mode == Mode::GroundAttack) {
+        if any_armed && action("ground", tr!("hud_orders.attack_ground_fire"), "R", view.mode == Mode::GroundAttack) {
             new_mode = Some(Mode::GroundAttack);
         }
         if can_capture && action("capture", tr!("hud_orders.capture"), "", view.mode == Mode::Capture) {
             new_mode = Some(Mode::Capture);
         }
-        if can_reclaim && action("reclaim", tr!("hud_orders.reclaim"), if faf { "Q" } else { "E" }, view.mode == Mode::Reclaim) {
+        if can_reclaim && action("reclaim", tr!("hud_orders.reclaim"), "Q", view.mode == Mode::Reclaim) {
             new_mode = Some(Mode::Reclaim);
         }
         if units.iter().any(|u| fr.d(u.def).is_scavenger()) && action("revive", tr!("hud_orders.revive"), "J", view.mode == Mode::Revive) {
@@ -2729,10 +2708,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if can_ferry && action("ferry", if any_transport { tr!("hud_orders.ferry") } else { tr!("hud_orders.ferry_wait") }, "F", view.mode == Mode::Ferry) {
             new_mode = Some(Mode::Ferry);
         }
-        if can_reclaim && faf && action("assist", tr!("hud_orders.assist"), "I", view.mode == Mode::Assist) {
+        if can_reclaim && action("assist", tr!("hud_orders.assist"), "I", view.mode == Mode::Assist) {
             new_mode = Some(Mode::Assist);
         }
-        if action("stop", tr!("hud_orders.stop"), if faf { "Esc" } else { "S" }, false) {
+        if action("stop", tr!("hud_orders.stop"), "Esc", false) {
             do_stop = true;
         }
         // Pause: builders and factories stop working, pumps and radars switch off and cost no energy.
@@ -2746,11 +2725,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         if is_factory {
             let on = lead.factory.as_ref().map_or(false, |f| f.repeat);
-            if action("repeat", if on { tr!("hud_orders.repeat_build_on") } else { tr!("hud_orders.repeat_build_off") }, if faf { "`" } else { "R" }, on) {
+            if action("repeat", if on { tr!("hud_orders.repeat_build_on") } else { tr!("hud_orders.repeat_build_off") }, "`", on) {
                 do_repeat = true;
             }
         }
-        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("upgrade", tr!("hud_orders.upgrade"), if faf { "O" } else { "U" }, false) {
+        if units.iter().any(|u| fr.d(u.def).upgrade_id.is_some() && u.upg.is_none()) && action("upgrade", tr!("hud_orders.upgrade"), "O", false) {
             do_upgrade = true;
         }
     } else {
@@ -2967,10 +2946,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
             tr!("hud_help.left_click_drag_select_box_select"),
             tr!("hud_help.right_click_move_attack_enemy_assist"),
             tr!("hud_help.right_drag_a_line_spread_the"),
-            if faf { tr!("hud_help.faf_alternative_keys_w_move_alt") } else { tr!("hud_help.a_attack_move_p_patrol_s") },
-            if faf { tr!("hud_help.i_t_assist_repair_esc_stop") } else { tr!("hud_help.u_upgrade_pumps_factories_r_factory") },
-            if faf { tr!("hud_help.hotbuild_press_again_to_cycle_z") } else { tr!("hud_help.hotkey_preset_can_be_switched_to") },
-            if faf { tr!("hud_help.s_artillery_d_anti_air_y") } else { tr!("hud_help.ctrl_k_self_destruct_shift_0") },
+            tr!("hud_help.faf_alternative_keys_w_move_alt"),
+            tr!("hud_help.i_t_assist_repair_esc_stop"),
+            tr!("hud_help.hotbuild_press_again_to_cycle_z"),
+            tr!("hud_help.s_artillery_d_anti_air_y"),
             tr!("hud_help.select_ctrl_a_air_ctrl_d"),
             tr!("hud_help.ctrl_shift_d_a_nearest_land"),
             tr!("hud_help.ctrl_r_distribute"),
