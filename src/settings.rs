@@ -45,13 +45,15 @@ pub struct Settings {
     /// Draw strategic icons of neutral map buildings (houses, civic, industrial). Off: their
     /// models only, at any zoom; a building a player garrisons takes that player's icon again.
     pub neutral_icons: bool,
+    /// Idle own infantry walk into an empty or own garrisonable building standing close by (`hud::auto_garrison`).
+    pub auto_garrison: bool,
     /// Interface language (`assets/lang/<code>.json`, "en" = English); empty = from the system (`i18n::system_language`).
     pub language: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, language: String::new() }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, language: String::new() }
     }
 }
 
@@ -549,6 +551,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label(tr!("settings.neutral_buildings")).on_hover_text(tr!("settings.neutral_buildings_tip"));
         ui.checkbox(&mut s.neutral_icons, tr!("settings.show_icons"));
+        ui.end_row();
+        ui.label(tr!("settings.auto_garrison")).on_hover_text(tr!("settings.auto_garrison_tip"));
+        ui.checkbox(&mut s.auto_garrison, tr!("settings.auto_garrison_on"));
         ui.end_row();
         ui.label(tr!("settings.anti_aliasing"));
         let aa = |a: &str| match a {

@@ -253,6 +253,42 @@ fn resample(path: &[V2], n: usize) -> Vec<(V2, V2)> {
     out
 }
 
+/// How close idle infantry must stand to a building for `auto_garrison` to send them in.
+const AUTO_GARRISON_RANGE: f32 = 12.0;
+
+/// The setting "infantry enter buildings nearby": idle own infantry walk into the nearest empty
+/// or own garrisonable building within `AUTO_GARRISON_RANGE` that still has room. It only issues
+/// ordinary `Load` commands, so the simulation stays the same on every machine.
+fn auto_garrison(fr: &Frame, me: u8, out: &mut Vec<Command>) {
+    let mut free: Vec<(u32, V2, i32)> = vec![];
+    for b in fr.infos.values() {
+        let d = fr.d(b.def);
+        if b.host != 0 || b.built.is_some() || b.hp <= 0.0 || !d.is_garrison() || !d.is_structure() {
+            continue;
+        }
+        if b.owner != NEUTRAL && fr.game.team_of(b.owner) != fr.team {
+            continue;
+        }
+        let held = fr.infos.values().filter(|r| r.host == b.id).count() as i32;
+        let room = d.transport.as_ref().map_or(0, |t| t.capacity as i32) - held;
+        if room > 0 {
+            free.push((b.id, b.pos, room));
+        }
+    }
+    if free.is_empty() {
+        return;
+    }
+    let mut men: Vec<&Info> = fr.infos.values().filter(|u| u.owner == me && u.host == 0 && u.built.is_none() && u.hp > 0.0 && u.orders.is_empty() && fr.d(u.def).is_infantry() && carriable(fr.d(u.def))).collect();
+    men.sort_by_key(|u| u.id);
+    for u in men {
+        let best = free.iter_mut().filter(|f| f.2 > 0 && f.1.dist(u.pos) <= AUTO_GARRISON_RANGE).min_by(|a, b| a.1.dist(u.pos).total_cmp(&b.1.dist(u.pos)));
+        if let Some(f) = best {
+            f.2 -= 1;
+            out.push(Command::Orders { ids: vec![u.id], orders: vec![Order::Load(f.0)], queue: false });
+        }
+    }
+}
+
 /// Everything the input and drawing helpers need, bundled.
 struct Frame<'a> {
     defs: &'a Defs,
@@ -1203,6 +1239,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let hover = fr.hover(over_hud);
     let out = &mut p.out.0;
     let out_before = out.len();
+    if p.settings.auto_garrison && !reveal && game.tick >= view.auto_garrison_tick + 5 {
+        view.auto_garrison_tick = game.tick;
+        auto_garrison(&fr, me, out);
+    }
     let occ = if matches!(view.mode, Mode::Place(_)) { local_occ(map, defs, &infos, game, team, &p.mem, reveal, if shift { &[] } else { &view.sel }) } else { vec![] };
     let lmb_down = p.mouse.just_pressed(MouseButton::Left);
     let lmb_up = p.mouse.just_released(MouseButton::Left);

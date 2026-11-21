@@ -98,6 +98,8 @@ pub struct ViewState {
     pub mass_overflow: (bool, f64),
     /// Height of the screen in egui points, from the last HUD pass (model level of detail).
     pub screen_h: f32,
+    /// Game tick of the last automatic garrisoning pass (`hud::auto_garrison`).
+    pub auto_garrison_tick: u32,
 }
 
 impl ViewState {
@@ -139,6 +141,7 @@ impl ViewState {
             net_note: None,
             mass_overflow: (false, -100.0),
             screen_h: 720.0,
+            auto_garrison_tick: 0,
         }
     }
 }
