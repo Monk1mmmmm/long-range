@@ -3,6 +3,20 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.0
+
+Transports get ferry routes, and the Pike-G Gauss Turret is retuned. Unit data changed, so everybody in a
+multiplayer game needs the same version.
+
+Added
+- Ferry routes for transports (SupCom style, key F): the route is a loop with a pick-up beacon and a drop point.
+  Units right-clicked onto a beacon wait there, the transports load them and carry them across, over and over.
+
+Changed
+- Units keep their queued orders through a transport ride: what was queued behind boarding is carried out after
+  they are set down.
+- The Gauss Turret is now the Pike-G Gauss Turret (derived from the Pike Mortar), range 90 -> 105.
+
 ## v0.11.0
 
 The skirmish AIs (every type except Simple) play with the newer game features and fight as one army. The game
