@@ -164,7 +164,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   a client what it confirms (`ClientSim.log`, drained by the session), so every player and observer gets one.
   Files: `replays/*.lrr` next to `settings.json`, the oldest beyond `replay::KEEP` are deleted, games under 15 s
   leave none. Main menu "Replays" (`main.rs::replays_ui`) lists them; watching is `Role::Replay` (`replay_update`):
-  re-simulates as `OBSERVER` with pause/speed/time line/vision (`ViewState.replay`, `hud::replay_bar`); jumping back
+  re-simulates as `OBSERVER` with pause, a speed slider (log scale x0.25-x32, double-click = x1), time line, vision (`ViewState.replay`, `hud::replay_bar`); jumping back
   restores the nearest state kept every `HASH_EVERY` ticks. A fingerprint mismatch (another version) is shown, not
   fatal. `--nettest` writes the host's and the client's replay and plays both back.
 - A player who leaves resigns (`Command::Resign`) and the game goes on. When the host leaves (connection closed, or

@@ -8,7 +8,7 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 Added
 - Replays: every game is recorded (setting "Save a replay of every game", on by default) to the `replays` folder
   next to `settings.json`. Main menu - Replays lists them (date, map, players, length, result, version); Watch plays
-  one back with pause, speeds x0.25 to x32, a time line to jump forwards and back, and a choice of seeing everything
+  one back with pause, a speed slider (x0.25 to x32), a time line to jump forwards and back, and a choice of seeing everything
   or what one player saw. Replays of another game version may play back differently (shown in the list and
   during playback).
 
