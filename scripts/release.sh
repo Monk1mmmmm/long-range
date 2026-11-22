@@ -99,9 +99,11 @@ bundle_one() { # <archive name> <program> <cargo output dir> <exe suffix>
     cp README.md CHANGELOG.md "$dir/"
     if [ -f LICENSE ]; then cp LICENSE "$dir/"; fi
     if [ "$4" = ".exe" ]; then
+        cp scripts/uninstall.bat "$dir/"
         out="dist/$name.zip"
         (cd dist && zip -qr "$name.zip" "$name")
     else
+        cp scripts/uninstall.sh "$dir/"
         out="dist/$name.tar.gz"
         tar -C dist -czf "$out" "$name"
     fi

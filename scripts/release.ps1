@@ -52,6 +52,7 @@ if ($Only -eq "" -or $Only -eq "windows") {
         New-Item -ItemType Directory $dir | Out-Null
         Copy-Item "target\release\$($b[1]).exe", README.md, CHANGELOG.md $dir
         if (Test-Path LICENSE) { Copy-Item LICENSE $dir }
+        Copy-Item scripts\uninstall.bat $dir
         Copy-Item -Recurse assets (Join-Path $dir "assets")
         Compress-Archive -Path $dir -DestinationPath "$dir.zip"
         $files += "$dir.zip"
