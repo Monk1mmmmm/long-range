@@ -347,10 +347,7 @@ mod linux_gl {
 /// is kept as `<program>-previous.log`), and a panic writes its message and backtrace there, so a
 /// crash leaves a record even when the game was not started from a console.
 pub fn log_plugin() -> bevy::log::LogPlugin {
-    // `rodio::stream`: ALSA reports `poll() returned POLLERR` on every poll once the sound device is gone or reset
-    // (PipeWire/PulseAudio restarted, suspend, a USB/HDMI sink unplugged), thousands of lines a minute; sound is lost
-    // either way and the game itself is fine, so only real failures (no output device at start) are kept.
-    let filter = format!("{},wgpu_hal::gles=off,wgpu_hal::gles::device=error,rodio::stream=off", bevy::log::DEFAULT_FILTER);
+    let filter = format!("{},wgpu_hal::gles=off,wgpu_hal::gles::device=error", bevy::log::DEFAULT_FILTER);
     bevy::log::LogPlugin { filter, custom_layer: log_file_layer, ..default() }
 }
 

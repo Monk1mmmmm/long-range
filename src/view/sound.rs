@@ -47,12 +47,134 @@ pub fn select_sound(d: &UnitDef, commander: bool) -> &'static str {
 #[cfg(feature = "audio")]
 mod real {
     use super::*;
-    use bevy::audio::{AudioPlayer, AudioSource, PlaybackSettings, Volume};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// Sound data (a whole wav / ogg file) shared by every play of it.
+    type Data = Arc<[u8]>;
+
+    /// One sound to start: file bytes, volume 0..1, playback speed.
+    struct Cmd {
+        data: Data,
+        volume: f32,
+        speed: f32,
+    }
 
     #[derive(Resource)]
     pub struct Sounds {
-        fx: Vec<Handle<AudioSource>>,
-        ui: Vec<Handle<AudioSource>>,
+        fx: Vec<Data>,
+        ui: Vec<Data>,
+        /// To the audio thread, which owns the output device (see `run`).
+        tx: Mutex<Sender<Cmd>>,
+    }
+
+    impl Sounds {
+        fn start(&self, data: &Data, volume: f32, speed: f32) {
+            if let Ok(tx) = self.tx.lock() {
+                let _ = tx.send(Cmd { data: data.clone(), volume, speed });
+            }
+        }
+    }
+
+    /// How long to wait before trying to open the sound device again after it failed to open.
+    const RETRY: Duration = Duration::from_secs(2);
+
+    /// The audio thread: owns the output stream, plays what `rx` brings and opens the device again whenever
+    /// the stream reported an error (`failed`: PipeWire / PulseAudio restarted, suspend, a sink unplugged -
+    /// ALSA then answers every poll with POLLERR) or could not be opened. Sounds sent while there is no
+    /// device are dropped. `open` makes a stream, `play` starts one sound on it; only the first failure
+    /// and the recovery are logged, the stream's own error callback must not log every time.
+    fn run<S>(rx: Receiver<Cmd>, failed: Arc<AtomicBool>, mut open: impl FnMut(&Arc<AtomicBool>) -> Result<S, String>, play: impl Fn(&S, Cmd)) {
+        let mut stream: Option<S> = None;
+        let mut next_try = Instant::now();
+        let mut lost = false;
+        loop {
+            let cmd = match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(c) => Some(c),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
+            if failed.swap(false, Ordering::Relaxed) {
+                stream = None;
+                next_try = Instant::now();
+                if !lost {
+                    warn!("sound device lost, trying to reopen it");
+                }
+                lost = true;
+            }
+            if stream.is_none() && Instant::now() >= next_try {
+                match open(&failed) {
+                    Ok(s) => {
+                        if lost {
+                            info!("sound device reopened");
+                        }
+                        stream = Some(s);
+                        lost = false;
+                    }
+                    Err(e) => {
+                        if !lost {
+                            warn!("no sound: {e}");
+                        }
+                        lost = true;
+                        next_try = Instant::now() + RETRY;
+                    }
+                }
+            }
+            if let (Some(c), Some(s)) = (cmd, &stream) {
+                play(s, c);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub struct TestThread {
+        tx: Sender<Cmd>,
+        pub fail: Arc<AtomicBool>,
+    }
+
+    #[cfg(test)]
+    impl TestThread {
+        /// A sound whose volume stands for `tag`.
+        pub fn send(&self, tag: u32) {
+            let _ = self.tx.send(Cmd { data: Arc::from(vec![]), volume: tag as f32, speed: 1.0 });
+        }
+    }
+
+    /// `run` with a fake device: `open` gives a stream (its number), `play` sees (stream, tag).
+    #[cfg(test)]
+    pub fn test_thread(open: impl FnMut(&Arc<AtomicBool>) -> Result<u32, String> + Send + 'static, play: impl Fn(&u32, u32) + Send + 'static) -> TestThread {
+        let (tx, rx) = channel();
+        let fail = Arc::new(AtomicBool::new(false));
+        let f = fail.clone();
+        std::thread::spawn(move || run(rx, f, open, move |s, c| play(s, c.volume as u32)));
+        TestThread { tx, fail }
+    }
+
+    #[cfg(test)]
+    pub fn all_built_in() -> Vec<Vec<u8>> {
+        SOUNDS.iter().map(|n| synth(n)).chain(UI_SOUNDS.iter().map(|n| synth_ui(n))).collect()
+    }
+
+    fn open_device(failed: &Arc<AtomicBool>) -> Result<rodio::MixerDeviceSink, String> {
+        let failed = failed.clone();
+        let mut sink = rodio::DeviceSinkBuilder::from_default_device()
+            .map_err(|e| e.to_string())?
+            .with_error_callback(move |_| failed.store(true, Ordering::Relaxed))
+            .open_stream()
+            .map_err(|e| e.to_string())?;
+        sink.log_on_drop(false);
+        Ok(sink)
+    }
+
+    fn play_on(sink: &rodio::MixerDeviceSink, c: Cmd) {
+        let Ok(dec) = rodio::Decoder::new(std::io::Cursor::new(c.data)) else { return };
+        let player = rodio::Player::connect_new(sink.mixer());
+        player.set_volume(c.volume);
+        player.set_speed(c.speed);
+        player.append(dec);
+        player.detach();
     }
 
     const RATE: u32 = 22050;
@@ -211,19 +333,22 @@ mod real {
         wav(&samples)
     }
 
-    pub fn load(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
+    pub fn load(mut commands: Commands) {
         let dir = crate::data::asset_root().join("sounds");
-        let mut make = |name: &str, built_in: fn(&str) -> Vec<u8>| {
+        let make = |name: &str, built_in: fn(&str) -> Vec<u8>| -> Data {
             let file = ["wav", "ogg"].iter().find_map(|ext| std::fs::read(dir.join(format!("{name}.{ext}"))).ok());
-            sources.add(AudioSource { bytes: file.unwrap_or_else(|| built_in(name)).into() })
+            file.unwrap_or_else(|| built_in(name)).into()
         };
         let fx = SOUNDS.iter().map(|name| make(name, synth)).collect();
         let ui = UI_SOUNDS.iter().map(|name| make(name, synth_ui)).collect();
-        commands.insert_resource(Sounds { fx, ui });
+        let (tx, rx) = channel();
+        let failed = Arc::new(AtomicBool::new(false));
+        std::thread::Builder::new().name("audio".into()).spawn(move || run(rx, failed, open_device, play_on)).ok();
+        commands.insert_resource(Sounds { fx, ui, tx: Mutex::new(tx) });
     }
 
     /// Plays the interface sounds asked for this frame (each name once).
-    pub fn play_ui(mut commands: Commands, mut wanted: ResMut<UiSounds>, sounds: Option<Res<Sounds>>, settings: Res<crate::settings::Settings>) {
+    pub fn play_ui(mut wanted: ResMut<UiSounds>, sounds: Option<Res<Sounds>>, settings: Res<crate::settings::Settings>) {
         let list = std::mem::take(&mut wanted.0);
         let Some(sounds) = sounds else { return };
         if settings.sfx_volume <= 0.0 {
@@ -236,19 +361,57 @@ mod real {
             }
             done.push(name);
             if let Some(h) = UI_SOUNDS.iter().position(|s| *s == name).and_then(|k| sounds.ui.get(k)) {
-                commands.spawn((AudioPlayer::new(h.clone()), PlaybackSettings::DESPAWN.with_volume(Volume::Linear((volume * settings.sfx_volume).min(1.0)))));
+                sounds.start(h, (volume * settings.sfx_volume).min(1.0), 1.0);
             }
         }
     }
 
     /// Starts the loudest few of this frame's sounds: (index into `SOUNDS`, volume, playback speed).
-    pub fn play(commands: &mut Commands, sounds: Option<&Sounds>, mut wanted: Vec<(usize, f32, f32)>) {
+    pub fn play(_: &mut Commands, sounds: Option<&Sounds>, mut wanted: Vec<(usize, f32, f32)>) {
         let Some(sounds) = sounds else { return };
         wanted.sort_by(|a, b| b.1.total_cmp(&a.1));
         for (k, volume, speed) in wanted.into_iter().take(PER_FRAME) {
             if let Some(h) = sounds.fx.get(k) {
-                commands.spawn((AudioPlayer::new(h.clone()), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(volume)).with_speed(speed)));
+                sounds.start(h, volume, speed);
             }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "audio"))]
+mod tests {
+    use super::real::*;
+    use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Mutex};
+
+    /// The stream failing (what ALSA's POLLERR does) makes the audio thread open the device again,
+    /// a device that cannot be opened is retried, and every built-in sound decodes.
+    #[test]
+    fn reopens_after_failure() {
+        let opens = Arc::new(Mutex::new(0));
+        let played = Arc::new(Mutex::new(vec![]));
+        let (o, p) = (opens.clone(), played.clone());
+        let t = test_thread(move |_| {
+            let mut n = o.lock().unwrap();
+            *n += 1;
+            if *n == 2 { Err("busy".into()) } else { Ok(*n) }
+        }, move |s, tag| p.lock().unwrap().push((*s, tag)));
+        let wait = |f: &dyn Fn() -> bool| (0..100).any(|_| { std::thread::sleep(std::time::Duration::from_millis(100)); f() });
+        t.send(1);
+        assert!(wait(&|| played.lock().unwrap().len() == 1));
+        t.fail.store(true, Ordering::Relaxed);
+        t.send(2); // the stream is dropped, opening fails once (`busy`), then succeeds after the retry delay
+        assert!(wait(&|| *opens.lock().unwrap() == 3));
+        t.send(3);
+        assert!(wait(&|| played.lock().unwrap().iter().any(|x| x.1 == 3)));
+        assert_eq!(played.lock().unwrap().iter().filter(|x| x.0 == 3).count(), 1, "played on the new stream only: {:?}", played.lock().unwrap());
+    }
+
+    #[test]
+    fn built_in_sounds_decode() {
+        for bytes in all_built_in() {
+            let d = rodio::Decoder::new(std::io::Cursor::new(bytes)).expect("decodes");
+            assert!(rodio::Source::total_duration(&d).is_some_and(|t| t.as_secs_f32() > 0.02));
         }
     }
 }

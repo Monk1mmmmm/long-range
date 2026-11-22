@@ -9,6 +9,8 @@ bevy = { version = "0.20", default-features = false, features = ["3d"] }
 bevy_egui = { version = "0.43", default-features = false, features = ["render", "default_fonts"] }
 # Not used directly: turns on the OpenGL backend in the renderer Bevy uses (Settings -> Graphics API).
 wgpu = { version = "30", default-features = false, features = ["gles"] }
+# Sound output (view/sound.rs): our own stream, so the device can be opened again after it fails. Same version Bevy used.
+rodio = { version = "0.22", default-features = false, features = ["playback", "wav", "vorbis"], optional = true }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 bincode = "1.3"
@@ -41,7 +43,7 @@ bevy = { version = "0.20", default-features = false, features = ["3d", "statical
 default = ["audio"]
 # Sound effects. On Linux this needs the ALSA development files at build time (Debian/Ubuntu:
 # `sudo apt install libasound2-dev`); build with `--no-default-features` to leave sound out.
-audio = ["bevy/bevy_audio", "bevy/wav", "bevy/vorbis"]
+audio = ["dep:rodio"]
 # Development only: `cargo run --features dev` links Bevy as a shared library, so a change to our code
 # relinks in seconds instead of relinking the whole engine. Never use it for release builds.
 dev = ["bevy/dynamic_linking"]
