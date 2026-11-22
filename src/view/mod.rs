@@ -107,6 +107,8 @@ pub struct ViewState {
     pub loadout: Option<Loadout>,
     /// The last loadout queued for each transport type, offered again when its picker opens.
     pub last_loadout: HashMap<DefId, Vec<DefId>>,
+    /// Factory build menu: selected tab (`hud::BUILD_TABS`).
+    pub build_tab: usize,
     /// Terraform mode: how far to raise (+) or lower (-) the ground; 0 levels it.
     pub terra_delta: f32,
     /// Selection of the previous frame, to notice when it changes (selection sounds).
@@ -192,6 +194,7 @@ impl ViewState {
             queue_drag: None,
             loadout: None,
             last_loadout: HashMap::new(),
+            build_tab: 0,
             terra_delta: 0.0,
             last_sel: vec![],
             paused: None,

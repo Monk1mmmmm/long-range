@@ -982,6 +982,26 @@ fn hot_key(d: &UnitDef) -> Option<KeyCode> {
     }
 }
 
+/// Factory build menu tabs (keys in `hud_tabs`).
+const BUILD_TABS: [&str; 6] = [tx!("hud_tabs.troopers"), tx!("hud_tabs.tanks"), tx!("hud_tabs.aa"), tx!("hud_tabs.radar"), tx!("hud_tabs.engineers"), tx!("hud_tabs.others")];
+
+/// Which factory tab a unit belongs to.
+fn build_tab_of(d: &UnitDef) -> usize {
+    if d.is_infantry() {
+        0
+    } else if d.is_engineer() || d.is_scavenger() {
+        4
+    } else if d.armed() && d.weapons.iter().all(|w| w.hits_air && !w.hits_land) {
+        2
+    } else if d.armed() && !d.is_air() {
+        1
+    } else if !d.armed() && (d.has_radar() || d.vision >= 45.0) {
+        3
+    } else {
+        5
+    }
+}
+
 fn key_letter(k: KeyCode) -> &'static str {
     match k {
         KeyCode::KeyZ => "Z",
@@ -3143,9 +3163,35 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let per_row = (((panel.width() - 318.0) / (bw + 4.0)).floor() as usize).max(1);
         let is_factory = ld.is_factory();
         let builders = ld.is_engineer() || is_factory;
+        // A factory's list is split into tabs by kind of unit.
+        let mut shown: Vec<(usize, DefId)> = ld.builds.iter().copied().enumerate().collect();
+        let mut menu_y = py + 6.0;
+        if is_factory {
+            let used: Vec<usize> = (0..BUILD_TABS.len()).filter(|t| ld.builds.iter().any(|d| build_tab_of(fr.d(*d)) == *t)).collect();
+            if let Some(first) = used.first().copied() {
+                if !used.contains(&view.build_tab) {
+                    view.build_tab = first;
+                }
+                let mut tx0 = bx0;
+                for t in &used {
+                    let label = crate::i18n::tr(BUILD_TABS[*t]);
+                    let w = label.chars().count() as f32 * 7.0 + 14.0;
+                    let r = rect(tx0, py + 4.0, w, 20.0);
+                    let hov = button(r, view.build_tab == *t);
+                    hud.text(r.center(), Align2::CENTER_CENTER, label, font(12.0), Color32::WHITE);
+                    if hov && lmb_down {
+                        view.build_tab = *t;
+                    }
+                    tx0 += w + 3.0;
+                }
+                menu_y = py + 30.0;
+                let tab = view.build_tab;
+                shown.retain(|(_, d)| build_tab_of(fr.d(*d)) == tab);
+            }
+        }
         if builders {
-            for (k, d) in ld.builds.iter().enumerate() {
-                let r = rect(bx0 + (k % per_row) as f32 * (bw + 4.0), py + 6.0 + (k / per_row) as f32 * (bh + 4.0), bw, bh);
+            for (k, (_, d)) in shown.iter().enumerate() {
+                let r = rect(bx0 + (k % per_row) as f32 * (bw + 4.0), menu_y + (k / per_row) as f32 * (bh + 4.0), bw, bh);
                 let bd = fr.d(*d);
                 let hov = button(r, view.mode == Mode::Place(*d));
                 let ir = rect(r.min.x + 6.0, r.min.y + 3.0, 40.0, 40.0);

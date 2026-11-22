@@ -291,6 +291,14 @@
     "clear": "Clear",
     "empty": "Nobody aboard: queued like this, it comes empty"
   },
+  "hud_tabs": {
+    "troopers": "Troopers",
+    "tanks": "Tanks",
+    "aa": "AA",
+    "radar": "Radar",
+    "engineers": "Engineers",
+    "others": "Others"
+  },
   "hud_orders": {
     "move": "Move",
     "attack_move": "Attack-move",
