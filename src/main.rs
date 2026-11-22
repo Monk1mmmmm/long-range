@@ -5395,6 +5395,9 @@ fn main() {
         ..default()
     }).set(longrange::settings::render_plugin(&settings)).set(longrange::settings::log_plugin()))
     .add_plugins(bevy_egui::EguiPlugin::default())
+    // Nothing runs in Bevy's fixed timestep (the simulation has its own clock): at the default
+    // 64 Hz its empty schedules ran several times a frame when the frame rate dropped late in a game.
+    .insert_resource(Time::<bevy::time::Fixed>::from_seconds(1.0))
     .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
     .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))

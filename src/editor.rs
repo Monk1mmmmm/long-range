@@ -1071,6 +1071,8 @@ pub fn run() {
         }).set(crate::settings::render_plugin(&crate::settings::Settings::load())).set(crate::settings::log_plugin()))
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_plugins(SurfacePlugin)
+        // Nothing uses Bevy's fixed timestep (see main.rs).
+        .insert_resource(Time::<bevy::time::Fixed>::from_seconds(1.0))
         .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
         .insert_resource(Editor {
             tool: Tool::Raise,
