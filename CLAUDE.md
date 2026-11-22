@@ -588,7 +588,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
 - `assets/maps/<name>/map.json` + `height.png` (16-bit) + `layerN.png` (8-bit ground layer masks) + `lakes.png` (8-bit, lake number per cell, only with lakes) - premade maps; `props` are pre-placed neutral
-  (owner 0) or hostile (owner 1) units of any faction; `points` are the control points.
+  (owner 0), hostile (owner 1) or player (owner 2+k = whoever plays lobby slot k; left out when that slot is empty) units of any faction; `points` are the control points.
 - Host and clients play with identical data: a client whose data hash differs gets the host's `DataPack`
   (and asset files the built-in data does not refer to) with `S2C::Start`.
 

@@ -1395,7 +1395,15 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
     let mut features = Features::new(&map, &defs);
     for prop in &map.props {
         if let Some(d) = defs.id(&prop.def) {
-            let owner = if prop.owner == PROP_HOSTILE { HOSTILE } else { NEUTRAL };
+            let owner = match prop.owner {
+                PROP_NEUTRAL => NEUTRAL,
+                PROP_HOSTILE => HOSTILE,
+                // Pre-assigned to a lobby slot: the player there owns it; an empty slot leaves it out.
+                o => match setup.iter().position(|p| p.slot == (o - PROP_SLOT0) as usize) {
+                    Some(i) => i as u8,
+                    None => continue,
+                },
+            };
             let pos = if defs.get(d).is_structure() { snap(&defs, &map, d, prop.pos) } else { prop.pos };
             if defs.get(d).is_structure() {
                 nav.stamp_def(&map, defs.get(d), pos);

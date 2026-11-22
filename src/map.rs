@@ -222,8 +222,10 @@ pub const CELL: f32 = 2.0;
 /// Owner codes for map props.
 pub const PROP_NEUTRAL: u8 = 0;
 pub const PROP_HOSTILE: u8 = 1;
+/// `PROP_SLOT0 + k` belongs to whoever plays lobby slot `k` (start position `k`); with no player in that slot the prop is left out.
+pub const PROP_SLOT0: u8 = 2;
 
-/// A pre-placed unit or building belonging to the neutral or the hostile side.
+/// A pre-placed unit or building belonging to the neutral side, the hostile side or a player slot.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Prop {
     pub def: String,
