@@ -196,6 +196,8 @@
     "no_sound": "this build has no sound",
     "projectile_size": "Projectile size",
     "suffix_px": " px",
+    "ui_scale": "Interface scale",
+    "ui_scale_tip": "Size of menus, panels and text. 1x is the size the system asks for.",
     "map_icons_from_zoom": "Map icons from zoom",
     "suffix_camera_distance": " camera distance",
     "units_under_icons": "Units under icons",

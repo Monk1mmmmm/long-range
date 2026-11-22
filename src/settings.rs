@@ -53,11 +53,13 @@ pub struct Settings {
     pub save_replays: bool,
     /// Interface language (`assets/lang/<code>.json`, "en" = English); empty = from the system (`i18n::system_language`).
     pub language: String,
+    /// Size of the whole interface (menus, HUD, editor) as a factor of the system's own scale (egui zoom, `apply_ui_scale`).
+    pub ui_scale: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, save_replays: true, language: String::new() }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, save_replays: true, language: String::new(), ui_scale: 1.0 }
     }
 }
 
@@ -510,6 +512,20 @@ fn set_window_icon(mut done: Local<bool>, window: Query<Entity, With<PrimaryWind
 }
 
 /// Applies the live settings (anti-aliasing, vsync, fullscreen, shadow resolution).
+/// Range of `Settings::ui_scale`.
+pub const UI_SCALE: (f32, f32) = (0.5, 2.0);
+
+/// Puts `Settings::ui_scale` on the window's egui context (egui zoom: every size in points grows,
+/// the HUD's own painting included). Runs in the egui pass of the game and of the editor.
+pub fn apply_ui_scale(settings: Res<Settings>, mut contexts: bevy_egui::EguiContexts) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    let want = settings.ui_scale.clamp(UI_SCALE.0, UI_SCALE.1);
+    if (ctx.zoom_factor() - want).abs() > 1e-3 {
+        ctx.set_zoom_factor(want);
+    }
+    Ok(())
+}
+
 pub fn apply_settings(
     settings: Res<Settings>,
     mut commands: Commands,
@@ -670,6 +686,19 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         }
         2 => {
             egui::Grid::new("settings_interface").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                // Taken over only when the slider is let go: resizing the interface under a dragged
+                // slider moves the slider away from the pointer.
+                ui.label(tr!("settings.ui_scale")).on_hover_text(tr!("settings.ui_scale_tip"));
+                let id = egui::Id::new("settings_ui_scale");
+                let mut scale: f32 = ui.data_mut(|d| d.get_temp(id)).unwrap_or(s.ui_scale);
+                let r = ui.add(egui::Slider::new(&mut scale, UI_SCALE.0..=UI_SCALE.1).step_by(0.05).suffix("x"));
+                if r.dragged() {
+                    ui.data_mut(|d| d.insert_temp(id, scale));
+                } else {
+                    ui.data_mut(|d| d.remove::<f32>(id));
+                    s.ui_scale = scale;
+                }
+                ui.end_row();
                 ui.label(tr!("settings.map_icons_from_zoom"));
                 ui.add(egui::Slider::new(&mut s.icon_dist, 100.0..=2500.0).logarithmic(true).step_by(100.0).suffix(tr!("settings.suffix_camera_distance")));
                 ui.end_row();

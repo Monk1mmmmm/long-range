@@ -5408,7 +5408,7 @@ fn main() {
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
     .add_systems(Update, dev_screenshot)
-    .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
+    .add_systems(bevy_egui::EguiPrimaryContextPass, (longrange::settings::apply_ui_scale, menu_ui));
     // `--bench [minutes]`: the benchmark (view/bench.rs). LR_PROFILE=1: frame and tick times in the log.
     let bench = args.iter().position(|a| a == "--bench").map(|k| args.get(k + 1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(25.0));
     if bench.is_some() || std::env::var("LR_PROFILE").is_ok() {
