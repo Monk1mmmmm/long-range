@@ -205,7 +205,7 @@ footways and steps are left out, forests have no leaf type (mixed), and the data
   rectangle, with the ramps and viaducts that only led to them; `--drop-names REGEX` leaves out roads by name.
   Overture has no construction dates, so buildings are the present ones.
 - `--cp-area S,W,N,E` keeps the control points inside a rectangle (the city, when the map also shows its surroundings),
-  `--cp-town 1.0` takes all of them from the densest places, `--outpost LAT,LON` puts the hostile hilltop outpost
+  `--dep-area` does the same for the resource deposits (Dubrovnik: none beyond the river), `--cp-town 1.0` takes all control points from the densest places, `--outpost LAT,LON` puts the hostile hilltop outpost
   on a real landmark instead of the highest hill.
 
 Downloads are cached in `tools/out/osm_cache` (delete the files to fetch fresh data); the Overpass servers are
@@ -226,7 +226,7 @@ the Franjo Tudman Bridge (2002) and its approach viaducts left out, so the Rijek
 round its head. Two bases at the west end of the city (Lapad), two at the east end (Ploce), all control points
 in the city, the hostile outpost on Fort Imperial:
 
-    .venv/bin/python tools/osm_map.py dubrovnik_1991 --center 42.649,18.099 --km 6 --cells 512 --players 4 --relief 0.8 --source overture --sea --drop-bridges 42.660,18.060,42.675,18.095 --title "Dubrovnik 1991" --max-props 1400 --village 0.5 --points 7 --cp-town 1.0 --cp-area 42.60,18.05,42.6655,18.14 --starts "83,293;114,499;880,450;985,700" --outpost 42.6505,18.1135
+    .venv/bin/python tools/osm_map.py dubrovnik_1991 --center 42.649,18.099 --km 6 --cells 512 --players 4 --relief 0.8 --source overture --sea --drop-bridges 42.660,18.060,42.675,18.095 --title "Dubrovnik 1991" --max-props 1400 --village 0.5 --points 7 --cp-town 1.0 --cp-area 42.60,18.05,42.6655,18.14 --dep-area 42.60,18.05,42.6685,18.15 --starts "83,293;114,499;880,450;985,700" --outpost 42.6505,18.1135
 
 ## scmap_map.py - port a Supreme Commander map
 

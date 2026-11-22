@@ -441,6 +441,7 @@ def main():
     ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
     ap.add_argument("--cp-town", type=float, default=0.6, help="share of the control points placed in the towns (the densest places), the rest around them")
     ap.add_argument("--cp-area", default="", help="S,W,N,E in degrees: control points only inside this rectangle (e.g. the city of a map that also shows its surroundings)")
+    ap.add_argument("--dep-area", default="", help="S,W,N,E in degrees: resource deposits only inside this rectangle (the part of the map that is played over)")
     ap.add_argument("--outpost", default="", help="LAT,LON of the hostile hilltop outpost (default: the highest open hilltop)")
     ap.add_argument("--source", choices=("overpass", "overture"), default="overpass", help="where the map features come from")
     ap.add_argument("--sea", action="store_true", help="a coast: the ocean polygon becomes the sea at 0 m (needs --source overture)")
@@ -1059,6 +1060,11 @@ def main():
         i, j = int(x / CELL), int(z / CELL)
         if not (2 <= i < n - 2 and 2 <= j < n - 2) or occ[j - 1:j + 2, i - 1:i + 2].any():
             return False
+        if a.dep_area:
+            la_, lo_ = geo.to_latlon(x, z)
+            s_, w_, n_, e_ = map(float, a.dep_area.split(","))
+            if not (s_ <= la_ <= n_ and w_ <= lo_ <= e_):
+                return False
         return all(math.hypot(x - d[0], z - d[1]) >= keep for d in deposits)
 
     def add_dep(x, z, search=14.0, keep=7.0):
