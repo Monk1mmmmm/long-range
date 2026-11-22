@@ -1412,7 +1412,7 @@ fn think(
                             }
                         }
                         // Their own orders stay: what they were told to do before or while riding.
-                        commands.entity(t.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
+                        commands.entity(t.e).try_remove::<Hosted>().try_insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
                     }
                     pop = true;
                 }
@@ -3494,7 +3494,7 @@ fn deaths(
             let inside: Vec<&Cen> = census.list.iter().filter(|r| r.host == u.id && r.done && (!carrier || defs.get(r.def).is_infantry())).collect();
             for (k, r) in inside.iter().enumerate() {
                 let p = set_down(&map, &nav, b.pos + V2::from_angle(k as f32 * 2.4 + u.id as f32) * (d.radius() + 1.0));
-                commands.entity(r.e).remove::<Hosted>().insert((Body { pos: p, y: map.h(p), yaw: (p - b.pos).angle(), vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));
+                commands.entity(r.e).try_remove::<Hosted>().try_insert((Body { pos: p, y: map.h(p), yaw: (p - b.pos).angle(), vel: v2(0.0, 0.0) }, Orders::default(), Mover { anchor: p, path_goal: p, ..default() }));
                 if !reclaimed.contains(&u.id) {
                     effects.damage.push((r.id, r.max_hp * defs.rules.garrison_eject_damage, 0));
                 }
