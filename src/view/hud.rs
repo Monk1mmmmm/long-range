@@ -3348,8 +3348,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
     Ok(())
 }
 
-/// Playback speeds of a replay.
-const REPLAY_SPEEDS: [f32; 8] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+/// Slowest and fastest playback of a replay.
+const REPLAY_SPEED: (f32, f32) = (0.25, 32.0);
+
+/// A playback speed rounded to a value that reads well: x0.35, x1.75, x6.
+fn round_speed(v: f32) -> f32 {
+    let step = if v < 1.0 { 0.05 } else if v < 4.0 { 0.25 } else { 1.0 };
+    ((v / step).round() * step).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
+}
 
 /// Replay controls above the bottom panel: pause, speed, the time line (click or drag to jump),
 /// and whose view to see the game from.
@@ -3363,7 +3369,7 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
             format!("{}:{:02}", s / 60, s % 60)
         }
     };
-    let w = 760.0f32.min(sw - 16.0);
+    let w = 880.0f32.min(sw - 16.0);
     let y = sh - PANEL_H - QUEUE_H - 64.0;
     let mut toggle = false;
     let mut vision = view.me;
@@ -3376,19 +3382,21 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
                 if ui.add_sized([74.0, 22.0], egui::Button::new(play)).clicked() {
                     toggle = true;
                 }
-                let k = REPLAY_SPEEDS.iter().position(|&s| s >= bar.speed - 1e-3).unwrap_or(2);
-                if ui.add_enabled(k > 0, egui::Button::new(" - ")).on_hover_text(tr!("hud_replay.slower")).clicked() {
-                    bar.want_speed = Some(REPLAY_SPEEDS[k - 1]);
-                }
-                let sp = if bar.speed < 1.0 { format!("x{}", bar.speed) } else { format!("x{}", bar.speed as u32) };
-                ui.add_sized([40.0, 22.0], egui::Label::new(sp));
-                if ui.add_enabled(k + 1 < REPLAY_SPEEDS.len(), egui::Button::new(" + ")).on_hover_text(tr!("hud_replay.faster")).clicked() {
-                    bar.want_speed = Some(REPLAY_SPEEDS[k + 1]);
+                // Speed: a slider on a logarithmic scale, x1 in the middle; double-click puts it back to x1.
+                let mut speed = bar.speed;
+                ui.spacing_mut().slider_width = 110.0;
+                let r = ui
+                    .add(egui::Slider::new(&mut speed, REPLAY_SPEED.0..=REPLAY_SPEED.1).logarithmic(true).custom_formatter(|v, _| format!("x{}", round_speed(v as f32))).custom_parser(|t| t.trim().trim_start_matches(['x', 'X']).parse().ok()))
+                    .on_hover_text(tr!("hud_replay.speed_tip"));
+                if r.double_clicked() {
+                    bar.want_speed = Some(1.0);
+                } else if r.changed() {
+                    bar.want_speed = Some(round_speed(speed));
                 }
                 let shown = bar.drag.unwrap_or(bar.tick);
                 ui.label(format!("{} / {}", clock(shown.saturating_sub(bar.first)), clock(bar.end.saturating_sub(bar.first))));
                 let mut t = shown;
-                ui.spacing_mut().slider_width = (w - 560.0).max(120.0);
+                ui.spacing_mut().slider_width = (w - 700.0).max(120.0);
                 let r = ui.add(egui::Slider::new(&mut t, bar.first..=bar.end.max(bar.first + 1)).show_value(false));
                 if r.dragged() {
                     bar.drag = Some(t);

@@ -339,8 +339,7 @@
   },
   "hud_replay": {
     "replay": "REPLAY",
-    "slower": "Slower",
-    "faster": "Faster",
+    "speed_tip": "Playback speed, x0.25 to x32. Double-click: back to x1.",
     "vision_all": "Everything",
     "vision_tip": "See the game as a player does: their fog of war, radar and economy.",
     "seeking": "Jumping...",
