@@ -14,6 +14,10 @@ Changed
   working as before: stormed or entered, never captured). Attack-moving infantry no longer stop to shoot down a building
   they could take. New rule `infantry_capture_reach` (12) is in the preset form.
 
+Fixed
+- A crash when infantry riding a garrison or armoured carrier died in the same moment as the building or vehicle they were
+  being thrown out of.
+
 ## v0.12.2
 
 Your own presets and downloaded maps now survive new versions, and settings are safer against damage. The simulation is unchanged.
