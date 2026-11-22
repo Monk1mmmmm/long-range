@@ -3488,12 +3488,17 @@ fn apc_tests(defs: &Defs) {
     let cargo = vec![rider; cap];
     assert!(loadout_ok(defs, fac_def, host, &cargo), "the land factory fills its own carrier with riflemen");
     assert!(!loadout_ok(defs, fac_def, host, &vec![rider; cap + 1]), "no more riders than the carrier holds");
+    world.run_schedule(SimTick);
     let mut paid = 0.0;
+    let mut last_mass = world.resource::<Game>().players[0].mass;
     world.resource_mut::<CommandQueue>().0.push((0, Command::ProduceLoaded { factory: fac, def: host, cargo: cargo.clone(), count: 1 }));
     let mut out_at = None;
     for t in 0..6000 {
         world.run_schedule(SimTick);
-        paid += world.resource::<Game>().players[0].spend_m * DT;
+        // Real mass taken (income added back; `spend_m` shows demand during a stall).
+        let pl = &world.resource::<Game>().players[0];
+        paid += last_mass - pl.mass + pl.income_m * DT;
+        last_mass = pl.mass;
         let left = world.query::<(&Unit, Has<Hosted>)>().iter(world).find(|(u, h)| u.def == host && !h).map(|(u, _)| u.id);
         if let Some(c) = left {
             out_at = Some((c, t));
