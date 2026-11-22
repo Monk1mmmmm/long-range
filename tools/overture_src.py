@@ -138,9 +138,22 @@ def fetch(geo, cache_dir, name):
         if tags:
             for outer, holes in _polys(wkb.loads(r["geometry"]), clip):
                 els.append(_area(dict(tags), "cover", outer, holes))
-    for r in _rows("base", "water", ["geometry", "subtype", "class"], b):
+    for r in _rows("base", "water", ["geometry", "subtype", "class", "names"], b):
         g = wkb.loads(r["geometry"])
         sub, cls = r.get("subtype"), r.get("class")
+        if g.geom_type in ("LineString", "MultiLineString"):
+            # Rivers, streams and canals as lines with their names, like Overpass's waterway ways (`--river NAME`).
+            if sub in ("river", "stream", "canal"):
+                nm = (r.get("names") or {}).get("primary") or ""
+                for ln in (g.geoms if hasattr(g, "geoms") else [g]):
+                    cl = ln.intersection(clip)
+                    for part in (cl.geoms if hasattr(cl, "geoms") else [cl]):
+                        if part.geom_type == "LineString" and len(part.coords) >= 2:
+                            tags = {"waterway": sub if sub != "canal" else "canal"}
+                            if nm:
+                                tags["name"] = nm
+                            els.append({"type": "way", "tags": tags, "geometry": _ll(part.coords), "_part": "rivers"})
+            continue
         if g.geom_type not in ("Polygon", "MultiPolygon"):
             continue
         if sub == "ocean":
@@ -161,6 +174,13 @@ def fetch(geo, cache_dir, name):
     # roads
     rows = _rows("transportation", "segment", ["id", "geometry", "subtype", "class", "names", "road_flags", "road_surface", "connectors"], b)
     for r in rows:
+        if r.get("subtype") == "rail":
+            # Railway bridges only: they make land crossings over `--river` (the railway itself is not drawn).
+            g = wkb.loads(r["geometry"])
+            fl = {v for x in (r.get("road_flags") or []) for v in (x.get("values") or [])}
+            if "is_bridge" in fl and g.geom_type == "LineString":
+                els.append({"type": "way", "tags": {"railway": "rail", "bridge": "yes"}, "geometry": _ll(g.coords), "_part": "railbridges"})
+            continue
         if r.get("subtype") != "road" or r.get("class") not in ROAD:
             continue
         g = wkb.loads(r["geometry"])
