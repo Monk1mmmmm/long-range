@@ -93,6 +93,8 @@ pub struct ViewState {
     pub hot: (Option<KeyCode>, usize, f64, DefId),
     /// A run of a factory queue being dragged: (factory id, index of the run).
     pub queue_drag: Option<(u32, usize)>,
+    /// Factory build menu: selected tab (`hud::BUILD_TABS`).
+    pub build_tab: usize,
     /// Terraform mode: how far to raise (+) or lower (-) the ground; 0 levels it.
     pub terra_delta: f32,
     /// Selection of the previous frame, to notice when it changes (selection sounds).
@@ -176,6 +178,7 @@ impl ViewState {
             preset: load_preset(),
             hot: (None, 0, 0.0, DefId::MAX),
             queue_drag: None,
+            build_tab: 0,
             terra_delta: 0.0,
             last_sel: vec![],
             paused: None,

@@ -280,6 +280,14 @@
     "factory_queue_hint": "Left-click: queue (+Shift x5).  Right-click: remove.  Drag the queue strip to reorder.",
     "build_time": "{:.0}s"
   },
+  "hud_tabs": {
+    "troopers": "Troopers",
+    "tanks": "Tanks",
+    "aa": "AA",
+    "radar": "Radar",
+    "engineers": "Engineers",
+    "others": "Others"
+  },
   "hud_orders": {
     "move": "Move",
     "attack_move": "Attack-move",
