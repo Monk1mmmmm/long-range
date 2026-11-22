@@ -3,7 +3,9 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## Unreleased
+## v0.12.1
+
+Replays, a tabbed settings window, settings that survive new versions, and a fix for queued buildings. The simulation changed slightly (queued buildings), so everybody in a multiplayer game needs the same version.
 
 Added
 - Replays: every game is recorded (setting "Save a replay of every game", on by default) to the `replays` folder
