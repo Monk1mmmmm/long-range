@@ -77,6 +77,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("radar_blocked_by_terrain", tx!("preset_rules.switch_radar_blocked_by_terrain"), tx!("preset_rules.switch_radar_blocked_by_terrain_tip")),
     yes("counter_battery", tx!("preset_rules.switch_counter_battery"), tx!("preset_rules.switch_counter_battery_tip")),
     yes("ghosts_show_destroyed", tx!("preset_rules.switch_ghosts_show_destroyed"), tx!("preset_rules.switch_ghosts_show_destroyed_tip")),
+    yes("ai_reclaim", tx!("preset_rules.switch_ai_reclaim"), tx!("preset_rules.switch_ai_reclaim_tip")),
     yes("friendly_fire", tx!("preset_rules.switch_friendly_fire"), tx!("preset_rules.switch_friendly_fire_tip")),
 ];
 
@@ -142,7 +143,7 @@ pub const RULE_TERRAIN: &[Field] = &[
 pub const RULE_POINTS: &[Field] = &[
     num("cp_radius", tx!("preset_rules.points_cp_radius"), 12.0, 500.0, tx!("preset_rules.points_cp_radius_tip")),
     num("cp_capture_secs", tx!("preset_rules.points_cp_capture_secs"), 20.0, 3600.0, tx!("preset_rules.points_cp_capture_secs_tip")),
-    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 1200.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
+    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 10000.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
     num("cp_bleed", tx!("preset_rules.points_cp_bleed"), 1.0, 1000.0, tx!("preset_rules.points_cp_bleed_tip")),
 ];
 

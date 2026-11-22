@@ -35,6 +35,8 @@ pub struct SlotInfo {
     pub faction: u8,
     /// AI slots: `ai::AiKind::id`.
     pub ai: u8,
+    /// Index into `rules.player_colors`.
+    pub color: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -129,6 +131,11 @@ pub enum C2S {
     Faction(u8),
     /// Lobby: the client wants to watch (`true`) or to take an open slot (`false`).
     Observe(bool),
+    /// Lobby: the client wants to move to that (open) slot.
+    Slot(u8),
+    /// Lobby: the client picks its own team / colour.
+    Team(u8),
+    Color(u8),
     /// A command the client applied (in its prediction) at `tick`. `seq` counts up per client.
     Cmd { tick: u32, seq: u32, cmd: Command },
     /// State fingerprint after a confirmed tick, so the host can spot a diverged client.

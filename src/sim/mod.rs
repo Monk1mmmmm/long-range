@@ -1356,6 +1356,8 @@ pub struct PlayerSetup {
     pub team: u8,
     pub is_ai: bool,
     pub slot: usize,
+    /// Index into `rules.player_colors`.
+    pub color: u8,
     pub faction: u8,
 }
 
@@ -1422,7 +1424,7 @@ pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
         game.players.push(Player {
             name: p.name.clone(),
             team: p.team,
-            color: p.slot as u8,
+            color: p.color,
             faction: p.faction,
             is_ai: p.is_ai,
             alive: true,
