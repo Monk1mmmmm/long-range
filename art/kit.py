@@ -239,6 +239,30 @@ def tile_era(size=0.96, brick=(0.24, 0.16), seed=13):
     return t
 
 
+def tile_sandbag(size=0.8, seed=30):
+    """Burlap bags laid in courses: tint per bag, dark seams, lighter tops."""
+    t = Tile(size, 128)
+    t.fill(rgb(160, 140, 98))
+    bw, bh = 0.4, 0.16
+    row = np.floor(t.y / bh)
+    off = (row % 2) * bw / 2
+    tint = _hash(np.floor((t.x + off) / bw).astype(np.int64) % int(round(size / bw)), row.astype(np.int64) % int(round(size / bh)), seed)
+    t.mul(0.84 + 0.24 * tint)
+    gy = t.y % bh
+    t.mul(0.6, (gy < 0.02) | (((t.x + off) % bw) < 0.025))
+    t.mul(1.12, gy > bh * 0.7)
+    t.grime(0.18, 16, seed)
+    return t
+
+
+def tile_dirt(col, size=2.0, seed=31):
+    t = Tile(size)
+    t.fill(col)
+    t.grime(0.35, 6, seed)
+    t.grime(0.2, 48, seed + 1)
+    return t
+
+
 def tile_hazard(size=0.6):
     t = Tile(size, 128)
     m = np.floor((t.x + t.y) / (size / 3)) % 2 == 0
@@ -288,6 +312,9 @@ def tiles():
         "roof_tile": tile_roof(P["roof_tile"]), "roof_slate": tile_roof(P["roof_slate"], seed=25), "roof_tar": tile_tar(P["roof_tar"]),
         "wood": tile_wood(P["wood"]), "barn": tile_wood(P["barn"], seed=26), "track": tile_track(), "era": tile_era(),
         "hazard": tile_hazard(), "vent": tile_vent(), "copper": tile_plain(P["copper"], 1.0), "door": tile_wood(rgb(96, 64, 44), 1.0, seed=27),
+        "sandbag": tile_sandbag(), "dirt": tile_dirt(rgb(104, 84, 60)), "mud": tile_dirt(rgb(70, 56, 42), seed=32),
+        "timber": tile_wood(rgb(110, 84, 58), 1.2, seed=33), "concrete_old": tile_concrete(rgb(150, 150, 140), 3.0, 1.5, seed=34),
+        "red_white": tile_plain(rgb(200, 50, 40), 1.0, 0.08), "rust": tile_dirt(rgb(120, 70, 44), 1.5, seed=35),
         "metal_door": tile_steel(rgb(110, 116, 120), 1.0, (1.0, 0.5), seed=28),
     })
     return TILES

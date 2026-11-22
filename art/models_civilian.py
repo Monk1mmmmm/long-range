@@ -214,3 +214,126 @@ def plant():
     k.windows((2.8, -2.4, 0.8), (0, -1, 0), 1.4, 1.6, 1, 2, win=(0.4, 0.6), sill=0.6)
     k.cyl(0.5, 1.6, (2.8, 0.6, 0), "steel", seg=12, caps={1: "steel_d"})  # tank
     return k
+
+
+@model
+def refinery():
+    """Oil refinery: distillation columns, a furnace block, storage spheres, pipe racks and a flare stack."""
+    from models_defence import lattice
+    k = Kit("refinery")
+    with k.nohit_():
+        k.box((11.9, 11.9, 0.06), (0, 0, 0.03), "concrete")
+    k.box((5.0, 3.0, 2.6), (-2.6, 2.6, 1.3), "brick", faces={"top": "roof_tar"})  # furnace house
+    k.windows((-2.6, 1.1, 1.3), (0, -1, 0), 5.0, 2.6, 1, 5, win=(0.5, 0.8), sill=1.0)
+    for x, r, h in ((-3.8, 0.55, 8.8), (-2.4, 0.45, 7.0), (-1.2, 0.38, 6.0)):
+        k.cyl(r, h, (x, -1.2, 0), "white", seg=14, caps={1: "steel"})
+        for z in range(2, int(h), 2):
+            k.cyl(r + 0.08, 0.1, (x, -1.2, z), "steel_d", seg=14)
+            k.cyl(r + 0.5, 0.05, (x, -1.2, z + 0.02), "steel_d", seg=14) if False else None
+    k.box((3.4, 0.5, 0.1), (-2.4, -1.2, 4.0), "steel_d")  # walkway between columns
+    for x, y in ((2.6, 2.8), (2.6, -0.6)):
+        k.sphere(1.3, (x, y, 2.2), "white", seg=16, rings=8)
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                k.box((0.14, 0.14, 1.6), (x + sx * 0.8, y + sy * 0.8, 0.8), "steel_d")
+    k.box((10.0, 0.6, 0.12), (0, -3.6, 2.4), "steel_d")  # pipe rack
+    for x in (-4.5, -1.5, 1.5, 4.5):
+        k.box((0.14, 0.6, 2.4), (x, -3.6, 1.2), "steel_d")
+    for dy in (-0.15, 0.15):
+        k.cyl(0.12, 10.0, (-5.0, -3.6 + dy, 2.6), "steel", axis="x", seg=8)
+    lattice(k, 4.6, -4.4, 0.8, 0.3, 0, 6.0, mat="steel_d")
+    k.cyl(0.14, 6.6, (4.6, -4.4, 0), "rust", seg=8, caps={1: "black"})
+    k.cyl(0.25, 0.3, (4.6, -4.4, 6.6), "yellow", seg=8)
+    return k
+
+
+@model
+def fuel_tank():
+    """Fuel storage tank with a spiral-less stair, a bund wall and a pump."""
+    k = Kit("fuel_tank")
+    with k.nohit_():
+        k.box((3.9, 3.9, 0.08), (0, 0, 0.04), "concrete")
+    for s in (-1, 1):
+        k.box((3.8, 0.12, 0.35), (0, s * 1.85, 0.2), "concrete_d")
+        k.box((0.12, 3.8, 0.35), (s * 1.85, 0, 0.2), "concrete_d")
+    k.cyl(1.4, 2.6, (0, 0.2, 0.08), "white", seg=20, caps={1: "steel"})
+    k.cyl(1.42, 0.3, (0, 0.2, 1.9), "red", seg=20)
+    k.cyl(1.42, 0.12, (0, 0.2, 2.68), "steel", seg=20, r2=0.6)
+    for i in range(9):  # stair on the front
+        k.box((0.3, 0.06, 0.04), (-0.9 + i * 0.12, -1.25 + i * 0.03, 0.3 + i * 0.28), "steel_d")
+    k.box((0.04, 0.04, 2.7), (-0.75, -1.3, 1.4), "yellow")
+    k.box((0.5, 0.4, 0.4), (1.3, -1.4, 0.28), "steel", faces={"top": "vent"})
+    k.cyl(0.08, 1.0, (0.8, -1.2, 0.35), "gun", axis="x", seg=6)
+    return k
+
+
+@model
+def pylon():
+    """Power line pylon: a tapering steel lattice with two cross arms and hanging insulators."""
+    from models_defence import lattice
+    k = Kit("pylon")
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            k.box((0.4, 0.4, 0.3), (sx * 0.9, sy * 0.25, 0.15), "concrete")
+    lattice(k, 0, 0, 1.8, 0.4, 0.3, 8.6, mat="steel_d", step=1.2, leg=0.06, brace=0.025)
+    for z, w in ((7.8, 3.8), (6.4, 2.6)):
+        k.box((w, 0.3, 0.16), (0, 0, z), "steel_d")
+        for s in (-1, 1):
+            for j in range(4):
+                k.cyl(0.07, 0.05, (s * (w / 2 - 0.1), 0, z - 0.15 - j * 0.1), "glass", seg=8)
+    return k
+
+
+@model
+def comm_tower():
+    """Communications mast: a red and white lattice with dishes, a rotating antenna and an equipment hut."""
+    from models_defence import lattice, dish
+    k = Kit("comm_tower")
+    with k.nohit_():
+        k.box((3.9, 3.9, 0.06), (0, 0, 0.03), "concrete")
+    k.box((2.2, 1.6, 1.4), (0, 1.0, 0.7), "plaster_w", faces={"top": "roof_tar"})
+    k.door((0, 0.2, 0.0), (0, -1, 0), 0.6, 1.0, "metal_door")
+    for i in range(5):
+        z0 = i * 2.0
+        lattice(k, 0, -0.6, 1.4 - i * 0.2, 1.2 - i * 0.2, z0, z0 + 2.0, mat="red_white" if i % 2 == 0 else "white", step=1.0, leg=0.05, brace=0.025)
+    for z, a in ((6.0, 0), (7.5, 120)):
+        k.cyl(0.35, 0.12, (0.4 * math.cos(math.radians(a)), -0.6 + 0.4 * math.sin(math.radians(a)), z), "white", axis="-y", seg=12)
+    k.cyl(0.04, 1.5, (0, -0.6, 10.0), "white", seg=6)
+    k.cyl(0.06, 0.1, (0, -0.6, 11.5), "red", seg=6)
+    dish(k, "Radar", (0, -0.6, 10.2), 1.6, 0.5)
+    return k
+
+
+@model
+def water_tower():
+    """Water tower of the Rozhnovsky kind: a brick shaft with a riveted steel tank on top."""
+    k = Kit("water_tower")
+    k.cyl(0.85, 4.4, (0, 0, 0), "brick", seg=14, r2=0.75)
+    k.cyl(0.95, 0.3, (0, 0, 0), "concrete_d", seg=14)
+    k.door((0, -0.82, 0.1), (0, -1, 0), 0.5, 1.0, "metal_door")
+    for z in (1.6, 3.0):
+        k.box((0.04, 0.3, 0.5), (0.0, -0.8, z), "glass", rot=(0, 0, 0))
+    k.cyl(0.9, 0.3, (0, 0, 4.4), "concrete", seg=14, r2=1.4)
+    k.cyl(1.5, 2.0, (0, 0, 4.7), "steel", seg=18, caps={1: "steel_d"})
+    for z in (5.2, 5.9, 6.5):
+        k.cyl(1.52, 0.06, (0, 0, z), "steel_d", seg=18)
+    k.cyl(1.55, 0.5, (0, 0, 6.7), "steel_d", seg=18, r2=0.2)
+    k.box((0.03, 0.03, 2.6), (1.5, 0, 5.8), "gun")
+    return k
+
+
+@model
+def bunker():
+    """Old concrete pillbox with a wide firing slit and an entrance at the back."""
+    k = Kit("bunker")
+    k.box((3.5, 3.5, 1.3), (0, 0, 0.65), "concrete_old", faces={"top": "dirt"}, bevel=0.15, taper=(0.9, 0.9))
+    k.box((3.7, 3.7, 0.3), (0, 0, 1.4), "concrete_old", faces={"top": "dirt"}, bevel=0.1)
+    k.box((1.8, 0.1, 0.3), (0, -1.66, 1.0), "black")
+    for s in (-1, 1):
+        k.box((0.1, 1.0, 0.25), (s * 1.66, -0.3, 1.0), "black")
+    k.box((0.8, 0.4, 1.0), (0, 1.9, 0.5), "concrete_old")
+    k.box((0.6, 0.04, 0.9), (0, 2.1, 0.45), "black")
+    for i in range(5):
+        k.box((0.5, 0.4, 0.25), (-1.4 + i * 0.7, -2.0, 0.14), "sandbag", bevel=0.06)
+    k.box((1.0, 1.2, 0.3), (0.5, 0.2, 1.7), "grass" if False else "dirt", bevel=0.1, taper=(0.5, 0.5))
+    return k

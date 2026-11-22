@@ -21,7 +21,7 @@ from mathutils import Vector  # noqa: E402
 import kit  # noqa: E402
 
 MODELS = {}
-for mod in ("models_buildings", "models_vehicles", "models_air", "models_civilian", "models_variants"):
+for mod in ("models_buildings", "models_defence", "models_vehicles", "models_air", "models_civilian", "models_variants"):
     try:
         m = __import__(mod)
     except ModuleNotFoundError as e:
