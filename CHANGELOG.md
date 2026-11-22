@@ -3,6 +3,16 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+Changed
+- Game data presets you make or keep from a host's game, and premade maps downloaded from a host, are stored in the user
+  folder next to `settings.json` (`presets`, `maps`), so a new version keeps them. Presets shipped with the game stay in `assets`.
+- A damaged `settings.json`, or one setting of a type another version changed, no longer resets every setting: only that
+  one is dropped. Settings are written through a side file so a crash cannot leave half a file.
+- Release bundles contain `uninstall.sh` (Linux) / `uninstall.bat` (Windows): they delete the user folder (settings,
+  replays, presets, downloaded maps) after asking and say which game folder to delete.
+
 ## v0.12.1
 
 Replays, a tabbed settings window, settings that survive new versions, and a fix for queued buildings. The simulation changed slightly (queued buildings), so everybody in a multiplayer game needs the same version.

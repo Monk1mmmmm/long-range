@@ -97,7 +97,7 @@ impl Settings {
     /// version from before the user folder left next to `assets` (that file is not touched, so
     /// an older version keeps working) and saves it in the user folder.
     pub fn load() -> Settings {
-        let read = |p: std::path::PathBuf| std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Settings>(&t).ok());
+        let read = |p: std::path::PathBuf| std::fs::read_to_string(p).ok().and_then(|t| Self::parse(&t));
         if let Some(s) = read(Self::path()) {
             return s;
         }
@@ -110,8 +110,33 @@ impl Settings {
         }
         Settings::default()
     }
+    /// Reads settings text. A value that does not fit its field (a setting that changed its type in a
+    /// newer version) or a damaged file only loses that one setting; everything else is kept.
+    pub fn parse(text: &str) -> Option<Settings> {
+        if let Ok(s) = serde_json::from_str::<Settings>(text) {
+            return Some(s);
+        }
+        let serde_json::Value::Object(file) = serde_json::from_str::<serde_json::Value>(text).ok()? else { return None };
+        let serde_json::Value::Object(mut merged) = serde_json::to_value(Settings::default()).ok()? else { return None };
+        for (k, v) in file {
+            let old = merged.insert(k.clone(), v);
+            if serde_json::from_value::<Settings>(serde_json::Value::Object(merged.clone())).is_err() {
+                match old {
+                    Some(o) => merged.insert(k, o),
+                    None => merged.remove(&k),
+                };
+            }
+        }
+        serde_json::from_value(serde_json::Value::Object(merged)).ok()
+    }
     pub fn save(&self) {
-        let _ = std::fs::write(Self::path(), serde_json::to_string_pretty(self).unwrap_or_default());
+        let path = Self::path();
+        let tmp = path.with_extension("json.tmp");
+        // Written to a side file first so a crash never leaves half a settings file behind.
+        let text = serde_json::to_string_pretty(self).unwrap_or_default();
+        if let Err(e) = std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, &path)) {
+            eprintln!("Cannot save the settings to {}: {e}", path.display());
+        }
     }
     /// The backend that will actually be requested, after environment overrides and "auto".
     pub fn effective_backend(&self) -> String {
@@ -712,3 +737,16 @@ pub fn adapter_line(world: &World) -> String {
 /// The settings the program was started with (to tell whether a restart is needed).
 #[derive(Resource, Clone)]
 pub struct StartSettings(pub Settings);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A setting of the wrong type or an unknown one costs only itself.
+    #[test]
+    fn lenient_parse_keeps_the_rest() {
+        let s = Settings::parse(r#"{"shadows": 1, "vsync": "yes", "future_option": 3, "sfx_volume": 0.25, "name": "Ann"}"#).unwrap();
+        assert_eq!((s.shadows, s.vsync, s.sfx_volume, s.name.as_str()), (1, true, 0.25, "Ann"));
+        assert!(Settings::parse("not json").is_none());
+    }
+}

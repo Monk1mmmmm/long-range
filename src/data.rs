@@ -1036,9 +1036,26 @@ pub struct DataPack {
     pub files: Vec<(String, Vec<u8>)>,
 }
 
-/// Folder below `assets/data` that holds the presets, one sub-folder each.
+/// Folder below `assets/data` that holds the presets shipped with the game, one sub-folder each.
 pub fn presets_dir(root: &Path) -> PathBuf {
     root.join("data/presets")
+}
+
+/// The player's own presets (made in the preset editor, or kept from a host's game), in the user
+/// folder so they survive a new version. A preset here hides a shipped one of the same name.
+pub fn user_presets_dir() -> PathBuf {
+    crate::settings::base_dir().join("presets")
+}
+
+/// The player's own maps (premade maps kept from a host's game), in the user folder.
+pub fn user_maps_dir() -> PathBuf {
+    crate::settings::base_dir().join("maps")
+}
+
+/// Folder of a premade map: the player's own copy if there is one, else the one shipped in `assets/maps`.
+pub fn map_dir(name: &str) -> PathBuf {
+    let own = user_maps_dir().join(name);
+    if own.join("map.json").exists() { own } else { asset_root().join("maps").join(name) }
 }
 
 /// A name that is safe as a folder name.
@@ -1087,26 +1104,36 @@ impl DataPack {
         if name.is_empty() {
             DataPack::builtin(root)
         } else {
-            DataPack::read(&presets_dir(root).join(name), name)
+            let own = user_presets_dir().join(name);
+            DataPack::read(&if own.join("rules.json").exists() { own } else { presets_dir(root).join(name) }, name)
         }
     }
 
-    /// Names of the presets on disk.
+    /// Whether a preset of that name exists, the player's own or a shipped one.
+    pub fn exists(root: &Path, name: &str) -> bool {
+        user_presets_dir().join(name).join("rules.json").exists() || presets_dir(root).join(name).join("rules.json").exists()
+    }
+
+    /// Names of the presets on disk (the player's own and the shipped ones).
     pub fn list(root: &Path) -> Vec<String> {
-        let mut out: Vec<String> = std::fs::read_dir(presets_dir(root))
-            .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.path().join("rules.json").exists()).filter_map(|e| e.file_name().into_string().ok()).collect())
-            .unwrap_or_default();
+        let mut out: Vec<String> = vec![];
+        for dir in [user_presets_dir(), presets_dir(root)] {
+            if let Ok(rd) = std::fs::read_dir(dir) {
+                out.extend(rd.filter_map(|e| e.ok()).filter(|e| e.path().join("rules.json").exists()).filter_map(|e| e.file_name().into_string().ok()));
+            }
+        }
         out.sort();
+        out.dedup();
         out
     }
 
-    /// Writes the pack as preset `self.name` (replacing what is there).
-    pub fn save(&self, root: &Path) -> Result<(), String> {
+    /// Writes the pack as preset `self.name` in the user folder (replacing what is there).
+    pub fn save(&self) -> Result<(), String> {
         let name = clean_name(&self.name);
         if name.is_empty() {
             return Err("A preset needs a name (letters, digits, spaces, - and _).".into());
         }
-        let dir = presets_dir(root).join(&name);
+        let dir = user_presets_dir().join(&name);
         let fdir = dir.join("factions");
         std::fs::create_dir_all(&fdir).map_err(|e| format!("{}: {e}", fdir.display()))?;
         std::fs::write(dir.join("rules.json"), &self.rules).map_err(|e| e.to_string())?;
@@ -1133,7 +1160,10 @@ impl DataPack {
         if name.is_empty() {
             return Err("The built-in data cannot be deleted.".into());
         }
-        std::fs::remove_dir_all(presets_dir(root).join(name)).map_err(|e| e.to_string())
+        // The player's own copy goes first (a shipped preset of that name shows again); a shipped one can be deleted too.
+        let own = user_presets_dir().join(&name);
+        let dir = if own.exists() { own } else { presets_dir(root).join(&name) };
+        std::fs::remove_dir_all(dir).map_err(|e| e.to_string())
     }
 
     /// Adds the asset files this data needs that `standard` (the built-in data) does not refer to,
