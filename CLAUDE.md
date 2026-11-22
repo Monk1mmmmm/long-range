@@ -402,7 +402,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `Effects.seize`; `apply_capture` adds `DT / rules.infantry_capture_secs` (20) per man, free of energy, but nothing
   while an armed finished mobile unit of the building's side is within `rules.infantry_capture_guard` (15,
   `systems::guarded`). With infantry and other units selected, the infantry capture and the rest attack. The zone AI
-  sends up to 4 infantry within 40 at a known unguarded enemy building. `--combattest` infantry "Infantry capture" lines.
+  sends up to 4 infantry within 40 at a known unguarded enemy building. **No order needed**: idle infantry, and infantry
+  on Move, AttackMove or Patrol (not engaged), take the nearest unguarded `seizable` building within
+  `rules.infantry_capture_reach` (12; `systems::seize_target`, in `think`) - they walk up to it and capture, then go on
+  with the order. Garrisons (houses, bunker), factories and field works (trenches) are never taken this way, so they keep
+  their own behaviour (entered, stormed, cover). `--combattest` infantry "Infantry capture" lines (ordered, idle, moving,
+  attack-moving, garrison/factory refused).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/

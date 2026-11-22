@@ -821,12 +821,32 @@ fn think(
                     work = best.map_or(0, |b| b.1);
                 }
                 if infantry {
-                    in_cover = true;
-                    goal = cover(&mut mover, None, defs.rules.cover_search);
+                    // Standing near a building it may take, infantry take it without being told.
+                    let auto = if game.infantry_capture { seize_target(&census, &defs, team, pos) } else { None };
+                    if let Some(t) = auto {
+                        if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
+                            goal = Some(t.pos);
+                        } else {
+                            effects.seize.push((t.id, owner));
+                            work = t.id;
+                        }
+                    } else {
+                        in_cover = true;
+                        goal = cover(&mut mover, None, defs.rules.cover_search);
+                    }
                 }
             }
             Some(Order::Move(p)) => {
-                if is_struct || pos.dist(p) <= arrive {
+                // Infantry passing a building they may take stop and take it, then walk on.
+                let auto = if infantry && game.infantry_capture && pos.dist(p) > arrive { seize_target(&census, &defs, team, pos) } else { None };
+                if let Some(t) = auto {
+                    if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
+                        goal = Some(t.pos);
+                    } else {
+                        effects.seize.push((t.id, owner));
+                        work = t.id;
+                    }
+                } else if is_struct || pos.dist(p) <= arrive {
                     pop = true;
                     if let Some(m) = mover.as_mut() {
                         m.anchor = p;
@@ -853,6 +873,18 @@ fn think(
                         engaged = true;
                     }
                 }
+                // A building infantry can take is not a fight: they walk up to it instead of
+                // stopping to shoot it down. Anything else in range is.
+                if engaged && infantry && game.infantry_capture {
+                    if let Some(w) = w0 {
+                        let mut foe = false;
+                        census.near(pos, w.range * 0.95, |c| {
+                            let takeable = c.structure && can_seize(&defs, team, c) && !guarded(&census, &defs, c);
+                            foe |= !takeable && census.valid_target(c, team, w.hits_land, w.hits_air);
+                        });
+                        engaged = foe;
+                    }
+                }
                 if is_struct {
                     pop = true;
                 } else if engaged && infantry {
@@ -860,7 +892,16 @@ fn think(
                     in_cover = true;
                     goal = cover(&mut mover, Some(pos), defs.rules.cover_search * 0.6);
                 } else if !engaged {
-                    if pos.dist(p) <= arrive.max(1.5) {
+                    // Passing a building it may take, infantry take it on the way.
+                    let auto = if infantry && game.infantry_capture { seize_target(&census, &defs, team, pos) } else { None };
+                    if let Some(t) = auto {
+                        if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
+                            goal = Some(t.pos);
+                        } else {
+                            effects.seize.push((t.id, owner));
+                            work = t.id;
+                        }
+                    } else if pos.dist(p) <= arrive.max(1.5) {
                         pop = true;
                         if let Some(m) = mover.as_mut() {
                             m.anchor = p;
@@ -1064,7 +1105,7 @@ fn think(
             },
             // Infantry capture (lobby option): walk up to it and take it while nobody guards it.
             Some(Order::Capture(tid)) if !df.is_engineer() => match census.get(tid) {
-                Some(t) if infantry && game.infantry_capture && t.hp > 0.0 && t.done && !t.hosted && t.team != team && t.known_to(team) && seizable(defs.get(t.def)) => {
+                Some(t) if infantry && game.infantry_capture && can_seize(&defs, team, t) => {
                     if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
                         goal = Some(t.pos);
                     } else if !guarded(&census, &defs, t) {
@@ -3241,6 +3282,33 @@ fn apply_reclaim(
             commands.entity(e).despawn();
         }
     }
+}
+
+/// `t` is a building infantry of `team` may take over right now: finished, standing, known, not
+/// theirs and `seizable` (never garrisons, factories or field works). Guarded ones can be
+/// walked up to and waited at, but not taken.
+fn can_seize(defs: &Defs, team: u8, t: &Cen) -> bool {
+    t.hp > 0.0 && t.done && !t.hosted && t.team != team && t.known_to(team) && seizable(defs.get(t.def))
+}
+
+/// The nearest building within `infantry_capture_reach` that infantry of `team` standing at `pos`
+/// take over by themselves (lowest id among equals).
+fn seize_target(census: &Census, defs: &Defs, team: u8, pos: V2) -> Option<Cen> {
+    let r = defs.rules.infantry_capture_reach;
+    let mut best: Option<(f32, Cen)> = None;
+    census.near(pos, r + 8.0, |t| {
+        if !t.structure || !can_seize(defs, team, t) || guarded(census, defs, t) {
+            return;
+        }
+        let d = pos.dist(t.pos);
+        if d > r + t.radius {
+            return;
+        }
+        if best.as_ref().map_or(true, |b| d < b.0 || (d == b.0 && t.id < b.1.id)) {
+            best = Some((d, *t));
+        }
+    });
+    best.map(|b| b.1)
 }
 
 /// An armed, finished mobile unit of `t`'s side stands within `infantry_capture_guard` of it:

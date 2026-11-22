@@ -91,6 +91,7 @@ pub const RULE_ECONOMY: &[Field] = &[
     num("capture_energy", tx!("preset_rules.eco_capture_energy"), 0.3, 10.0, tx!("preset_rules.eco_capture_energy_tip")),
     num("infantry_capture_secs", tx!("preset_rules.eco_infantry_capture_secs"), 20.0, 1000.0, tx!("preset_rules.eco_infantry_capture_secs_tip")),
     num("infantry_capture_guard", tx!("preset_rules.eco_infantry_capture_guard"), 15.0, 1000.0, tx!("preset_rules.eco_infantry_capture_guard_tip")),
+    num("infantry_capture_reach", tx!("preset_rules.eco_infantry_capture_reach"), 12.0, 1000.0, tx!("preset_rules.eco_infantry_capture_reach_tip")),
 ];
 
 pub const RULE_COMBAT: &[Field] = &[

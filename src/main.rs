@@ -3900,8 +3900,25 @@ fn infantry_tests(defs: &Defs) {
     }
 
     // 3b2. Infantry capture (lobby option, Cossacks style): troopers take an enemy building over
-    // while no armed enemy stands near it; never a factory, and nothing with the option off.
-    for (target, on, guard, want) in [("radar_tower", false, false, false), ("radar_tower", true, false, true), ("land_factory", true, false, false), ("radar_tower", true, true, false)] {
+    // while no armed enemy stands near it; never a factory or a garrison (house, bunker: those are
+    // stormed or entered), and nothing with the option off. No order is needed: idle troopers and
+    // troopers on a plain move or attack-move take what they stand near (`how`: 0 Capture order, 1 idle,
+    // 2 move past it, 3 attack-move past it).
+    for (target, on, guard, how, want) in [
+        ("radar_tower", false, false, 0, false),
+        ("radar_tower", true, false, 0, true),
+        ("land_factory", true, false, 0, false),
+        ("radar_tower", true, true, 0, false),
+        ("radar_tower", true, false, 1, true),
+        ("radar_tower", false, false, 1, false),
+        ("radar_tower", true, true, 1, false),
+        ("radar_tower", true, false, 2, true),
+        ("radar_tower", true, false, 3, true),
+        ("land_factory", true, false, 1, false),
+        ("house", true, false, 1, false),
+        ("bunker", true, false, 1, false),
+        ("bunker", true, false, 2, false),
+    ] {
         let (mut app, map) = world_with(&[]);
         let world = app.world_mut();
         world.resource_mut::<Game>().infantry_capture = on;
@@ -3909,8 +3926,14 @@ fn infantry_tests(defs: &Defs) {
         if guard {
             spawn(world, &map, "overtaker", 1, v2(136.0, 129.0), 3.14);
         }
-        let men: Vec<u32> = (0..3).map(|k| spawn(world, &map, "trooper", 0, v2(110.0, 127.0 + k as f32 * 1.5), 0.0)).collect();
-        order(world, 0, men.clone(), Order::Capture(b));
+        let x0 = if how == 1 { 119.0 } else { 110.0 };
+        let men: Vec<u32> = (0..3).map(|k| spawn(world, &map, "trooper", 0, v2(x0, 127.0 + k as f32 * 1.5), 0.0)).collect();
+        match how {
+            0 => order(world, 0, men.clone(), Order::Capture(b)),
+            2 => order(world, 0, men.clone(), Order::Move(v2(160.0, 129.0))),
+            3 => order(world, 0, men.clone(), Order::AttackMove(v2(160.0, 129.0))),
+            _ => {}
+        }
         let mut done_at = None;
         for t in 0..400 {
             world.run_schedule(SimTick);
@@ -3920,9 +3943,10 @@ fn infantry_tests(defs: &Defs) {
         }
         let alive = men.iter().filter(|id| body(world, **id).is_some()).count();
         println!(
-            "== Infantry capture ({}{}): 3 troopers on a {target}: owner {:?} after {:?} s, {alive} troopers left",
+            "== Infantry capture ({}{}, {}): 3 troopers on a {target}: owner {:?} after {:?} s, {alive} troopers left",
             if on { "on" } else { "off" },
             if guard { ", guarded by an Overtaker" } else { "" },
+            ["ordered", "idle", "moving", "attack-moving"][how],
             owner_of(world, b),
             done_at.map(|t| (t + 1) as f32 / 10.0)
         );
