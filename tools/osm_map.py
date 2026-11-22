@@ -6,6 +6,7 @@
     options: [--cells 384] [--players 4] [--relief 0.85] [--starts "x,z;x,z;..."] [--seed 1]
              [--title "Shown name"] [--max-props 700] [--village 0.45]
              [--river "River name" --river-width 5,7]
+             [--source overpass|overture] [--sea] [--drop-bridges S,W,N,E] [--drop-names REGEX]
 
 The rectangle is given in degrees (copy it from openstreetmap.org: Export shows the box of the view,
 or right-click > "Show address" for a point). Game maps are square, so a rectangle is widened on its
@@ -30,7 +31,15 @@ slopes. Start positions are picked in open, flat ground (or given in world units
 levelled, and get deposits at the same offsets relative to the map centre, so the expansions are
 roughly fair even though the land is not.
 
-Map data (c) OpenStreetMap contributors (ODbL); elevation: Mapzen / AWS Terrain Tiles.
+--source overture reads Overture Maps (tools/overture_src.py; a public S3 bucket, built from OpenStreetMap and
+other open data) instead of the Overpass API: use it when the Overpass servers are down or not reachable.
+--sea makes a coast: the sea is the data's ocean polygon at the map's water level (0 m), with a sloping sea
+bed (shallows a land unit cannot enter, deep water nobody can), and the land is never below it.
+Maps of the past: the data is the present day, so --drop-bridges S,W,N,E removes the road bridges (and the
+ramps that led to them) inside a rectangle and --drop-names REGEX roads by name (Overture source only).
+
+Map data (c) OpenStreetMap contributors (ODbL), Overture Maps Foundation (CDLA-Permissive-2.0 / ODbL);
+elevation: Mapzen / AWS Terrain Tiles.
 """
 import argparse
 import io
@@ -430,7 +439,18 @@ def main():
     ap.add_argument("--no-lakes", action="store_true", help="leave lakes and ponds dry (mud), as before the game had lakes")
     ap.add_argument("--lake-min", type=float, default=60.0, help="smallest lake kept, in square world units")
     ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
+    ap.add_argument("--cp-town", type=float, default=0.6, help="share of the control points placed in the towns (the densest places), the rest around them")
+    ap.add_argument("--cp-area", default="", help="S,W,N,E in degrees: control points only inside this rectangle (e.g. the city of a map that also shows its surroundings)")
+    ap.add_argument("--dep-area", default="", help="S,W,N,E in degrees: resource deposits only inside this rectangle (the part of the map that is played over)")
+    ap.add_argument("--outpost", default="", help="LAT,LON of the hostile hilltop outpost (default: the highest open hilltop)")
+    ap.add_argument("--source", choices=("overpass", "overture"), default="overpass", help="where the map features come from")
+    ap.add_argument("--sea", action="store_true", help="a coast: the ocean polygon becomes the sea at 0 m (needs --source overture)")
+    ap.add_argument("--sea-height", type=float, default=6.0, help="water level in world units (the sea bed goes down from it)")
+    ap.add_argument("--drop-bridges", default="", help="S,W,N,E: leave out road bridges and their ramps inside this rectangle (a map of the past)")
+    ap.add_argument("--drop-names", default="", help="regex: leave out roads whose name matches (a map of the past)")
     a = ap.parse_args()
+    if a.sea and a.source != "overture":
+        sys.exit("--sea needs --source overture (the ocean polygon)")
 
     n = a.cells
     world = n * CELL
@@ -453,8 +473,15 @@ def main():
     heights = (elev - elev.min()) * geo.upm * a.relief + 1.0
 
     # OSM layers.
-    els = overpass(geo, a.name, river=bool(a.river))
+    if a.source == "overture":
+        import overture_src
+        els = overture_src.fetch(geo, CACHE, a.name)
+        drop = tuple(map(float, a.drop_bridges.split(","))) if a.drop_bridges else None
+        els = overture_src.drop_future(els, a.drop_names or None, drop)
+    else:
+        els = overpass(geo, a.name, river=bool(a.river))
     ras = Raster(world)
+    sea_polys = []
     buildings, points, roads, lake_polys = [], [], [], []
     river_ways, bridge_ways = [], []
     for el in els:
@@ -468,6 +495,11 @@ def main():
             continue
         if el["type"] == "node":
             points.append((t, geo.to_world(el["lat"], el["lon"])))
+            continue
+        if "_sea" in t:
+            outer, inner = shapes(el, geo)
+            sea_polys.append((outer, inner))
+            ras.poly("water", outer, inner)
             continue
         if "highway" in t and el["type"] == "way" and "geometry" in el and "building" not in t:
             if t.get("tunnel") not in (None, "no") or t.get("area") == "yes":
@@ -520,6 +552,46 @@ def main():
         elif nat == "glacier":
             ras.poly("snow", outer, inner)
     print(f"{len(buildings)} buildings, {len(points)} points of interest, {len(roads)} roads")
+
+    # ---------------------------------------------------------------- the sea (--sea)
+    # Land never lies below the water level; the sea bed slopes down from the shore, 0.95 per ring of
+    # vertices (a land unit cannot enter any cell with water over it; amphibious ones wade the shallows,
+    # `map::AMPHIBIOUS_DEPTH`), to about 7 units deep.
+    sea_level, sea_mask = None, None
+    if a.sea:
+        side = n + 1
+        SS = 4
+        im = Image.new("L", (side * SS, side * SS), 0)
+        dr = ImageDraw.Draw(im)
+        for outer, inner in sea_polys:
+            for r_ in outer:
+                if len(r_) >= 3:
+                    dr.polygon([(x / CELL * SS + SS / 2, z / CELL * SS + SS / 2) for x, z in r_], fill=255)
+            for r_ in inner:
+                if len(r_) >= 3:
+                    dr.polygon([(x / CELL * SS + SS / 2, z / CELL * SS + SS / 2) for x, z in r_], fill=0)
+        sea_mask = np.asarray(im)[SS // 2::SS, SS // 2::SS][:side, :side] > 127
+        sea_level = a.sea_height
+        land_h = np.maximum(elev, 0.0) * geo.upm * a.relief
+        depth, core = np.zeros((side, side)), sea_mask.copy()
+        for k in range(9):
+            depth += core * (0.5 if k == 0 else 0.95)
+            g_ = core.copy()
+            g_[1:, :] &= core[:-1, :]
+            g_[:-1, :] &= core[1:, :]
+            g_[:, 1:] &= core[:, :-1]
+            g_[:, :-1] &= core[:, 1:]
+            core = g_
+            if not core.any():
+                break
+        heights = np.where(sea_mask, sea_level - depth, sea_level + 0.35 + land_h)
+        print(f"sea: {sea_mask.mean() * 100:.0f}% of the map, land {elev[~sea_mask].min():.0f}..{elev[~sea_mask].max():.0f} m")
+
+    def sea_at(x, z):
+        if sea_mask is None:
+            return False
+        i, j = int(round(x / CELL)), int(round(z / CELL))
+        return 0 <= i < sea_mask.shape[1] and 0 <= j < sea_mask.shape[0] and bool(sea_mask[j, i])
     # Roads cut to the map (with a little overhang, so they run off the edge), points thinned to
     # about one per 1.5 units; a road leaving and re-entering the map becomes two.
     # Town or village: built-up share over ~350 m. Towns keep every building that fits (dense
@@ -546,7 +618,7 @@ def main():
             main_road = 1
         cur = []
         for x, z in pts:
-            inside = -8 < x < world + 8 and -8 < z < world + 8
+            inside = -8 < x < world + 8 and -8 < z < world + 8 and not sea_at(x, z)
             if inside:
                 if not cur or math.hypot(x - cur[-1][0], z - cur[-1][1]) >= 1.5:
                     cur.append((x, z))
@@ -587,7 +659,7 @@ def main():
     # and hills keep their height above the valley floor. The bed is then dug under the water,
     # except where a real road or railway bridge (or a culvert) crosses: the ground stays there as a
     # land bridge.
-    water_level, bridges = None, []
+    water_level, bridges = sea_level, []
     if a.river:
         def sample(grid, x, z):
             fx = np.clip(np.asarray(x, float) / CELL, 0, n - 0.001)
@@ -702,10 +774,14 @@ def main():
         pi, pj = (gx * rs).astype(int), (gz * rs).astype(int)
         town_c = dens_big[pj, pi]
         cost = open_[pj, pi] * 3.0 + slope_b[(gz / CELL).astype(int), (gx / CELL).astype(int)] * 4.0 + np.maximum(town_c - 0.02, 0) * 30.0
+        if sea_mask is not None:
+            # A coast: no base in the water or at the shore.
+            near_sea = blur(water, int(20 * rs))[pj, pi]
+            cost = cost + near_sea * 40.0
         k = a.players
         ok = np.zeros(len(gx), bool)
         for town_max, share in ((0.05, 0.5), (0.07, 0.6), (0.11, 0.75), (9.0, 1.0)):
-            out_of_town = town_c < town_max
+            out_of_town = (town_c < town_max) & ((blur(water, int(20 * rs))[pj, pi] < 0.02) if sea_mask is not None else True)
             if out_of_town.sum() >= k * 8:
                 ok = out_of_town & (cost <= np.quantile(cost[out_of_town], share))
                 # Enough room for everyone at a fair distance?
@@ -957,8 +1033,13 @@ def main():
 
     # Hostile outpost on the highest open hilltop (the best lookout on the map).
     hi = None
+    if a.outpost:
+        ox, oz = geo.to_world(*map(float, a.outpost.split(",")))
+        hi = (0.0, ox, oz)
     for j in range(20, n - 20, 2):
         for i in range(20, n - 20, 2):
+            if a.outpost:
+                break
             x, z = (i + 0.5) * CELL, (j + 0.5) * CELL
             if any(math.hypot(x - sx, z - sz) < 140 for sx, sz in starts):
                 continue
@@ -979,6 +1060,11 @@ def main():
         i, j = int(x / CELL), int(z / CELL)
         if not (2 <= i < n - 2 and 2 <= j < n - 2) or occ[j - 1:j + 2, i - 1:i + 2].any():
             return False
+        if a.dep_area:
+            la_, lo_ = geo.to_latlon(x, z)
+            s_, w_, n_, e_ = map(float, a.dep_area.split(","))
+            if not (s_ <= la_ <= n_ and w_ <= lo_ <= e_):
+                return False
         return all(math.hypot(x - d[0], z - d[1]) >= keep for d in deposits)
 
     def add_dep(x, z, search=14.0, keep=7.0):
@@ -1029,6 +1115,11 @@ def main():
                 pj_, pi_ = int(z * rs), int(x * rs)
                 if blocked[j, i] or wcell[pj_, pi_] or not (on_main[pj_, pi_] or on_street[pj_, pi_]):
                     continue
+                if a.cp_area:
+                    la_, lo_ = geo.to_latlon(x, z)
+                    s_, w_, n_, e_ = map(float, a.cp_area.split(","))
+                    if not (s_ <= la_ <= n_ and w_ <= lo_ <= e_):
+                        continue
                 if lake_cells_early[j - 1:j + 2, i - 1:i + 2].any() or min(math.hypot(x - sx, z - sz) for sx, sz in starts) < max(90.0, spacing):
                     continue
                 cand.append((x, z, float(dens_big[pj_, pi_]), bool(on_main[pj_, pi_])))
@@ -1038,7 +1129,7 @@ def main():
 
         # In the towns: the densest places, main roads first, well apart.
         for x, z, t_, main_ in sorted(cand, key=lambda q_: -(q_[2] + 0.02 * q_[3])):
-            if len(cp) >= math.ceil(want * 0.6) or t_ < 0.07:
+            if len(cp) >= math.ceil(want * a.cp_town) or t_ < 0.07:
                 break
             if far(x, z, cp) >= spacing:
                 cp.append((x, z))
