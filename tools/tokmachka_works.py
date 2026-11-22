@@ -3,7 +3,7 @@
 
 Run after tools/osm_map.py tokmachka --center 47.48,35.915 --km 17 --cells 384 --players 4 --source overture --no-lakes
 (see tools/README.md). The lines were traced by eye from a DeepState map picture (pixels of that picture, georeferenced
-by the village labels) and are hostile (owner 1) trench pieces, sandbags at the ends and bunkers at the strongpoints.
+by the village labels) and are neutral (owner 0) trench pieces, sandbags at the ends and bunkers at the strongpoints.
 Re-running first removes the works of an earlier run.
 """
 import json, math, os, sys
@@ -38,11 +38,18 @@ TRENCHES = [
     [(340, 470), (336, 500), (338, 548)], [(344, 460), (420, 462)],
     [(558, 395), (560, 420)], [(550, 420), (556, 440)],
 ]
+# Northern lines (world units, not picture pixels): in front of Mala Tokmachka and along the fields up to the E-W road
+NORTH = [
+    [(20, 200), (70, 205), (120, 214)], [(150, 215), (210, 208), (270, 212)], [(300, 200), (350, 196), (400, 202)],
+    [(430, 214), (480, 208), (540, 220)], [(560, 200), (610, 192), (660, 204)],
+    [(190, 22), (240, 18), (290, 26)], [(500, 30), (550, 24), (600, 34)],
+    [(60, 250), (60, 290)], [(350, 230), (352, 270)], [(520, 240), (524, 285)],
+]
 BUNKERS = [(377, 288), (338, 408), (546, 412), (550, 523)]
 
 m = json.load(open(PATH, encoding="utf-8"))
 WORKS = {"trench", "sandbags", "field_bunker"}
-m["props"] = [p for p in m["props"] if not (p["owner"] == 1 and p["def"] in WORKS | {"bunker"})]
+m["props"] = [p for p in m["props"] if p["def"] not in WORKS | {"bunker"}]
 # the random hilltop outpost of osm_map.py is gone with its bunkers; the comm tower may stay
 
 SIZE = {"bunker": 4.0, "trench": 2.0, "sandbags": 2.0}
@@ -70,8 +77,8 @@ def on_road(x, z):
     return False
 
 new, pieces = [], []
-for line in TRENCHES:
-    pts = [world(*p) for p in line]
+for line in TRENCHES + NORTH:
+    pts = [world(*p) for p in line] if line not in NORTH else line
     for (ax, az), (bx, bz) in zip(pts, pts[1:]):
         L = math.hypot(bx - ax, bz - az)
         yaw = math.atan2(bz - az, bx - ax)
@@ -82,14 +89,14 @@ for line in TRENCHES:
             if any((x, z) == q for q in pieces) or not free(x, z, 1.0) or on_road(x, z):
                 continue
             pieces.append((x, z))
-            new.append({"def": "trench", "pos": {"x": x, "y": z}, "yaw": round(yaw, 4), "owner": 1})
+            new.append({"def": "trench", "pos": {"x": x, "y": z}, "yaw": round(yaw, 4), "owner": 0})
     # sandbags across both ends
     for (x, z), (ox, oz) in ((pts[0], pts[1]), (pts[-1], pts[-2])):
         yaw = math.atan2(z - oz, x - ox)
         sx, sz = round((x + math.cos(yaw) * 2) / 2) * 2 + 1.0, round((z + math.sin(yaw) * 2) / 2) * 2 + 1.0
         if (sx, sz) not in pieces and free(sx, sz, 1.0) and not on_road(sx, sz):
             pieces.append((sx, sz))
-            new.append({"def": "sandbags", "pos": {"x": sx, "y": sz}, "yaw": round(yaw + math.pi / 2, 4), "owner": 1})
+            new.append({"def": "sandbags", "pos": {"x": sx, "y": sz}, "yaw": round(yaw + math.pi / 2, 4), "owner": 0})
 m["props"] += new
 nb = 0
 for px, py in BUNKERS:
@@ -97,7 +104,7 @@ for px, py in BUNKERS:
     for dx, dz in [(0, 0), (4, 0), (-4, 0), (0, 4), (0, -4), (6, 6), (-6, -6), (6, -6), (-6, 6)]:
         bx, bz = round((x + dx) / 2) * 2, round((z + dz) / 2) * 2
         if free(bx, bz, 2.0) and not on_road(bx, bz):
-            m["props"].append({"def": "bunker", "pos": {"x": float(bx), "y": float(bz)}, "yaw": 0.0, "owner": 1}); nb += 1
+            m["props"].append({"def": "bunker", "pos": {"x": float(bx), "y": float(bz)}, "yaw": 0.0, "owner": 0}); nb += 1
             break
 # trees and rocks off the works
 keep = []

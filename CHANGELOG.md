@@ -3,6 +3,11 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.13.1
+
+Maps
+- New map Tokmachka (up to 4 players): the Mala Tokmachka - Robotyne - Verbove area of the Zaporizhzhia front, from real terrain, roads and buildings, without rivers, with neutral trench lines, sandbags and four bunkers after the real positions (hostile ones made neutral, more trenches in the north). `tools/tokmachka_works.py` adds the field works.
+
 ## v0.13.0
 
 Controls
