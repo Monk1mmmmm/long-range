@@ -2654,12 +2654,25 @@ fn weapons(
             if let Some((gp, radius)) = ground.filter(|_| w.hits_land) {
                 let d = gp.dist(body.pos);
                 if d <= w.range + radius && d >= w.min_range {
-                    // A stable pseudo-random spot inside the area, re-rolled every shot.
-                    let salt = (u.id as u64 * 7919 + (tick as u64 / ((w.reload * 10.0) as u64).max(1)) * 31 + wi as u64) | 1;
-                    let mut r = Rng(salt.wrapping_mul(0x9E3779B97F4A7C15) | 1);
-                    r.next();
-                    let off = V2::from_angle(r.range(0.0, 6.283)) * (r.f().sqrt() * radius);
-                    let p = map.clamp(gp + off);
+                    // Area fire covers the circle evenly: shot `j` of this weapon aims at point `j` of
+                    // a low-discrepancy (R2) sequence mapped onto the disc by equal area, so shots fill
+                    // the gaps the earlier ones left instead of clumping. The point stays the same
+                    // through a reload (salvo, aiming); each unit and weapon starts further along
+                    // the sequence, so several guns on one circle share it out. Points out of reach
+                    // (beyond range or inside the minimum range) are skipped.
+                    let shot = tick as u64 / ((w.reload * 10.0) as u64).max(1);
+                    let base = shot + u.id as u64 * 97 + wi as u64 * 41;
+                    let at = |j: u64| -> V2 {
+                        let j = j as f64;
+                        let x = (0.5 + j * 0.754_877_666_246_692_7).fract() as f32;
+                        let y = (0.5 + j * 0.569_840_290_998_053_3).fract() as f32;
+                        map.clamp(gp + V2::from_angle(y * std::f32::consts::TAU) * (x.sqrt() * radius))
+                    };
+                    let reachable = |p: V2| {
+                        let d = p.dist(body.pos);
+                        d <= w.range && d >= w.min_range
+                    };
+                    let p = if radius > 0.0 { (0..8).map(|k| at(base + k)).find(|p| reachable(*p)).unwrap_or_else(|| at(base)) } else { gp };
                     gpoint = Some(p.at(map.surface(p)));
                 }
             }
