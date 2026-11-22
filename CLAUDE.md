@@ -208,8 +208,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - Hotkeys: two presets in `view/hud.rs` (`ViewState.preset`, saved to `settings.json` in the user config folder):
   default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
   with hotbuild keys chosen by unit role in `hud::hot_key`.
-- Releases: `scripts/release.sh` / `release.ps1` make two archives per platform in `dist/` (game + assets,
-  editor + assets) and publish them with `gh`. They first delete everything else in `dist/` (older versions).
+- Releases: `scripts/release.sh` / `release.ps1` make one archive per platform in `dist/` (the game with the editor in it, + assets)
+  and publish them with `gh`. They first delete everything else in `dist/` (older versions).
   `.github/workflows/release.yml` does the same on GitHub's machines (Linux + Windows MSVC) when a tag `v*` is pushed
   (or by hand from the Actions tab, "Run workflow" on main, which creates the tag): bump `Cargo.toml`, add the `## vX.Y.Z` CHANGELOG section, tag, push the tag.
   Commit every finished incremental change right away (one commit per change, short message saying what it does),
