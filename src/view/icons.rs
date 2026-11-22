@@ -54,6 +54,13 @@ fn glyph_sd(g: &str, x: f32, y: f32) -> f32 {
         "plus" => seg(x, y, -0.3, 0.0, 0.3, 0.0).min(seg(x, y, 0.0, -0.3, 0.0, 0.3)) - 0.075,
         "dot" => (x * x + y * y).sqrt() - 0.17,
         "ring" => ((x * x + y * y).sqrt() - 0.24).abs() - 0.06,
+        // A sniper scope: a ring with cross hairs reaching beyond it (⊕).
+        "scope" => {
+            let r = (x * x + y * y).sqrt();
+            let ring = (r - 0.2).abs() - 0.05;
+            let cross = seg(x, y, -0.36, 0.0, 0.36, 0.0).min(seg(x, y, 0.0, -0.36, 0.0, 0.36)) - 0.04;
+            ring.min(cross)
+        }
         "arc" => {
             // Upper half of a ring: the anti-air "umbrella".
             let d = ((x * x + (y - 0.12) * (y - 0.12)).sqrt() - 0.32).abs() - 0.065;

@@ -671,7 +671,7 @@
    "icon": {
     "shape": "bot",
     "glyphs": [
-     "dot"
+     "scope"
     ]
    },
    "model": {
