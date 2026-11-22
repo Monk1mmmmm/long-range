@@ -3,6 +3,17 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.3
+
+Infantry now take buildings by themselves when the lobby option "Infantry capture buildings" is on. The simulation changed
+(only with that option on), so everybody in a multiplayer game needs the same version.
+
+Changed
+- With "Infantry capture buildings" on, no order is needed: idle infantry, and infantry on a move, attack-move or patrol
+  that are not shooting, take an unguarded capturable building within 12 by themselves (houses, bunkers and trenches keep
+  working as before: stormed or entered, never captured). Attack-moving infantry no longer stop to shoot down a building
+  they could take. New rule `infantry_capture_reach` (12) is in the preset form.
+
 ## v0.12.2
 
 Your own presets and downloaded maps now survive new versions, and settings are safer against damage. The simulation is unchanged.
@@ -29,10 +40,7 @@ Added
 - Lobby option "Infantry capture buildings" (off by default): infantry take over enemy and neutral buildings other than
   factories, garrisons and field works (right-click, or the Capture button), free of energy, in 20 s per man (several
   men share it), but not while an armed enemy unit stands within 15 of the building. The zone AI captures unguarded
-  buildings with up to 4 infantry. No order is needed: idle infantry, and infantry on a move, attack-move or patrol that
-  are not shooting, take an unguarded capturable building within 12 by themselves (houses, bunkers and trenches keep
-  working as before: stormed or entered, never captured). Rules `infantry_capture_secs`, `infantry_capture_guard` and
-  `infantry_capture_reach` are in the preset form.
+  buildings with up to 4 infantry. Rules `infantry_capture_secs` and `infantry_capture_guard` are in the preset form.
 
 Changed
 - Settings and logs are kept in your user folder (`%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application
