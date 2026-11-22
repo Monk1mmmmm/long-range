@@ -50,6 +50,15 @@ pub enum Mode {
     Place(DefId),
 }
 
+/// A land transport about to be queued with riders: the factory type it is for, the transport and
+/// the riders picked so far.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Loadout {
+    pub factory: DefId,
+    pub host: DefId,
+    pub cargo: Vec<DefId>,
+}
+
 /// Local player's view of the game: camera, selection, input state.
 #[derive(Resource)]
 pub struct ViewState {
@@ -93,6 +102,10 @@ pub struct ViewState {
     pub hot: (Option<KeyCode>, usize, f64, DefId),
     /// A run of a factory queue being dragged: (factory id, index of the run).
     pub queue_drag: Option<(u32, usize)>,
+    /// The loadout picker of a land transport, open above the factory panel.
+    pub loadout: Option<Loadout>,
+    /// The last loadout queued for each transport type, offered again when its picker opens.
+    pub last_loadout: HashMap<DefId, Vec<DefId>>,
     /// Terraform mode: how far to raise (+) or lower (-) the ground; 0 levels it.
     pub terra_delta: f32,
     /// Selection of the previous frame, to notice when it changes (selection sounds).
@@ -176,6 +189,8 @@ impl ViewState {
             preset: load_preset(),
             hot: (None, 0, 0.0, DefId::MAX),
             queue_drag: None,
+            loadout: None,
+            last_loadout: HashMap::new(),
             terra_delta: 0.0,
             last_sel: vec![],
             paused: None,
@@ -419,7 +434,7 @@ fn drive_anims(
                 AnimKind::Water => toward(s, map.h(i.cur.0) < map.water_at(i.cur.0), 1.0),
                 AnimKind::Rolloff => {
                     // Out, held while the finished unit leaves, then back.
-                    let building = factory.map_or(0, |f| f.building);
+                    let building = factory.map_or(0, |f| if f.carrier != 0 { f.carrier } else { f.building });
                     if s.mark != 0 && building != s.mark && s.seq < 0.0 {
                         s.seq = 0.0;
                     }

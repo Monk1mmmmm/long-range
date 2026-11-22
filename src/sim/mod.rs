@@ -70,6 +70,9 @@ pub enum Command {
     Orders { ids: Vec<u32>, orders: Vec<Order>, queue: bool },
     Stop { ids: Vec<u32> },
     Produce { factory: u32, def: DefId, count: i16 },
+    /// Queues `count` land transports of type `def` that come out filled with `cargo` (riders this
+    /// factory builds; their prices are paid on top of the transport's).
+    ProduceLoaded { factory: u32, def: DefId, cargo: Vec<DefId>, count: i16 },
     /// Moves `len` queue entries starting at `from` so that they begin at index `to` of what is left.
     QueueMove { factory: u32, from: u16, len: u16, to: u16 },
     /// Takes one entry out of a factory queue.
@@ -198,11 +201,36 @@ pub struct Builder {
 
 #[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Factory {
-    pub queue: Vec<DefId>,
+    pub queue: Vec<Job>,
     pub repeat: bool,
     pub rally: Option<V2>,
     /// Unit currently under construction inside.
     pub building: u32,
+    /// A finished transport still inside, being filled with the riders of its job (0 = none).
+    pub carrier: u32,
+    /// The riders still to be built for `carrier`, in order.
+    pub cargo: Vec<DefId>,
+}
+
+/// One entry of a factory queue: the unit, and for a land transport the riders it comes with
+/// (built one after another inside the factory once the transport is done, each at its own price).
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+pub struct Job {
+    pub def: DefId,
+    pub cargo: Vec<DefId>,
+}
+
+impl Job {
+    pub fn plain(def: DefId) -> Self {
+        Job { def, cargo: vec![] }
+    }
+}
+
+impl Factory {
+    /// Is `building` the front queue entry (and not a rider for `carrier`)?
+    pub fn front_in_works(&self) -> bool {
+        self.building != 0 && self.carrier == 0
+    }
 }
 
 /// The unit is inside the factory (while being built) or the transport with this id.
@@ -569,6 +597,24 @@ pub fn carriable(d: &crate::data::UnitDef) -> bool {
 /// transports take any carriable unit (vehicles cost more slots through their `cargo`).
 pub fn fits(host: &crate::data::UnitDef, rider: &crate::data::UnitDef) -> bool {
     carriable(rider) && (host.is_air() || rider.is_infantry())
+}
+
+/// Can the factory `fac` turn out its land transport `host` filled with `cargo`? Every rider must be
+/// something the factory builds and that fits, within the transport's capacity.
+pub fn loadout_ok(defs: &Defs, fac: DefId, host: DefId, cargo: &[DefId]) -> bool {
+    let (f, h) = (defs.get(fac), defs.get(host));
+    let Some(tr) = &h.transport else { return false };
+    if h.is_air() || h.is_structure() || !f.builds.contains(&host) || cargo.is_empty() {
+        return false;
+    }
+    let mut used = 0i32;
+    for r in cargo {
+        if *r as usize >= defs.units.len() || !f.builds.contains(r) || !fits(h, defs.get(*r)) {
+            return false;
+        }
+        used += defs.get(*r).cargo as i32;
+    }
+    used <= tr.capacity as i32
 }
 
 /// Can this unit type fly or drive a ferry route (`Order::Ferry`)? Mobile transports only.
@@ -1730,7 +1776,7 @@ mod tests {
             capture: Some(Capture { by: 2, progress: 0.5 }),
             weapons: Some(Weapons { focus: 4, ..default() }),
             builder: Some(Builder { work: 11, site: Some(p) }),
-            factory: Some(Factory { queue: vec![1, 2], repeat: true, rally: Some(p), building: 12 }),
+            factory: Some(Factory { queue: vec![Job::plain(1), Job { def: 2, cargo: vec![3, 3] }], repeat: true, rally: Some(p), building: 12, carrier: 13, cargo: vec![3] }),
             hosted: Some(Hosted(13)),
             paused: Some(Paused),
             structure: Some(Structure),

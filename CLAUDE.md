@@ -548,6 +548,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   a land transport (the Tavria APC): `deaths` throws them out like a garrison's (`garrison_eject_damage`).
   Riders keep their orders: what is queued behind boarding is carried out after they are set down (`carry` only
   drops a `Load` of their own transport and a leading `Ferry`).
+  **Loaded carriers** (requested): clicking a land transport in a factory's build menu opens a loadout picker above
+  the queue (`ViewState.loadout`, `hud::loadout_options`: the infantry that factory builds that fit; left-click adds,
+  Shift fills, right-click removes, Queue / Shift+Queue x5, stays open to queue more, last loadout per type remembered).
+  It sends `Command::ProduceLoaded { cargo }` (checked by `sim::loadout_ok`); the queue holds `Job { def, cargo }`.
+  `factories` builds the transport, keeps it inside (`Factory.carrier`), builds each rider (`Factory.cargo` left)
+  at its own price straight into it (`Hosted(carrier)`), then releases it; Stop sends it out with whoever is aboard.
+  `--combattest` (`LR_TEST=apc`) "queued with N riflemen" line.
   **Ferry** (SupCom, `Order::Ferry { pos, pick }`, HUD key F): a mobile transport's route is a loop of `Ferry` orders
   rotated like a patrol: the `pick` one is the beacon (where the transports stood when ordered), the one before it on
   the loop the drop point (set down there with an inserted `Unload`), any between are waypoints (Shift adds points
