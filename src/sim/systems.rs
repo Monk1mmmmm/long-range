@@ -303,6 +303,8 @@ fn apply_commands(
                             m.path.clear();
                             m.stuck = 0;
                             m.cover = None;
+                            // A new order cuts a weapon's set-up/recoil hold short: the unit obeys at once.
+                            m.hold = 0.0;
                         }
                     }
                     if ord.0.len() >= 96 {
@@ -980,7 +982,9 @@ fn think(
                             engaged = true;
                         }
                     } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() && !no_shot(None) {
-                        engaged = true;
+                        // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
+                        // they never stop for a fight.
+                        engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
                     }
                 }
                 // A building infantry can take is not a fight: they walk up to it instead of
@@ -2894,7 +2898,8 @@ fn weapons(
             st.cd = w.reload;
             st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
             st.burst_cd = w.salvo_delay;
-            if let Some(m) = mover.as_mut() {
+            // Aircraft (gunships) and machine guns never stand still for a shot or a burst.
+            if let Some(m) = mover.as_mut().filter(|_| !df.is_air() && !w.is_machine_gun()) {
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
