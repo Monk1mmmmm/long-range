@@ -190,6 +190,24 @@ paint stops under a building, so they show as the lanes between them; main roads
 Ground lower than the river ends up just above the water. Lakes are filled at their own levels and stay free
 of trees and buildings; other rivers and streams stay dry. The preview shows the water in blue and the bridges as yellow rings.
 
+**Other source (`--source overture`).** When the Overpass servers are down or blocked, the same map can be made from
+Overture Maps (`tools/overture_src.py`; Parquet files on a public S3 bucket, built from OpenStreetMap and other open
+data; needs `pip install pyarrow shapely` too). It gives buildings, roads, forests, scrub, rock, beaches, land use, water
+and the ocean as the same elements the Overpass query returns, so everything above works unchanged. Differences:
+no `--river` (there are no named river ways), `pedestrian` streets count as living streets (the lanes of an old town),
+footways and steps are left out, forests have no leaf type (mixed), and the data is always the present day.
+`LR_OVERTURE_RELEASE` picks another monthly release than the one in the script.
+
+- `--sea` makes a coast (Overture source): the ocean polygon becomes the sea at the map's water level
+  (`--sea-height`, 6 world units), land is never below it, and the sea bed slopes away from the shore (shallows only
+  amphibious units can wade, then deep water). Buildings, trees, roads and bases keep off the water.
+- A map of the past: `--drop-bridges S,W,N,E` leaves out the road bridges of primary roads and better inside the
+  rectangle, with the ramps and viaducts that only led to them; `--drop-names REGEX` leaves out roads by name.
+  Overture has no construction dates, so buildings are the present ones.
+- `--cp-area S,W,N,E` keeps the control points inside a rectangle (the city, when the map also shows its surroundings),
+  `--dep-area` does the same for the resource deposits (Dubrovnik: none beyond the river), `--cp-town 1.0` takes all control points from the densest places, `--outpost LAT,LON` puts the hostile hilltop outpost
+  on a real landmark instead of the highest hill.
+
 Downloads are cached in `tools/out/osm_cache` (delete the files to fetch fresh data); the Overpass servers are
 sometimes busy, the script retries. It writes a check picture `tools/out/NAME_preview.png`: terrain, roads, trees
 (green), rocks (white), buildings (red), hostile (magenta), deposits (cyan), starts (yellow).
@@ -199,9 +217,20 @@ Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
 
     .venv/bin/python tools/osm_map.py jablonec --bbox 50.661,15.091,50.751,15.233 --title "Jablonec nad Nisou"
 
+Sudzha and the villages round it, a duel (the `sudzha_duel` map, made with the Overture source):
+
+    .venv/bin/python tools/osm_map.py sudzha_duel --source overture --center 51.1917,35.2717 --km 6 --cells 384 --players 2 --title "Sudzha" --village 0.6 --max-props 1200
+
 Liberec and Jablonec with the Lužická Nisa (the `liberec` map):
 
     .venv/bin/python tools/osm_map.py liberec --bbox 50.6689,14.9911,50.8078,15.2092 --cells 512 --title "Liberec and Jablonec" --river "Lužická Nisa" --river-width 4,6 --village 0.45 --max-props 9000
+
+Dubrovnik in 1991 (the `dubrovnik_1991` map): the Old Town, Lapad, Gruz harbour, Ploce and Srdj above them, with
+the Franjo Tudman Bridge (2002) and its approach viaducts left out, so the Rijeka Dubrovacka is crossed only far
+round its head. Two bases at the west end of the city (Lapad), two at the east end (Ploce), all control points
+in the city, the hostile outpost on Fort Imperial:
+
+    .venv/bin/python tools/osm_map.py dubrovnik_1991 --center 42.649,18.099 --km 6 --cells 512 --players 4 --relief 0.8 --source overture --sea --drop-bridges 42.660,18.060,42.675,18.095 --title "Dubrovnik 1991" --max-props 1400 --village 0.5 --points 7 --cp-town 1.0 --cp-area 42.60,18.05,42.6655,18.14 --dep-area 42.60,18.05,42.6685,18.15 --starts "83,293;114,499;880,450;985,700" --outpost 42.6505,18.1135
 
 ## scmap_map.py - port a Supreme Commander map
 

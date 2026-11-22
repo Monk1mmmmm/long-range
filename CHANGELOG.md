@@ -3,6 +3,11 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+New map: Sudzha (duel): the Russian border town on the Psel with the villages around it, made from real map data. Two
+bases north and south of the town, control points in it and in the villages.
+
 ## v0.12.6
 
 The last box models are gone. Hit boxes of the changed buildings follow their models, so everybody in a multiplayer
