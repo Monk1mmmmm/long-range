@@ -5,8 +5,12 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
-New map: Sudzha (duel): the Russian border town on the Psel with the villages around it, made from real map data. Two
-bases north and south of the town, control points in it and in the villages.
+New map: Sudzha (duel): the Russian border town on the Psel with the villages around it, made from real map data
+(8 km, the whole town from its west end to its eastern quarter). Bases on the west and east sides, control points in the
+town and the villages. Where the open data had streets but no buildings (the north and west), small houses were added.
+
+Tools
+- `tools/osm_map.py --infill S,W,N,E` adds made-up small houses along residential streets where no real building stands.
 
 ## v0.12.6
 

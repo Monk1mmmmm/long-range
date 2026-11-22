@@ -441,6 +441,12 @@ def main():
     ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
     ap.add_argument("--cp-town", type=float, default=0.6, help="share of the control points placed in the towns (the densest places), the rest around them")
     ap.add_argument("--cp-area", default="", help="S,W,N,E in degrees: control points only inside this rectangle (e.g. the city of a map that also shows its surroundings)")
+    ap.add_argument("--infill", action="append", default=[], metavar="S,W,N,E",
+                    help="made-up small houses along residential streets inside this rectangle (degrees; repeat for several) "
+                         "wherever no real building stands near: for places where the open data has roads but no buildings")
+    ap.add_argument("--infill-gap", type=float, default=14.0, help="no made-up house within this many world units of a real one")
+    ap.add_argument("--infill-step", type=float, default=9.0, help="distance between made-up houses along a street (world units)")
+    ap.add_argument("--infill-max", type=int, default=700, help="most made-up houses")
     ap.add_argument("--dep-area", default="", help="S,W,N,E in degrees: resource deposits only inside this rectangle (the part of the map that is played over)")
     ap.add_argument("--outpost", default="", help="LAT,LON of the hostile hilltop outpost (default: the highest open hilltop)")
     ap.add_argument("--source", choices=("overpass", "overture"), default="overpass", help="where the map features come from")
@@ -1020,6 +1026,41 @@ def main():
         if rng.random() > a.village + (1 - a.village) * t_:
             continue
         place(kind, x, z, yaw, nudge=2 if t_ > 0.5 else 1)
+    # Made-up houses (--infill): along residential streets inside the given rectangles, on both sides, small
+    # houses where no real building stands within --infill-gap. Open data is sparse in some villages.
+    if a.infill:
+        boxes = [tuple(map(float, b_.split(","))) for b_ in a.infill]
+        real = occ == 2
+        gap = max(1, int(round(a.infill_gap / CELL)))
+        made = 0
+        irng = random.Random(a.seed * 7919 + 13)
+        for kind_, width_, main_, pts_ in road_lines:
+            if main_ not in (1, 3) or made >= a.infill_max:
+                continue
+            la_, lo_ = geo.to_latlon(*pts_[len(pts_) // 2])
+            if not any(s_ <= la_ <= n_ and w_ <= lo_ <= e_ for s_, w_, n_, e_ in boxes):
+                continue
+            side = irng.choice((-1, 1))
+            dist = irng.uniform(0.0, a.infill_step)
+            for (x0_, z0_), (x1_, z1_) in zip(pts_, pts_[1:]):
+                seg = math.hypot(x1_ - x0_, z1_ - z0_)
+                if seg < 1e-6:
+                    continue
+                tx, tz = (x1_ - x0_) / seg, (z1_ - z0_) / seg
+                while dist < seg and made < a.infill_max:
+                    px, pz = x0_ + tx * dist, z0_ + tz * dist
+                    dist += a.infill_step * irng.uniform(0.85, 1.35)
+                    side = -side if irng.random() < 0.8 else side
+                    if irng.random() < 0.15:
+                        continue
+                    off = width_ / 2 + 3.2 + irng.uniform(0.0, 2.0)
+                    hx, hz = px - tz * off * side, pz + tx * off * side
+                    ci, cj = int(hx / CELL), int(hz / CELL)
+                    if not (gap < ci < n - gap and gap < cj < n - gap) or real[cj - gap:cj + gap + 1, ci - gap:ci + gap + 1].any():
+                        continue
+                    if place(irng.choice(HOUSES), hx, hz, math.atan2(tz, tx), nudge=1):
+                        made += 1
+        print(f"{made} made-up houses along the streets of {len(boxes)} area(s)")
     # Power pylons along the real lines (sparse).
     pyl = 0
     for t, (x, z) in points:
