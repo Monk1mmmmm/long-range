@@ -182,7 +182,7 @@
     9.0,
     12.0
    ],
-   "hit_box": [10.0, 8.8, 8.4],
+   "hit_box": [10.2, 8.8, 9.74],
    "footprint": 6,
    "icon": {
     "shape": "civilian",
@@ -192,59 +192,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       -1.6,
-       1.8,
-       0
-      ],
-      "size": [
-       6.8,
-       3.6,
-       8.4
-      ],
-      "color": [
-       0.6,
-       0.56,
-       0.5
-      ]
-     },
-     {
-      "pos": [
-       3.6,
-       4.4,
-       -2.4
-      ],
-      "size": [
-       1.6,
-       8.8,
-       1.6
-      ],
-      "color": [
-       0.5,
-       0.3,
-       0.25
-      ]
-     },
-     {
-      "pos": [
-       3.6,
-       3.2,
-       2.0
-      ],
-      "size": [
-       2.8,
-       6.4,
-       2.8
-      ],
-      "color": [
-       0.75,
-       0.75,
-       0.72
-      ]
-     }
-    ]
+    "mesh": "models/refinery.glb",
+    "albedo": "models/refinery_albedo.png",
+    "team_mask": "models/refinery_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "categories": [
     "civilian",
@@ -272,7 +224,7 @@
     2.8,
     4.0
    ],
-   "hit_box": [2.8, 3.0, 2.8],
+   "hit_box": [3.82, 2.8, 3.82],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -281,42 +233,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       1.4,
-       0
-      ],
-      "size": [
-       2.8,
-       2.8,
-       2.8
-      ],
-      "color": [
-       0.82,
-       0.8,
-       0.75
-      ]
-     },
-     {
-      "pos": [
-       0,
-       2.9,
-       0
-      ],
-      "size": [
-       2.0,
-       0.24,
-       2.0
-      ],
-      "color": [
-       0.7,
-       0.2,
-       0.15
-      ]
-     }
-    ]
+    "mesh": "models/fuel_tank.glb",
+    "albedo": "models/fuel_tank_albedo.png",
+    "team_mask": "models/fuel_tank_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "categories": [
     "civilian",
@@ -344,7 +265,7 @@
     9.0,
     4.0
    ],
-   "hit_box": [3.8, 8.8, 0.5],
+   "hit_box": [3.8, 8.61, 1.92],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -353,59 +274,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       4.4,
-       0
-      ],
-      "size": [
-       0.5,
-       8.8,
-       0.5
-      ],
-      "color": [
-       0.5,
-       0.52,
-       0.55
-      ]
-     },
-     {
-      "pos": [
-       0,
-       7.8,
-       0
-      ],
-      "size": [
-       3.8,
-       0.24,
-       0.4
-      ],
-      "color": [
-       0.5,
-       0.52,
-       0.55
-      ]
-     },
-     {
-      "pos": [
-       0,
-       6.4,
-       0
-      ],
-      "size": [
-       2.6,
-       0.24,
-       0.4
-      ],
-      "color": [
-       0.5,
-       0.52,
-       0.55
-      ]
-     }
-    ]
+    "mesh": "models/pylon.glb",
+    "albedo": "models/pylon_albedo.png",
+    "team_mask": "models/pylon_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "categories": [
     "civilian",
@@ -429,7 +302,7 @@
     12.0,
     4.0
    ],
-   "hit_box": [2.4, 12.0, 2.4],
+   "hit_box": [2.2, 11.6, 3.6],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -438,58 +311,16 @@
     ]
    },
    "model": {
-    "boxes": [
+    "mesh": "models/comm_tower.glb",
+    "albedo": "models/comm_tower_albedo.png",
+    "team_mask": "models/comm_tower_team.png",
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
      {
-      "pos": [
-       0,
-       0.8,
-       0
-      ],
-      "size": [
-       2.4,
-       1.6,
-       2.4
-      ],
-      "color": [
-       0.5,
-       0.5,
-       0.52
-      ]
-     },
-     {
-      "pos": [
-       0,
-       6.4,
-       0
-      ],
-      "size": [
-       0.4,
-       11.2,
-       0.4
-      ],
-      "color": [
-       0.75,
-       0.2,
-       0.2
-      ]
-     },
-     {
-      "pos": [
-       0,
-       10.4,
-       0
-      ],
-      "size": [
-       1.8,
-       1.0,
-       0.3
-      ],
-      "color": [
-       0.85,
-       0.85,
-       0.85
-      ],
-      "spin": 40
+      "bone": "Radar",
+      "axis": [0, 1, 0],
+      "speed": 40
      }
     ]
    },
@@ -515,7 +346,7 @@
     7.2,
     4.0
    ],
-   "hit_box": [3.0, 7.2, 3.0],
+   "hit_box": [3.05, 7.2, 3.1],
    "footprint": 2,
    "icon": {
     "shape": "civilian",
@@ -524,42 +355,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       2.6,
-       0
-      ],
-      "size": [
-       1.0,
-       5.2,
-       1.0
-      ],
-      "color": [
-       0.45,
-       0.45,
-       0.48
-      ]
-     },
-     {
-      "pos": [
-       0,
-       6.0,
-       0
-      ],
-      "size": [
-       3.0,
-       2.4,
-       3.0
-      ],
-      "color": [
-       0.6,
-       0.68,
-       0.75
-      ]
-     }
-    ]
+    "mesh": "models/water_tower.glb",
+    "albedo": "models/water_tower_albedo.png",
+    "team_mask": "models/water_tower_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "categories": [
     "civilian",
@@ -1657,7 +1457,7 @@
     1.8,
     4.0
    ],
-   "hit_box": [3.6, 1.6, 3.9],
+   "hit_box": [3.7, 1.85, 4.0],
    "footprint": 2,
    "transport": {
     "capacity": 4
@@ -1669,42 +1469,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.8,
-       0
-      ],
-      "size": [
-       3.6,
-       1.6,
-       3.6
-      ],
-      "color": [
-       0.42,
-       0.44,
-       0.4
-      ]
-     },
-     {
-      "pos": [
-       0,
-       1.2,
-       -1.9
-      ],
-      "size": [
-       1.8,
-       0.4,
-       0.4
-      ],
-      "color": [
-       0.1,
-       0.1,
-       0.1
-      ]
-     }
-    ]
+    "mesh": "models/bunker.glb",
+    "albedo": "models/bunker_albedo.png",
+    "team_mask": "models/bunker_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "categories": [
     "civilian",

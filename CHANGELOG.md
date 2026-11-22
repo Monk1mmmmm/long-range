@@ -3,6 +3,17 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.6
+
+The last box models are gone. Hit boxes of the changed buildings follow their models, so everybody in a multiplayer
+game needs the same version.
+
+Changed
+- New models for the Faust SAM site (a trainable four-canister launcher with its own search radar), the radar towers
+  (lattice masts with rotating antennas, one more per level), the watch tower (timber legs, ladder, planked cabin),
+  sandbags, trench pieces and the field bunker (a sandbagged concrete pillbox), and for the map's refinery, fuel tank,
+  power pylon, communications mast, water tower and old bunker.
+
 ## v0.12.5
 
 New models in the style of the Long Range Tank units and the Mining Town buildings. Hit boxes changed with them, so

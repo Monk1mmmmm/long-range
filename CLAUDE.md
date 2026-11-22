@@ -414,7 +414,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/
   radar car, T2 Overtaker/Crony/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request). Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
-  SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (box models), UC-02R/03R mobile radars
+  SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (lattice masts), UC-02R/03R mobile radars
   (radar car mesh with a raised dish / a radome), T3 Swift fast assault transport (tilt-rotor, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (stealth fighter model, stealth 2, own
   T3 radar 80 so it finds stealthed aircraft) and T3 Phalanx Railgun Battery (own model, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
   Mobile anti-air beyond the T1 MBFAG (requested; there is no T3 SAM trooper, only the T2 one): T2 Hailstorm
@@ -585,7 +585,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - `assets/data/presets/<name>/` - a preset shipped with the game (the player's own presets, and those kept from a host's game, are in `presets/<name>/` and premade maps kept from a host's game in `maps/<name>/` of the user config folder, `data::user_presets_dir` / `user_maps_dir` / `map_dir`: they survive new versions, and a user preset hides a shipped one of the same name; the map editor still saves to `assets/maps`) - a preset: its own `rules.json` and `factions/*.json`, made and edited in the
   main menu (Game data presets: form view with tooltips, or raw JSON), chosen by the host in the lobby.
 - `assets/data/factions/coalition.json` - the playable faction (the mod roster).
-  `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`
+  `civilian.json` - neutral/hostile map buildings. A new `*.json` here with `"playable": true`
   becomes selectable in the lobby.
 - `assets/maps/<name>/map.json` + `height.png` (16-bit) + `layerN.png` (8-bit ground layer masks) + `lakes.png` (8-bit, lake number per cell, only with lakes) - premade maps; `props` are pre-placed neutral
   (owner 0), hostile (owner 1) or player (owner 2+k = whoever plays lobby slot k; left out when that slot is empty) units of any faction; `points` are the control points.
@@ -614,7 +614,7 @@ actions named like the `AnimKind`s are animations, materials named team/light/da
 (`models::prim_mat`; other materials keep their colour when the unit has no albedo texture), an object with several
 materials becomes one part per primitive. `ModelDef.brightness` multiplies the albedo (2.1 default for the mod's dark
 textures, 1 for ours). The mod ships no commander or radar tower model: the commander is the trooper mesh at 3x scale
-(with a radio pack and pauldrons); radar towers, the Faust SAM, field works and some map buildings are JSON box models.
+(with a radio pack and pauldrons). No unit uses JSON box models any more (the format remains).
 
 **Our own models** (`art/`, replacing the stock Supreme Commander models the game used to borrow, on request: "in the
 style of the Mining Town buildings and the Long Range Tank units") are Python scripts run with Blender as a module
@@ -627,9 +627,9 @@ exports through `tools/blend_export.py`. `Kit.key` makes the animations (`work` 
 `rolloff` hangar doors, `doors` crane jib, `land` Stork gear, `upgrade` scaffold rising from under the ground).
 `k.nohit_()` / `k.nohit` keep aprons, antennas, rotors and arms out of the printed hit box (the unit's `hit_box`;
 centred, so buildings are capped at their footprint). Files: `models_buildings.py` (factories, pumpjacks, power,
-storage, AA, eng station), `models_vehicles.py` (APCs/IFVs, engineers, Sparky, scavenger), `models_air.py`,
+storage, AA, eng station), `models_defence.py` (Faust SAM, radar towers, watch tower, sandbags, trench, field bunker), `models_vehicles.py` (APCs/IFVs, engineers, Sparky, scavenger), `models_air.py`,
 `models_civilian.py` (the former stock UEF civilian buildings: panel block, institute, town hall, palace of culture,
-office tower, farm, brick works), `models_variants.py` (`variant.py`: a mod GLB imported unchanged plus new parts,
+office tower, farm, brick works; refinery, fuel tank, pylon, comm tower, water tower, bunker), `models_variants.py` (`variant.py`: a mod GLB imported unchanged plus new parts,
 its 512 texture set extended to 512x1024; exported with front +y so the mod's nodes stay as they were): Bastion
 (Crony + reactive armour bricks), Hailstorm, Skylance, UC-02R/03R, AT/Sniper/SAM Trooper, Commander. Units with
 `reactive` armour show it as bolted bricks (Bastion, Hetman). `--blend` saves `art/blend/NAME.blend` (ignored by git)
