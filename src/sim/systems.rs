@@ -355,6 +355,8 @@ fn apply_commands(
                             commands.entity(p.e).despawn();
                         }
                         f.building = 0;
+                        // A transport being filled leaves with the riders it already has.
+                        f.cargo.clear();
                     }
                 }
             }
@@ -367,19 +369,31 @@ fn apply_commands(
                 if count > 0 {
                     for _ in 0..count.min(50) {
                         if f.queue.len() < 100 {
-                            f.queue.push(d);
+                            f.queue.push(Job::plain(d));
                         }
                     }
                 } else {
                     for _ in 0..(-count).min(50) {
-                        let Some(k) = f.queue.iter().rposition(|x| *x == d) else { break };
-                        if k == 0 && f.building != 0 {
+                        let Some(k) = f.queue.iter().rposition(|x| x.def == d) else { break };
+                        if k == 0 && f.front_in_works() {
                             if let Some(p) = census.get(f.building) {
                                 commands.entity(p.e).despawn();
                             }
                             f.building = 0;
                         }
                         f.queue.remove(k);
+                    }
+                }
+            }
+            Command::ProduceLoaded { factory, def: d, cargo, count } => {
+                let Some(e) = owned(factory) else { continue };
+                let Ok((u, _, _, Some(mut f), _, _, _, _)) = q.get_mut(e) else { continue };
+                if !loadout_ok(&defs, u.def, d, &cargo) {
+                    continue;
+                }
+                for _ in 0..count.clamp(0, 50) {
+                    if f.queue.len() < 100 {
+                        f.queue.push(Job { def: d, cargo: cargo.clone() });
                     }
                 }
             }
@@ -390,14 +404,14 @@ fn apply_commands(
                 if len == 0 || from + len > f.queue.len() {
                     continue;
                 }
-                let first = f.queue.first().copied();
-                let run: Vec<DefId> = f.queue.drain(from..from + len).collect();
+                let first = f.queue.first().cloned();
+                let run: Vec<Job> = f.queue.drain(from..from + len).collect();
                 let to = (to as usize).min(f.queue.len());
                 for (k, d) in run.into_iter().enumerate() {
                     f.queue.insert(to + k, d);
                 }
                 // Something else is at the front now: the unit in the works is scrapped.
-                if f.queue.first().copied() != first && f.building != 0 {
+                if f.queue.first() != first.as_ref() && f.front_in_works() {
                     if let Some(p) = census.get(f.building) {
                         commands.entity(p.e).despawn();
                     }
@@ -411,7 +425,7 @@ fn apply_commands(
                 if index >= f.queue.len() {
                     continue;
                 }
-                if index == 0 && f.building != 0 {
+                if index == 0 && f.front_in_works() {
                     if let Some(p) = census.get(f.building) {
                         commands.entity(p.e).despawn();
                     }
@@ -1878,47 +1892,85 @@ fn factories(
     for (u, body, mut f, mut builder, upgrading) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         builder.work = 0;
+        let rally0 = f.rally;
+        // Sends a finished unit out of the factory to the rally point.
+        let release = |p: &Cen, commands: &mut Commands| {
+            let pd = defs.get(p.def);
+            let mut exit = body.pos + v2(0.0, df.footprint as f32 * CELL * 0.5 + 1.5);
+            if !pd.is_air() && nav.at(&map, exit) != 0 {
+                let (cx, cy) = map.cell_of(exit);
+                if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                    exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                }
+            }
+            let mut rally = rally0.unwrap_or(exit + v2(0.0, 6.0));
+            // The default rally point can fall on a building next to the factory (an
+            // extractor): units then pushed against it forever and the AI never gave
+            // them new orders. Move it to the nearest free cell like the exit.
+            if rally0.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
+                let (cx, cy) = map.cell_of(rally);
+                if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                    rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                }
+            }
+            let pos = if pd.is_air() { body.pos } else { exit };
+            commands.entity(p.e).remove::<Hosted>().insert((
+                Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: PI * 0.5, vel: v2(0.0, 0.0) },
+                Orders(vec![Order::Move(rally)]),
+                Mover { anchor: rally, path_goal: pos, ..default() },
+            ));
+        };
         if f.building != 0 {
             match census.get(f.building) {
                 None => f.building = 0,
                 Some(p) if p.done => {
-                    let pd = defs.get(p.def);
-                    let mut exit = body.pos + v2(0.0, df.footprint as f32 * CELL * 0.5 + 1.5);
-                    if !pd.is_air() && nav.at(&map, exit) != 0 {
-                        let (cx, cy) = map.cell_of(exit);
-                        if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
-                            exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
-                        }
-                    }
-                    let mut rally = f.rally.unwrap_or(exit + v2(0.0, 6.0));
-                    // The default rally point can fall on a building next to the factory (an
-                    // extractor): units then pushed against it forever and the AI never gave
-                    // them new orders. Move it to the nearest free cell like the exit.
-                    if f.rally.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
-                        let (cx, cy) = map.cell_of(rally);
-                        if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
-                            rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
-                        }
-                    }
-                    let pos = if pd.is_air() { body.pos } else { exit };
-                    commands.entity(p.e).remove::<Hosted>().insert((
-                        Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: PI * 0.5, vel: v2(0.0, 0.0) },
-                        Orders(vec![Order::Move(rally)]),
-                        Mover { anchor: rally, path_goal: pos, ..default() },
-                    ));
                     f.building = 0;
-                    if !f.queue.is_empty() {
-                        let d = f.queue.remove(0);
-                        if f.repeat {
-                            f.queue.push(d);
+                    if f.carrier != 0 && p.id != f.carrier {
+                        // A rider for the transport being filled: in it goes.
+                        commands.entity(p.e).insert(Hosted(f.carrier));
+                        if !f.cargo.is_empty() {
+                            f.cargo.remove(0);
+                        }
+                    } else {
+                        let job = (!f.queue.is_empty()).then(|| f.queue.remove(0));
+                        if let (Some(j), true) = (&job, f.repeat) {
+                            f.queue.push(j.clone());
+                        }
+                        match job.filter(|j| j.def == p.def && !j.cargo.is_empty()) {
+                            // A transport with a loadout stays inside until its riders are built.
+                            Some(j) => {
+                                f.carrier = p.id;
+                                f.cargo = j.cargo;
+                            }
+                            None => release(p, &mut commands),
                         }
                     }
                 }
                 Some(_) => builder.work = f.building,
             }
         }
-        if f.building == 0 && !upgrading {
-            if let Some(d) = f.queue.first().copied() {
+        if f.carrier != 0 && f.building == 0 && !upgrading {
+            match census.get(f.carrier) {
+                None => {
+                    f.carrier = 0;
+                    f.cargo.clear();
+                }
+                Some(c) => {
+                    let next = f.cargo.first().copied().filter(|d| df.builds.contains(d) && fits(defs.get(c.def), defs.get(*d)));
+                    if let Some(d) = next {
+                        let id = spawn_unit(&mut commands, &defs, &mut game, &map, d, u.owner, body.pos, PI * 0.5, false, u.id);
+                        f.building = id;
+                        builder.work = id;
+                    } else {
+                        release(c, &mut commands);
+                        f.carrier = 0;
+                        f.cargo.clear();
+                    }
+                }
+            }
+        }
+        if f.building == 0 && f.carrier == 0 && !upgrading {
+            if let Some(d) = f.queue.first().map(|j| j.def) {
                 if df.builds.contains(&d) {
                     let id = spawn_unit(&mut commands, &defs, &mut game, &map, d, u.owner, body.pos, PI * 0.5, false, u.id);
                     f.building = id;
@@ -3476,8 +3528,11 @@ fn apply_capture(
         orders.0.clear();
         commands.entity(e).remove::<Capture>();
         if let Some(mut f) = factory {
-            if let Some(p) = census.get(f.building) {
-                commands.entity(p.e).despawn();
+            // (Riders already inside a transport being filled go with it: their host is gone.)
+            for id in [f.building, f.carrier] {
+                if let Some(p) = census.get(id) {
+                    commands.entity(p.e).despawn();
+                }
             }
             *f = Factory::default();
         }

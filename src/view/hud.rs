@@ -4,7 +4,7 @@ use super::cursor::CursorKind;
 use super::icons;
 use super::intel::{FogGrid, IntelMemory};
 use super::terrain::{minimap_pixels, MainCamera};
-use super::{Interp, LocalCommands, Mode, ViewState};
+use super::{Interp, Loadout, LocalCommands, Mode, ViewState};
 use crate::ai::assign;
 use crate::data::{DefId, Defs, UnitDef};
 use crate::i18n::{unit_desc, unit_name, weapon_name};
@@ -1028,16 +1028,34 @@ fn range_rings(d: &UnitDef, alpha: f32) -> Vec<(f32, Color)> {
     out
 }
 
-/// A production queue as runs of the same unit: (unit, how many in a row).
-fn queue_runs(queue: &[DefId]) -> Vec<(DefId, usize)> {
-    let mut runs: Vec<(DefId, usize)> = vec![];
+/// A production queue as runs of the same entry (unit and loadout): (entry, how many in a row).
+fn queue_runs(queue: &[Job]) -> Vec<(Job, usize)> {
+    let mut runs: Vec<(Job, usize)> = vec![];
     for d in queue {
         match runs.last_mut() {
             Some(r) if r.0 == *d => r.1 += 1,
-            _ => runs.push((*d, 1)),
+            _ => runs.push((d.clone(), 1)),
         }
     }
     runs
+}
+
+/// The infantry types a factory of type `fac` builds that may ride in its land transport `host`
+/// (empty when `host` is not such a transport).
+fn loadout_options(defs: &Defs, fac: DefId, host: DefId) -> Vec<DefId> {
+    let (f, h) = (defs.get(fac), defs.get(host));
+    if h.transport.is_none() || h.is_air() || h.is_structure() || !f.is_factory() {
+        return vec![];
+    }
+    f.builds.iter().copied().filter(|d| fits(h, defs.get(*d))).collect()
+}
+
+/// Height of the loadout picker.
+const PICK_H: f32 = 120.0;
+
+/// Where the loadout picker is drawn: above the factory queue strip.
+fn loadout_rect(panel: egui::Rect) -> egui::Rect {
+    egui::Rect::from_min_size(Pos2::new(panel.min.x, panel.min.y - QUEUE_H - 8.0 - PICK_H), egui::vec2(panel.width().min(540.0), PICK_H))
 }
 
 /// Width of one entry in the factory queue strip.
@@ -1200,7 +1218,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let idle_r = rect(sw - 56.0, TOP + 12.0 + game.players.len() as f32 * 16.0, 48.0, 48.0);
     // Idle factories (below it): finished, nothing queued or being built, not upgrading.
     let idle_fac: Vec<(DefId, Vec<(u32, V2)>)> = {
-        let mut v: Vec<(u32, DefId, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.upg.is_none() && !u.paused && defs.get(u.def).is_factory() && u.factory.as_ref().map_or(false, |f| f.queue.is_empty() && f.building == 0)).map(|u| (u.id, u.def, u.pos)).collect();
+        let mut v: Vec<(u32, DefId, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.upg.is_none() && !u.paused && defs.get(u.def).is_factory() && u.factory.as_ref().map_or(false, |f| f.queue.is_empty() && f.building == 0 && f.carrier == 0)).map(|u| (u.id, u.def, u.pos)).collect();
         v.sort_by_key(|x| x.0);
         let mut kinds: Vec<DefId> = v.iter().map(|x| x.1).collect();
         kinds.sort();
@@ -1219,6 +1237,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         || (!idle.is_empty() && idle_r.contains(mouse))
         || fac_zone.map_or(false, |z| z.contains(mouse))
         || queue_band
+        || (view.loadout.is_some() && loadout_rect(panel).contains(mouse))
         || view.queue_drag.is_some()
         || view.settings_open
         || ctx.is_pointer_over_egui();
@@ -1752,7 +1771,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
     view.preset = (p.settings.hotkeys == "faf_alternative") as u8;
     let faf = view.preset == 1;
     if p.keys.just_pressed(KeyCode::Escape) {
-        if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
+        if view.loadout.is_some() {
+            view.loadout = None;
+        } else if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
             view.mode = Mode::None;
             view.pathing = None;
             view.drag_start = None;
@@ -2824,6 +2845,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             if let Some(pr) = u.upg {
                 text(ix, y, &tr!("hud_unit_info.upgrading_progress", pr * 100.0), 12.0, rgba(130, 225, 255, 255));
+            } else if let Some((c, f)) = u.factory.as_ref().and_then(|f| Some((infos.get(&f.carrier)?, f))) {
+                let aboard = infos.values().filter(|r| r.host == c.id).count();
+                text(ix, y, &tr!("hud_unit_info.filling", unit_name(fr.d(c.def)), aboard, aboard + f.cargo.len()), 12.0, rgba(130, 225, 255, 255));
             } else if let Some(b) = u.factory.as_ref().and_then(|f| infos.get(&f.building)) {
                 text(ix, y, &tr!("hud_unit_info.building_progress", unit_name(fr.d(b.def)), b.built.unwrap_or(1.0) * 100.0), 12.0, rgba(130, 225, 255, 255));
             }
@@ -2872,7 +2896,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let shown = runs.len().min((((panel.width() - 8.0) / QUEUE_W) as usize).max(1));
             hud.rect_filled(rect(panel.min.x, qy - 2.0, shown as f32 * QUEUE_W + 8.0, QUEUE_H + 2.0), 4.0, panel_bg);
             let mut start = 0usize;
-            for (k, (d, n)) in runs.iter().take(shown).enumerate() {
+            for (k, (j, n)) in runs.iter().take(shown).enumerate() {
+                let d = &j.def;
                 let r = rect(panel.min.x + 4.0 + k as f32 * QUEUE_W, qy, QUEUE_W - 4.0, QUEUE_H - 4.0);
                 let dragged = view.queue_drag == Some((lead.id, k));
                 let hov = button(r, dragged);
@@ -2886,7 +2911,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 if *n > 1 {
                     hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 1.0), Align2::RIGHT_BOTTOM, n.to_string(), font(14.0), rgba(255, 230, 80, 255));
                 }
-                if k == 0 {
+                if !j.cargo.is_empty() {
+                    // A transport with riders: how many come with it.
+                    hud.text(Pos2::new(r.min.x + 3.0, r.max.y - 1.0), Align2::LEFT_BOTTOM, format!("+{}", j.cargo.len()), font(12.0), rgba(150, 230, 255, 255));
+                }
+                if k == 0 && f.carrier == 0 {
                     if let Some(pr) = infos.get(&f.building).and_then(|b| b.built) {
                         hud.rect_filled(rect(r.min.x + 2.0, r.min.y + 2.0, (r.width() - 4.0) * pr.clamp(0.0, 1.0), 3.0), 0.0, rgba(100, 200, 255, 255));
                     }
@@ -2906,14 +2935,120 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 let gap = (((mouse.x - panel.min.x - 4.0) / QUEUE_W).round().max(0.0) as usize).min(runs.len());
                 let gx = panel.min.x + 2.0 + gap as f32 * QUEUE_W;
                 hud.line_segment([Pos2::new(gx, qy - 2.0), Pos2::new(gx, qy + QUEUE_H - 2.0)], Stroke::new(3.0, rgba(120, 255, 150, 255)));
-                if let Some((d, _)) = runs.get(from_run) {
-                    let dd = fr.d(*d);
+                if let Some((j, _)) = runs.get(from_run) {
+                    let dd = fr.d(j.def);
                     let ir = egui::Rect::from_center_size(mouse, egui::vec2(34.0, 34.0));
                     match p.assets.portrait(&ctx, dd) {
                         Some(t) => hud.image(t.id(), ir, UV, Color32::WHITE),
                         None => hud.image(p.assets.icon(&ctx, dd).id(), ir, UV, my_col),
                     };
                 }
+            }
+        }
+
+        // Loadout picker of a land transport: who rides inside when it leaves the factory.
+        if view.loadout.as_ref().map_or(false, |l| l.factory != lead.def || loadout_options(defs, l.factory, l.host).is_empty()) {
+            view.loadout = None;
+        }
+        if let Some(mut lo) = view.loadout.clone() {
+            let opts = loadout_options(defs, lo.factory, lo.host);
+            let hd = fr.d(lo.host);
+            let cap = hd.transport.as_ref().map_or(0, |t| t.capacity as u32);
+            let used = |c: &[DefId]| c.iter().map(|r| fr.d(*r).cargo as u32).sum::<u32>();
+            let pr = loadout_rect(panel);
+            hud.rect_filled(pr, 4.0, panel_bg);
+            hud.rect_stroke(pr, 4.0, Stroke::new(1.0, line_c), StrokeKind::Inside);
+            text(pr.min.x + 8.0, pr.min.y + 5.0, &tr!("hud_loadout.title", unit_name(hd), used(&lo.cargo), cap), 13.0, Color32::WHITE);
+            // Price of the whole job: the transport and everybody inside.
+            let (mass, energy) = lo.cargo.iter().fold((hd.cost.mass, hd.cost.energy), |a, r| (a.0 + fr.d(*r).cost.mass, a.1 + fr.d(*r).cost.energy));
+            let cx = stat(&hud, pr.max.x - 230.0, pr.min.y + 5.0, 12.0, "mass", &format!("{mass:.0}"), rgba(190, 215, 240, 255));
+            stat(&hud, cx, pr.min.y + 5.0, 12.0, "energy", &format!("{energy:.0}"), rgba(255, 215, 65, 255));
+            let close = rect(pr.max.x - 24.0, pr.min.y + 4.0, 20.0, 18.0);
+            if button(close, false) && lmb_down {
+                view.loadout = None;
+            }
+            hud.text(close.center(), Align2::CENTER_CENTER, "x", font(13.0), Color32::WHITE);
+            // One button per infantry type: left-click adds one (Shift: fills up), right-click takes one out.
+            let oy = pr.min.y + 26.0;
+            for (k, d) in opts.iter().enumerate() {
+                let r = rect(pr.min.x + 6.0 + k as f32 * 56.0, oy, 52.0, 60.0);
+                if r.max.x > pr.max.x - 104.0 {
+                    break;
+                }
+                let bd = fr.d(*d);
+                let room = used(&lo.cargo) + bd.cargo as u32 <= cap;
+                let hov = button(r, false);
+                let ir = rect(r.min.x + 6.0, r.min.y + 3.0, 40.0, 40.0);
+                let tint = if room { Color32::WHITE } else { rgba(255, 255, 255, 110) };
+                match p.assets.portrait(&ctx, bd) {
+                    Some(t) => hud.image(t.id(), ir, UV, tint),
+                    None => hud.image(p.assets.icon(&ctx, bd).id(), ir, UV, my_col),
+                };
+                stat(&hud, r.min.x + 1.0, r.max.y - 15.0, 10.5, "mass", &format!("{:.0}", bd.cost.mass), rgba(190, 215, 240, 255));
+                let n = lo.cargo.iter().filter(|c| *c == d).count();
+                if n > 0 {
+                    hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 17.0), Align2::RIGHT_TOP, n.to_string(), font(15.0), rgba(255, 230, 80, 255));
+                }
+                if hov {
+                    tip = Some((*d, ld.build_rate().max(1.0)));
+                    if lmb_down {
+                        while used(&lo.cargo) + bd.cargo.max(1) as u32 <= cap {
+                            lo.cargo.push(*d);
+                            if !shift {
+                                break;
+                            }
+                        }
+                    } else if rmb_down {
+                        if let Some(i) = lo.cargo.iter().rposition(|c| c == d) {
+                            lo.cargo.remove(i);
+                        }
+                    }
+                }
+            }
+            // Who is aboard so far, in order: click one to take it out.
+            let ry = pr.max.y - 28.0;
+            if lo.cargo.is_empty() {
+                text(pr.min.x + 8.0, ry + 4.0, tr!("hud_loadout.empty"), 11.5, rgba(170, 180, 195, 255));
+            }
+            let mut drop: Option<usize> = None;
+            for (k, d) in lo.cargo.iter().enumerate() {
+                let r = rect(pr.min.x + 6.0 + k as f32 * 25.0, ry, 23.0, 23.0);
+                if r.max.x > pr.max.x - 104.0 {
+                    break;
+                }
+                let hov = r.contains(mouse);
+                if hov {
+                    hud.rect_filled(r, 2.0, rgba(90, 60, 60, 230));
+                    if lmb_down || rmb_down {
+                        drop = Some(k);
+                    }
+                }
+                hud.image(p.assets.icon(&ctx, fr.d(*d)).id(), r.shrink(2.0), UV, my_col);
+            }
+            if let Some(k) = drop {
+                lo.cargo.remove(k);
+            }
+            // Queue the transport with this loadout (Shift: five); the picker stays open to queue more.
+            let qb = rect(pr.max.x - 98.0, oy, 92.0, 30.0);
+            if button(qb, false) && lmb_down {
+                let n: i16 = if shift { 5 } else { 1 };
+                for f in units.iter().filter(|u| u.def == lead.def) {
+                    out.push(if lo.cargo.is_empty() {
+                        Command::Produce { factory: f.id, def: lo.host, count: n }
+                    } else {
+                        Command::ProduceLoaded { factory: f.id, def: lo.host, cargo: lo.cargo.clone(), count: n }
+                    });
+                }
+                view.last_loadout.insert(lo.host, lo.cargo.clone());
+            }
+            hud.text(qb.center(), Align2::CENTER_CENTER, tr!("hud_loadout.queue"), font(13.0), rgba(170, 255, 190, 255));
+            let cb = rect(pr.max.x - 98.0, oy + 34.0, 92.0, 24.0);
+            if button(cb, false) && lmb_down {
+                lo.cargo.clear();
+            }
+            hud.text(cb.center(), Align2::CENTER_CENTER, tr!("hud_loadout.clear"), font(12.0), Color32::WHITE);
+            if view.loadout.is_some() {
+                view.loadout = Some(lo);
             }
         }
 
@@ -2947,14 +3082,18 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     hud.text(Pos2::new(r.max.x - 3.0, r.min.y + 1.0), Align2::RIGHT_TOP, format!("T{}", bd.tier), font(10.5), rgba(255, 200, 120, 255));
                 }
                 if is_factory {
-                    let n = lead.factory.as_ref().map_or(0, |f| f.queue.iter().filter(|q| **q == *d).count());
+                    let n = lead.factory.as_ref().map_or(0, |f| f.queue.iter().filter(|q| q.def == *d).count());
                     if n > 0 {
                         hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 17.0), Align2::RIGHT_TOP, n.to_string(), font(15.0), rgba(255, 230, 80, 255));
                     }
                 }
                 if hov {
                     tip = Some((*d, ld.build_rate().max(1.0)));
-                    if is_factory {
+                    if is_factory && lmb_down && !loadout_options(defs, lead.def, *d).is_empty() {
+                        // A land transport: pick its riders first (click again to close).
+                        let lo = Loadout { factory: lead.def, host: *d, cargo: view.last_loadout.get(d).cloned().unwrap_or_default() };
+                        view.loadout = if view.loadout.as_ref().map_or(false, |l| l.factory == lo.factory && l.host == lo.host) { None } else { Some(lo) };
+                    } else if is_factory {
                         let n: i16 = if shift { 5 } else { 1 };
                         if lmb_down || rmb_down {
                             for f in units.iter().filter(|u| u.def == lead.def) {

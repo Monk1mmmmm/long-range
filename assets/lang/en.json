@@ -258,6 +258,7 @@
     "cargo": "Cargo",
     "cargo_count": "{}: {} / {}",
     "upgrading_progress": "Upgrading: {:.0}%",
+    "filling": "Filling {}: {} / {} aboard",
     "building_progress": "Building {}: {:.0}%",
     "tooltip_title": "{}   (tier {})",
     "tooltip_hp_armor_stealth": "HP {:.0}   Armor {}{}",
@@ -279,6 +280,12 @@
     "tooltip_speed": "Speed {:.1} (reverse {:.1})   Sight {:.0}{}",
     "factory_queue_hint": "Left-click: queue (+Shift x5).  Right-click: remove.  Drag the queue strip to reorder.",
     "build_time": "{:.0}s"
+  },
+  "hud_loadout": {
+    "title": "{}: who rides inside ({} / {} slots)",
+    "queue": "Queue",
+    "clear": "Clear",
+    "empty": "Nobody aboard: queued like this, it comes empty"
   },
   "hud_orders": {
     "move": "Move",

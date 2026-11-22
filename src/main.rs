@@ -3468,6 +3468,45 @@ fn apc_tests(defs: &Defs) {
     println!("== {} destroyed with {boarded} riflemen inside: {out} bail out", carriers[0]);
     assert!(boarded == 4 && out == 4, "infantry bail out of a destroyed carrier");
 
+    // 2b. A land factory queues the carrier with a loadout: the riders are built after it, inside,
+    //     and it leaves with them aboard; the whole job is paid (transport + riders).
+    let (mut app, map) = world_with(None);
+    let world = app.world_mut();
+    let fac = spawn(world, &map, "land_factory", 0, v2(100.0, 100.0), 0.0);
+    {
+        let mut game = world.resource_mut::<Game>();
+        let p = &mut game.players[0];
+        p.mass = 5000.0;
+        p.energy = 50000.0;
+        p.max_mass = 5000.0;
+        p.max_energy = 50000.0;
+    }
+    let fac_def = defs.id("land_factory").unwrap();
+    let host = defs.id(carriers[0]).unwrap();
+    let cap = defs.get(host).transport.as_ref().map_or(0, |t| t.capacity) as usize;
+    let rider = defs.id("trooper").unwrap();
+    let cargo = vec![rider; cap];
+    assert!(loadout_ok(defs, fac_def, host, &cargo), "the land factory fills its own carrier with riflemen");
+    assert!(!loadout_ok(defs, fac_def, host, &vec![rider; cap + 1]), "no more riders than the carrier holds");
+    let mut paid = 0.0;
+    world.resource_mut::<CommandQueue>().0.push((0, Command::ProduceLoaded { factory: fac, def: host, cargo: cargo.clone(), count: 1 }));
+    let mut out_at = None;
+    for t in 0..6000 {
+        world.run_schedule(SimTick);
+        paid += world.resource::<Game>().players[0].spend_m * DT;
+        let left = world.query::<(&Unit, Has<Hosted>)>().iter(world).find(|(u, h)| u.def == host && !h).map(|(u, _)| u.id);
+        if let Some(c) = left {
+            out_at = Some((c, t));
+            break;
+        }
+    }
+    let (c, t) = out_at.expect("the filled carrier leaves the factory");
+    let aboard = world.query::<(&Unit, &Hosted)>().iter(world).filter(|(u, h)| h.0 == c && u.def == rider).count();
+    let want = defs.get(host).cost.mass + cap as f32 * defs.get(rider).cost.mass;
+    println!("== {} queued with {cap} riflemen: out after {:.0} s with {aboard} aboard, ~{paid:.0} mass paid (job {want:.0})", carriers[0], t as f32 * DT);
+    assert!(aboard == cap, "the carrier comes out with its loadout aboard");
+    assert!(paid > want * 0.9 && paid < want * 1.1, "the job costs the transport and its riders");
+
     // 3. A river 2.5 deep: the Slavuta drives across along the bottom, an Overtaker cannot.
     //    One 6 deep stops the Slavuta too.
     let Some(&amph) = carriers.iter().find(|c| defs.get(defs.id(c).unwrap()).mv.amphibious) else { return };
