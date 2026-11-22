@@ -3,9 +3,10 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## v0.12.4
+## v0.12.5
 
-One download per platform: the map editor is now inside the game program. The simulation is unchanged from v0.12.3.
+New models in the style of the Long Range Tank units and the Mining Town buildings. Hit boxes changed with them, so
+everybody in a multiplayer game needs the same version.
 
 Changed
 - New models in the style of the Long Range Tank units and the Mining Town buildings replace everything the game borrowed
@@ -17,6 +18,16 @@ Changed
   scavenger, Bastion, Hailstorm, Skylance, UC-02R/03R, AT/Sniper/SAM Trooper and Commander.
 - Reactive armour is visible: bolted bricks on the Bastion and the Hetman.
 - Hit boxes follow the new models (most buildings now fill their footprint).
+
+Added
+- Map editor: buildings and units can be placed for a player slot (the owner picker shows the slot colours); they
+  belong to whoever plays that slot and are left out when the slot is empty.
+
+## v0.12.4
+
+One download per platform: the map editor is now inside the game program. The simulation is unchanged from v0.12.3.
+
+Changed
 - The map editor is part of the game program: "Map editor" in the main menu opens it in its own window
   (or `longrange --editor`; the command-line jobs are `longrange --editor --generate/--scatter/--points ...`).
   A release now has one archive per platform instead of two, with one copy of the program and of `assets`,
