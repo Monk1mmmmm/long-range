@@ -3,6 +3,14 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+Changed
+- The map editor is part of the game program: "Map editor" in the main menu opens it in its own window
+  (or `longrange --editor`; the command-line jobs are `longrange --editor --generate/--scatter/--points ...`).
+  A release now has one archive per platform instead of two, with one copy of the program and of `assets`,
+  about half the download and disk space. The separate `lr-editor` program is gone.
+
 ## v0.12.3
 
 Infantry now take buildings by themselves when the lobby option "Infantry capture buildings" is on. The simulation changed

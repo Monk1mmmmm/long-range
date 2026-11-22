@@ -38,10 +38,10 @@ cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting clien
                                   # LR_AI=zones,.. AI types, LR_CLIENT_AI=zones an AI plays the client, LR_MAP=name, LR_PLAYERS=3)
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
 cargo run -- --ground out.png     # every ground texture in one picture, plus table vs measured average colours
-cargo run --bin lr-editor         # map editor
-cargo run --bin lr-editor -- --generate NAME CELLS SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky)
-cargo run --bin lr-editor -- --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
-cargo run --bin lr-editor -- --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
+cargo run -- --editor             # map editor (also the main menu's "Map editor": the game starts itself with --editor)
+cargo run -- --editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky)
+cargo run -- --editor --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
+cargo run -- --editor --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
 python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/models/NAME.glb + textures (needs Blender; tools/README.md)
@@ -79,14 +79,14 @@ The first xdotool mouse move lands at the window centre - do a throwaway move be
 
 ### Building
 
-Link one binary at a time (`cargo build --bin longrange`, then `--bin lr-editor`). `cargo build --bins` links
-both in parallel, which filled 8 GB RAM + 8 GB swap and thrashed for half an hour without finishing. The release
-scripts already build sequentially. Compiling the crate itself takes about a minute.
+There is one binary, `longrange`; the map editor is part of it (`src/editor.rs`, `--editor`), so releases ship
+one executable and one `assets/` per platform. (A separate `lr-editor` binary existed until v0.12.3; linking two
+Bevy binaries in parallel filled 8 GB RAM + 8 GB swap here.) Compiling the crate itself takes about a minute.
 
 ### Renderer compatibility (old Intel iGPUs)
 
 `settings::render_plugin(&Settings)` / `tolerate_render_errors()` / `apply_settings` (in `src/settings.rs`, which
-also holds the `Settings` resource saved to `settings.json` in `settings::base_dir()` - the user's config folder, not next to `assets`, so it survives new versions: `%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application Support/LongRange`, override `LR_CONFIG`; an old `settings.json` next to `assets` is imported once; logs go there too - and the shared settings window) are used by both binaries:
+also holds the `Settings` resource saved to `settings.json` in `settings::base_dir()` - the user's config folder, not next to `assets`, so it survives new versions: `%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application Support/LongRange`, override `LR_CONFIG`; an old `settings.json` next to `assets` is imported once; logs go there too - and the shared settings window) are used by the game and the editor:
 Windows defaults to DX12 (the Intel Vulkan driver `igvk64.dll` crashes at start-up on HD 520/530),
 MSAA is off, and validation errors are logged instead of quitting (Bevy 0.20's default handler exits the app).
 The renderer is always Bevy's full one (GPU occlusion culling on). A "Compatible" renderer that disabled
@@ -102,7 +102,7 @@ context") and its failing SSAO shader arrives as an `Internal` error, which the 
 errors; `settings::log_plugin` mutes the per-frame `wgpu_hal::gles` heuristics spam.
 The Windows exe can be run straight from WSL (`dist/.../longrange.exe --skirmish`, console output is captured).
 Render errors go to `render-errors.log` and the settings window. Everything logged also goes to `longrange.log` /
-`lr-editor.log` next to `settings.json` (the previous run's as `*-previous.log`), panics with a backtrace:
+`lr-editor.log` (with `--editor`) next to `settings.json` (the previous run's as `*-previous.log`), panics with a backtrace:
 read those first when the user reports a crash.
 Alt+Tab minimises the window; Bevy then resized the swap chain to 1x1 and DX12's `ResizeBuffers` failed ("window is in
 use", "Invalid surface"), losing the surface. `settings::keep_surface` (render world, before `create_surfaces`) keeps the
@@ -249,7 +249,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
 | `src/i18n.rs`, `assets/lang/` | localisation: `tr!` / `tx!` / `tr`, language files, completeness test |
 | `src/preset_form.rs` | the preset editor's form view: one `Field` (JSON path, label, kind + default, tooltip) per setting of rules.json, units and weapons; edits a `serde_json::Value`, keys it does not know stay |
-| `src/bin/lr-editor.rs` | map editor and map generation CLI |
+| `src/editor.rs` | map editor and map generation CLI (`longrange --editor`) |
 | `build.rs`, `res/` | Windows exe icon (`res/longrange.ico`, made from the mod's `modicon.jpg`) embedded with `embed-resource`; `settings::add_window_icon` puts it on the running window (winit sets none) |
 
 ## Game rules worth knowing

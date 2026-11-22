@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds release bundles and publishes them as a GitHub release: per platform one archive with the game
-# and one with the map editor (each with its own copy of assets/).
+# Builds release bundles and publishes them as a GitHub release: one archive per platform with the game,
+# which also holds the map editor (`longrange --editor`, or "Map editor" in the main menu).
 #
 #   scripts/release.sh                    build Linux and Windows bundles, upload both
 #   scripts/release.sh --only linux       build just one platform (linux | windows)
@@ -41,8 +41,8 @@ clean_dist() {
         [ -e "$f" ] || continue
         keep=0
         case "${f#dist/}" in
-            longrange-"$VERSION"-linux-*|longrange-editor-"$VERSION"-linux-*) [ "$ONLY" = windows ] && keep=1 ;;
-            longrange-"$VERSION"-windows-*|longrange-editor-"$VERSION"-windows-*) [ "$ONLY" = linux ] && keep=1 ;;
+            longrange-"$VERSION"-linux-*) [ "$ONLY" = windows ] && keep=1 ;;
+            longrange-"$VERSION"-windows-*) [ "$ONLY" = linux ] && keep=1 ;;
         esac
         if [ "$keep" = 0 ]; then
             echo "removing old $f"
@@ -53,11 +53,8 @@ clean_dist() {
 clean_dist
 FILES=()
 
-# The two programs are built one after the other: linking both at once needs more memory
-# than an 8 GB machine has and ends in swap thrashing.
 build_bins() {
     cargo build --release --bin longrange "$@"
-    cargo build --release --bin lr-editor "$@"
 }
 
 # The MinGW build cannot link Microsoft's DXC shader compiler statically (wgpu supports that with MSVC
@@ -77,12 +74,10 @@ fetch_dxc() {
     unlink "$d/dxc.zip"
 }
 
-# One archive per program: longrange-<version>-<platform> (the game) and
-# longrange-editor-<version>-<platform> (the map editor). Each is complete on its own: both programs
-# read assets/ next to the executable, and both render with DirectX 12 on Windows (dxcompiler.dll).
+# One archive per platform: longrange-<version>-<platform>. The program reads assets/ next to the
+# executable and renders with DirectX 12 on Windows (dxcompiler.dll).
 bundle() { # <platform name> <cargo output dir> <exe suffix>
     bundle_one "longrange-$VERSION-$1" longrange "$2" "$3"
-    bundle_one "longrange-editor-$VERSION-$1" lr-editor "$2" "$3"
 }
 
 bundle_one() { # <archive name> <program> <cargo output dir> <exe suffix>
