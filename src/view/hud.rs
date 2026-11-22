@@ -10,6 +10,7 @@ use crate::data::{DefId, Defs, UnitDef};
 use crate::i18n::{unit_desc, unit_name, weapon_name};
 use crate::map::*;
 use crate::sim::*;
+use crate::net::Mark;
 use crate::sim::Command;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::MouseWheel;
@@ -203,6 +204,7 @@ pub struct UiParams<'w, 's> {
     #[allow(clippy::type_complexity)]
     units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Option<&'static Hosted>, Has<Paused>, (Option<&'static Capture>, Option<&'static Reactive>))>,
     ui_sounds: ResMut<'w, super::sound::UiSounds>,
+    marks: ResMut<'w, super::marks::Marks>,
     cursor: ResMut<'w, super::cursor::CursorWant>,
     wrecks: Query<'w, 's, &'static Wreck>,
     features: Res<'w, Features>,
@@ -1400,6 +1402,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let lmb_held = p.mouse.pressed(MouseButton::Left);
     let rmb_down = p.mouse.just_pressed(MouseButton::Right);
     let rmb_up = p.mouse.just_released(MouseButton::Right);
+    // Pings and drawings (`marks`): players only, not while watching a replay.
+    let can_mark = !observer && view.replay.is_none();
+    p.marks.expire(now);
 
     // ---------------------------------------------------------------- world input
     if !view.menu_open {
@@ -1682,7 +1687,20 @@ pub fn ui_system(mut p: UiParams) -> Result {
             } else if !view.sel.is_empty() {
                 view.path = vec![ground];
                 view.pathing = Some(1);
+            } else if can_mark {
+                // Nothing selected: a right-drag draws on the map, a right-click pings.
+                view.path = vec![ground];
+                view.pathing = Some(3);
             }
+        }
+        if rmb_up && view.pathing == Some(3) {
+            view.pathing = None;
+            let path = std::mem::take(&mut view.path);
+            let mark = if path_len(&path) >= (view.cam_dist * 0.03).max(1.5) { Mark::Line(super::marks::thin(path)) } else { Mark::Ping(path[0]) };
+            if matches!(mark, Mark::Ping(_)) {
+                p.ui_sounds.0.push(("ping", 0.8));
+            }
+            p.marks.make(me, mark, now);
         }
         if view.pathing.is_some() && view.path.len() < 500 && view.path.last().map_or(false, |l| l.dist(ground) > 0.8) {
             view.path.push(ground);
@@ -2195,6 +2213,33 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
     }
 
+    // Pings and drawings: lines hug the ground, a ping sends rings out from its spot for a few seconds.
+    let mark_col = |owner: u8, a: f32| {
+        let c = super::owner_color(defs, game, owner).1;
+        Color::srgba(c[0], c[1], c[2], a)
+    };
+    if view.pathing == Some(3) && view.path.len() > 1 {
+        let c = mark_col(me, 1.0);
+        g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.4)), c);
+    }
+    for m in &p.marks.shown {
+        let a = m.alpha(now);
+        match &m.mark {
+            Mark::Line(pts) => g.linestrip(pts.iter().map(|pt| pt.at(map.surface(*pt) + 0.4)), mark_col(m.owner, a)),
+            Mark::Ping(pt) => {
+                let age = (now - m.born) as f32;
+                let size = (view.cam_dist * 0.035).clamp(1.5, 12.0);
+                for k in 0..2 {
+                    let t = (age * 0.8 + k as f32 * 0.5).fract();
+                    ring(g, map, *pt, size * (0.3 + 2.2 * t), mark_col(m.owner, a * (1.0 - t)));
+                }
+                ring(g, map, *pt, size * 0.3, mark_col(m.owner, a));
+                let y = map.surface(*pt);
+                g.line(pt.at(y), pt.at(y + size * 2.5), mark_col(m.owner, a));
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- 2D overlay: icons, blips, bars
     let bg = ctx.layer_painter(egui::LayerId::background());
     let blip = p.assets.blip.get_or_insert_with(|| ctx.load_texture("blip", egui::ColorImage::from_rgba_unmultiplied([icons::ICON, icons::ICON], &icons::render_blip()), egui::TextureOptions::LINEAR)).clone();
@@ -2633,6 +2678,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
         hud.circle_filled(at, 4.5, rgba(0, 0, 0, 220));
         hud.circle_filled(at, 3.2, rgb(team_rgb(cp.owner)));
     }
+    for m in &p.marks.shown {
+        let c = rgb(super::owner_color(defs, game, m.owner).1).gamma_multiply(m.alpha(now));
+        match &m.mark {
+            Mark::Line(pts) => {
+                hud.add(egui::Shape::line(pts.iter().map(|pt| to_mm(*pt)).collect(), Stroke::new(1.5, c)));
+            }
+            Mark::Ping(pt) => {
+                let t = ((now - m.born) as f32 * 0.8).fract();
+                hud.circle_stroke(to_mm(*pt), 3.0 + 9.0 * t, Stroke::new(1.5, c.gamma_multiply(1.0 - t)));
+                hud.circle_filled(to_mm(*pt), 2.5, c);
+            }
+        }
+    }
     let corners = [Pos2::new(0.0, TOP), Pos2::new(sw, TOP), Pos2::new(sw, sh), Pos2::new(0.0, sh)].map(|c| {
         let q = to_mm(ray_ground(view, c));
         Pos2::new(q.x.clamp(mm.min.x, mm.max.x), q.y.clamp(mm.min.y, mm.max.y))
@@ -2647,6 +2705,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         if rmb_down && !view.sel.is_empty() {
             fr.order_move(view, &[wp], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
+        } else if rmb_down && can_mark && view.pathing.is_none() {
+            p.ui_sounds.0.push(("ping", 0.8));
+            p.marks.make(me, Mark::Ping(map.clamp(wp)), now);
         }
     }
 
@@ -3275,6 +3336,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             tr!("hud_help.left_click_drag_select_box_select"),
             tr!("hud_help.right_click_move_attack_enemy_assist"),
             tr!("hud_help.right_drag_a_line_spread_the"),
+            tr!("hud_help.pings_and_drawing"),
             if faf { tr!("hud_help.faf_alternative_keys_w_move_alt") } else { tr!("hud_help.a_attack_move_p_patrol_s") },
             if faf { tr!("hud_help.i_t_assist_repair_esc_stop") } else { tr!("hud_help.u_upgrade_pumps_factories_r_factory") },
             if faf { tr!("hud_help.hotbuild_press_again_to_cycle_z") } else { tr!("hud_help.hotkey_preset_can_be_switched_to") },

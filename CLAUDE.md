@@ -250,6 +250,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/fx.rs` | projectile visuals and explosions (fewer puffs, no flash lights at the low effects level) |
 | `src/view/debris.rs` | debris pieces: jagged chunk meshes, falling/tumbling, shown by the effects level |
 | `src/view/flora.rs` | trees and rocks: procedural models (detail setting), one merged mesh per 16-cell chunk |
+| `src/view/marks.rs` | pings and map drawings (`Marks`: own ones to send, those shown), team filter, sound |
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
@@ -472,6 +473,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   them into the contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). The random map is made when
   chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
   the picture in `LobbyInfo.preview`.
+- **Pings and drawings** (`view/marks.rs`): with nothing selected, a right-click on the map or minimap pings, a
+  right-drag draws a line (`ViewState.pathing == Some(3)` while drawing); shown in the maker's player colour to their
+  team (observers see all, make none; none in replays), pings 8 s with the `ping` UI sound, lines 45 s, fading out.
+  They are not commands: `C2S::Mark` to the host, which passes them on as `S2C::Mark(player, ..)` to everyone else
+  (`main.rs::session_frame`), so they skip the sim, its hash and the replay, and work while paused.
 - **Model scale**: the mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) use 2.5x the blueprint's
   `UniformScale`, with sizes and footprints to match; the buggy was enlarged a further x1.75 on request. Our own models

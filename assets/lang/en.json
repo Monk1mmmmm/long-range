@@ -353,6 +353,7 @@
     "left_click_drag_select_box_select": "Left click / drag: select, box select.  Double-click: all of that type on screen.  Shift: add.",
     "right_click_move_attack_enemy_assist": "Right click: move / attack enemy / assist or repair friend / reclaim wreck (engineers alone: also trees and rocks).  Shift: queue.",
     "right_drag_a_line_spread_the": "Right-drag a line: spread the selected units along it (Alt: attack-move).",
+    "pings_and_drawing": "Nothing selected: right-click pings the map (also on the minimap), right-drag draws on it - your team sees both in your colour.",
     "faf_alternative_keys_w_move_alt": "FAF alternative keys:  W move   Alt+W patrol   R attack / ground fire (drag = area)   Q reclaim (drag = area)",
     "a_attack_move_p_patrol_s": "A attack-move    P patrol    S stop    G ground fire (drag = area)    E reclaim (drag = area)",
     "i_t_assist_repair_esc_stop": "I / T assist, repair   Esc stop   O upgrade   ` factory repeat   F10 menu   Alt+right-click attack-move",

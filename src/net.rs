@@ -140,6 +140,16 @@ pub enum C2S {
     /// After the host left: this player connects to the player who took over as host
     /// (instead of `Hello`). The new host answers with its full state.
     Rejoin { player: u8 },
+    /// A ping or a line drawn on the map, for the player's team (the host passes it on).
+    Mark(Mark),
+}
+
+/// A map marking a player makes for their team: never part of the simulation, the replay or the
+/// state hash (`view::marks`).
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub enum Mark {
+    Ping(crate::map::V2),
+    Line(Vec<crate::map::V2>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -159,6 +169,9 @@ pub enum S2C {
     /// Sent when the game starts and whenever a player leaves. `ai_reclaim` is the lobby's AI option,
     /// which the next host's AIs keep.
     Peers { host: u8, peers: Vec<(u8, Option<IpAddr>)>, ai_reclaim: bool },
+    /// A player's ping or drawing (`C2S::Mark`), passed on to everybody else; the receiver keeps
+    /// those of its own team.
+    Mark(u8, Mark),
 }
 
 fn write_frame(s: &mut TcpStream, tag: u8, data: &[u8]) -> std::io::Result<()> {

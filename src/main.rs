@@ -1060,11 +1060,21 @@ fn session_frame(world: &mut World) {
         let me = world.get_resource::<ViewState>().map_or(0, |v| v.me);
         let local: Vec<Command> = world.get_resource_mut::<LocalCommands>().map(|mut c| c.0.drain(..).collect()).unwrap_or_default();
         let toggle = world.get_resource_mut::<ViewState>().map_or(false, |mut v| std::mem::take(&mut v.pause_toggle));
+        // Pings and drawings: the local player's go out, the others' are shown (`view::marks`).
+        let my_marks: Vec<Mark> = world.get_resource_mut::<view::marks::Marks>().map(|mut m| std::mem::take(&mut m.out)).unwrap_or_default();
+        let mut heard_marks: Vec<(u8, Mark)> = vec![];
         match &mut s.role {
             Role::Host { host, remote, sim, waiting, wait_left, ai_reclaim } => {
                 let mut cmds: Vec<(u8, Command)> = std::mem::take(&mut s.held);
                 if me != OBSERVER {
                     cmds.extend(local.into_iter().map(|c| (me, c)));
+                }
+                if me != OBSERVER {
+                    for m in &my_marks {
+                        for (conn, _) in remote.iter() {
+                            host.send_msg(*conn, &S2C::Mark(me, m.clone()));
+                        }
+                    }
                 }
                 // Pause requests: (player, pause or resume).
                 let mut pause: Vec<(u8, bool)> = vec![];
@@ -1079,6 +1089,14 @@ fn session_frame(world: &mut World) {
                             }
                         }
                         HostEvent::Msg(id, C2S::Ping(t)) => host.send_msg(id, &S2C::Pong(t)),
+                        HostEvent::Msg(id, C2S::Mark(m)) => {
+                            if let Some(m) = remote.iter().find(|r| r.0 == id && r.1 != OBSERVER).and_then(|r| Some((r.1, view::marks::sanitize(m, world.resource::<MapData>())?))) {
+                                for (conn, _) in remote.iter().filter(|r| r.0 != id) {
+                                    host.send_msg(*conn, &S2C::Mark(m.0, m.1.clone()));
+                                }
+                                heard_marks.push(m);
+                            }
+                        }
                         HostEvent::Msg(id, C2S::Pause(on)) => {
                             if let Some((_, p)) = remote.iter().find(|r| r.0 == id && r.1 != OBSERVER) {
                                 pause.push((*p, on));
@@ -1252,6 +1270,11 @@ fn session_frame(world: &mut World) {
                     for m in sim.issue(world, local) {
                         client.send(&m);
                     }
+                    if me != OBSERVER {
+                        for m in my_marks {
+                            client.send(&C2S::Mark(m));
+                        }
+                    }
                     *heard += dt;
                     loop {
                         match client.frames.try_recv() {
@@ -1301,6 +1324,7 @@ fn session_frame(world: &mut World) {
                         sim.log.clear();
                         sim.log_hashes.clear();
                     }
+                    heard_marks.extend(sim.marks.drain(..));
                 }
                 // Who takes over: the human player with the lowest number who has not failed
                 // to already. Every client works it out from the same list, so they agree.
@@ -1326,6 +1350,7 @@ fn session_frame(world: &mut World) {
             }
             Role::Replay(r) => replay_update(world, r, &mut s.acc, toggle),
         }
+        view::marks::heard(world, heard_marks);
         if let Some(role) = promoted {
             s.role = role;
             s.paused = None;

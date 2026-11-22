@@ -126,13 +126,15 @@ pub struct ClientSim {
     /// replay drops what it recorded after it.
     pub rewound: Option<u32>,
     logged: u32,
+    /// Pings and drawings of other players, taken by the session each frame.
+    pub marks: Vec<(u8, crate::net::Mark)>,
 }
 
 impl ClientSim {
     /// `state` is the starting state, already loaded into the world (`join_game`).
     pub fn new(me: u8, state: Snapshot) -> ClientSim {
         let fx_high = state.game.tick;
-        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None, host_player: None, peers: vec![], ai_reclaim: true, log: vec![], log_hashes: vec![], rewound: None, logged: fx_high }
+        ClientSim { me, confirmed: state, turns: vec![], resync: None, pending: vec![], seq: 0, lead: 1, acc: 0.0, fx_high, resyncs: 0, clock: std::time::Instant::now(), ping_in: 0.0, rtt: 0.0, paused: None, host_player: None, peers: vec![], ai_reclaim: true, log: vec![], log_hashes: vec![], rewound: None, logged: fx_high, marks: vec![] }
     }
 
     pub fn confirmed_tick(&self) -> u32 {
@@ -160,6 +162,7 @@ impl ClientSim {
                     self.peers = peers;
                     self.ai_reclaim = ai_reclaim;
                 }
+                Ok(S2C::Mark(p, m)) => self.marks.push((p, m)),
                 Ok(S2C::Kicked(why)) => return Err(why),
                 Ok(_) => {}
                 Err(_) => return Err("Protocol mismatch - are both players on the same version?".into()),
