@@ -396,7 +396,8 @@ impl Frame<'_> {
             men: Vec<u32>,
         }
         let mut targets: Vec<Target> = vec![];
-        for s in self.seen.iter().filter(|s| s.contact == Contact::Visible) {
+        // Own and neutral buildings count also in the fog (remembered ones); enemy ones only in sight.
+        for s in self.seen.iter().filter(|s| s.contact == Contact::Visible || !s.enemy) {
             let Some(d) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && d.is_structure()) else { continue };
             if !self.infos.get(&s.id).is_some_and(|i| i.built.is_none() && i.hp > 0.0) || s.pos.dist(c) > r + d.footprint.max(1) as f32 * CELL * 0.5 {
                 continue;
@@ -662,7 +663,7 @@ impl Frame<'_> {
                 return if s.contact == Contact::Stale { Context::AttackGround(s.pos) } else { Context::Attack(s.id) };
             } else if self.game.team_of(s.owner) != self.team {
                 // An empty building: infantry go in.
-                if let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.owner == NEUTRAL && s.contact != Contact::Stale) {
+                if let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.owner == NEUTRAL && self.infos.get(&s.id).is_some_and(|i| i.hp > 0.0)) {
                     let inf: Vec<u32> = units.iter().filter(|u| rides_in(self.d(u.def), hd)).map(|u| u.id).collect();
                     if !inf.is_empty() {
                         return Context::Load(inf, s.id);
@@ -1563,7 +1564,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         // Our own transports and buildings, and empty buildings (infantry only).
                         // ... and buildings enemy infantry hold (storming them).
                         let ours = |s: &Seen| game.team_of(s.owner) == team || (s.owner == NEUTRAL && s.def.map_or(false, |d| fr.d(d).is_garrison())) || !fr.stormers(&sel, s).is_empty();
-                        let target = hover.filter(|h| radius < 1.5 && seen[*h].contact == Contact::Visible && ours(&seen[*h])).map(|h| &seen[h]);
+                        let target = hover.filter(|h| radius < 1.5 && (seen[*h].contact == Contact::Visible || !seen[*h].enemy) && ours(&seen[*h])).map(|h| &seen[h]);
                         match target.and_then(|s| s.def.map(|d| (s, fr.d(d)))) {
                             Some((s, _)) if s.enemy => out.push(Command::Orders { ids: fr.stormers(&sel, s), orders: vec![Order::Load(s.id)], queue: shift }),
                             // Click on a transport: the selected units get in.
