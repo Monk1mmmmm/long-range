@@ -221,7 +221,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Commit every finished incremental change right away (one commit per change, short message saying what it does),
   so several sessions working in this tree at once do not pile up one big uncommitted diff. Stage only the files
   you changed (`git add <paths>`, never `git add -A` / `.`): other sessions' work may be uncommitted in the same tree.
-  Do not push, tag or publish a release without being asked.
+  Do not tag or publish a release without being asked. Pushing is allowed to a separate branch (the session's
+  own `claude/...` branch, never main): push finished commits there without asking. Do not push to main.
 - The user wants sub-agents on weaker/cheaper models used where they help (searching and summarising code, running
   and tabulating test batches, building a baseline to compare with, self-contained pieces of work), keeping the
   design and the edits of shared files in the main session.
