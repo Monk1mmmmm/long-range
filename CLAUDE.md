@@ -473,7 +473,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   them into the contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). The random map is made when
   chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
   the picture in `LobbyInfo.preview`.
-- **Pings and drawings** (`view/marks.rs`): with nothing selected, a right-click on the map or minimap pings, a
+- **Pings and drawings** (`view/marks.rs`): with nothing selected, a right double-click on the map or minimap pings, a
   right-drag draws a line (`ViewState.pathing == Some(3)` while drawing); shown in the maker's player colour to their
   team (observers see all, make none; none in replays), pings 8 s with the `ping` UI sound, lines 45 s, fading out.
   They are not commands: `C2S::Mark` to the host, which passes them on as `S2C::Mark(player, ..)` to everyone else

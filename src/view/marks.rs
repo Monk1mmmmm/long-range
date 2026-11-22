@@ -1,4 +1,4 @@
-//! Pings and lines drawn on the map (right-click / right-drag with nothing selected), in the
+//! Pings and lines drawn on the map (right double-click / right-drag with nothing selected), in the
 //! colour of the player who made them, shown to that player's team (observers see everybody's).
 //!
 //! They are view state only: they travel as their own messages (`C2S::Mark`, passed on by the host
@@ -17,6 +17,8 @@ pub const FADE_SECS: f64 = 6.0;
 /// Most points of one line (longer ones are thinned out) and most marks shown at once.
 pub const MAX_POINTS: usize = 400;
 const MAX_SHOWN: usize = 300;
+/// Most time between the two clicks of a right double-click.
+const DOUBLE_SECS: f64 = 0.4;
 
 pub struct Shown {
     pub owner: u8,
@@ -43,6 +45,8 @@ pub struct Marks {
     /// Made by the local player this frame, for the session to send.
     pub out: Vec<Mark>,
     pub shown: Vec<Shown>,
+    /// The last plain right-click (time, spot), for telling a double-click.
+    last_click: Option<(f64, V2)>,
 }
 
 impl Marks {
@@ -57,6 +61,14 @@ impl Marks {
         if self.shown.len() > MAX_SHOWN {
             self.shown.remove(0);
         }
+    }
+
+    /// A right-click at `at`: true when it completes a double-click (within `DOUBLE_SECS`
+    /// and `near` of the one before).
+    pub fn double_click(&mut self, at: V2, near: f32, now: f64) -> bool {
+        let double = self.last_click.map_or(false, |(t, p)| now - t <= DOUBLE_SECS && p.dist(at) <= near);
+        self.last_click = if double { None } else { Some((now, at)) };
+        double
     }
 
     pub fn expire(&mut self, now: f64) {

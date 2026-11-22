@@ -1696,11 +1696,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if rmb_up && view.pathing == Some(3) {
             view.pathing = None;
             let path = std::mem::take(&mut view.path);
-            let mark = if path_len(&path) >= (view.cam_dist * 0.03).max(1.5) { Mark::Line(super::marks::thin(path)) } else { Mark::Ping(path[0]) };
-            if matches!(mark, Mark::Ping(_)) {
+            if path_len(&path) >= (view.cam_dist * 0.03).max(1.5) {
+                p.marks.make(me, Mark::Line(super::marks::thin(path)), now);
+            } else if p.marks.double_click(path[0], (view.cam_dist * 0.04).max(1.5), now) {
                 p.ui_sounds.0.push(("ping", 0.8));
+                p.marks.make(me, Mark::Ping(path[0]), now);
             }
-            p.marks.make(me, mark, now);
         }
         if view.pathing.is_some() && view.path.len() < 500 && view.path.last().map_or(false, |l| l.dist(ground) > 0.8) {
             view.path.push(ground);
@@ -2705,7 +2706,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         if rmb_down && !view.sel.is_empty() {
             fr.order_move(view, &[wp], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
-        } else if rmb_down && can_mark && view.pathing.is_none() {
+        } else if rmb_down && can_mark && view.pathing.is_none() && p.marks.double_click(wp, world / MM * 6.0, now) {
             p.ui_sounds.0.push(("ping", 0.8));
             p.marks.make(me, Mark::Ping(map.clamp(wp)), now);
         }
