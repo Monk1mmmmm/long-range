@@ -720,14 +720,16 @@ fn colours(ui: &mut egui::Ui, v: &mut Value) -> bool {
             changed = true;
         }
     };
+    // The player colours sit in a row of their own: a wrapping layout inside a grid cell has no
+    // width to wrap at and stacked every button on a line of its own.
+    ui.label(tr!("preset_rules.player_colours")).on_hover_text(tr!("preset_rules.players_tip"));
+    ui.horizontal_wrapped(|ui| {
+        for (k, c) in v["player_colors"].as_array_mut().into_iter().flatten().enumerate() {
+            rgb(ui, c, &tr!("preset_rules.player_n", k + 1));
+        }
+    });
+    ui.add_space(4.0);
     egui::Grid::new("colours").spacing([16.0, 6.0]).show(ui, |ui| {
-        ui.label(tr!("preset_rules.player_colours")).on_hover_text(tr!("preset_rules.players_tip"));
-        ui.horizontal_wrapped(|ui| {
-            for (k, c) in v["player_colors"].as_array_mut().into_iter().flatten().enumerate() {
-                rgb(ui, c, &tr!("preset_rules.player_n", k + 1));
-            }
-        });
-        ui.end_row();
         ui.label(tr!("preset_rules.neutral")).on_hover_text(tr!("preset_rules.neutral_tip"));
         rgb(ui, &mut v["neutral_color"], tr!("preset_rules.neutral_tip"));
         ui.end_row();
