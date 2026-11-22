@@ -75,6 +75,8 @@ struct HostLobby {
     ai_reclaim: bool,
     /// The map's neutral and hostile buildings are known from the start.
     reveal_props: bool,
+    /// Infantry capture enemy buildings other than factories (`Game.infantry_capture`).
+    infantry_capture: bool,
     /// Start positions of each premade map.
     counts: Vec<usize>,
     /// Ground of random maps: 0 = picked by the seed, k = `surface::BIOMES[k - 1]`.
@@ -175,6 +177,9 @@ impl HostLobby {
             t += &tr!("lobby.summary_switched_off", off.join(", "));
         }
         t += &tr!("lobby.summary_props", if self.reveal_props { tr!("lobby.yes") } else { tr!("lobby.no") });
+        if self.infantry_capture {
+            t += &tr!("lobby.summary_infantry_capture", tr!("lobby.yes"));
+        }
         if self.map_choice < SIZES.len() {
             let b = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k).copied()).unwrap_or(longrange::surface::Biome::from_seed(self.seed));
             t += &tr!("lobby.summary_terrain", longrange::i18n::biome_name(b));
@@ -826,6 +831,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         tab: 0,
         ai_reclaim: true,
         reveal_props: true,
+        infantry_capture: false,
         counts,
         biome: 0,
     };
@@ -873,6 +879,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         enable_control_points(world, start);
     }
     world.resource_mut::<Game>().reveal_props = l.reveal_props;
+    world.resource_mut::<Game>().infantry_capture = l.infantry_capture;
     for ai in &ais {
         world.resource_mut::<Game>().players[ai.player as usize].ai_kind = ai.kind.id();
     }
@@ -1903,6 +1910,9 @@ fn menu_ui(world: &mut World) {
                                 if ui.checkbox(&mut l.reveal_props, tr!("lobby.reveal_props")).changed() {
                                     l.dirty = true;
                                 }
+                                if ui.checkbox(&mut l.infantry_capture, tr!("lobby.infantry_capture")).on_hover_text(tr!("lobby.infantry_capture_tip")).changed() {
+                                    l.dirty = true;
+                                }
                             } else {
                                 // One thumbnail per frame, so opening the tab does not stall.
                                 if let Some(k) = l.thumbs.iter().position(|t| t.is_none()) {
@@ -2469,6 +2479,8 @@ fn selftest() {
     if let Some(points) = std::env::var("LR_POINTS").ok().and_then(|s| s.parse::<f32>().ok()) {
         enable_control_points(world, points);
     }
+    // LR_INFCAP=1: the lobby option "infantry capture buildings".
+    world.resource_mut::<Game>().infantry_capture = std::env::var("LR_INFCAP").is_ok();
     world.insert_resource(Ais((0..n).map(|i| Ai::with_kind(i as u8, 99 + seed, kind(i))).collect()));
     // LR_PROFILE=1 prints how long each tick system took at the end.
     if std::env::var("LR_PROFILE").is_ok() {
@@ -3885,6 +3897,36 @@ fn infantry_tests(defs: &Defs) {
             Some(false) => assert!(left_in > 0 && ours_in == 0 && owner_of(world, house) == Some(1), "storm should fail"),
             None => {}
         }
+    }
+
+    // 3b2. Infantry capture (lobby option, Cossacks style): troopers take an enemy building over
+    // while no armed enemy stands near it; never a factory, and nothing with the option off.
+    for (target, on, guard, want) in [("radar_tower", false, false, false), ("radar_tower", true, false, true), ("land_factory", true, false, false), ("radar_tower", true, true, false)] {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        world.resource_mut::<Game>().infantry_capture = on;
+        let b = spawn(world, &map, target, 1, v2(129.0, 129.0), 0.0);
+        if guard {
+            spawn(world, &map, "overtaker", 1, v2(136.0, 129.0), 3.14);
+        }
+        let men: Vec<u32> = (0..3).map(|k| spawn(world, &map, "trooper", 0, v2(110.0, 127.0 + k as f32 * 1.5), 0.0)).collect();
+        order(world, 0, men.clone(), Order::Capture(b));
+        let mut done_at = None;
+        for t in 0..400 {
+            world.run_schedule(SimTick);
+            if done_at.is_none() && owner_of(world, b) == Some(0) {
+                done_at = Some(t);
+            }
+        }
+        let alive = men.iter().filter(|id| body(world, **id).is_some()).count();
+        println!(
+            "== Infantry capture ({}{}): 3 troopers on a {target}: owner {:?} after {:?} s, {alive} troopers left",
+            if on { "on" } else { "off" },
+            if guard { ", guarded by an Overtaker" } else { "" },
+            owner_of(world, b),
+            done_at.map(|t| (t + 1) as f32 / 10.0)
+        );
+        assert!((owner_of(world, b) == Some(0)) == want, "infantry capture");
     }
 
     // 3c. Limited ammunition: an AT trooper with `ammo` missiles against five Pike mortars kills

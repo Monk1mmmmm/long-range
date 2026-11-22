@@ -168,6 +168,8 @@ enum Context {
     /// A remembered building: shell the spot where it stood.
     AttackGround(V2),
     Capture(Vec<u32>, u32),
+    /// Infantry capture the building (lobby option), the rest of the selection attacks it.
+    Seize { capture: Vec<u32>, attack: Vec<u32>, id: u32 },
     Load(Vec<u32>, u32),
     /// A beacon of our ferry routes: the units go there and wait to be carried.
     Ferry(Vec<u32>, V2),
@@ -614,6 +616,14 @@ impl Frame<'_> {
         out.push(Command::Orders { ids: movers.iter().map(|u| u.id).collect(), orders: asg.iter().map(|k| mk(pts[*k])).collect(), queue });
     }
 
+    /// Selected infantry that can capture `s` (`Game.infantry_capture`, `sim::seizable`).
+    fn seizers(&self, units: &[&Info], s: &Seen) -> Vec<u32> {
+        if !self.game.infantry_capture || s.contact == Contact::Stale || !s.def.is_some_and(|d| seizable(self.d(d))) {
+            return vec![];
+        }
+        units.iter().filter(|u| self.d(u.def).is_infantry() && !self.d(u.def).is_structure()).map(|u| u.id).collect()
+    }
+
     /// The context order of a right-click at `ground` with `hover` under the pointer.
     fn context(&self, view: &ViewState, hover: Option<usize>, ground: V2, wrecks: &[(u32, V2, f32, f32)], features: &Features) -> Context {
         let units = self.selected(view);
@@ -629,6 +639,12 @@ impl Frame<'_> {
                 if !inf.is_empty() {
                     return Context::Load(inf, s.id);
                 }
+                // With infantry capture on: our infantry take the building over.
+                let capture = self.seizers(&units, s);
+                if !capture.is_empty() {
+                    let attack = view.sel.iter().copied().filter(|id| !capture.contains(id)).collect();
+                    return Context::Seize { capture, attack, id: s.id };
+                }
                 return if s.contact == Contact::Stale { Context::AttackGround(s.pos) } else { Context::Attack(s.id) };
             } else if self.game.team_of(s.owner) != self.team {
                 // An empty building: infantry go in.
@@ -638,8 +654,9 @@ impl Frame<'_> {
                         return Context::Load(inf, s.id);
                     }
                 }
-                // Neutral: engineers take it over.
-                let ids: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_engineer()).map(|u| u.id).collect();
+                // Neutral: engineers take it over (and infantry, with infantry capture on).
+                let mut ids: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_engineer()).map(|u| u.id).collect();
+                ids.extend(self.seizers(&units, s));
                 if !ids.is_empty() && s.contact != Contact::Stale {
                     return Context::Capture(ids, s.id);
                 }
@@ -1417,7 +1434,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     }
                     Mode::Capture => {
                         if let Some(h) = hover.filter(|h| game.team_of(seen[*h].owner) != team && seen[*h].contact != Contact::Stale) {
-                            let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).is_engineer()).map(|u| u.id).collect();
+                            let units = fr.selected(view);
+                            let mut ids: Vec<u32> = units.iter().filter(|u| fr.d(u.def).is_engineer()).map(|u| u.id).collect();
+                            ids.extend(fr.seizers(&units, &seen[h]));
                             if !ids.is_empty() {
                                 out.push(Command::Orders { ids, orders: vec![Order::Capture(seen[h].id)], queue: shift });
                             }
@@ -1694,6 +1713,12 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     Context::Attack(id) => out.push(order(view.sel.clone(), Order::Attack(id))),
                     Context::AttackGround(pos) => out.push(order(view.sel.clone(), Order::AttackGround { pos, radius: 0.0 })),
                     Context::Capture(ids, id) => out.push(order(ids, Order::Capture(id))),
+                    Context::Seize { capture, attack, id } => {
+                        out.push(order(capture, Order::Capture(id)));
+                        if !attack.is_empty() {
+                            out.push(order(attack, Order::Attack(id)));
+                        }
+                    }
                     Context::Load(ids, id) => out.push(order(ids, Order::Load(id))),
                     Context::Ferry(ids, b) => out.push(order(ids, Order::Ferry { pos: b, pick: true })),
                     Context::Assist(ids, id) => out.push(order(ids, Order::Assist(id))),
@@ -2970,7 +2995,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let any_armed = units.iter().any(|u| fr.d(u.def).armed());
         let can_assist = units.iter().any(|u| fr.d(u.def).can_assist());
         let can_reclaim = can_assist || units.iter().any(|u| fr.d(u.def).is_scavenger());
-        let can_capture = units.iter().any(|u| fr.d(u.def).is_engineer());
+        let can_capture = units.iter().any(|u| fr.d(u.def).is_engineer() || (fr.game.infantry_capture && fr.d(u.def).is_infantry()));
         if any_mobile {
             if faf && action("move", tr!("hud_orders.move"), "W", view.mode == Mode::Move) {
                 new_mode = Some(Mode::Move);
@@ -3156,7 +3181,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             Mode::None => match fr.context(view, hover, ground, &wrecks, features) {
                 Context::Attack(_) => Some(CursorKind::Attack),
                 Context::AttackGround(_) => Some(CursorKind::Ground),
-                Context::Capture(..) => Some(CursorKind::Capture),
+                Context::Capture(..) | Context::Seize { .. } => Some(CursorKind::Capture),
                 Context::Load(..) => Some(CursorKind::Load),
                 Context::Ferry(..) => Some(CursorKind::Ferry),
                 Context::Assist(..) => Some(CursorKind::Assist),
