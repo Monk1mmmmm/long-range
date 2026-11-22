@@ -1,6 +1,6 @@
 <#
-Builds release bundles and publishes them as a GitHub release: per platform one archive with the game
-and one with the map editor (each with its own copy of assets).
+Builds release bundles and publishes them as a GitHub release: one archive per platform with the game,
+which also holds the map editor (longrange --editor, or "Map editor" in the main menu).
 
   scripts\release.ps1                     build Windows and Linux bundles, upload both
   scripts\release.ps1 -Only windows       build just one platform (windows | linux)
@@ -27,8 +27,8 @@ New-Item -ItemType Directory -Force dist | Out-Null
 # text, anything else. Only this version's bundles of a platform not built in this run (-Only) are kept.
 foreach ($f in Get-ChildItem -Force dist) {
     $keep = $false
-    if ($f.Name -like "longrange-$version-linux-*" -or $f.Name -like "longrange-editor-$version-linux-*") { $keep = ($Only -eq "windows") }
-    if ($f.Name -like "longrange-$version-windows-*" -or $f.Name -like "longrange-editor-$version-windows-*") { $keep = ($Only -eq "linux") }
+    if ($f.Name -like "longrange-$version-linux-*") { $keep = ($Only -eq "windows") }
+    if ($f.Name -like "longrange-$version-windows-*") { $keep = ($Only -eq "linux") }
     if (-not $keep) {
         Write-Host "removing old dist\$($f.Name)"
         Remove-Item -Recurse -Force $f.FullName
@@ -38,13 +38,10 @@ $files = @()
 
 if ($Only -eq "" -or $Only -eq "windows") {
     Write-Host "== building Windows x86_64"
-    # One program at a time: linking both at once can exhaust memory on small machines.
-    foreach ($bin in "longrange", "lr-editor") {
-        cargo build --release --bin $bin
-        if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-    }
-    # One archive per program, each complete on its own (both read assets\ next to the executable).
-    foreach ($b in @(@("longrange", "longrange"), @("longrange-editor", "lr-editor"))) {
+    cargo build --release --bin longrange
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    # The program reads assets\ next to the executable.
+    foreach ($b in @(@("longrange", "longrange"))) {
         $name = "$($b[0])-$version-windows-x86_64"
         $dir = Join-Path "dist" $name
         if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
@@ -64,7 +61,7 @@ if ($Only -eq "" -or $Only -eq "linux") {
         Write-Host "== building Linux x86_64 inside WSL"
         wsl bash -lc "scripts/release.sh --only linux --no-upload"
         if ($LASTEXITCODE -ne 0) { throw "Linux build in WSL failed" }
-        $files += "dist\longrange-$version-linux-x86_64.tar.gz", "dist\longrange-editor-$version-linux-x86_64.tar.gz"
+        $files += "dist\longrange-$version-linux-x86_64.tar.gz"
     } elseif ($Only -eq "linux") {
         throw "The Linux bundle needs WSL (with Rust installed inside it)."
     } else {

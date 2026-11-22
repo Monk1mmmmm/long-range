@@ -16,7 +16,7 @@ unwieldy tanks with long guns, slow turrets and long reloads, where scouting and
 - Six skirmish AI types (zone control, strategy-switching overseer, adaptive expander, rusher, turtle, simple)
   and LAN multiplayer for 2-10 players (free-for-all or teams)
 - Units, weapons, factions and rules are JSON files; maps are a JSON file plus a heightmap PNG
-- Map editor (`lr-editor`) with neutral and hostile pre-placed buildings
+- Map editor (main menu "Map editor", or `longrange --editor`) with neutral and hostile pre-placed buildings
 
 ## Building
 
@@ -26,10 +26,10 @@ C++ Build Tools it offers), then in this folder:
     cargo build --release
 
 The first build compiles the Bevy engine and takes a while; later builds are quick.
-You get `target/release/longrange` and `target/release/lr-editor` (`.exe` on Windows).
+You get `target/release/longrange` (`.exe` on Windows); it holds the map editor too.
 `cargo run --release` builds and starts the game in one step.
 
-**The executables need the `assets` folder next to them** (or run them through `cargo run`).
+**The executable needs the `assets` folder next to it** (or run them through `cargo run`).
 To give the game to someone else, copy the exe together with `assets/`.
 
 A Vulkan, DirectX 12 or OpenGL capable GPU is required. **Settings** (main menu or Esc menu) lets you pick
@@ -129,19 +129,18 @@ construction (cyan).
   missile, bomb, blast, death; interface: select_tank, select_vehicle, select_infantry, select_air,
   select_radar, select_building, select_engineer, select_commander, ack).
 - `assets/maps/<name>/` - `map.json` (deposits, start positions, pre-placed neutral/hostile objects, water
-  level) and `height.png` (16-bit greyscale). Make them with `lr-editor`.
+  level) and `height.png` (16-bit greyscale). Make them with the map editor.
 
-The editor: `cargo run --release --bin lr-editor`. Raise/lower/smooth/flatten terrain, set the water level,
+The editor: "Map editor" in the main menu, or `cargo run --release -- --editor`. Raise/lower/smooth/flatten terrain, set the water level,
 place deposits, start positions and buildings or units for the neutral or hostile side, then Save.
 Start positions are placed with the **Start** tool (2 to 10 per map; pick the next number to add one).
-`lr-editor --generate NAME CELLS SEED [PLAYERS]` writes a generated map with towns without opening a window.
+`longrange --editor --generate NAME CELLS SEED [PLAYERS]` writes a generated map with towns without opening a window.
 
 ## Releases
 
-`scripts/release.sh` (Linux, also Git Bash) and `scripts/release.ps1` (Windows PowerShell) build the game and
-the editor in release mode and publish them as a GitHub release with `gh`. Each platform gets two archives,
-`longrange-<version>-<platform>` (the game) and `longrange-editor-<version>-<platform>` (the map editor), each
-with its own copy of `assets/`:
+`scripts/release.sh` (Linux, also Git Bash) and `scripts/release.ps1` (Windows PowerShell) build the game (with
+the map editor in it) in release mode and publish it as a GitHub release with `gh`. Each platform gets one archive,
+`longrange-<version>-<platform>`, with the program and `assets/`:
 
     scripts/release.sh                 # Linux + Windows bundles, upload both to release v<Cargo version>
     scripts/release.sh --only linux    # just one platform (linux | windows)

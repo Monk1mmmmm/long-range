@@ -20,7 +20,9 @@
     "replays": "Replays",
     "game_data_presets": "Game data presets",
     "quit": "Quit",
-    "editor_hint": "Map editor: run the lr-editor program.   F11 fullscreen."
+    "map_editor": "Map editor",
+    "editor_failed": "Cannot start the map editor: {}",
+    "fullscreen_hint": "F11 fullscreen."
   },
   "connection": {
     "kicked_not_in_game": "You are not part of this game any more.",

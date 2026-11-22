@@ -351,9 +351,14 @@ pub fn log_plugin() -> bevy::log::LogPlugin {
     bevy::log::LogPlugin { filter, custom_layer: log_file_layer, ..default() }
 }
 
-/// `<program>.log` in `base_dir`.
+/// `<program>.log` in `base_dir`; the map editor (`--editor`, same program) logs to `lr-editor.log`, so a game
+/// and an editor running at the same time do not write one file.
 pub fn log_path() -> std::path::PathBuf {
-    let stem = std::env::current_exe().ok().and_then(|e| e.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_else(|| "longrange".into());
+    let stem = if std::env::args().any(|a| a == "--editor") {
+        "lr-editor".into()
+    } else {
+        std::env::current_exe().ok().and_then(|e| e.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_else(|| "longrange".into())
+    };
     base_dir().join(format!("{stem}.log"))
 }
 

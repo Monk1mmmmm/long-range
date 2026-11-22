@@ -1,27 +1,26 @@
-//! Long Range map editor.
+//! Long Range map editor, part of the game program (`longrange --editor`, or "Map editor" in the main menu).
 //!
-//!   lr-editor                       interactive editor
-//!   lr-editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   write a generated map with settlements, trees and rocks to assets/maps/NAME
+//!   longrange --editor                                         interactive editor
+//!   longrange --editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   write a generated map with settlements, trees and rocks to assets/maps/NAME
 //!                                   (BIOME: temperate, desert, arctic, rocky; default from the seed)
-//!   lr-editor --points NAME                          place control points on the saved map NAME (as a game would by itself)
-//!   lr-editor --scatter NAME [SEED] [AMOUNT]          add trees and rocks to the saved map NAME (AMOUNT 1 = normal)
+//!   longrange --editor --points NAME                  place control points on the saved map NAME (as a game would by itself)
+//!   longrange --editor --scatter NAME [SEED] [AMOUNT]  add trees and rocks to the saved map NAME (AMOUNT 1 = normal)
 //!
 //! Maps are stored as `assets/maps/<name>/map.json` plus a 16-bit `height.png` and one 8-bit
 //! `layerN.png` mask per ground texture layer above the first.
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use longrange::data::{asset_root, DefId, Defs};
-use longrange::i18n::tr;
-use longrange::tr;
-use longrange::map::*;
-use longrange::view::models::{spawn_model, ModelCache};
-use longrange::data::FeatureClass;
-use longrange::view::flora::{flora_material, rebuild_flora, spawn_flora, FloraChunks, FloraView};
-use longrange::view::terrain::{spawn_scene, update_chunks, GameScene, GroundSnap, MainCamera, TerrainChunk, WaterPlane};
-use longrange::view::yaw_quat;
-use longrange::surface::{Biome, BIOMES, KINDS};
-use longrange::view::surface::{SurfacePlugin, SurfaceView};
+use crate::data::{asset_root, DefId, Defs};
+use crate::i18n::tr;
+use crate::map::*;
+use crate::view::models::{spawn_model, ModelCache};
+use crate::data::FeatureClass;
+use crate::view::flora::{flora_material, rebuild_flora, spawn_flora, FloraChunks, FloraView};
+use crate::view::terrain::{spawn_scene, update_chunks, GameScene, GroundSnap, MainCamera, TerrainChunk, WaterPlane};
+use crate::view::yaw_quat;
+use crate::surface::{Biome, BIOMES, KINDS};
+use crate::view::surface::{SurfacePlugin, SurfaceView};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tool {
@@ -118,7 +117,7 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
         // in the very centre) are placed once.
         let mut spots: Vec<(V2, usize)> = vec![];
         for k in 0..kk {
-            let s = longrange::sim::snap(defs, map, d, rot(pos, k));
+            let s = crate::sim::snap(defs, map, d, rot(pos, k));
             if !spots.iter().any(|(q, _)| q.dist(s) < 0.01) {
                 spots.push((s, k));
             }
@@ -229,7 +228,7 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     }
     for (i, j) in pairs {
         let (a, b) = (ends[i], ends[j]);
-        map.roads.push(longrange::surface::Road { kind: "asphalt".into(), width: 4.0, points: longrange::surface::winding(a, b, 4.0, seed ^ (i * 31 + j) as u64) });
+        map.roads.push(crate::surface::Road { kind: "asphalt".into(), width: 4.0, points: crate::surface::winding(a, b, 4.0, seed ^ (i * 31 + j) as u64) });
     }
     // Hostile outpost guarding the centre.
     place(map, &mut occ, "comm_tower", c, PROP_NEUTRAL, 0.0);
@@ -406,7 +405,7 @@ fn editor_ui(
             egui::ComboBox::from_id_salt("load").selected_text("Load...").show_ui(ui, |ui| {
                 for m in ed.maps.clone() {
                     if ui.selectable_label(false, &m).clicked() {
-                        match MapData::load(&longrange::data::map_dir(&m)) {
+                        match MapData::load(&crate::data::map_dir(&m)) {
                             Ok(loaded) => {
                                 *map = loaded;
                                 ed.name = m.clone();
@@ -429,7 +428,7 @@ fn editor_ui(
                 }
             });
         });
-        ui.add(egui::Slider::new(&mut ed.players, 2..=longrange::sim::MAX_PLAYERS).text(tr!("map_editor.players")));
+        ui.add(egui::Slider::new(&mut ed.players, 2..=crate::sim::MAX_PLAYERS).text(tr!("map_editor.players")));
         ui.horizontal(|ui| {
             ui.label(tr!("map_editor.seed"));
             ui.add(egui::DragValue::new(&mut ed.seed));
@@ -522,15 +521,15 @@ fn editor_ui(
             });
             ui.add(egui::Slider::new(&mut ed.spacing, 0.6..=4.0).text(tr!("map_editor.spacing")));
             let mut detail = flora.detail;
-            egui::ComboBox::from_id_salt("flora_detail").selected_text(tr!("map_editor.flora_detail", tr(longrange::settings::FLORA_DETAIL[detail as usize]))).show_ui(ui, |ui| {
-                for (k, l) in longrange::settings::FLORA_DETAIL.iter().enumerate() {
+            egui::ComboBox::from_id_salt("flora_detail").selected_text(tr!("map_editor.flora_detail", tr(crate::settings::FLORA_DETAIL[detail as usize]))).show_ui(ui, |ui| {
+                for (k, l) in crate::settings::FLORA_DETAIL.iter().enumerate() {
                     ui.selectable_value(&mut detail, k as u8, tr(l));
                 }
             });
             if detail != flora.detail {
                 // Same setting as in the game (settings.json).
                 flora.set_detail(&defs, detail);
-                let mut st = longrange::settings::Settings::load();
+                let mut st = crate::settings::Settings::load();
                 st.flora_detail = detail;
                 st.save();
             }
@@ -546,7 +545,7 @@ fn editor_ui(
             ui.selectable_value(&mut ed.tool, Tool::Erase, tr!("map_editor.erase"));
         });
         if ed.tool == Tool::Start {
-            ui.add(egui::Slider::new(&mut ed.start_index, 0..=longrange::sim::MAX_PLAYERS - 1).text(tr!("map_editor.start_number")));
+            ui.add(egui::Slider::new(&mut ed.start_index, 0..=crate::sim::MAX_PLAYERS - 1).text(tr!("map_editor.start_number")));
             ui.label(tr!("map_editor.starts_hint", map.starts.len()));
             if map.starts.len() > 2 && ui.button(tr!("map_editor.remove_last_start")).clicked() {
                 map.starts.pop();
@@ -569,11 +568,11 @@ fn editor_ui(
             });
         }
         if ed.tool == Tool::Prop {
-            egui::ComboBox::from_id_salt("prop").selected_text(longrange::i18n::unit_name(defs.get(ed.prop)).to_string()).height(360.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("prop").selected_text(crate::i18n::unit_name(defs.get(ed.prop)).to_string()).height(360.0).show_ui(ui, |ui| {
                 for f in &defs.factions {
                     ui.label(egui::RichText::new(&f.name).strong());
                     for d in &f.units {
-                        ui.selectable_value(&mut ed.prop, *d, longrange::i18n::unit_name(defs.get(*d)));
+                        ui.selectable_value(&mut ed.prop, *d, crate::i18n::unit_name(defs.get(*d)));
                     }
                 }
             });
@@ -617,7 +616,7 @@ fn editor_ui(
     if let Ok(mut t) = camera.single_mut() {
         *t = Transform::from_translation(cam_pos).looking_at(target, Vec3::Y);
     }
-    let fov = longrange::view::hud::FOV;
+    let fov = crate::view::hud::FOV;
     let inv = view_proj(fov, sw / sh, cam_pos, target).inverse();
     let far = inv.project_point3(Vec3::new(2.0 * mouse.x / sw - 1.0, 1.0 - 2.0 * mouse.y / sh, 0.5));
     let hit = map.raycast(cam_pos, far - cam_pos).map(|p| map.clamp(flat(p)));
@@ -690,7 +689,7 @@ fn editor_ui(
             }
             if buttons.just_pressed(MouseButton::Right) {
                 let changed = if ed.drawing.len() >= 2 {
-                    map.roads.push(longrange::surface::Road { kind: ed.road_kind.into(), width: ed.road_width, points: std::mem::take(&mut ed.drawing) });
+                    map.roads.push(crate::surface::Road { kind: ed.road_kind.into(), width: ed.road_width, points: std::mem::take(&mut ed.drawing) });
                     // Trees and rocks on the new road go.
                     let count = map.features.len();
                     map.clear_features_on_roads(&defs.rules.features, map.roads.len() - 1);
@@ -804,7 +803,7 @@ fn editor_ui(
                 }
                 Tool::Prop => {
                     let d = defs.get(ed.prop);
-                    let pos = if d.is_structure() { longrange::sim::snap(&defs, map, ed.prop, p) } else { p };
+                    let pos = if d.is_structure() { crate::sim::snap(&defs, map, ed.prop, p) } else { p };
                     map.props.push(Prop { def: d.id.clone(), pos, yaw: ed.prop_yaw, owner: if ed.prop_hostile { PROP_HOSTILE } else { PROP_NEUTRAL } });
                     if d.is_structure() {
                         map.clear_features_square(pos, d.footprint);
@@ -847,7 +846,7 @@ fn editor_ui(
 
 /// The Ground section of the editor window: layers, automatic painting, the paint and road tools.
 fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mut Option<ResMut<SurfaceView>>, full_rebuild: &mut bool) {
-    let kind_name = |id: &str| KINDS.iter().find(|k| k.id == id).map_or(id.to_string(), |k| longrange::i18n::kind_name(k).to_string());
+    let kind_name = |id: &str| KINDS.iter().find(|k| k.id == id).map_or(id.to_string(), |k| crate::i18n::kind_name(k).to_string());
     let (mut layers_changed, mut masks_changed, mut roads_changed) = (false, false, false);
     ui.label(tr!("map_editor.ground"));
     ui.horizontal_wrapped(|ui| {
@@ -855,9 +854,9 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
         ui.selectable_value(&mut ed.tool, Tool::Road, tr!("map_editor.road"));
     });
     ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt("biome").selected_text(longrange::i18n::biome_name(ed.biome)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("biome").selected_text(crate::i18n::biome_name(ed.biome)).show_ui(ui, |ui| {
             for b in BIOMES {
-                ui.selectable_value(&mut ed.biome, b, longrange::i18n::biome_name(b));
+                ui.selectable_value(&mut ed.biome, b, crate::i18n::biome_name(b));
             }
         });
         if ui.button(tr!("map_editor.auto_paint")).on_hover_text(tr!("map_editor.auto_paint_tip")).clicked() {
@@ -876,7 +875,7 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
             let cur = map.layers[i].kind.clone();
             egui::ComboBox::from_id_salt(("layer_kind", i)).width(110.0).selected_text(kind_name(&cur)).show_ui(ui, |ui| {
                 for k in KINDS {
-                    if ui.selectable_label(cur == k.id, longrange::i18n::kind_name(k)).clicked() && cur != k.id {
+                    if ui.selectable_label(cur == k.id, crate::i18n::kind_name(k)).clicked() && cur != k.id {
                         map.layers[i].kind = k.id.into();
                         layers_changed = true;
                     }
@@ -919,7 +918,7 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
         }
         None => {}
     }
-    if map.layers.len() < longrange::surface::MAX_LAYERS && ui.button(tr!("map_editor.add_layer")).clicked() {
+    if map.layers.len() < crate::surface::MAX_LAYERS && ui.button(tr!("map_editor.add_layer")).clicked() {
         if let Some(i) = map.add_layer("dirt") {
             ed.layer = i;
         }
@@ -932,7 +931,7 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
     if ed.tool == Tool::Road {
         egui::ComboBox::from_id_salt("road_kind").selected_text(kind_name(ed.road_kind)).show_ui(ui, |ui| {
             for k in KINDS {
-                ui.selectable_value(&mut ed.road_kind, k.id, longrange::i18n::kind_name(k));
+                ui.selectable_value(&mut ed.road_kind, k.id, crate::i18n::kind_name(k));
             }
         });
         ui.add(egui::Slider::new(&mut ed.road_width, 1.0..=12.0).text(tr!("map_editor.width")));
@@ -953,13 +952,14 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
 
 fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>, defs: Res<Defs>) {
     cache.init(&mut materials);
-    commands.insert_resource(FloraView::new(&defs, flora_material(&mut materials, None), vec![], longrange::settings::Settings::load().flora_detail));
+    commands.insert_resource(FloraView::new(&defs, flora_material(&mut materials, None), vec![], crate::settings::Settings::load().flora_detail));
     commands.spawn((Camera3d::default(), Msaa::Off, Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
     ed.dirty = true;
 }
 
-fn main() {
-    longrange::i18n::set_language(&longrange::settings::Settings::load().language);
+/// The editor (or one of its command-line jobs), run instead of the game when `--editor` is given.
+pub fn run() {
+    crate::i18n::set_language(&crate::settings::Settings::load().language);
     let defs = match Defs::load(&asset_root()) {
         Ok(d) => d,
         Err(e) => {
@@ -1050,7 +1050,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window { title: "Long Range - map editor".into(), resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }),
             ..default()
-        }).set(longrange::settings::render_plugin(&longrange::settings::Settings::load())).set(longrange::settings::log_plugin()))
+        }).set(crate::settings::render_plugin(&crate::settings::Settings::load())).set(crate::settings::log_plugin()))
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_plugins(SurfacePlugin)
         .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.09)))
@@ -1087,9 +1087,9 @@ fn main() {
         .init_resource::<ModelCache>()
         .add_systems(Startup, setup)
         .add_systems(EguiPrimaryContextPass, editor_ui)
-        .add_systems(Update, longrange::view::terrain::map_edge_sync);
-    longrange::settings::tolerate_render_errors(&mut app);
-    longrange::settings::add_window_icon(&mut app);
-    longrange::settings::gl_window_display(&mut app);
+        .add_systems(Update, crate::view::terrain::map_edge_sync);
+    crate::settings::tolerate_render_errors(&mut app);
+    crate::settings::add_window_icon(&mut app);
+    crate::settings::gl_window_display(&mut app);
     app.run();
 }

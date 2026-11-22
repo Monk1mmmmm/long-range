@@ -1709,6 +1709,15 @@ fn menu_ui(world: &mut World) {
                         app.message.clear();
                     }
                     ui.add_space(6.0);
+                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.map_editor"))).clicked() {
+                        // The editor is this same program started with --editor, in its own window and process.
+                        let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("--editor").spawn());
+                        match started {
+                            Ok(_) => app.message.clear(),
+                            Err(e) => app.message = tr!("main_menu.editor_failed", e),
+                        }
+                    }
+                    ui.add_space(6.0);
                     if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("common.settings"))).clicked() {
                         app.settings_open = true;
                     }
@@ -1717,7 +1726,7 @@ fn menu_ui(world: &mut World) {
                         world.write_message(AppExit::Success);
                     }
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(tr!("main_menu.editor_hint")).size(12.0).weak());
+                    ui.label(egui::RichText::new(tr!("main_menu.fullscreen_hint")).size(12.0).weak());
                     if !app.message.is_empty() {
                         ui.add_space(10.0);
                         ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
@@ -5272,6 +5281,9 @@ fn tank_tests(defs: &Defs) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--editor") {
+        return longrange::editor::run();
+    }
     if args.iter().any(|a| a == "--selftest") {
         return selftest();
     }

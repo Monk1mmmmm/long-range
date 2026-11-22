@@ -3,6 +3,7 @@
 pub mod i18n;
 pub mod ai;
 pub mod data;
+pub mod editor;
 pub mod map;
 pub mod net;
 pub mod netplay;
