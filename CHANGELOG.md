@@ -3,7 +3,9 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## Unreleased
+## v0.12.2
+
+Your own presets and downloaded maps now survive new versions, and settings are safer against damage. The simulation is unchanged.
 
 Changed
 - Game data presets you make or keep from a host's game, and premade maps downloaded from a host, are stored in the user
