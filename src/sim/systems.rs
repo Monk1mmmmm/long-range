@@ -303,6 +303,8 @@ fn apply_commands(
                             m.path.clear();
                             m.stuck = 0;
                             m.cover = None;
+                            // A new order cuts a weapon's set-up/recoil hold short: the unit obeys at once.
+                            m.hold = 0.0;
                         }
                     }
                     if ord.0.len() >= 96 {
@@ -966,7 +968,8 @@ fn think(
                             engaged = true;
                         }
                     } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() && !no_shot(None) {
-                        engaged = true;
+                        // Vehicles with machine guns shoot on the move: they never stop for a fight.
+                        engaged = infantry || !w.is_machine_gun();
                     }
                 }
                 // A building infantry can take is not a fight: they walk up to it instead of

@@ -739,6 +739,13 @@ pub struct WeaponDef {
     pub hits_air: bool,
 }
 
+impl WeaponDef {
+    /// A machine gun: small-arms direct fire with no set-up hold. Its unit fires on the move.
+    pub fn is_machine_gun(&self) -> bool {
+        self.damage_type == "SmallArms" && self.kind == WeaponKind::Direct && self.hold <= 0.0 && !self.snipe
+    }
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum ColorSpec {
