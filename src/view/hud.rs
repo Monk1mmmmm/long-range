@@ -2255,7 +2255,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
         bg.add(egui::Shape::convex_polygon(hex(0.8), rgba(60, 235, 95, 255), Stroke::NONE));
         bg.add(egui::Shape::convex_polygon(hex(0.42), rgba(225, 255, 190, 255), Stroke::NONE));
     }
-    for (k, s) in seen.iter().enumerate() {
+    // Neutral buildings are drawn first so every unit icon (and its bars) lands on top of them.
+    let mut order: Vec<usize> = (0..seen.len()).collect();
+    order.sort_by_key(|&k| {
+        let s = &seen[k];
+        !(s.owner == NEUTRAL && s.def.map_or(false, |d| defs.get(d).is_structure()))
+    });
+    for k in order {
+        let s = &seen[k];
         if !s.on_screen {
             continue;
         }
