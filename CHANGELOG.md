@@ -13,6 +13,7 @@ Added
   one back with pause, speeds x0.25 to x32, a time line to jump forwards and back, and a choice of seeing everything
   or what one player saw. Replays of another game version may play back differently (shown in the list and
   during playback).
+- Double-clicking an occupied house selects every occupied building on screen.
 
 Changed
 - Settings and logs are kept in your user folder (`%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application
