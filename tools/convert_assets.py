@@ -5,11 +5,10 @@ normal maps and PNG build icons.
 
     .venv/bin/python tools/convert_assets.py "<path to LongRangeTank mod>" [--only trooper,buggy]
     .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"
-    .venv/bin/python tools/convert_assets.py --stock "<SupCom FA>/gamedata/units.scd"
 
 --props converts the map props listed in MAP_PROPS (the Mining Town buildings, made by the mod's
-author), --stock the stock UEF civilian buildings in STOCK_UNITS; both are used by
-assets/data/factions/civilian.json. Needs numpy and Pillow (the project's .venv has them).
+author), used by assets/data/factions/civilian.json. Models the game used to take from stock Supreme
+Commander (factories, extractors, engineers, aircraft, UEF civilian buildings) are now made in art/ (art/build.py). Needs numpy and Pillow (the project's .venv has them).
 
 The blueprint's .sca animations become glTF animations in the GLB (see ANIMS: which blueprint key gives
 which animation name; the game's view decides from the name when to play it). Key times are divided by the
@@ -35,14 +34,7 @@ UNITS = {
     "pike": "units/UEX0111", "radar_car": "units/ULX0103", "delivery_boy": "units/UXA0101",
     "solar": "units/UBX0107", "windmill": "units/UBX0108", "heavy_battery": "units/UBX0109",
     "hmg_turret": "units/UBX0110", "gauss_turret": "units/UBX0111",
-    "air_scout": "hook/units/UEA0101", "interceptor": "hook/units/UEA0102", "bomber": "hook/units/UEA0103",
-    "gunship": "hook/units/UEA0203", "land_factory": "hook/units/UEB0101", "air_factory": "hook/units/UEB0102",
-    "land_factory2": "hook/units/UEB0201", "air_factory2": "hook/units/UEB0202", "power_plant": "hook/units/UEB1102",
-    "pump": "hook/units/UEB1103", "pump2": "hook/units/UEB1202", "pump3": "hook/units/UEB1302",
-    "energy_storage": "hook/units/UEB1105", "mass_storage": "hook/units/UEB1106", "aa_turret": "hook/units/UEB2104",
-    "engineer": "hook/units/UEL0105", "engineer2": "hook/units/UEL0208", "engineer3": "hook/units/UEL0309",
-    "eng_station": "hook/units/XEB0104", "sparky": "hook/units/XEL0209", "bomb": "projectiles/LRTHeavyBomb01",
-    "air_transport": "hook/units/UEA0104",
+    "bomb": "projectiles/LRTHeavyBomb01",
 }
 # blueprint Display key -> (animation name, key of its rate, default rate, loops). How SupCom plays them and
 # what the game does with each name: view::drive_anims.
@@ -63,9 +55,6 @@ MAP_PROPS.update({f"civ_corner_house{i}": f"UEF_old_corner_house_00{i}" for i in
 MAP_PROPS.update({"civ_apartments1": "UEF_modern_apartments_001", "civ_apartments2": "UEF_modern_apartments_002", "civ_church": "UEF_church",
                   "civ_grocery": "UEF_grocery_store", "civ_factory": "UEF_modern_factory", "civ_containers1": "UEF_Containers_7_001",
                   "civ_containers2": "UEF_Containers_7_009"})
-# asset name -> stock unit id in units.scd (--stock)
-STOCK_UNITS = {"civ_uef_residential": "UEC1101", "civ_uef_lab": "UEC1201", "civ_uef_admin": "UEC1301", "civ_uef_farm": "UEC1401",
-               "civ_uef_plant": "UEC1501", "civ_uef_hall": "XEC1301", "civ_uef_command": "XEC1401"}
 TEX_MAX = 512
 
 
@@ -274,21 +263,6 @@ def convert_props(folder, root, info):
         print_size(info, name)
 
 
-def convert_stock(scd, root, info):
-    """Stock buildings from the game's units.scd archive (STOCK_UNITS)."""
-    z = zipfile.ZipFile(scd)
-    names = {n.lower(): n for n in z.namelist()}
-    for name, uid in STOCK_UNITS.items():
-        u = uid.lower()
-        get = lambda f: z.read(names[f"units/{u}/{f}"]) if f"units/{u}/{f}" in names else None
-        info[name] = convert_model(get(f"{u}_lod0.scm"), f"{root}/models/{name}.glb")
-        m = re.search(r"UniformScale\s*=\s*([\d.]+)", get(f"{u}_unit.bp").decode("latin1"))
-        info[name]["scale"] = float(m.group(1)) if m else 1.0
-        opened = lambda f: io.BytesIO(get(f)) if get(f) else None
-        save_textures(root, name, opened(f"{u}_albedo.dds"), opened(f"{u}_specteam.dds"), opened(f"{u}_normalsts.dds"))
-        print_size(info, name)
-
-
 def blueprint_anims(b, folder, name):
     """(name, Sca, rate, loop) for every animation the blueprint names that exists in the unit folder."""
     disp = b.get("Display", {})
@@ -324,8 +298,8 @@ def main():
     os.makedirs(root + "/models", exist_ok=True)
     os.makedirs(root + "/icons/units", exist_ok=True)
     info = {}
-    if sys.argv[1] in ("--props", "--stock"):
-        (convert_props if sys.argv[1] == "--props" else convert_stock)(sys.argv[2], root, info)
+    if sys.argv[1] == "--props":
+        convert_props(sys.argv[2], root, info)
         os.makedirs(os.path.join(os.path.dirname(__file__), "out"), exist_ok=True)
         json.dump(info, open(os.path.join(os.path.dirname(__file__), "out", sys.argv[1][2:] + "_info.json"), "w"), indent=1)
         return

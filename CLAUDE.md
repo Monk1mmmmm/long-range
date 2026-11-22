@@ -46,7 +46,8 @@ scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   #
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
 python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/models/NAME.glb + textures (needs Blender; tools/README.md)
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
-.venv/bin/python tools/convert_assets.py --stock "<FA>/gamedata/units.scd"    # stock UEF civilian buildings (STOCK_UNITS)
+.venv/bin/python art/build.py [NAME ...] [--blend]   # our own models (factories, engineers, aircraft, carriers, city buildings, variants) -> assets/models (needs bpy: .venv/bin/pip install bpy)
+.venv/bin/python art/render.py out.png NAME ...     # contact sheet of exported models rendered by Blender (--anim open:1, --yaw 35)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
 python3 tools/relaxed_preset.py                           # remake the Relaxed preset from the built-in data (after data changes)
 python3 tools/model_bounds.py                             # model bounds of every unit vs its JSON size / hit_box
@@ -414,10 +415,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   radar car, T2 Overtaker/Crony/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request). Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
   SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (box models), UC-02R/03R mobile radars
-  (radar car mesh scaled up with box dishes), T3 Swift fast assault transport (box model, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (interceptor mesh, stealth 2, own
-  T3 radar 80 so it finds stealthed aircraft) and T3 Phalanx Railgun Battery (AA turret mesh scaled up, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
+  (radar car mesh with a raised dish / a radome), T3 Swift fast assault transport (tilt-rotor, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (stealth fighter model, stealth 2, own
+  T3 radar 80 so it finds stealthed aircraft) and T3 Phalanx Railgun Battery (own model, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
   Mobile anti-air beyond the T1 MBFAG (requested; there is no T3 SAM trooper, only the T2 one): T2 Hailstorm
-  (`flak_carrier`, Dragoon mesh, airburst flak bursts, air only) and T3 Skylance (`mobile_sam`, Robin mesh, own level-2
+  (`flak_carrier`, Dragoon mesh + twin flak guns, airburst flak bursts, air only) and T3 Skylance (`mobile_sam`, Robin mesh + missile box, own level-2
   radar, heavy homing missile, air only). `--combattest` air: 2 Hornets beat the MBFAG and narrowly the Hailstorm, the Skylance downs both.
   The T1 Porter interceptor was weakened on request (damage 25 -> 22, turn 85 -> 80) so that T2 Harrier fighter-bombers
   beat as many Porters (`--combattest` air: 1v1 to 4v4, all won), while 3 Porters (same mass) still beat 2 Harriers.
@@ -466,13 +467,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   them into the contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). The random map is made when
   chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
   the picture in `LobbyInfo.preview`.
-- **Model scale**: JSON `scale` = the blueprint's `UniformScale` for stock SupCom models (factories,
-  storages, pumps, air...). The mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
-  buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) and the box-model
-  APC are 2.5x that, with sizes and footprints to match. Engineers (T1 x1.6, T2 x1.5, Sparky x2.5, T3 x1.25
-  over the blueprint) and the buggy (a further x1.75) were enlarged on request to about the length of their
-  tier's tanks (Pike / Robin / Bohdana), with `size` and `hit_box` scaled along. Civilian map buildings were doubled
-  on request (Mining Town 5x, stock UEF civilian 2x; box models, sizes and footprints too: a house takes 2x2
+- **Model scale**: the mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
+  buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) use 2.5x the blueprint's
+  `UniformScale`, with sizes and footprints to match; the buggy was enlarged a further x1.75 on request. Our own models
+  (`art/`) are made in world units at `scale` 1, at the sizes the replaced stock models had been enlarged to
+  (engineers about the length of their tier's tanks). Civilian map buildings were doubled
+  on request (Mining Town 5x; box models, sizes and footprints too: a house takes 2x2
   cells). Towns are dense: one free cell (a street ~1.5 tanks wide) between footprints, never touching
   (footprints block movement) - the editor's `add_settlements` packs lots nearest the town centre, `osm_map.py`
   places with `margin=1`.
@@ -605,16 +605,35 @@ turret aim on top: `walk` (trooper; cycles with ground speed at the mod's rate a
 slide - the commander - backwards when reversing), `upgrade` (factories, pumps: follows `Upgrading` progress),
 `work` (pumps: loops at the owner's `power`, frozen when paused), `open` (engineers: folded = first frame when idle,
 unfold while `Builder.work`), `doors` (eng station: open to the middle while working, then on to the end), `unpack`
-(Bohdana: target and standing), `land` (Stork: legs out when hovering still, folded when flying - it never lands),
-`water` (engineers, Sparky: ground under them below the water level), `rolloff` (air factory platform: out, hold,
+(Bohdana: target and standing), `land` (Stork: gear out when hovering still, folded when flying - it never lands),
+`water` (ground under the unit below the water level; no current model has one), `rolloff` (air factory platform: out, hold,
 back when `Factory.building` changes; SupCom only does it for land units). `models::tests` loads every GLB.
 Wrecks (`spawn_model` with a wreck material) get no animated, aimed or spinning parts: rest pose, still.
 Models made in Blender go through `tools/blend.py` (`blend_export.py` runs inside Blender): objects are parts,
 actions named like the `AnimKind`s are animations, materials named team/light/dark/metal take that flat colour
 (`models::prim_mat`; other materials keep their colour when the unit has no albedo texture), an object with several
 materials becomes one part per primitive. `ModelDef.brightness` multiplies the albedo (2.1 default for the mod's dark
-textures, 1 for ours). The mod ships no commander or radar tower model: the commander reuses the trooper mesh at 3x scale; the radar tower
-and the APC are JSON box models. The Stork uses the mod's hooked stock UEF transport (UEA0104, blueprint scale).
+textures, 1 for ours). The mod ships no commander or radar tower model: the commander is the trooper mesh at 3x scale
+(with a radio pack and pauldrons); radar towers, the Faust SAM, field works and some map buildings are JSON box models.
+
+**Our own models** (`art/`, replacing the stock Supreme Commander models the game used to borrow, on request: "in the
+style of the Mining Town buildings and the Long Range Tank units") are Python scripts run with Blender as a module
+(`bpy` from PyPI in `.venv`, no Blender install; `.venv/bin/python art/build.py [NAME..]`): `art/kit.py` places
+pieces (boxes, extrusions, cylinders, windows, doors) in world units (Blender: front -Y, Z up), joins them into one
+object per part (one entity per part in the game: keep parts few), paints them with seamless numpy tiles (light grey
+steel with panel lines, team panels, corrugated sheet, concrete, plaster, panel-block, brick, roof tiles, reactive
+armour bricks...) box-projected, unwraps all parts into one 512 atlas and bakes albedo + team mask with Cycles, then
+exports through `tools/blend_export.py`. `Kit.key` makes the animations (`work` pumpjacks, `open` engineer arms,
+`rolloff` hangar doors, `doors` crane jib, `land` Stork gear, `upgrade` scaffold rising from under the ground).
+`k.nohit_()` / `k.nohit` keep aprons, antennas, rotors and arms out of the printed hit box (the unit's `hit_box`;
+centred, so buildings are capped at their footprint). Files: `models_buildings.py` (factories, pumpjacks, power,
+storage, AA, eng station), `models_vehicles.py` (APCs/IFVs, engineers, Sparky, scavenger), `models_air.py`,
+`models_civilian.py` (the former stock UEF civilian buildings: panel block, institute, town hall, palace of culture,
+office tower, farm, brick works), `models_variants.py` (`variant.py`: a mod GLB imported unchanged plus new parts,
+its 512 texture set extended to 512x1024; exported with front +y so the mod's nodes stay as they were): Bastion
+(Crony + reactive armour bricks), Hailstorm, Skylance, UC-02R/03R, AT/Sniper/SAM Trooper, Commander. Units with
+`reactive` armour show it as bolted bricks (Bastion, Hetman). `--blend` saves `art/blend/NAME.blend` (ignored by git)
+to open in Blender; `art/render.py` renders exports for a look (Workbench, team areas blue).
 
 ## Not done yet / ideas
 

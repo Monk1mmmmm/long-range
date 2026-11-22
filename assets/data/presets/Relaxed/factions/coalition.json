@@ -33,10 +33,10 @@
     "glyphs": []
    },
    "model": {
-    "mesh": "models/trooper.glb",
-    "albedo": "models/trooper_albedo.png",
-    "team_mask": "models/trooper_team.png",
-    "normal": "models/trooper_normal.png",
+    "mesh": "models/commander.glb",
+    "albedo": "models/commander_albedo.png",
+    "team_mask": "models/commander_team.png",
+    "normal": "models/commander_normal.png",
     "scale": 0.475
    },
    "portrait": "icons/units/trooper.png",
@@ -107,9 +107,9 @@
     0.95
    ],
    "hit_box": [
-    1.75,
-    1.2,
-    1.85
+    1.7,
+    1.28,
+    2.02
    ],
    "icon": {
     "shape": "land",
@@ -121,8 +121,8 @@
     "mesh": "models/engineer.glb",
     "albedo": "models/engineer_albedo.png",
     "team_mask": "models/engineer_team.png",
-    "normal": "models/engineer_normal.png",
-    "scale": 0.24
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "move": {
@@ -164,9 +164,9 @@
     0.6
    ],
    "hit_box": [
-    0.6,
-    0.45,
-    0.65
+    0.74,
+    0.57,
+    0.6
    ],
    "icon": {
     "shape": "land",
@@ -175,11 +175,11 @@
     ]
    },
    "model": {
-    "mesh": "models/engineer.glb",
-    "albedo": "models/engineer_albedo.png",
-    "team_mask": "models/engineer_team.png",
-    "normal": "models/engineer_normal.png",
-    "scale": 0.085
+    "mesh": "models/scavenger.glb",
+    "albedo": "models/scavenger_albedo.png",
+    "team_mask": "models/scavenger_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "move": {
@@ -218,8 +218,8 @@
    ],
    "hit_box": [
     1.9,
-    1.45,
-    3.4
+    1.34,
+    3.41
    ],
    "icon": {
     "shape": "land",
@@ -228,60 +228,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.45,
-       0
-      ],
-      "size": [
-       1.9,
-       0.5,
-       3.4
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       1.0,
-       0.2
-      ],
-      "size": [
-       1.7,
-       0.7,
-       2.6
-      ],
-      "color": "team"
-     },
-     {
-      "pos": [
-       0,
-       1.0,
-       -1.35
-      ],
-      "size": [
-       1.5,
-       0.55,
-       0.4
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       0,
-       1.42,
-       0.5
-      ],
-      "size": [
-       1.0,
-       0.15,
-       1.3
-      ],
-      "color": "metal"
-     }
-    ]
+    "mesh": "models/apc.glb",
+    "albedo": "models/apc_albedo.png",
+    "team_mask": "models/apc_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "select_sound": "select_vehicle",
@@ -318,9 +269,9 @@
     4.2
    ],
    "hit_box": [
-    2.2,
-    1.6,
-    4.2
+    2.27,
+    1.5,
+    4.44
    ],
    "icon": {
     "shape": "land",
@@ -329,73 +280,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.5,
-       0
-      ],
-      "size": [
-       2.2,
-       0.6,
-       4.2
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       0.5,
-       -2.25
-      ],
-      "size": [
-       1.6,
-       0.45,
-       0.4
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       1.15,
-       0.3
-      ],
-      "size": [
-       2.0,
-       0.75,
-       3.2
-      ],
-      "color": "team"
-     },
-     {
-      "pos": [
-       0,
-       1.12,
-       -1.5
-      ],
-      "size": [
-       1.7,
-       0.6,
-       0.5
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       0.75,
-       1.6,
-       1.3
-      ],
-      "size": [
-       0.12,
-       0.4,
-       0.12
-      ],
-      "color": "metal"
-     }
-    ]
+    "mesh": "models/apc_amph.glb",
+    "albedo": "models/apc_amph_albedo.png",
+    "team_mask": "models/apc_amph_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "select_sound": "select_vehicle",
@@ -433,9 +322,9 @@
     4.6
    ],
    "hit_box": [
-    2.6,
-    2.0,
-    4.6
+    2.72,
+    1.96,
+    4.67
    ],
    "icon": {
     "shape": "land",
@@ -445,99 +334,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.6,
-       0
-      ],
-      "size": [
-       2.6,
-       0.7,
-       4.6
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       1.45,
-       0.3
-      ],
-      "size": [
-       2.4,
-       1.0,
-       3.6
-      ],
-      "color": "team"
-     },
-     {
-      "pos": [
-       0,
-       1.35,
-       -1.85
-      ],
-      "size": [
-       2.2,
-       0.8,
-       0.6
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       1.25,
-       -2.25
-      ],
-      "size": [
-       1.8,
-       0.5,
-       0.3
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       1.35,
-       1.2,
-       0.3
-      ],
-      "size": [
-       0.12,
-       0.9,
-       3.4
-      ],
-      "color": "metal"
-     },
-     {
-      "pos": [
-       -1.35,
-       1.2,
-       0.3
-      ],
-      "size": [
-       0.12,
-       0.9,
-       3.4
-      ],
-      "color": "metal"
-     },
-     {
-      "pos": [
-       0,
-       2.05,
-       0.8
-      ],
-      "size": [
-       1.4,
-       0.2,
-       1.8
-      ],
-      "color": "metal"
-     }
-    ]
+    "mesh": "models/apc_heavy.glb",
+    "albedo": "models/apc_heavy_albedo.png",
+    "team_mask": "models/apc_heavy_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "select_sound": "select_vehicle",
@@ -555,6 +356,9 @@
      "salvo_delay": 0.08,
      "spread": 0.6,
      "turret": {
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle",
       "yaw_speed": 120,
       "pitch_speed": 90
      },
@@ -596,9 +400,9 @@
     5.0
    ],
    "hit_box": [
-    2.8,
-    2.2,
-    5.0
+    3.08,
+    2.09,
+    5.07
    ],
    "icon": {
     "shape": "land",
@@ -608,151 +412,11 @@
     ]
    },
    "model": {
-    "boxes": [
-     {
-      "pos": [
-       0,
-       0.65,
-       0
-      ],
-      "size": [
-       2.8,
-       0.75,
-       5.0
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       1.6,
-       0.3
-      ],
-      "size": [
-       2.6,
-       1.1,
-       3.9
-      ],
-      "color": "team"
-     },
-     {
-      "pos": [
-       0,
-       1.45,
-       -2.0
-      ],
-      "size": [
-       2.4,
-       0.85,
-       0.7
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       1.3,
-       -2.45
-      ],
-      "size": [
-       2.0,
-       0.5,
-       0.3
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       1.45,
-       1.35,
-       0.3
-      ],
-      "size": [
-       0.15,
-       1.0,
-       3.8
-      ],
-      "color": "metal"
-     },
-     {
-      "pos": [
-       -1.45,
-       1.35,
-       0.3
-      ],
-      "size": [
-       0.15,
-       1.0,
-       3.8
-      ],
-      "color": "metal"
-     },
-     {
-      "pos": [
-       0,
-       2.25,
-       0.9
-      ],
-      "size": [
-       1.6,
-       0.25,
-       2.0
-      ],
-      "color": "metal"
-     },
-     {
-      "pos": [
-       0.9,
-       1.75,
-       -1.1
-      ],
-      "size": [
-       0.5,
-       0.35,
-       0.9
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       -0.9,
-       1.75,
-       -1.1
-      ],
-      "size": [
-       0.5,
-       0.35,
-       0.9
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       0.9,
-       1.75,
-       1.6
-      ],
-      "size": [
-       0.5,
-       0.35,
-       0.9
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       -0.9,
-       1.75,
-       1.6
-      ],
-      "size": [
-       0.5,
-       0.35,
-       0.9
-      ],
-      "color": "light"
-     }
-    ]
+    "mesh": "models/apc_heavy3.glb",
+    "albedo": "models/apc_heavy3_albedo.png",
+    "team_mask": "models/apc_heavy3_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "select_sound": "select_vehicle",
@@ -770,6 +434,9 @@
      "salvo_delay": 0.05,
      "spread": 0.6,
      "turret": {
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle",
       "yaw_speed": 120,
       "pitch_speed": 90
      },
@@ -972,10 +639,10 @@
     ]
    },
    "model": {
-    "mesh": "models/trooper.glb",
-    "albedo": "models/trooper_albedo.png",
-    "team_mask": "models/trooper_team.png",
-    "normal": "models/trooper_normal.png",
+    "mesh": "models/at_trooper.glb",
+    "albedo": "models/at_trooper_albedo.png",
+    "team_mask": "models/at_trooper_team.png",
+    "normal": "models/at_trooper_normal.png",
     "scale": 0.1562
    },
    "portrait": "icons/units/trooper.png",
@@ -1045,10 +712,10 @@
     ]
    },
    "model": {
-    "mesh": "models/trooper.glb",
-    "albedo": "models/trooper_albedo.png",
-    "team_mask": "models/trooper_team.png",
-    "normal": "models/trooper_normal.png",
+    "mesh": "models/sniper_trooper.glb",
+    "albedo": "models/sniper_trooper_albedo.png",
+    "team_mask": "models/sniper_trooper_team.png",
+    "normal": "models/sniper_trooper_normal.png",
     "scale": 0.1562
    },
    "portrait": "icons/units/trooper.png",
@@ -1126,10 +793,10 @@
     ]
    },
    "model": {
-    "mesh": "models/trooper.glb",
-    "albedo": "models/trooper_albedo.png",
-    "team_mask": "models/trooper_team.png",
-    "normal": "models/trooper_normal.png",
+    "mesh": "models/sam_trooper.glb",
+    "albedo": "models/sam_trooper_albedo.png",
+    "team_mask": "models/sam_trooper_team.png",
+    "normal": "models/sam_trooper_normal.png",
     "scale": 0.1562
    },
    "portrait": "icons/units/trooper.png",
@@ -1464,10 +1131,10 @@
     ]
    },
    "model": {
-    "mesh": "models/dragoon.glb",
-    "albedo": "models/dragoon_albedo.png",
-    "team_mask": "models/dragoon_team.png",
-    "normal": "models/dragoon_normal.png",
+    "mesh": "models/flak_carrier.glb",
+    "albedo": "models/flak_carrier_albedo.png",
+    "team_mask": "models/flak_carrier_team.png",
+    "normal": "models/flak_carrier_normal.png",
     "scale": 0.175
    },
    "portrait": "icons/units/dragoon.png",
@@ -1540,10 +1207,10 @@
     ]
    },
    "model": {
-    "mesh": "models/robin.glb",
-    "albedo": "models/robin_albedo.png",
-    "team_mask": "models/robin_team.png",
-    "normal": "models/robin_normal.png",
+    "mesh": "models/mobile_sam.glb",
+    "albedo": "models/mobile_sam_albedo.png",
+    "team_mask": "models/mobile_sam_team.png",
+    "normal": "models/mobile_sam_normal.png",
     "scale": 0.175
    },
    "portrait": "icons/units/robin.png",
@@ -1669,40 +1336,11 @@
     ]
    },
    "model": {
-    "mesh": "models/radar_car.glb",
-    "albedo": "models/radar_car_albedo.png",
-    "team_mask": "models/radar_car_team.png",
-    "normal": "models/radar_car_normal.png",
-    "scale": 0.375,
-    "boxes": [
-     {
-      "pos": [
-       0,
-       3.5,
-       0.3
-      ],
-      "size": [
-       0.25,
-       1.0,
-       0.25
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       4.1,
-       0.3
-      ],
-      "size": [
-       0.25,
-       0.9,
-       2.6
-      ],
-      "color": "light",
-      "spin": 110
-     }
-    ]
+    "mesh": "models/radar_car2.glb",
+    "albedo": "models/radar_car2_albedo.png",
+    "team_mask": "models/radar_car2_team.png",
+    "normal": "models/radar_car2_normal.png",
+    "scale": 0.375
    },
    "portrait": "icons/units/radar_car.png",
    "built_by": "land",
@@ -1750,54 +1388,11 @@
     ]
    },
    "model": {
-    "mesh": "models/radar_car.glb",
-    "albedo": "models/radar_car_albedo.png",
-    "team_mask": "models/radar_car_team.png",
-    "normal": "models/radar_car_normal.png",
-    "scale": 0.4375,
-    "boxes": [
-     {
-      "pos": [
-       0,
-       3.9,
-       0.3
-      ],
-      "size": [
-       0.3,
-       1.8,
-       0.3
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       0,
-       4.9,
-       0.3
-      ],
-      "size": [
-       0.3,
-       1.0,
-       3.0
-      ],
-      "color": "light",
-      "spin": 80
-     },
-     {
-      "pos": [
-       0,
-       4.0,
-       0.3
-      ],
-      "size": [
-       0.2,
-       0.6,
-       1.6
-      ],
-      "color": "light",
-      "spin": -120
-     }
-    ]
+    "mesh": "models/radar_car3.glb",
+    "albedo": "models/radar_car3_albedo.png",
+    "team_mask": "models/radar_car3_team.png",
+    "normal": "models/radar_car3_normal.png",
+    "scale": 0.4375
    },
    "portrait": "icons/units/radar_car.png",
    "built_by": "land",
@@ -2077,9 +1672,9 @@
     1.35
    ],
    "hit_box": [
-    2.1,
-    1.7,
-    2.1
+    1.96,
+    1.18,
+    2.18
    ],
    "icon": {
     "shape": "land",
@@ -2091,8 +1686,8 @@
     "mesh": "models/engineer2.glb",
     "albedo": "models/engineer2_albedo.png",
     "team_mask": "models/engineer2_team.png",
-    "normal": "models/engineer2_normal.png",
-    "scale": 0.24
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "move": {
@@ -2210,9 +1805,9 @@
     3.3
    ],
    "hit_box": [
-    2.035,
-    1.485,
-    2.915
+    2.12,
+    1.49,
+    2.9
    ],
    "icon": {
     "shape": "land",
@@ -2222,10 +1817,10 @@
     ]
    },
    "model": {
-    "mesh": "models/crony.glb",
-    "albedo": "models/crony_albedo.png",
-    "team_mask": "models/crony_team.png",
-    "normal": "models/crony_normal.png",
+    "mesh": "models/bastion.glb",
+    "albedo": "models/bastion_albedo.png",
+    "team_mask": "models/bastion_team.png",
+    "normal": "models/bastion_normal.png",
     "scale": 0.1925
    },
    "portrait": "icons/units/crony.png",
@@ -2304,9 +1899,9 @@
     1.6
    ],
    "hit_box": [
-    2.2,
+    2.27,
     1.9,
-    2.6
+    2.99
    ],
    "icon": {
     "shape": "land",
@@ -2318,8 +1913,8 @@
     "mesh": "models/engineer3.glb",
     "albedo": "models/engineer3_albedo.png",
     "team_mask": "models/engineer3_team.png",
-    "normal": "models/engineer3_normal.png",
-    "scale": 0.25
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "land",
    "move": {
@@ -2360,9 +1955,9 @@
     0.8
    ],
    "hit_box": [
+    1.0,
     0.6,
-    0.6,
-    0.85
+    1.18
    ],
    "icon": {
     "shape": "air",
@@ -2374,8 +1969,19 @@
     "mesh": "models/air_scout.glb",
     "albedo": "models/air_scout_albedo.png",
     "team_mask": "models/air_scout_team.png",
-    "normal": "models/air_scout_normal.png",
-    "scale": 0.08
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Prop",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 1800
+     }
+    ]
    },
    "built_by": "air",
    "move": {
@@ -2404,9 +2010,9 @@
     1.0
    ],
    "hit_box": [
-    0.95,
+    0.94,
     0.6,
-    1.05
+    1.04
    ],
    "icon": {
     "shape": "air",
@@ -2418,8 +2024,8 @@
     "mesh": "models/interceptor.glb",
     "albedo": "models/interceptor_albedo.png",
     "team_mask": "models/interceptor_team.png",
-    "normal": "models/interceptor_normal.png",
-    "scale": 0.075
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "air",
    "move": {
@@ -2463,9 +2069,9 @@
     1.35
    ],
    "hit_box": [
-    1.25,
+    1.24,
     0.6,
-    1.35
+    1.4
    ],
    "icon": {
     "shape": "air",
@@ -2474,11 +2080,11 @@
     ]
    },
    "model": {
-    "mesh": "models/interceptor.glb",
-    "albedo": "models/interceptor_albedo.png",
-    "team_mask": "models/interceptor_team.png",
-    "normal": "models/interceptor_normal.png",
-    "scale": 0.1
+    "mesh": "models/interceptor3.glb",
+    "albedo": "models/interceptor3_albedo.png",
+    "team_mask": "models/interceptor3_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "air",
    "move": {
@@ -2529,9 +2135,9 @@
     1.2
    ],
    "hit_box": [
-    1.3,
+    1.38,
     0.6,
-    1.25
+    1.2
    ],
    "icon": {
     "shape": "air",
@@ -2543,8 +2149,28 @@
     "mesh": "models/bomber.glb",
     "albedo": "models/bomber_albedo.png",
     "team_mask": "models/bomber_team.png",
-    "normal": "models/bomber_normal.png",
-    "scale": 0.125
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Prop_L",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 1500
+     },
+     {
+      "bone": "Prop_R",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": -1500
+     }
+    ]
    },
    "built_by": "air",
    "move": {
@@ -2591,9 +2217,9 @@
     1.2
    ],
    "hit_box": [
-    1.1,
+    1.12,
     0.6,
-    1.25
+    1.2
    ],
    "icon": {
     "shape": "air",
@@ -2603,11 +2229,11 @@
     ]
    },
    "model": {
-    "mesh": "models/interceptor.glb",
-    "albedo": "models/interceptor_albedo.png",
-    "team_mask": "models/interceptor_team.png",
-    "normal": "models/interceptor_normal.png",
-    "scale": 0.09
+    "mesh": "models/fighter_bomber.glb",
+    "albedo": "models/fighter_bomber_albedo.png",
+    "team_mask": "models/fighter_bomber_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "built_by": "air",
    "move": {
@@ -2668,8 +2294,8 @@
     1.5
    ],
    "hit_box": [
-    1.0,
-    0.7,
+    0.86,
+    0.6,
     1.6
    ],
    "icon": {
@@ -2682,8 +2308,28 @@
     "mesh": "models/gunship.glb",
     "albedo": "models/gunship_albedo.png",
     "team_mask": "models/gunship_team.png",
-    "normal": "models/gunship_normal.png",
-    "scale": 0.08
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Rotor",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": 900
+     },
+     {
+      "bone": "TailRotor",
+      "axis": [
+       1,
+       0,
+       0
+      ],
+      "speed": 1800
+     }
+    ]
    },
    "built_by": "air",
    "move": {
@@ -2737,6 +2383,11 @@
     0.2,
     0.7
    ],
+   "hit_box": [
+    0.6,
+    0.6,
+    0.78
+   ],
    "icon": {
     "shape": "air",
     "glyphs": [
@@ -2744,11 +2395,22 @@
     ]
    },
    "model": {
-    "mesh": "models/air_scout.glb",
-    "albedo": "models/air_scout_albedo.png",
-    "team_mask": "models/air_scout_team.png",
-    "normal": "models/air_scout_normal.png",
-    "scale": 0.06
+    "mesh": "models/dove.glb",
+    "albedo": "models/dove_albedo.png",
+    "team_mask": "models/dove_team.png",
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Prop",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 2000
+     }
+    ]
    },
    "built_by": "air",
    "move": {
@@ -2795,9 +2457,9 @@
     5.5
    ],
    "hit_box": [
-    1.75,
-    0.6,
-    7.1
+    1.86,
+    2.05,
+    5.55
    ],
    "icon": {
     "shape": "air",
@@ -2809,8 +2471,28 @@
     "mesh": "models/air_transport.glb",
     "albedo": "models/air_transport_albedo.png",
     "team_mask": "models/air_transport_team.png",
-    "normal": "models/air_transport_normal.png",
-    "scale": 0.059
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Rotor_F",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": 600
+     },
+     {
+      "bone": "Rotor_B",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": -600
+     }
+    ]
    },
    "built_by": "air",
    "move": {
@@ -2845,9 +2527,9 @@
     4.5
    ],
    "hit_box": [
-    5.7,
-    1.45,
-    5.3
+    3.31,
+    1.55,
+    4.5
    ],
    "icon": {
     "shape": "air",
@@ -2857,112 +2539,29 @@
     ]
    },
    "model": {
-    "boxes": [
+    "mesh": "models/fast_transport.glb",
+    "albedo": "models/fast_transport_albedo.png",
+    "team_mask": "models/fast_transport_team.png",
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
      {
-      "pos": [
-       0.0,
-       0.6,
-       0.0
+      "bone": "Rotor_L",
+      "axis": [
+       0,
+       1,
+       0
       ],
-      "size": [
-       1.4,
-       0.9,
-       4.5
-      ],
-      "color": "team"
+      "speed": 800
      },
      {
-      "pos": [
-       0.0,
-       0.75,
-       -2.5
+      "bone": "Rotor_R",
+      "axis": [
+       0,
+       1,
+       0
       ],
-      "size": [
-       0.9,
-       0.6,
-       0.8
-      ],
-      "color": "light"
-     },
-     {
-      "pos": [
-       0.0,
-       1.1,
-       0.4
-      ],
-      "size": [
-       4.6,
-       0.15,
-       0.9
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       -1.9,
-       1.0,
-       0.4
-      ],
-      "size": [
-       0.6,
-       0.6,
-       1.6
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       1.9,
-       1.0,
-       0.4
-      ],
-      "size": [
-       0.6,
-       0.6,
-       1.6
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       -1.9,
-       1.4,
-       0.4
-      ],
-      "size": [
-       1.9,
-       0.1,
-       1.9
-      ],
-      "color": "light",
-      "spin": 1100
-     },
-     {
-      "pos": [
-       1.9,
-       1.4,
-       0.4
-      ],
-      "size": [
-       1.9,
-       0.1,
-       1.9
-      ],
-      "color": "light",
-      "spin": 1100
-     },
-     {
-      "pos": [
-       0.0,
-       1.2,
-       2.1
-      ],
-      "size": [
-       1.8,
-       0.15,
-       0.6
-      ],
-      "color": "dark"
+      "speed": -800
      }
     ]
    },
@@ -3068,9 +2667,9 @@
     2.0
    ],
    "hit_box": [
-    1.0,
-    1.45,
-    0.95
+    1.9,
+    1.22,
+    1.9
    ],
    "icon": {
     "shape": "structure",
@@ -3082,8 +2681,8 @@
     "mesh": "models/pump.glb",
     "albedo": "models/pump_albedo.png",
     "team_mask": "models/pump_team.png",
-    "normal": "models/pump_normal.png",
-    "scale": 0.06
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",
@@ -3118,9 +2717,9 @@
     2.0
    ],
    "hit_box": [
-    1.0,
-    1.4,
-    0.95
+    1.84,
+    1.37,
+    2.0
    ],
    "icon": {
     "shape": "structure",
@@ -3132,8 +2731,8 @@
     "mesh": "models/pump2.glb",
     "albedo": "models/pump2_albedo.png",
     "team_mask": "models/pump2_team.png",
-    "normal": "models/pump2_normal.png",
-    "scale": 0.06
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",
@@ -3168,9 +2767,9 @@
     2.0
    ],
    "hit_box": [
-    1.4,
-    1.65,
-    0.95
+    1.72,
+    1.92,
+    1.93
    ],
    "icon": {
     "shape": "structure",
@@ -3182,8 +2781,8 @@
     "mesh": "models/pump3.glb",
     "albedo": "models/pump3_albedo.png",
     "team_mask": "models/pump3_team.png",
-    "normal": "models/pump3_normal.png",
-    "scale": 0.06
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",
@@ -3264,9 +2863,9 @@
     6.0
    ],
    "hit_box": [
-    2.8,
-    1.7,
-    2.8
+    5.24,
+    3.12,
+    6.0
    ],
    "icon": {
     "shape": "structure",
@@ -3278,8 +2877,8 @@
     "mesh": "models/power_plant.glb",
     "albedo": "models/power_plant_albedo.png",
     "team_mask": "models/power_plant_team.png",
-    "normal": "models/power_plant_normal.png",
-    "scale": 0.5
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 3,
    "built_by": "structure",
@@ -3351,9 +2950,9 @@
     2.0
    ],
    "hit_box": [
-    1.1,
-    1.65,
-    1.1
+    1.8,
+    1.46,
+    1.8
    ],
    "icon": {
     "shape": "structure",
@@ -3367,8 +2966,8 @@
     "mesh": "models/energy_storage.glb",
     "albedo": "models/energy_storage_albedo.png",
     "team_mask": "models/energy_storage_team.png",
-    "normal": "models/energy_storage_normal.png",
-    "scale": 0.145
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",
@@ -3398,9 +2997,9 @@
     2.0
    ],
    "hit_box": [
-    0.9,
-    1.05,
-    0.9
+    1.63,
+    1.06,
+    1.5
    ],
    "icon": {
     "shape": "structure",
@@ -3414,8 +3013,8 @@
     "mesh": "models/mass_storage.glb",
     "albedo": "models/mass_storage_albedo.png",
     "team_mask": "models/mass_storage_team.png",
-    "normal": "models/mass_storage_normal.png",
-    "scale": 0.125
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",
@@ -3441,9 +3040,9 @@
     8.0
    ],
    "hit_box": [
-    4.95,
-    3.9,
-    5.35
+    7.64,
+    4.0,
+    7.64
    ],
    "icon": {
     "shape": "factory",
@@ -3455,8 +3054,8 @@
     "mesh": "models/land_factory.glb",
     "albedo": "models/land_factory_albedo.png",
     "team_mask": "models/land_factory_team.png",
-    "normal": "models/land_factory_normal.png",
-    "scale": 0.1
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 4,
    "built_by": "structure",
@@ -3492,9 +3091,9 @@
     8.0
    ],
    "hit_box": [
-    5.55,
-    4.25,
-    5.35
+    8.0,
+    3.6,
+    7.64
    ],
    "icon": {
     "shape": "factory",
@@ -3506,8 +3105,8 @@
     "mesh": "models/land_factory2.glb",
     "albedo": "models/land_factory2_albedo.png",
     "team_mask": "models/land_factory2_team.png",
-    "normal": "models/land_factory2_normal.png",
-    "scale": 0.1
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 4,
    "built_by": "structure",
@@ -3543,9 +3142,9 @@
     8.0
    ],
    "hit_box": [
-    6.2,
-    4.75,
-    6.0
+    8.0,
+    4.2,
+    7.84
    ],
    "icon": {
     "shape": "factory",
@@ -3554,11 +3153,11 @@
     ]
    },
    "model": {
-    "mesh": "models/land_factory2.glb",
-    "albedo": "models/land_factory2_albedo.png",
-    "team_mask": "models/land_factory2_team.png",
-    "normal": "models/land_factory2_normal.png",
-    "scale": 0.112
+    "mesh": "models/land_factory3.glb",
+    "albedo": "models/land_factory3_albedo.png",
+    "team_mask": "models/land_factory3_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 4,
    "built_by": "structure",
@@ -3593,9 +3192,9 @@
     8.0
    ],
    "hit_box": [
-    5.0,
-    4.0,
-    5.45
+    7.74,
+    3.27,
+    7.4
    ],
    "icon": {
     "shape": "factory",
@@ -3607,8 +3206,19 @@
     "mesh": "models/air_factory.glb",
     "albedo": "models/air_factory_albedo.png",
     "team_mask": "models/air_factory_team.png",
-    "normal": "models/air_factory_normal.png",
-    "scale": 0.1
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Radar",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": 90
+     }
+    ]
    },
    "footprint": 4,
    "built_by": "structure",
@@ -3644,9 +3254,9 @@
     8.0
    ],
    "hit_box": [
-    5.0,
-    4.85,
-    5.45
+    7.62,
+    4.07,
+    7.8
    ],
    "icon": {
     "shape": "factory",
@@ -3658,8 +3268,19 @@
     "mesh": "models/air_factory2.glb",
     "albedo": "models/air_factory2_albedo.png",
     "team_mask": "models/air_factory2_team.png",
-    "normal": "models/air_factory2_normal.png",
-    "scale": 0.1
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Radar",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": 90
+     }
+    ]
    },
    "footprint": 4,
    "built_by": "structure",
@@ -3695,9 +3316,9 @@
     8.0
    ],
    "hit_box": [
-    5.6,
-    5.45,
-    6.1
+    8.0,
+    5.25,
+    7.8
    ],
    "icon": {
     "shape": "factory",
@@ -3706,11 +3327,11 @@
     ]
    },
    "model": {
-    "mesh": "models/air_factory2.glb",
-    "albedo": "models/air_factory2_albedo.png",
-    "team_mask": "models/air_factory2_team.png",
-    "normal": "models/air_factory2_normal.png",
-    "scale": 0.112
+    "mesh": "models/air_factory3.glb",
+    "albedo": "models/air_factory3_albedo.png",
+    "team_mask": "models/air_factory3_team.png",
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 4,
    "built_by": "structure",
@@ -3870,9 +3491,9 @@
     2.0
    ],
    "hit_box": [
-    1.0,
-    0.8,
-    1.0
+    1.8,
+    1.22,
+    1.8
    ],
    "icon": {
     "shape": "structure",
@@ -3884,8 +3505,8 @@
     "mesh": "models/aa_turret.glb",
     "albedo": "models/aa_turret_albedo.png",
     "team_mask": "models/aa_turret_team.png",
-    "normal": "models/aa_turret_normal.png",
-    "scale": 0.155
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",
@@ -4100,9 +3721,9 @@
     3.2
    ],
    "hit_box": [
-    2.1,
-    2.45,
-    2.8
+    3.42,
+    2.85,
+    3.32
    ],
    "icon": {
     "shape": "structure",
@@ -4112,38 +3733,20 @@
     ]
    },
    "model": {
-    "mesh": "models/aa_turret.glb",
-    "albedo": "models/aa_turret_albedo.png",
-    "team_mask": "models/aa_turret_team.png",
-    "normal": "models/aa_turret_normal.png",
-    "scale": 0.25,
-    "boxes": [
+    "mesh": "models/aa_turret3.glb",
+    "albedo": "models/aa_turret3_albedo.png",
+    "team_mask": "models/aa_turret3_team.png",
+    "scale": 1,
+    "brightness": 1.0,
+    "spin": [
      {
-      "pos": [
-       -5.0,
-       4.0,
-       5.0
+      "bone": "Radar",
+      "axis": [
+       0,
+       1,
+       0
       ],
-      "size": [
-       0.6,
-       8.0,
-       0.6
-      ],
-      "color": "dark"
-     },
-     {
-      "pos": [
-       -5.0,
-       8.6,
-       5.0
-      ],
-      "size": [
-       0.6,
-       2.4,
-       6.0
-      ],
-      "color": "light",
-      "spin": 90
+      "speed": 120
      }
     ]
    },
@@ -4542,9 +4145,9 @@
     2.0
    ],
    "hit_box": [
-    1.05,
-    2.35,
-    0.8
+    1.8,
+    2.67,
+    1.6
    ],
    "icon": {
     "shape": "structure",
@@ -4556,8 +4159,8 @@
     "mesh": "models/eng_station.glb",
     "albedo": "models/eng_station_albedo.png",
     "team_mask": "models/eng_station_team.png",
-    "normal": "models/eng_station_normal.png",
-    "scale": 0.05
+    "scale": 1,
+    "brightness": 1.0
    },
    "footprint": 1,
    "built_by": "structure",

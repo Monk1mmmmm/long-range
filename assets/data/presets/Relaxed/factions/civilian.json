@@ -1428,9 +1428,9 @@
     8.0
    ],
    "hit_box": [
-    6.0,
-    7.8,
-    6.0
+    7.94,
+    8.05,
+    8.0
    ],
    "footprint": 4,
    "icon": {
@@ -1444,11 +1444,11 @@
     "residential"
    ],
    "model": {
-    "mesh": "models/civ_uef_residential.glb",
-    "albedo": "models/civ_uef_residential_albedo.png",
-    "team_mask": "models/civ_uef_residential_team.png",
-    "normal": "models/civ_uef_residential_normal.png",
-    "scale": 0.2
+    "mesh": "models/residential_tower.glb",
+    "albedo": "models/residential_tower_albedo.png",
+    "team_mask": "models/residential_tower_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {
@@ -1469,9 +1469,9 @@
     8.0
    ],
    "hit_box": [
-    5.8,
-    4.9,
-    5.9
+    7.2,
+    6.9,
+    7.54
    ],
    "footprint": 4,
    "icon": {
@@ -1485,11 +1485,11 @@
     "civic"
    ],
    "model": {
-    "mesh": "models/civ_uef_lab.glb",
-    "albedo": "models/civ_uef_lab_albedo.png",
-    "team_mask": "models/civ_uef_lab_team.png",
-    "normal": "models/civ_uef_lab_normal.png",
-    "scale": 0.2
+    "mesh": "models/science_lab.glb",
+    "albedo": "models/science_lab_albedo.png",
+    "team_mask": "models/science_lab_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {
@@ -1510,9 +1510,9 @@
     8.0
    ],
    "hit_box": [
-    5.05,
-    3.7,
-    6.0
+    6.7,
+    5.5,
+    5.8
    ],
    "footprint": 4,
    "icon": {
@@ -1526,11 +1526,11 @@
     "civic"
    ],
    "model": {
-    "mesh": "models/civ_uef_admin.glb",
-    "albedo": "models/civ_uef_admin_albedo.png",
-    "team_mask": "models/civ_uef_admin_team.png",
-    "normal": "models/civ_uef_admin_normal.png",
-    "scale": 0.2
+    "mesh": "models/admin_building.glb",
+    "albedo": "models/admin_building_albedo.png",
+    "team_mask": "models/admin_building_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {
@@ -1551,9 +1551,9 @@
     12.0
    ],
    "hit_box": [
-    11.75,
-    7.15,
-    7.2
+    11.14,
+    7.35,
+    8.4
    ],
    "footprint": 6,
    "icon": {
@@ -1567,11 +1567,11 @@
     "civic"
    ],
    "model": {
-    "mesh": "models/civ_uef_hall.glb",
-    "albedo": "models/civ_uef_hall_albedo.png",
-    "team_mask": "models/civ_uef_hall_team.png",
-    "normal": "models/civ_uef_hall_normal.png",
-    "scale": 0.06
+    "mesh": "models/admin_hall.glb",
+    "albedo": "models/admin_hall_albedo.png",
+    "team_mask": "models/admin_hall_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {
@@ -1592,9 +1592,9 @@
     8.0
    ],
    "hit_box": [
-    4.9,
-    8.45,
-    5.4
+    6.6,
+    10.16,
+    6.3
    ],
    "footprint": 4,
    "icon": {
@@ -1608,11 +1608,11 @@
     "civic"
    ],
    "model": {
-    "mesh": "models/civ_uef_command.glb",
-    "albedo": "models/civ_uef_command_albedo.png",
-    "team_mask": "models/civ_uef_command_team.png",
-    "normal": "models/civ_uef_command_normal.png",
-    "scale": 0.4
+    "mesh": "models/high_command.glb",
+    "albedo": "models/high_command_albedo.png",
+    "team_mask": "models/high_command_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {
@@ -1633,9 +1633,9 @@
     12.0
    ],
    "hit_box": [
-    9.9,
-    4.35,
-    8.45
+    11.44,
+    4.28,
+    9.79
    ],
    "footprint": 6,
    "icon": {
@@ -1649,11 +1649,11 @@
     "industrial"
    ],
    "model": {
-    "mesh": "models/civ_uef_farm.glb",
-    "albedo": "models/civ_uef_farm_albedo.png",
-    "team_mask": "models/civ_uef_farm_team.png",
-    "normal": "models/civ_uef_farm_normal.png",
-    "scale": 0.2
+    "mesh": "models/farm.glb",
+    "albedo": "models/farm_albedo.png",
+    "team_mask": "models/farm_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {
@@ -1674,9 +1674,9 @@
     8.0
    ],
    "hit_box": [
-    5.95,
-    4.8,
-    4.9
+    7.0,
+    6.1,
+    5.4
    ],
    "footprint": 4,
    "icon": {
@@ -1690,11 +1690,11 @@
     "industrial"
    ],
    "model": {
-    "mesh": "models/civ_uef_plant.glb",
-    "albedo": "models/civ_uef_plant_albedo.png",
-    "team_mask": "models/civ_uef_plant_team.png",
-    "normal": "models/civ_uef_plant_normal.png",
-    "scale": 0.2
+    "mesh": "models/plant.glb",
+    "albedo": "models/plant_albedo.png",
+    "team_mask": "models/plant_team.png",
+    "scale": 1,
+    "brightness": 1.0
    }
   },
   {

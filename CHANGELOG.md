@@ -6,6 +6,15 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 ## Unreleased
 
 Changed
+- New models in the style of the Long Range Tank units and the Mining Town buildings replace everything the game borrowed
+  from stock Supreme Commander: factories (corrugated sheds and hangars with landing pads), mass extractors (oil
+  pumpjacks that nod while they work), power plant, storages, AA gun, engineers, Sparky, engineering station (a tower
+  crane), all aircraft, and the city buildings (panel apartment block, research institute, town hall, palace of
+  culture, office tower, farm, brick works). The armoured carriers have real models instead of boxes.
+- Units that were another unit's model scaled up now look their own: the T3 factories, Phalanx, Cyclone, Harrier, Dove,
+  scavenger, Bastion, Hailstorm, Skylance, UC-02R/03R, AT/Sniper/SAM Trooper and Commander.
+- Reactive armour is visible: bolted bricks on the Bastion and the Hetman.
+- Hit boxes follow the new models (most buildings now fill their footprint).
 - The map editor is part of the game program: "Map editor" in the main menu opens it in its own window
   (or `longrange --editor`; the command-line jobs are `longrange --editor --generate/--scatter/--points ...`).
   A release now has one archive per platform instead of two, with one copy of the program and of `assets`,
