@@ -588,11 +588,7 @@ impl Frame<'_> {
         if !rally.is_empty() {
             out.push(Command::Orders { ids: rally, orders: vec![Order::Move(end)], queue: false });
         }
-        let planes: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_plane()).map(|u| u.id).collect();
-        if !planes.is_empty() {
-            out.push(Command::Orders { ids: planes, orders: vec![mk(end)], queue });
-        }
-        let mut movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure() && !self.d(u.def).is_plane()).collect();
+        let mut movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure()).collect();
         // Infantry in selected buildings leave them and go too.
         movers.extend(self.garrison_riders(view).into_iter().filter(|r| !self.d(r.def).is_plane()));
         if movers.is_empty() {
