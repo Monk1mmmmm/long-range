@@ -41,20 +41,18 @@ if ($Only -eq "" -or $Only -eq "windows") {
     cargo build --release --bin longrange
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
     # The program reads assets\ next to the executable.
-    foreach ($b in @(@("longrange", "longrange"))) {
-        $name = "$($b[0])-$version-windows-x86_64"
-        $dir = Join-Path "dist" $name
-        if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
-        if (Test-Path "$dir.zip") { Remove-Item -Force "$dir.zip" }
-        New-Item -ItemType Directory $dir | Out-Null
-        Copy-Item "target\release\$($b[1]).exe", README.md, CHANGELOG.md $dir
-        if (Test-Path LICENSE) { Copy-Item LICENSE $dir }
-        Copy-Item scripts\uninstall.bat $dir
-        Copy-Item -Recurse assets (Join-Path $dir "assets")
-        Compress-Archive -Path $dir -DestinationPath "$dir.zip"
-        $files += "$dir.zip"
-        Write-Host "bundled $dir.zip"
-    }
+    $name = "longrange-$version-windows-x86_64"
+    $dir = Join-Path "dist" $name
+    if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+    if (Test-Path "$dir.zip") { Remove-Item -Force "$dir.zip" }
+    New-Item -ItemType Directory $dir | Out-Null
+    Copy-Item "target\release\longrange.exe", README.md, CHANGELOG.md $dir
+    if (Test-Path LICENSE) { Copy-Item LICENSE $dir }
+    Copy-Item scripts\uninstall.bat $dir
+    Copy-Item -Recurse assets (Join-Path $dir "assets")
+    Compress-Archive -Path $dir -DestinationPath "$dir.zip"
+    $files += "$dir.zip"
+    Write-Host "bundled $dir.zip"
 }
 if ($Only -eq "" -or $Only -eq "linux") {
     if (Get-Command wsl -ErrorAction SilentlyContinue) {

@@ -3,7 +3,9 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## Unreleased
+## v0.12.4
+
+One download per platform: the map editor is now inside the game program. The simulation is unchanged from v0.12.3.
 
 Changed
 - New models in the style of the Long Range Tank units and the Mining Town buildings replace everything the game borrowed
@@ -19,6 +21,9 @@ Changed
   (or `longrange --editor`; the command-line jobs are `longrange --editor --generate/--scatter/--points ...`).
   A release now has one archive per platform instead of two, with one copy of the program and of `assets`,
   about half the download and disk space. The separate `lr-editor` program is gone.
+
+Fixed
+- The Windows release build failed while packing the archive.
 
 ## v0.12.3
 
