@@ -170,7 +170,7 @@ pub const FEATURE_FIELDS: &[Field] = &[
 
 const MOVE_KINDS: &[&str] = &["none", "land", "hover", "plane"];
 const SHAPES: &[&str] = &["land", "bot", "air", "structure", "factory", "commander", "civilian"];
-const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "line", "ring", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri"];
+const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "line", "ring", "scope", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri"];
 const WEAPON_KINDS: &[&str] = &["direct", "arc", "high_arc", "missile", "bomb"];
 const TARGETS: &[&str] = &["land", "air"];
 const PRIORITIES: &[&str] = &["none", "armored", "infantry"];
