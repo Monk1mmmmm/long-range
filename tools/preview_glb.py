@@ -93,7 +93,6 @@ def render(tris, albedo, team, brightness, scale, size, yaw_deg, label=""):
     pitch = math.radians(32)
     # camera basis: looking from front-right-above; model forward is -Z
     fwd = np.array([-math.sin(yaw) * math.cos(pitch), -math.sin(pitch), math.cos(yaw) * math.cos(pitch)])
-    fwd = -fwd
     right = np.cross(fwd, [0, 1, 0]); right /= np.linalg.norm(right)
     up = np.cross(right, fwd)
     sun = np.array([0.45, 0.8, 0.35]); sun /= np.linalg.norm(sun)
@@ -115,7 +114,7 @@ def render(tris, albedo, team, brightness, scale, size, yaw_deg, label=""):
         py = size / 2 - ((w @ up) - cy) / ext * size
         pz = w @ (-fwd)
         for k in np.nonzero(ok)[0]:
-            if n[k] @ fwd < 0:  # back face
+            if n[k] @ fwd > 0:  # back face
                 continue
             xs, ys = px[k], py[k]
             x0, x1 = max(int(xs.min()), 0), min(int(xs.max()) + 1, size)

@@ -42,6 +42,22 @@ Coordinates are converted from SupCom's left-handed space to glTF's right-handed
 that faces +Z in SupCom faces -Z in the `.glb` (the game's forward direction), and triangle winding is reversed.
 Only LOD0 is used; animations (`.sca`) are not converted.
 
+## art/build.py - our own models (no Blender install needed)
+
+    python3 -m venv .venv && .venv/bin/pip install bpy numpy pillow   # once; bpy = Blender 5 as a Python module (Python 3.13)
+    .venv/bin/python art/build.py                      # every model in art/models_*.py -> assets/models
+    .venv/bin/python art/build.py apc_heavy3 pump      # only these
+    .venv/bin/python art/build.py pump --blend         # also art/blend/pump.blend, to open and change in Blender
+    .venv/bin/python art/render.py out.png pump apc_heavy3 [--anim work:0.5]   # rendered contact sheet
+    python3 tools/preview_glb.py out.png --unit bastion crony                  # quick look without Blender
+
+The models that replace the stock Supreme Commander ones (factories, pumpjack extractors, engineers, aircraft,
+carriers, city buildings) and the variants of the mod's models (Bastion with reactive armour, Hailstorm, Skylance,
+...) are Python: `art/kit.py` builds parts from boxes, extrusions and cylinders, paints them with seamless tile
+textures, bakes one 512 atlas (albedo + team mask) with Cycles and exports through `blend_export.py`. Each model is a
+function marked `@model`; `build.py` prints the hit box to put into the unit JSON. Without Linux EGL libraries the
+renderer needs `apt-get install libegl1 libgl1-mesa-dri` (Workbench/Eevee); baking uses Cycles on the CPU.
+
 ## blend.py - models made in Blender
 
     python3 tools/blend.py art/abbey_factory.blend            # -> assets/models/abbey_factory.glb (+ textures)

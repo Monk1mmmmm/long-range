@@ -24,3 +24,4 @@ Thumbs.db
 
 # Python virtual environment for tools/ (numpy, Pillow)
 /.venv
+/art/blend/
