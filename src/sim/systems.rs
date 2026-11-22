@@ -2833,7 +2833,8 @@ fn weapons(
             st.cd = w.reload;
             st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
             st.burst_cd = w.salvo_delay;
-            if let Some(m) = mover.as_mut() {
+            // Aircraft (gunships) and machine guns never stand still for a shot or a burst.
+            if let Some(m) = mover.as_mut().filter(|_| !df.is_air() && !w.is_machine_gun()) {
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
