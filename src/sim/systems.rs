@@ -968,8 +968,9 @@ fn think(
                             engaged = true;
                         }
                     } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() && !no_shot(None) {
-                        // Vehicles with machine guns shoot on the move: they never stop for a fight.
-                        engaged = infantry || !w.is_machine_gun();
+                        // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
+                        // they never stop for a fight.
+                        engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
                     }
                 }
                 // A building infantry can take is not a fight: they walk up to it instead of
