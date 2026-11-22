@@ -1707,7 +1707,7 @@ impl Plugin for SimPlugin {
         app.edit_schedule(SimTick, |s| {
             s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
-        app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>().init_resource::<Features>().init_resource::<WreckList>();
+        app.init_resource::<CommandQueue>().init_resource::<FxLog>().init_resource::<Limbo>().init_resource::<Features>().init_resource::<WreckList>().init_resource::<systems::RadarLosCache>();
         systems::register(app);
     }
 }

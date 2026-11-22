@@ -495,7 +495,7 @@ fn ferry_state(d: &crate::data::UnitDef, orders: &[Order]) -> (Option<V2>, Optio
 /// up and reaches further, sight tells what the contact is.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
-fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, shells: Query<&Projectile>, mut q: Query<&mut Intel>) {
+fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map: Res<MapData>, features: Res<Features>, wrecks: Res<WreckList>, shells: Query<&Projectile>, mut q: Query<&mut Intel>, (mut los_cache, ground): (ResMut<RadarLosCache>, Option<Res<Ground>>)) {
     // Trees, rocks, wrecks and buildings block sight like hills do (not radar); the rules can switch each off.
     let standing = census.list.iter().filter(|c| c.structure && c.done && !c.hosted).map(|c| (c.id, c.def, c.pos));
     let block = sight_block(&features, &wrecks, standing, &defs, &map);
@@ -515,6 +515,11 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         cos2: f32,
         /// The building it looks out of (itself, or the garrison it sits in): it does not block its view.
         from: u32,
+        id: u32,
+        /// Standing still: its radar lines of sight are worth keeping (`RadarLosCache`).
+        still: bool,
+        /// Squared distance beyond which it neither sees nor finds anything.
+        reach2: f32,
     }
     let mut viewers = vec![];
     for c in &census.list {
@@ -562,6 +567,9 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             dir,
             cos2,
             from: if c.hosted { c.host } else { c.id },
+            id: c.id,
+            still: c.vel.len2() < 1e-8,
+            reach2: 0.0,
         });
     }
     // Counter-battery radar: an artillery shell in flight inside a team's radar range gives away
@@ -589,10 +597,37 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             }
         }
     }
+    // Viewers that reach no further than `VIEW_NEAR` are found through a grid of `VIEW_CELL`
+    // cells around each unit, the others are looked at by every unit. The order viewers are looked
+    // at in only decides which checks are skipped once a team's bits are set, never the result.
+    for v in viewers.iter_mut() {
+        v.reach2 = v.vis2.max(v.bin2).max(v.radar2[0]).max(v.radar2[1]).max(v.radar2[2]);
+    }
+    let side = ((map.n as f32 * CELL / VIEW_CELL).ceil() as i32 + 1).max(1);
+    let cell = |p: V2| (((p.x / VIEW_CELL).floor() as i32).clamp(0, side - 1), ((p.y / VIEW_CELL).floor() as i32).clamp(0, side - 1));
+    let mut grid: Vec<Vec<u32>> = vec![vec![]; (side * side) as usize];
+    let mut far: Vec<u32> = vec![];
+    for (k, v) in viewers.iter().enumerate() {
+        if v.reach2 <= VIEW_NEAR * VIEW_NEAR {
+            let (x, y) = cell(v.pos);
+            grid[(y * side + x) as usize].push(k as u32);
+        } else {
+            far.push(k as u32);
+        }
+    }
+    let span = (VIEW_NEAR / VIEW_CELL).ceil() as i32;
+    // Radar sight lines between two ends that stay put are kept (see `RadarLosCache`); dropped
+    // every `RadarLosCache::KEEP` ticks so pairs no longer looked at do not pile up.
+    if game.tick % RadarLosCache::KEEP == 0 {
+        los_cache.0.clear();
+    }
+    let ground = ground.map_or(0, |g| g.hash);
+    let cache = &los_cache.0;
     // Who sees each unit depends only on the viewers and the terrain, so the units are worked out
     // in parallel (the sight lines are most of the tick) and written back in order.
     let map = &*map;
     let found = par_map(&census.list, 32, |c| {
+        let mut fresh: Vec<((u32, u32), RadarLos)> = vec![];
         let own = 1u16 << c.team;
         let (mut seen, mut radar, mut near) = (own, own, own);
         let head = c.pos.at(c.y + c.height + 0.5);
@@ -601,7 +636,11 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         let stealth = d.stealth.min(3) as usize;
         // Units that take time to spot: `seen` is "in view" here, `near` those that see it at once.
         let slow = d.spot_time > 0.0 || d.spot_time_moving > 0.0;
-        for v in &viewers {
+        let (cx, cy) = cell(c.pos);
+        let rows = (cy - span).max(0)..=(cy + span).min(side - 1);
+        let nearby = rows.flat_map(|y| ((cx - span).max(0)..=(cx + span).min(side - 1)).map(move |x| (y * side + x) as usize));
+        for k in nearby.flat_map(|i| grid[i].iter()).chain(far.iter()) {
+            let v = &viewers[*k as usize];
             let bit = 1u16 << v.team;
             if seen & bit != 0 && radar & bit != 0 && (!slow || near & bit != 0) {
                 continue;
@@ -620,15 +659,28 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             } else if seen & bit == 0 && in_view && map.sight_line(v.look, head, &block, hills_sight, [v.from, c.id]) {
                 seen |= bit;
             }
-            if radar & bit == 0 && stealth < 3 && d2 < v.radar2[stealth] && (!hills_radar || map.los(v.eye, head)) {
+            if radar & bit == 0 && stealth < 3 && d2 < v.radar2[stealth] && (!hills_radar || {
+                let key = (v.id, c.id);
+                match cache.get(&key).filter(|e| e.eye == v.eye && e.head == head && e.ground == ground) {
+                    Some(e) => e.clear,
+                    None => {
+                        let clear = map.los(v.eye, head);
+                        if v.still && c.vel.len2() < 1e-8 {
+                            fresh.push((key, RadarLos { eye: v.eye, head, ground, clear }));
+                        }
+                        clear
+                    }
+                }
+            }) {
                 radar |= bit;
             }
         }
-        (seen, radar, near)
+        (seen, radar, near, fresh)
     });
     let step = |secs: f32| if secs > 0.0 { ((SPOTTED as f32 * DT / secs) as u32).clamp(1, SPOTTED as u32) as u16 } else { SPOTTED };
     let forget = step(defs.rules.spot_forget);
-    for (c, (mut seen, mut radar, near)) in census.list.iter_mut().zip(found) {
+    for (c, (mut seen, mut radar, near, fresh)) in census.list.iter_mut().zip(found) {
+        los_cache.0.extend(fresh);
         let Ok(mut i) = q.get_mut(c.e) else { continue };
         radar |= traced.get(&c.id).copied().unwrap_or(0);
         // Spotting delay: a team that has the unit in view gets on with making it out, quickly
@@ -660,6 +712,30 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         i.seen = seen;
         i.radar = radar;
     }
+}
+
+/// Grid cell (world units) and reach of the viewers `visibility` finds by position.
+const VIEW_CELL: f32 = 48.0;
+const VIEW_NEAR: f32 = 150.0;
+
+/// A radar line of sight over the terrain between `eye` and `head` on the ground of fingerprint `ground`.
+pub struct RadarLos {
+    eye: Vec3,
+    head: Vec3,
+    ground: u64,
+    clear: bool,
+}
+
+/// Radar lines of sight of viewer/target pairs that both stand still (radars, buildings, parked
+/// units): `map.los` gives the same answer for the same ends over the same ground, so it is asked
+/// once (on town maps most rays went to neutral buildings, the same every tick). A hit needs the
+/// exact same ends and terrain fingerprint, so the cache never changes a result: it is not part of
+/// the state, and rollbacks, joins and replays need not know of it. Only looked up by key.
+#[derive(Resource, Default)]
+pub struct RadarLosCache(pub std::collections::HashMap<(u32, u32), RadarLos>);
+
+impl RadarLosCache {
+    pub const KEEP: u32 = 300;
 }
 
 /// Where a unit's binoculars look this tick, and what they follow. They keep following their
