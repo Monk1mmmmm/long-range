@@ -194,7 +194,7 @@ of trees and buildings; other rivers and streams stay dry. The preview shows the
 Overture Maps (`tools/overture_src.py`; Parquet files on a public S3 bucket, built from OpenStreetMap and other open
 data; needs `pip install pyarrow shapely` too). It gives buildings, roads, forests, scrub, rock, beaches, land use, water
 and the ocean as the same elements the Overpass query returns, so everything above works unchanged. Differences:
-no `--river` (there are no named river ways), `pedestrian` streets count as living streets (the lanes of an old town),
+`--river NAME` works (rivers, streams and canals come as named lines, in the local language: `--river "Суджа"`; flagged road and rail bridges make the land crossings, footbridges none), `pedestrian` streets count as living streets (the lanes of an old town),
 footways and steps are left out, forests have no leaf type (mixed), and the data is always the present day.
 `LR_OVERTURE_RELEASE` picks another monthly release than the one in the script.
 
@@ -223,7 +223,7 @@ Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
 
 Sudzha and the villages round it, a duel (the `sudzha_duel` map, made with the Overture source):
 
-    .venv/bin/python tools/osm_map.py sudzha_duel --source overture --center 51.1917,35.280 --km 8 --cells 512 --players 2 --title "Sudzha" --village 0.6 --max-props 1800 --seed 1 --infill 51.196,35.20,51.24,35.36 --infill 51.17,35.20,51.196,35.262 --infill-step 6.5 --infill-gap 12
+    .venv/bin/python tools/osm_map.py sudzha_duel --source overture --center 51.1917,35.280 --km 8 --cells 512 --players 2 --title "Sudzha" --village 0.6 --max-props 1800 --seed 1 --infill 51.196,35.20,51.24,35.36 --infill 51.17,35.20,51.196,35.262 --infill-step 6.5 --infill-gap 12 --river "Суджа" --river-width 3,4
 
 Liberec and Jablonec with the Lužická Nisa (the `liberec` map):
 

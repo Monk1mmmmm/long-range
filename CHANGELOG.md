@@ -3,6 +3,18 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.8
+
+The Sudzha duel map now has its river: the Sudzha runs north to south through the town and its winding course, with the
+town's three road bridges (Lenin Street, 1 May Street and the northern main road) as the only crossings, so the two
+bases lie on opposite banks. The other streams (Loknya, Smerditsa) stay dry: a map has one water level.
+
+Tools
+- `tools/osm_map.py --river NAME` works with the Overture source too (rivers, streams and canals as named lines, flagged
+  road and rail bridges as land crossings).
+- A river that leaves the map is cut at the map edge. It used to stop at the last vertex inside, which left a land strip
+  round its end that units could walk round.
+
 ## v0.12.7
 
 New map: Dubrovnik 1991 (4 players): the city as it stood before the Franjo Tudman Bridge, from Lapad in the west to

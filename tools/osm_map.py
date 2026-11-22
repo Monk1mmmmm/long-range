@@ -685,7 +685,24 @@ def main():
             sys.exit(f"no river named {a.river!r} in the area")
         line = [geo.to_world(*p) for p in chain(segs)[0]]
         inside = [i for i, (x, z) in enumerate(line) if -4 < x < world + 4 and -4 < z < world + 4]
-        line = line[inside[0]:inside[-1] + 1]
+
+        def to_edge(p_in, p_out):
+            """Where the segment from a point inside the map to one outside crosses the map's edge (+4)."""
+            lo_, hi_ = -4.0, world + 4.0
+            t_ = 1.0
+            for k_ in (0, 1):
+                d_ = p_out[k_] - p_in[k_]
+                if d_ > 0 and p_out[k_] > hi_:
+                    t_ = min(t_, (hi_ - p_in[k_]) / d_)
+                elif d_ < 0 and p_out[k_] < lo_:
+                    t_ = min(t_, (lo_ - p_in[k_]) / d_)
+            return (p_in[0] + (p_out[0] - p_in[0]) * t_, p_in[1] + (p_out[1] - p_in[1]) * t_)
+
+        # The river runs off the map: the last vertices can be far apart, so the line is cut at the edge, not at
+        # the last vertex inside (a gap there would let land units walk round the end of the river).
+        head = [to_edge(line[inside[0]], line[inside[0] - 1])] if inside[0] > 0 else []
+        tail = [to_edge(line[inside[-1]], line[inside[-1] + 1])] if inside[-1] < len(line) - 1 else []
+        line = head + line[inside[0]:inside[-1] + 1] + tail
         if sample(heights, *line[0]) < sample(heights, *line[-1]):
             line = line[::-1]  # upstream first
         R = resample(line, 2.0)
