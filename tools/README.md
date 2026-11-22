@@ -204,6 +204,10 @@ footways and steps are left out, forests have no leaf type (mixed), and the data
 - A map of the past: `--drop-bridges S,W,N,E` leaves out the road bridges of primary roads and better inside the
   rectangle, with the ramps and viaducts that only led to them; `--drop-names REGEX` leaves out roads by name.
   Overture has no construction dates, so buildings are the present ones.
+- `--infill S,W,N,E` (repeatable) adds made-up small houses on both sides of the residential streets inside a rectangle,
+  wherever no real building stands within `--infill-gap` (14 world units; `--infill-step` 9 is the spacing along the street,
+  `--infill-max` 700): for villages where the open data has the roads but not the buildings. They come after the real
+  buildings, so the real ones are placed exactly as without the option.
 - `--cp-area S,W,N,E` keeps the control points inside a rectangle (the city, when the map also shows its surroundings),
   `--dep-area` does the same for the resource deposits (Dubrovnik: none beyond the river), `--cp-town 1.0` takes all control points from the densest places, `--outpost LAT,LON` puts the hostile hilltop outpost
   on a real landmark instead of the highest hill.
@@ -216,6 +220,10 @@ Data: (c) OpenStreetMap contributors (ODbL); elevation: Mapzen / AWS Terrain Til
 Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
 
     .venv/bin/python tools/osm_map.py jablonec --bbox 50.661,15.091,50.751,15.233 --title "Jablonec nad Nisou"
+
+Sudzha and the villages round it, a duel (the `sudzha_duel` map, made with the Overture source):
+
+    .venv/bin/python tools/osm_map.py sudzha_duel --source overture --center 51.1917,35.280 --km 8 --cells 512 --players 2 --title "Sudzha" --village 0.6 --max-props 1800 --seed 1 --infill 51.196,35.20,51.24,35.36 --infill 51.17,35.20,51.196,35.262 --infill-step 6.5 --infill-gap 12
 
 Liberec and Jablonec with the Lužická Nisa (the `liberec` map):
 
