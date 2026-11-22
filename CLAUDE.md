@@ -577,7 +577,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 
 - `assets/data/rules.json` - gravity, start resources, wreck/reclaim/repair rates, radar fade, craters,
   terraforming, control points, armor table (armor -> damage type -> multiplier), colours.
-- `assets/data/presets/<name>/` - a preset: its own `rules.json` and `factions/*.json`, made and edited in the
+- `assets/data/presets/<name>/` - a preset shipped with the game (the player's own presets, and those kept from a host's game, are in `presets/<name>/` and premade maps kept from a host's game in `maps/<name>/` of the user config folder, `data::user_presets_dir` / `user_maps_dir` / `map_dir`: they survive new versions, and a user preset hides a shipped one of the same name; the map editor still saves to `assets/maps`) - a preset: its own `rules.json` and `factions/*.json`, made and edited in the
   main menu (Game data presets: form view with tooltips, or raw JSON), chosen by the host in the lobby.
 - `assets/data/factions/coalition.json` - the playable faction (the mod roster).
   `civilian.json` - neutral/hostile map buildings (box models). A new `*.json` here with `"playable": true`

@@ -406,7 +406,7 @@ fn editor_ui(
             egui::ComboBox::from_id_salt("load").selected_text("Load...").show_ui(ui, |ui| {
                 for m in ed.maps.clone() {
                     if ui.selectable_label(false, &m).clicked() {
-                        match MapData::load(&asset_root().join("maps").join(&m)) {
+                        match MapData::load(&longrange::data::map_dir(&m)) {
                             Ok(loaded) => {
                                 *map = loaded;
                                 ed.name = m.clone();

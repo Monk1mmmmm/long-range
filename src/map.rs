@@ -1072,17 +1072,16 @@ impl MapData {
         std::fs::read_to_string(dir.join("map.json")).ok().and_then(|t| serde_json::from_str::<MapFile>(&t).ok()).map_or(0, |f| f.starts.len())
     }
 
-    /// Names of the maps in `assets/maps`.
+    /// Names of the maps in `assets/maps` and in the player's own maps folder.
     pub fn list(root: &Path) -> Vec<String> {
-        let mut out: Vec<String> = std::fs::read_dir(root.join("maps"))
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .filter(|e| e.path().join("map.json").exists())
-                    .filter_map(|e| e.file_name().into_string().ok())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut out: Vec<String> = vec![];
+        for dir in [root.join("maps"), crate::data::user_maps_dir()] {
+            if let Ok(rd) = std::fs::read_dir(dir) {
+                out.extend(rd.filter_map(|e| e.ok()).filter(|e| e.path().join("map.json").exists()).filter_map(|e| e.file_name().into_string().ok()));
+            }
+        }
         out.sort();
+        out.dedup();
         out
     }
 }
