@@ -3,6 +3,18 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.8
+
+The Sudzha duel map now has its river: the Sudzha runs north to south through the town and its winding course, with the
+town's three road bridges (Lenin Street, 1 May Street and the northern main road) as the only crossings, so the two
+bases lie on opposite banks. The other streams (Loknya, Smerditsa) stay dry: a map has one water level.
+
+Tools
+- `tools/osm_map.py --river NAME` works with the Overture source too (rivers, streams and canals as named lines, flagged
+  road and rail bridges as land crossings).
+- A river that leaves the map is cut at the map edge. It used to stop at the last vertex inside, which left a land strip
+  round its end that units could walk round.
+
 ## v0.12.7
 
 New map: Dubrovnik 1991 (4 players): the city as it stood before the Franjo Tudman Bridge, from Lapad in the west to
@@ -15,12 +27,9 @@ Tools
 
 New map: Sudzha (duel): the Russian border town on the Psel with the villages around it, made from real map data
 (8 km, the whole town from its west end to its eastern quarter). Bases on the west and east sides, control points in the
-town and the villages. The Sudzha river runs through the town, crossed by its three road bridges (the other streams stay
-dry), so the bases lie on opposite banks. Where the open data had streets but no buildings (the north and west), small houses were added.
+town and the villages. Where the open data had streets but no buildings (the north and west), small houses were added.
 
 Tools
-- `--river NAME` works with the Overture source too, and a river that leaves the map is cut at the map edge (it used to
-  stop at the last vertex inside, leaving a land strip round its end).
 - `tools/osm_map.py --infill S,W,N,E` adds made-up small houses along residential streets where no real building stands.
 
 ## v0.12.6
