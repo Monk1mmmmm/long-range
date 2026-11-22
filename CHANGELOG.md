@@ -29,7 +29,10 @@ Added
 - Lobby option "Infantry capture buildings" (off by default): infantry take over enemy and neutral buildings other than
   factories, garrisons and field works (right-click, or the Capture button), free of energy, in 20 s per man (several
   men share it), but not while an armed enemy unit stands within 15 of the building. The zone AI captures unguarded
-  buildings with up to 4 infantry. Rules `infantry_capture_secs` and `infantry_capture_guard` are in the preset form.
+  buildings with up to 4 infantry. No order is needed: idle infantry, and infantry on a move, attack-move or patrol that
+  are not shooting, take an unguarded capturable building within 12 by themselves (houses, bunkers and trenches keep
+  working as before: stormed or entered, never captured). Rules `infantry_capture_secs`, `infantry_capture_guard` and
+  `infantry_capture_reach` are in the preset form.
 
 Changed
 - Settings and logs are kept in your user folder (`%APPDATA%\LongRange`, `~/.config/longrange`, `~/Library/Application

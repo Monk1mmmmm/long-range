@@ -39,6 +39,9 @@ fn infantry_capture_secs() -> f32 {
 fn infantry_capture_guard() -> f32 {
     15.0
 }
+fn infantry_capture_reach() -> f32 {
+    12.0
+}
 fn eye_height() -> f32 {
     1.5
 }
@@ -329,6 +332,10 @@ pub struct Rules {
     /// ... and an armed enemy unit within this distance of the building stops it.
     #[serde(default = "infantry_capture_guard")]
     pub infantry_capture_guard: f32,
+    /// Idle infantry (and infantry on attack-move or patrol with nothing to shoot) take a
+    /// capturable building by themselves when one is within this distance, no order needed.
+    #[serde(default = "infantry_capture_reach")]
+    pub infantry_capture_reach: f32,
     #[serde(default = "yes")]
     pub friendly_fire: bool,
     /// Armored units (category `armored`) take this share of a hit on their front, side or rear,
