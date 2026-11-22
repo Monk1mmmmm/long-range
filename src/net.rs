@@ -35,6 +35,8 @@ pub struct SlotInfo {
     pub faction: u8,
     /// AI slots: `ai::AiKind::id`.
     pub ai: u8,
+    /// Index into `rules.player_colors`.
+    pub color: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -129,6 +131,11 @@ pub enum C2S {
     Faction(u8),
     /// Lobby: the client wants to watch (`true`) or to take an open slot (`false`).
     Observe(bool),
+    /// Lobby: the client wants to move to that (open) slot.
+    Slot(u8),
+    /// Lobby: the client picks its own team / colour.
+    Team(u8),
+    Color(u8),
     /// A command the client applied (in its prediction) at `tick`. `seq` counts up per client.
     Cmd { tick: u32, seq: u32, cmd: Command },
     /// State fingerprint after a confirmed tick, so the host can spot a diverged client.
@@ -140,6 +147,16 @@ pub enum C2S {
     /// After the host left: this player connects to the player who took over as host
     /// (instead of `Hello`). The new host answers with its full state.
     Rejoin { player: u8 },
+    /// A ping or a line drawn on the map, for the player's team (the host passes it on).
+    Mark(Mark),
+}
+
+/// A map marking a player makes for their team: never part of the simulation, the replay or the
+/// state hash (`view::marks`).
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub enum Mark {
+    Ping(crate::map::V2),
+    Line(Vec<crate::map::V2>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -159,6 +176,9 @@ pub enum S2C {
     /// Sent when the game starts and whenever a player leaves. `ai_reclaim` is the lobby's AI option,
     /// which the next host's AIs keep.
     Peers { host: u8, peers: Vec<(u8, Option<IpAddr>)>, ai_reclaim: bool },
+    /// A player's ping or drawing (`C2S::Mark`), passed on to everybody else; the receiver keeps
+    /// those of its own team.
+    Mark(u8, Mark),
 }
 
 fn write_frame(s: &mut TcpStream, tag: u8, data: &[u8]) -> std::io::Result<()> {

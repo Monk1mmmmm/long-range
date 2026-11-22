@@ -303,6 +303,8 @@ fn apply_commands(
                             m.path.clear();
                             m.stuck = 0;
                             m.cover = None;
+                            // A new order cuts a weapon's set-up/recoil hold short: the unit obeys at once.
+                            m.hold = 0.0;
                         }
                     }
                     if ord.0.len() >= 96 {
@@ -355,6 +357,8 @@ fn apply_commands(
                             commands.entity(p.e).despawn();
                         }
                         f.building = 0;
+                        // A transport being filled leaves with the riders it already has.
+                        f.cargo.clear();
                     }
                 }
             }
@@ -367,19 +371,31 @@ fn apply_commands(
                 if count > 0 {
                     for _ in 0..count.min(50) {
                         if f.queue.len() < 100 {
-                            f.queue.push(d);
+                            f.queue.push(Job::plain(d));
                         }
                     }
                 } else {
                     for _ in 0..(-count).min(50) {
-                        let Some(k) = f.queue.iter().rposition(|x| *x == d) else { break };
-                        if k == 0 && f.building != 0 {
+                        let Some(k) = f.queue.iter().rposition(|x| x.def == d) else { break };
+                        if k == 0 && f.front_in_works() {
                             if let Some(p) = census.get(f.building) {
                                 commands.entity(p.e).despawn();
                             }
                             f.building = 0;
                         }
                         f.queue.remove(k);
+                    }
+                }
+            }
+            Command::ProduceLoaded { factory, def: d, cargo, count } => {
+                let Some(e) = owned(factory) else { continue };
+                let Ok((u, _, _, Some(mut f), _, _, _, _)) = q.get_mut(e) else { continue };
+                if !loadout_ok(&defs, u.def, d, &cargo) {
+                    continue;
+                }
+                for _ in 0..count.clamp(0, 50) {
+                    if f.queue.len() < 100 {
+                        f.queue.push(Job { def: d, cargo: cargo.clone() });
                     }
                 }
             }
@@ -390,14 +406,14 @@ fn apply_commands(
                 if len == 0 || from + len > f.queue.len() {
                     continue;
                 }
-                let first = f.queue.first().copied();
-                let run: Vec<DefId> = f.queue.drain(from..from + len).collect();
+                let first = f.queue.first().cloned();
+                let run: Vec<Job> = f.queue.drain(from..from + len).collect();
                 let to = (to as usize).min(f.queue.len());
                 for (k, d) in run.into_iter().enumerate() {
                     f.queue.insert(to + k, d);
                 }
                 // Something else is at the front now: the unit in the works is scrapped.
-                if f.queue.first().copied() != first && f.building != 0 {
+                if f.queue.first() != first.as_ref() && f.front_in_works() {
                     if let Some(p) = census.get(f.building) {
                         commands.entity(p.e).despawn();
                     }
@@ -411,7 +427,7 @@ fn apply_commands(
                 if index >= f.queue.len() {
                     continue;
                 }
-                if index == 0 && f.building != 0 {
+                if index == 0 && f.front_in_works() {
                     if let Some(p) = census.get(f.building) {
                         commands.entity(p.e).despawn();
                     }
@@ -884,8 +900,15 @@ fn think(
 
         match orders.0.first().copied() {
             None => {
-                if plane && any_air {
-                    if let Some(t) = census.nearest_enemy(pos, team, air_range + 45.0, 0.0, false, true) {
+                // Idle armed planes fight what is around them and follow it (SupCom style): they take
+                // what is within reach plus a margin (bombers ground targets first, so after the
+                // ordered target dies they go on with the army). Ground units stay put.
+                if plane && !df.weapons.is_empty() {
+                    let ground_first = df.weapons.iter().any(|w| w.kind == WeaponKind::Bomb);
+                    let land_t = || if any_land { census.nearest_enemy(pos, team, df.max_range() + 45.0, 0.0, true, false) } else { None };
+                    let air_t = || if any_air { census.nearest_enemy(pos, team, air_range + 45.0, 0.0, false, true) } else { None };
+                    let t = if ground_first { land_t().or_else(air_t) } else { air_t().or_else(land_t) };
+                    if let Some(t) = t {
                         goal = Some(t.pos);
                     }
                 }
@@ -966,7 +989,9 @@ fn think(
                             engaged = true;
                         }
                     } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() && !no_shot(None) {
-                        engaged = true;
+                        // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
+                        // they never stop for a fight.
+                        engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
                     }
                 }
                 // A building infantry can take is not a fight: they walk up to it instead of
@@ -1878,47 +1903,85 @@ fn factories(
     for (u, body, mut f, mut builder, upgrading) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         builder.work = 0;
+        let rally0 = f.rally;
+        // Sends a finished unit out of the factory to the rally point.
+        let release = |p: &Cen, commands: &mut Commands| {
+            let pd = defs.get(p.def);
+            let mut exit = body.pos + v2(0.0, df.footprint as f32 * CELL * 0.5 + 1.5);
+            if !pd.is_air() && nav.at(&map, exit) != 0 {
+                let (cx, cy) = map.cell_of(exit);
+                if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                    exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                }
+            }
+            let mut rally = rally0.unwrap_or(exit + v2(0.0, 6.0));
+            // The default rally point can fall on a building next to the factory (an
+            // extractor): units then pushed against it forever and the AI never gave
+            // them new orders. Move it to the nearest free cell like the exit.
+            if rally0.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
+                let (cx, cy) = map.cell_of(rally);
+                if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                    rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                }
+            }
+            let pos = if pd.is_air() { body.pos } else { exit };
+            commands.entity(p.e).remove::<Hosted>().insert((
+                Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: PI * 0.5, vel: v2(0.0, 0.0) },
+                Orders(vec![Order::Move(rally)]),
+                Mover { anchor: rally, path_goal: pos, ..default() },
+            ));
+        };
         if f.building != 0 {
             match census.get(f.building) {
                 None => f.building = 0,
                 Some(p) if p.done => {
-                    let pd = defs.get(p.def);
-                    let mut exit = body.pos + v2(0.0, df.footprint as f32 * CELL * 0.5 + 1.5);
-                    if !pd.is_air() && nav.at(&map, exit) != 0 {
-                        let (cx, cy) = map.cell_of(exit);
-                        if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
-                            exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
-                        }
-                    }
-                    let mut rally = f.rally.unwrap_or(exit + v2(0.0, 6.0));
-                    // The default rally point can fall on a building next to the factory (an
-                    // extractor): units then pushed against it forever and the AI never gave
-                    // them new orders. Move it to the nearest free cell like the exit.
-                    if f.rally.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
-                        let (cx, cy) = map.cell_of(rally);
-                        if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
-                            rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
-                        }
-                    }
-                    let pos = if pd.is_air() { body.pos } else { exit };
-                    commands.entity(p.e).remove::<Hosted>().insert((
-                        Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: PI * 0.5, vel: v2(0.0, 0.0) },
-                        Orders(vec![Order::Move(rally)]),
-                        Mover { anchor: rally, path_goal: pos, ..default() },
-                    ));
                     f.building = 0;
-                    if !f.queue.is_empty() {
-                        let d = f.queue.remove(0);
-                        if f.repeat {
-                            f.queue.push(d);
+                    if f.carrier != 0 && p.id != f.carrier {
+                        // A rider for the transport being filled: in it goes.
+                        commands.entity(p.e).insert(Hosted(f.carrier));
+                        if !f.cargo.is_empty() {
+                            f.cargo.remove(0);
+                        }
+                    } else {
+                        let job = (!f.queue.is_empty()).then(|| f.queue.remove(0));
+                        if let (Some(j), true) = (&job, f.repeat) {
+                            f.queue.push(j.clone());
+                        }
+                        match job.filter(|j| j.def == p.def && !j.cargo.is_empty()) {
+                            // A transport with a loadout stays inside until its riders are built.
+                            Some(j) => {
+                                f.carrier = p.id;
+                                f.cargo = j.cargo;
+                            }
+                            None => release(p, &mut commands),
                         }
                     }
                 }
                 Some(_) => builder.work = f.building,
             }
         }
-        if f.building == 0 && !upgrading {
-            if let Some(d) = f.queue.first().copied() {
+        if f.carrier != 0 && f.building == 0 && !upgrading {
+            match census.get(f.carrier) {
+                None => {
+                    f.carrier = 0;
+                    f.cargo.clear();
+                }
+                Some(c) => {
+                    let next = f.cargo.first().copied().filter(|d| df.builds.contains(d) && fits(defs.get(c.def), defs.get(*d)));
+                    if let Some(d) = next {
+                        let id = spawn_unit(&mut commands, &defs, &mut game, &map, d, u.owner, body.pos, PI * 0.5, false, u.id);
+                        f.building = id;
+                        builder.work = id;
+                    } else {
+                        release(c, &mut commands);
+                        f.carrier = 0;
+                        f.cargo.clear();
+                    }
+                }
+            }
+        }
+        if f.building == 0 && f.carrier == 0 && !upgrading {
+            if let Some(d) = f.queue.first().map(|j| j.def) {
                 if df.builds.contains(&d) {
                     let id = spawn_unit(&mut commands, &defs, &mut game, &map, d, u.owner, body.pos, PI * 0.5, false, u.id);
                     f.building = id;
@@ -2654,12 +2717,25 @@ fn weapons(
             if let Some((gp, radius)) = ground.filter(|_| w.hits_land) {
                 let d = gp.dist(body.pos);
                 if d <= w.range + radius && d >= w.min_range {
-                    // A stable pseudo-random spot inside the area, re-rolled every shot.
-                    let salt = (u.id as u64 * 7919 + (tick as u64 / ((w.reload * 10.0) as u64).max(1)) * 31 + wi as u64) | 1;
-                    let mut r = Rng(salt.wrapping_mul(0x9E3779B97F4A7C15) | 1);
-                    r.next();
-                    let off = V2::from_angle(r.range(0.0, 6.283)) * (r.f().sqrt() * radius);
-                    let p = map.clamp(gp + off);
+                    // Area fire covers the circle evenly: shot `j` of this weapon aims at point `j` of
+                    // a low-discrepancy (R2) sequence mapped onto the disc by equal area, so shots fill
+                    // the gaps the earlier ones left instead of clumping. The point stays the same
+                    // through a reload (salvo, aiming); each unit and weapon starts further along
+                    // the sequence, so several guns on one circle share it out. Points out of reach
+                    // (beyond range or inside the minimum range) are skipped.
+                    let shot = tick as u64 / ((w.reload * 10.0) as u64).max(1);
+                    let base = shot + u.id as u64 * 97 + wi as u64 * 41;
+                    let at = |j: u64| -> V2 {
+                        let j = j as f64;
+                        let x = (0.5 + j * 0.754_877_666_246_692_7).fract() as f32;
+                        let y = (0.5 + j * 0.569_840_290_998_053_3).fract() as f32;
+                        map.clamp(gp + V2::from_angle(y * std::f32::consts::TAU) * (x.sqrt() * radius))
+                    };
+                    let reachable = |p: V2| {
+                        let d = p.dist(body.pos);
+                        d <= w.range && d >= w.min_range
+                    };
+                    let p = if radius > 0.0 { (0..8).map(|k| at(base + k)).find(|p| reachable(*p)).unwrap_or_else(|| at(base)) } else { gp };
                     gpoint = Some(p.at(map.surface(p)));
                 }
             }
@@ -2829,7 +2905,8 @@ fn weapons(
             st.cd = w.reload;
             st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
             st.burst_cd = w.salvo_delay;
-            if let Some(m) = mover.as_mut() {
+            // Aircraft (gunships) and machine guns never stand still for a shot or a burst.
+            if let Some(m) = mover.as_mut().filter(|_| !df.is_air() && !w.is_machine_gun()) {
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
@@ -3476,8 +3553,11 @@ fn apply_capture(
         orders.0.clear();
         commands.entity(e).remove::<Capture>();
         if let Some(mut f) = factory {
-            if let Some(p) = census.get(f.building) {
-                commands.entity(p.e).despawn();
+            // (Riders already inside a transport being filled go with it: their host is gone.)
+            for id in [f.building, f.carrier] {
+                if let Some(p) = census.get(id) {
+                    commands.entity(p.e).despawn();
+                }
             }
             *f = Factory::default();
         }

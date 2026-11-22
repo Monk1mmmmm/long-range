@@ -221,7 +221,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Commit every finished incremental change right away (one commit per change, short message saying what it does),
   so several sessions working in this tree at once do not pile up one big uncommitted diff. Stage only the files
   you changed (`git add <paths>`, never `git add -A` / `.`): other sessions' work may be uncommitted in the same tree.
-  Do not push, tag or publish a release without being asked.
+  Do not tag or publish a release without being asked. Pushing is allowed to a separate branch (the session's
+  own `claude/...` branch, never main): push finished commits there without asking. Do not push to main.
 - The user wants sub-agents on weaker/cheaper models used where they help (searching and summarising code, running
   and tabulating test batches, building a baseline to compare with, self-contained pieces of work), keeping the
   design and the edits of shared files in the main session.
@@ -250,6 +251,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/fx.rs` | projectile visuals and explosions (fewer puffs, no flash lights at the low effects level) |
 | `src/view/debris.rs` | debris pieces: jagged chunk meshes, falling/tumbling, shown by the effects level |
 | `src/view/flora.rs` | trees and rocks: procedural models (detail setting), one merged mesh per 16-cell chunk |
+| `src/view/marks.rs` | pings and map drawings (`Marks`: own ones to send, those shown), team filter, sound |
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
@@ -472,6 +474,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   them into the contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). The random map is made when
   chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so the game uses the previewed map; clients get
   the picture in `LobbyInfo.preview`.
+- **Pings and drawings** (`view/marks.rs`): with nothing selected, a right double-click on the map or minimap pings, a
+  right-drag draws a line (`ViewState.pathing == Some(3)` while drawing); shown in the maker's player colour to their
+  team (observers see all, make none; none in replays), pings 8 s with the `ping` UI sound, lines 45 s, fading out.
+  They are not commands: `C2S::Mark` to the host, which passes them on as `S2C::Mark(player, ..)` to everyone else
+  (`main.rs::session_frame`), so they skip the sim, its hash and the replay, and work while paused.
 - **Model scale**: the mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) use 2.5x the blueprint's
   `UniformScale`, with sizes and footprints to match; the buggy was enlarged a further x1.75 on request. Our own models
@@ -484,7 +491,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under the body (SupCom style);
   the loader rejects two units with the same icon (playable factions only; map buildings share icons by kind). Shapes: land (diamond), bot, air (triangle), structure
   (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
-  arc = anti-air, chevron = missile, ring = scout, wave = radar, eng (wrench; beside a second glyph it sits on the left), mass (funnel), bolt, store (tray under a
+  arc = anti-air, chevron = missile (anti-air, drones), line = anti-tank missile, ring = scout, wave = radar, eng (wrench; beside a second glyph it sits on the left), mass (funnel), bolt, store (tray under a
   stored resource), cargo (transports), frame, bar, land / tri (outlines of what a factory builds).
 - **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
   a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.
@@ -548,6 +555,13 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   a land transport (the Tavria APC): `deaths` throws them out like a garrison's (`garrison_eject_damage`).
   Riders keep their orders: what is queued behind boarding is carried out after they are set down (`carry` only
   drops a `Load` of their own transport and a leading `Ferry`).
+  **Loaded carriers** (requested): clicking a land transport in a factory's build menu opens a loadout picker above
+  the queue (`ViewState.loadout`, `hud::loadout_options`: the infantry that factory builds that fit; left-click adds,
+  Shift fills, right-click removes, Queue / Shift+Queue x5, stays open to queue more, last loadout per type remembered).
+  It sends `Command::ProduceLoaded { cargo }` (checked by `sim::loadout_ok`); the queue holds `Job { def, cargo }`.
+  `factories` builds the transport, keeps it inside (`Factory.carrier`), builds each rider (`Factory.cargo` left)
+  at its own price straight into it (`Hosted(carrier)`), then releases it; Stop sends it out with whoever is aboard.
+  `--combattest` (`LR_TEST=apc`) "queued with N riflemen" line.
   **Ferry** (SupCom, `Order::Ferry { pos, pick }`, HUD key F): a mobile transport's route is a loop of `Ferry` orders
   rotated like a patrol: the `pick` one is the beacon (where the transports stood when ordered), the one before it on
   the loop the drop point (set down there with an inserted `Unload`), any between are waypoints (Shift adds points

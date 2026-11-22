@@ -77,6 +77,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("radar_blocked_by_terrain", tx!("preset_rules.switch_radar_blocked_by_terrain"), tx!("preset_rules.switch_radar_blocked_by_terrain_tip")),
     yes("counter_battery", tx!("preset_rules.switch_counter_battery"), tx!("preset_rules.switch_counter_battery_tip")),
     yes("ghosts_show_destroyed", tx!("preset_rules.switch_ghosts_show_destroyed"), tx!("preset_rules.switch_ghosts_show_destroyed_tip")),
+    yes("ai_reclaim", tx!("preset_rules.switch_ai_reclaim"), tx!("preset_rules.switch_ai_reclaim_tip")),
     yes("friendly_fire", tx!("preset_rules.switch_friendly_fire"), tx!("preset_rules.switch_friendly_fire_tip")),
 ];
 
@@ -142,7 +143,7 @@ pub const RULE_TERRAIN: &[Field] = &[
 pub const RULE_POINTS: &[Field] = &[
     num("cp_radius", tx!("preset_rules.points_cp_radius"), 12.0, 500.0, tx!("preset_rules.points_cp_radius_tip")),
     num("cp_capture_secs", tx!("preset_rules.points_cp_capture_secs"), 20.0, 3600.0, tx!("preset_rules.points_cp_capture_secs_tip")),
-    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 1200.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
+    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 10000.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
     num("cp_bleed", tx!("preset_rules.points_cp_bleed"), 1.0, 1000.0, tx!("preset_rules.points_cp_bleed_tip")),
 ];
 
@@ -169,7 +170,7 @@ pub const FEATURE_FIELDS: &[Field] = &[
 
 const MOVE_KINDS: &[&str] = &["none", "land", "hover", "plane"];
 const SHAPES: &[&str] = &["land", "bot", "air", "structure", "factory", "commander", "civilian"];
-const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "ring", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri"];
+const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "line", "ring", "scope", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri"];
 const WEAPON_KINDS: &[&str] = &["direct", "arc", "high_arc", "missile", "bomb"];
 const TARGETS: &[&str] = &["land", "air"];
 const PRIORITIES: &[&str] = &["none", "armored", "infantry"];
@@ -720,14 +721,16 @@ fn colours(ui: &mut egui::Ui, v: &mut Value) -> bool {
             changed = true;
         }
     };
+    // The player colours sit in a row of their own: a wrapping layout inside a grid cell has no
+    // width to wrap at and stacked every button on a line of its own.
+    ui.label(tr!("preset_rules.player_colours")).on_hover_text(tr!("preset_rules.players_tip"));
+    ui.horizontal_wrapped(|ui| {
+        for (k, c) in v["player_colors"].as_array_mut().into_iter().flatten().enumerate() {
+            rgb(ui, c, &tr!("preset_rules.player_n", k + 1));
+        }
+    });
+    ui.add_space(4.0);
     egui::Grid::new("colours").spacing([16.0, 6.0]).show(ui, |ui| {
-        ui.label(tr!("preset_rules.player_colours")).on_hover_text(tr!("preset_rules.players_tip"));
-        ui.horizontal_wrapped(|ui| {
-            for (k, c) in v["player_colors"].as_array_mut().into_iter().flatten().enumerate() {
-                rgb(ui, c, &tr!("preset_rules.player_n", k + 1));
-            }
-        });
-        ui.end_row();
         ui.label(tr!("preset_rules.neutral")).on_hover_text(tr!("preset_rules.neutral_tip"));
         rgb(ui, &mut v["neutral_color"], tr!("preset_rules.neutral_tip"));
         ui.end_row();

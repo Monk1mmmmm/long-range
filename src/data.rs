@@ -88,7 +88,7 @@ fn cp_capture_secs() -> f32 {
     20.0
 }
 fn cp_start_points() -> f32 {
-    1200.0
+    10000.0
 }
 fn cp_bleed() -> f32 {
     1.0
@@ -385,6 +385,9 @@ pub struct Rules {
     /// A remembered enemy building that was destroyed out of sight shows dimmed (SupCom style; view only).
     #[serde(default = "yes")]
     pub ghosts_show_destroyed: bool,
+    /// AI engineers reclaim trees and rocks when short of resources.
+    #[serde(default = "yes")]
+    pub ai_reclaim: bool,
     /// Everything closer than this to a unit is seen, whatever stands in between.
     #[serde(default = "near_sight")]
     pub near_sight: f32,
@@ -484,6 +487,7 @@ impl Rules {
             (self.radar_blocked_by_terrain, "hills blocking radar"),
             (self.counter_battery, "counter-battery radar"),
             (self.ghosts_show_destroyed, "dimming remembered buildings destroyed out of sight"),
+            (self.ai_reclaim, "AI reclaiming trees and rocks"),
         ] {
             if !on {
                 out.push(name);
@@ -737,6 +741,13 @@ pub struct WeaponDef {
     pub hits_land: bool,
     #[serde(skip)]
     pub hits_air: bool,
+}
+
+impl WeaponDef {
+    /// A machine gun: small-arms direct fire with no set-up hold. Its unit fires on the move.
+    pub fn is_machine_gun(&self) -> bool {
+        self.damage_type == "SmallArms" && self.kind == WeaponKind::Direct && self.hold <= 0.0 && !self.snipe
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]

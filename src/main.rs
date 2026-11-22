@@ -23,6 +23,8 @@ struct Slot {
     name: String,
     team: u8,
     faction: u8,
+    /// Index into `rules.player_colors`; every slot has its own.
+    color: u8,
     /// AI slots: which AI plays it.
     ai: AiKind,
     conn: u32,
@@ -71,8 +73,6 @@ struct HostLobby {
     thumbs: Vec<Option<egui::TextureHandle>>,
     /// Right-hand tab: 0 = game options, 1 = map.
     tab: u8,
-    /// AI engineers reclaim trees and rocks.
-    ai_reclaim: bool,
     /// The map's neutral and hostile buildings are known from the start.
     reveal_props: bool,
     /// Infantry capture enemy buildings other than factories (`Game.infantry_capture`).
@@ -132,7 +132,8 @@ impl HostLobby {
         }
         while self.slots.len() < n {
             let k = self.slots.len() as u8;
-            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, ai: AI_KINDS[0], conn: 0, hash: 0 });
+            let color = (0u8..).find(|c| self.slots.iter().all(|s| s.color != *c)).unwrap_or(k);
+            self.slots.push(Slot { kind: 0, name: String::new(), team: k, faction, color, ai: AI_KINDS[0], conn: 0, hash: 0 });
         }
         self.dirty = true;
     }
@@ -171,7 +172,7 @@ impl HostLobby {
         if self.mode == MODE_POINTS {
             t += &tr!("lobby.summary_points", self.cp_points(defs));
         }
-        t += &tr!("lobby.summary_data", self.preset_label(), if self.ai_reclaim { tr!("lobby.yes") } else { tr!("lobby.no") });
+        t += &tr!("lobby.summary_data", self.preset_label());
         let off = defs.rules.switched_off();
         if !off.is_empty() {
             t += &tr!("lobby.summary_switched_off", off.join(", "));
@@ -185,6 +186,31 @@ impl HostLobby {
             t += &tr!("lobby.summary_terrain", longrange::i18n::biome_name(b));
         }
         t
+    }
+    /// Gives slot `k` that colour; whoever had it gets the colour slot `k` had.
+    fn set_color(&mut self, k: usize, c: u8) {
+        if let Some(j) = self.slots.iter().position(|s| s.color == c) {
+            self.slots[j].color = self.slots[k].color;
+        }
+        self.slots[k].color = c;
+        self.dirty = true;
+    }
+    /// Moves that connection's player (`conn` 0: the host), or an observer, into the open slot `to`.
+    fn take_slot(&mut self, conn: u32, to: usize) -> bool {
+        if self.slots.get(to).map_or(true, |s| s.kind != 0) {
+            return false;
+        }
+        if let Some(from) = self.slot_of(conn) {
+            self.slots.swap(from, to);
+        } else if let Some(o) = self.observers.iter().position(|o| o.conn == conn) {
+            let o = self.observers.remove(o);
+            let s = &mut self.slots[to];
+            (s.kind, s.name, s.conn, s.hash) = (2, o.name, o.conn, o.hash);
+        } else {
+            return false;
+        }
+        self.dirty = true;
+        true
     }
     /// The slot of that connection's player (`conn` 0: the host), if it has one.
     fn slot_of(&self, conn: u32) -> Option<usize> {
@@ -216,7 +242,7 @@ impl HostLobby {
     fn info(&self, conn: u32, defs: &Defs) -> LobbyInfo {
         let you = self.slot_of(conn).map_or(-1, |k| k as i8);
         LobbyInfo {
-            slots: self.slots.iter().map(|s| SlotInfo { kind: s.kind, name: s.name.clone(), team: s.team, faction: s.faction, ai: s.ai.id() }).collect(),
+            slots: self.slots.iter().map(|s| SlotInfo { kind: s.kind, name: s.name.clone(), team: s.team, faction: s.faction, ai: s.ai.id(), color: s.color }).collect(),
             map_name: self.map_label(),
             you,
             extra: self.options_text(defs),
@@ -801,7 +827,7 @@ fn local_ip() -> String {
 fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     let host = Host::start(name)?;
     let faction = defs.playable_factions().first().copied().unwrap_or(0) as u8;
-    let mut slots: Vec<Slot> = (0..4).map(|k| Slot { kind: 0, name: String::new(), team: k, faction, ai: AI_KINDS[0], conn: 0, hash: 0 }).collect();
+    let mut slots: Vec<Slot> = (0..4).map(|k| Slot { kind: 0, name: String::new(), team: k, faction, color: k, ai: AI_KINDS[0], conn: 0, hash: 0 }).collect();
     slots[0].kind = 2;
     slots[0].name = name.to_string();
     slots[2].kind = 3;
@@ -830,7 +856,6 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         tex: None,
         thumbs,
         tab: 0,
-        ai_reclaim: true,
         reveal_props: true,
         infantry_capture: false,
         counts,
@@ -850,6 +875,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     let mut remote = vec![];
     let mut hashes = vec![];
     let mut ais = vec![];
+    let ai_reclaim = defs.rules.ai_reclaim;
     for (k, s) in l.slots.iter().enumerate() {
         if s.kind < 2 || k >= map.starts.len() {
             continue;
@@ -859,14 +885,14 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         // So does the benchmark (`--bench`).
         if s.kind == 3 || (s.conn == 0 && (std::env::var("LR_WATCH").is_ok() || world.contains_resource::<Bench>())) {
             let mut ai = Ai::with_kind(idx, seed, s.ai);
-            ai.reclaim = l.ai_reclaim;
+            ai.reclaim = ai_reclaim;
             ais.push(ai);
         } else if s.conn != 0 {
             remote.push((s.conn, idx));
             hashes.push((s.conn, s.hash));
         }
         let name = if s.kind == 3 { format!("AI {} ({})", k + 1, s.ai.name()) } else { s.name.clone() };
-        setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, faction: s.faction });
+        setup.push(PlayerSetup { name, team: s.team, is_ai: s.kind == 3, slot: k, color: s.color, faction: s.faction });
     }
     // The host's own player, or `OBSERVER` when the host only watches.
     let me = l.slots.iter().enumerate().filter(|(k, s)| s.kind >= 2 && *k < map.starts.len()).position(|(_, s)| s.kind == 2 && s.conn == 0).map_or(OBSERVER, |k| k as u8);
@@ -935,11 +961,11 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
             l.host.send(*conn, &state);
         }
     }
-    send_peers(&l.host, &remote, me, l.ai_reclaim);
+    send_peers(&l.host, &remote, me, ai_reclaim);
     let sim = HostSim::new(world);
     l.host.set_started("");
     view::start_view(world, me, true);
-    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim: l.ai_reclaim }, acc: 0.0, paused: None, held: vec![], rec })
+    Ok(Session { role: Role::Host { host: l.host, remote, sim, waiting: vec![], wait_left: 0.0, ai_reclaim }, acc: 0.0, paused: None, held: vec![], rec })
 }
 
 /// One frame of a replay: plays on at its speed, jumps where the time line asks, and keeps the
@@ -1060,11 +1086,21 @@ fn session_frame(world: &mut World) {
         let me = world.get_resource::<ViewState>().map_or(0, |v| v.me);
         let local: Vec<Command> = world.get_resource_mut::<LocalCommands>().map(|mut c| c.0.drain(..).collect()).unwrap_or_default();
         let toggle = world.get_resource_mut::<ViewState>().map_or(false, |mut v| std::mem::take(&mut v.pause_toggle));
+        // Pings and drawings: the local player's go out, the others' are shown (`view::marks`).
+        let my_marks: Vec<Mark> = world.get_resource_mut::<view::marks::Marks>().map(|mut m| std::mem::take(&mut m.out)).unwrap_or_default();
+        let mut heard_marks: Vec<(u8, Mark)> = vec![];
         match &mut s.role {
             Role::Host { host, remote, sim, waiting, wait_left, ai_reclaim } => {
                 let mut cmds: Vec<(u8, Command)> = std::mem::take(&mut s.held);
                 if me != OBSERVER {
                     cmds.extend(local.into_iter().map(|c| (me, c)));
+                }
+                if me != OBSERVER {
+                    for m in &my_marks {
+                        for (conn, _) in remote.iter() {
+                            host.send_msg(*conn, &S2C::Mark(me, m.clone()));
+                        }
+                    }
                 }
                 // Pause requests: (player, pause or resume).
                 let mut pause: Vec<(u8, bool)> = vec![];
@@ -1079,6 +1115,14 @@ fn session_frame(world: &mut World) {
                             }
                         }
                         HostEvent::Msg(id, C2S::Ping(t)) => host.send_msg(id, &S2C::Pong(t)),
+                        HostEvent::Msg(id, C2S::Mark(m)) => {
+                            if let Some(m) = remote.iter().find(|r| r.0 == id && r.1 != OBSERVER).and_then(|r| Some((r.1, view::marks::sanitize(m, world.resource::<MapData>())?))) {
+                                for (conn, _) in remote.iter().filter(|r| r.0 != id) {
+                                    host.send_msg(*conn, &S2C::Mark(m.0, m.1.clone()));
+                                }
+                                heard_marks.push(m);
+                            }
+                        }
                         HostEvent::Msg(id, C2S::Pause(on)) => {
                             if let Some((_, p)) = remote.iter().find(|r| r.0 == id && r.1 != OBSERVER) {
                                 pause.push((*p, on));
@@ -1252,6 +1296,11 @@ fn session_frame(world: &mut World) {
                     for m in sim.issue(world, local) {
                         client.send(&m);
                     }
+                    if me != OBSERVER {
+                        for m in my_marks {
+                            client.send(&C2S::Mark(m));
+                        }
+                    }
                     *heard += dt;
                     loop {
                         match client.frames.try_recv() {
@@ -1301,6 +1350,7 @@ fn session_frame(world: &mut World) {
                         sim.log.clear();
                         sim.log_hashes.clear();
                     }
+                    heard_marks.extend(sim.marks.drain(..));
                 }
                 // Who takes over: the human player with the lowest number who has not failed
                 // to already. Every client works it out from the same list, so they agree.
@@ -1326,6 +1376,7 @@ fn session_frame(world: &mut World) {
             }
             Role::Replay(r) => replay_update(world, r, &mut s.acc, toggle),
         }
+        view::marks::heard(world, heard_marks);
         if let Some(role) = promoted {
             s.role = role;
             s.paused = None;
@@ -1385,33 +1436,114 @@ fn observer_rows(ui: &mut egui::Ui, names: &[String], playing: bool, watching: b
     clicked
 }
 
-fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editable: bool, width: f32) -> Option<(usize, u8)> {
+/// What a slot's entry list can do.
+#[derive(Clone, Copy, PartialEq)]
+enum SlotChoice {
+    Open,
+    Closed,
+    Ai(u8),
+    /// Swap this slot's player with slot `j`.
+    Move(usize),
+    /// Move yourself into this open slot.
+    Take,
+}
+
+enum SlotEdit {
+    Choice(SlotChoice),
+    Team(u8),
+    Color(u8),
+    Faction,
+}
+
+fn rgb8(c: [f32; 3]) -> egui::Color32 {
+    egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8)
+}
+
+/// The slot list: per slot its entry (open / closed / AI / player, with moves), team, colour and
+/// faction. `host` may change everything; others only their own team, colour and faction, and
+/// move into open slots.
+fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, observing: bool, host: bool, width: f32) -> Option<(usize, SlotEdit)> {
     let mut clicked = None;
-    // "Start N", then the player, team and faction buttons share the column width.
-    let team_w = 90.0;
-    let faction_w = (width * 0.24).max(130.0);
-    let name_w = (width - team_w - faction_w - 100.0).max(200.0);
-    egui::Grid::new("slots").num_columns(4).spacing([12.0, 8.0]).show(ui, |ui| {
+    let team_w = 56.0;
+    let color_w = 70.0;
+    let faction_w = (width * 0.2).max(120.0);
+    let name_w = (width - team_w - color_w - faction_w - 130.0).max(160.0);
+    let palette = &defs.rules.player_colors;
+    egui::Grid::new("slots").num_columns(5).spacing([10.0, 8.0]).show(ui, |ui| {
         for (k, s) in slots.iter().enumerate() {
-            let c = defs.rules.player_colors[k % defs.rules.player_colors.len()];
-            ui.colored_label(egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8), tr!("lobby.start_n", k + 1));
+            let mine = k as i8 == you;
+            let c = palette[s.color as usize % palette.len()];
+            ui.colored_label(rgb8(c), tr!("lobby.start_n", k + 1));
+            // The slot's entry list.
             let label = match s.kind {
                 0 => tr!("lobby.open").to_string(),
                 1 => tr!("lobby.closed").to_string(),
-                2 => format!("{}{}", s.name, if k as i8 == you { tr!("lobby.you_suffix") } else { "" }),
+                2 => format!("{}{}", s.name, if mine { tr!("lobby.you_suffix") } else { "" }),
                 _ => tr!("lobby.slot_ai", longrange::i18n::ai_name(AiKind::from_id(s.ai))),
             };
-            let button = ui.add_sized([name_w, 30.0], egui::Button::new(label));
-            let button = if s.kind == 3 { button.on_hover_text(longrange::i18n::ai_desc(AiKind::from_id(s.ai))) } else { button };
-            if button.clicked() && editable {
-                clicked = Some((k, 0));
+            let mut entries: Vec<(String, SlotChoice, bool)> = vec![];
+            if host && !mine {
+                entries.push((tr!("lobby.open").to_string(), SlotChoice::Open, s.kind == 0));
+                entries.push((tr!("lobby.closed").to_string(), SlotChoice::Closed, s.kind == 1));
+                for a in AI_KINDS.iter() {
+                    entries.push((tr!("lobby.slot_ai", longrange::i18n::ai_name(*a)), SlotChoice::Ai(a.id()), s.kind == 3 && s.ai == a.id()));
+                }
             }
-            if ui.add_sized([team_w, 30.0], egui::Button::new(tr!("lobby.team_button", s.team + 1))).clicked() && editable {
-                clicked = Some((k, 1));
+            if s.kind >= 2 && (host || mine) {
+                for (j, o) in slots.iter().enumerate().filter(|(j, o)| *j != k && if host { o.kind != 1 } else { o.kind == 0 }) {
+                    let _ = o;
+                    entries.push((tr!("lobby.move_to_slot", j + 1), SlotChoice::Move(j), false));
+                }
             }
+            if s.kind == 0 && (you >= 0 || observing || host) {
+                entries.push((tr!("lobby.take_slot").to_string(), SlotChoice::Take, false));
+            }
+            let tip = if s.kind == 3 { Some(longrange::i18n::ai_desc(AiKind::from_id(s.ai))) } else { None };
+            if entries.is_empty() {
+                let b = ui.add_sized([name_w, 30.0], egui::Button::new(label).sense(egui::Sense::hover()));
+                if let Some(t) = tip {
+                    b.on_hover_text(t);
+                }
+            } else {
+                let r = egui::ComboBox::from_id_salt(("slot_entry", k)).width(name_w).selected_text(label).show_ui(ui, |ui| {
+                    for (text, choice, on) in &entries {
+                        if ui.selectable_label(*on, text).clicked() {
+                            clicked = Some((k, SlotEdit::Choice(*choice)));
+                        }
+                    }
+                });
+                if let Some(t) = tip {
+                    r.response.on_hover_text(t);
+                }
+            }
+            let can_edit = host || mine;
+            ui.add_enabled_ui(can_edit, |ui| {
+                egui::ComboBox::from_id_salt(("slot_team", k)).width(team_w).selected_text(format!("{}", s.team + 1)).show_ui(ui, |ui| {
+                    for t in 0..slots.len() as u8 {
+                        if ui.selectable_label(s.team == t, format!("{}", t + 1)).clicked() {
+                            clicked = Some((k, SlotEdit::Team(t)));
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(tr!("lobby.team_tip"));
+                egui::ComboBox::from_id_salt(("slot_color", k))
+                    .width(color_w)
+                    .selected_text(egui::RichText::new("\u{25A0}\u{25A0}\u{25A0}\u{25A0}").color(rgb8(c)))
+                    .show_ui(ui, |ui| {
+                        for (ci, col) in palette.iter().enumerate() {
+                            let text = egui::RichText::new("\u{25A0}\u{25A0}\u{25A0}\u{25A0}\u{25A0}\u{25A0}").color(rgb8(*col));
+                            if ui.selectable_label(s.color as usize == ci, text).clicked() {
+                                clicked = Some((k, SlotEdit::Color(ci as u8)));
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(tr!("lobby.color_tip"));
+            });
             let fname = defs.factions.get(s.faction as usize).map_or("?", |f| f.name.as_str());
-            if ui.add_sized([faction_w, 30.0], egui::Button::new(fname)).clicked() && (editable || k as i8 == you) {
-                clicked = Some((k, 2));
+            if ui.add_sized([faction_w, 30.0], egui::Button::new(fname)).clicked() && can_edit {
+                clicked = Some((k, SlotEdit::Faction));
             }
             ui.end_row();
         }
@@ -1420,7 +1552,7 @@ fn slot_rows(ui: &mut egui::Ui, defs: &Defs, slots: &[SlotInfo], you: i8, editab
 }
 
 /// The lobby's map picture with numbered start positions in the players' colours.
-fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(f32, f32)], points: &[(f32, f32)], defs: &Defs, size: f32) {
+fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(f32, f32)], colors: &[u8], points: &[(f32, f32)], defs: &Defs, size: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let p = ui.painter_at(rect);
     match tex {
@@ -1443,7 +1575,7 @@ fn map_picture(ui: &mut egui::Ui, tex: Option<&egui::TextureHandle>, starts: &[(
         p.add(egui::Shape::convex_polygon(shape, egui::Color32::from_rgb(235, 235, 235), egui::Stroke::new(1.5, egui::Color32::BLACK)));
     }
     for (k, (x, y)) in starts.iter().enumerate() {
-        let c = defs.rules.player_colors[k % defs.rules.player_colors.len()];
+        let c = defs.rules.player_colors[colors.get(k).map_or(k, |c| *c as usize) % defs.rules.player_colors.len()];
         let at = rect.min + egui::vec2(x * size, y * size);
         p.circle_filled(at, r, egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8));
         p.circle_stroke(at, r, egui::Stroke::new(1.5, egui::Color32::BLACK));
@@ -1805,6 +1937,21 @@ fn menu_ui(world: &mut World) {
                             HostEvent::Msg(id, C2S::Observe(watch)) => {
                                 l.observe(id, watch, first_faction);
                             }
+                            HostEvent::Msg(id, C2S::Slot(to)) => {
+                                l.take_slot(id, to as usize);
+                            }
+                            HostEvent::Msg(id, C2S::Team(t)) => {
+                                let n = l.slots.len() as u8;
+                                if let Some(s) = l.slots.iter_mut().find(|s| s.kind == 2 && s.conn == id) {
+                                    s.team = t.min(n - 1);
+                                    l.dirty = true;
+                                }
+                            }
+                            HostEvent::Msg(id, C2S::Color(c)) => {
+                                if let Some(k) = l.slot_of(id) {
+                                    l.set_color(k, c % defs.rules.player_colors.len() as u8);
+                                }
+                            }
                             HostEvent::Left(id) => {
                                 l.observers.retain(|o| o.conn != id);
                                 for s in l.slots.iter_mut().filter(|s| s.conn == id) {
@@ -1830,29 +1977,31 @@ fn menu_ui(world: &mut World) {
                         ui.vertical(|ui| {
                             ui.set_width(left_w);
                             let me = l.slot_of(0);
-                            if let Some((k, col)) = slot_rows(ui, &cur, &l.info(0, &cur).slots, me.map_or(-1, |k| k as i8), true, left_w) {
-                                match col {
-                                    1 => l.slots[k].team = (l.slots[k].team + 1) % l.slots.len() as u8,
-                                    2 => l.slots[k].faction = next_faction(l.slots[k].faction),
-                                    _ if Some(k) != me => {
+                            let watching = l.observers.iter().any(|o| o.conn == 0);
+                            if let Some((k, edit)) = slot_rows(ui, &cur, &l.info(0, &cur).slots, me.map_or(-1, |k| k as i8), watching, true, left_w) {
+                                match edit {
+                                    SlotEdit::Team(t) => l.slots[k].team = t,
+                                    SlotEdit::Color(c) => l.set_color(k, c),
+                                    SlotEdit::Faction => l.slots[k].faction = next_faction(l.slots[k].faction),
+                                    SlotEdit::Choice(SlotChoice::Move(j)) => l.slots.swap(k, j),
+                                    SlotEdit::Choice(SlotChoice::Take) => {
+                                        l.take_slot(0, k);
+                                    }
+                                    SlotEdit::Choice(choice) => {
                                         let s = &mut l.slots[k];
                                         if s.kind == 2 {
                                             l.host.send_msg(s.conn, &S2C::Kicked(tx!("connection.kicked_removed").into()));
                                             l.host.kick(s.conn);
-                                            s.kind = 0;
                                             s.name.clear();
                                             s.conn = 0;
-                                        } else {
-                                            // Open, every AI type in turn, closed.
-                                            match (s.kind, s.ai.next()) {
-                                                (0, _) => (s.kind, s.ai) = (3, AI_KINDS[0]),
-                                                (3, Some(next)) => s.ai = next,
-                                                (3, None) => s.kind = 1,
-                                                _ => s.kind = 0,
-                                            }
+                                        }
+                                        match choice {
+                                            SlotChoice::Open => s.kind = 0,
+                                            SlotChoice::Closed => s.kind = 1,
+                                            SlotChoice::Ai(id) => (s.kind, s.ai) = (3, AiKind::from_id(id)),
+                                            _ => {}
                                         }
                                     }
-                                    _ => {}
                                 }
                                 l.dirty = true;
                             }
@@ -1887,7 +2036,7 @@ fn menu_ui(world: &mut World) {
                             if l.tex.is_none() && l.preview.len() == PREVIEW * PREVIEW * 4 {
                                 l.tex = Some(ctx.load_texture("lobby_map", egui::ColorImage::from_rgba_unmultiplied([PREVIEW, PREVIEW], &l.preview), egui::TextureOptions::LINEAR));
                             }
-                            map_picture(ui, l.tex.as_ref(), &l.starts, if l.mode == MODE_POINTS { &l.points } else { &[] }, &cur, pic);
+                            map_picture(ui, l.tex.as_ref(), &l.starts, &l.slots.iter().map(|s| s.color).collect::<Vec<_>>(), if l.mode == MODE_POINTS { &l.points } else { &[] }, &cur, pic);
                             ui.label(egui::RichText::new(l.map_label()).strong());
                             ui.add_space(6.0);
                             ui.horizontal(|ui| {
@@ -1954,9 +2103,6 @@ fn menu_ui(world: &mut World) {
                                     if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("lobby.terrain_button", biome_label(l.biome)))).on_hover_text(tr!("lobby.terrain_tip")).clicked() {
                                         l.biome = (l.biome + 1) % (longrange::surface::BIOMES.len() + 1);
                                     }
-                                }
-                                if ui.checkbox(&mut l.ai_reclaim, tr!("lobby.ai_reclaim")).changed() {
-                                    l.dirty = true;
                                 }
                                 if ui.checkbox(&mut l.reveal_props, tr!("lobby.reveal_props")).changed() {
                                     l.dirty = true;
@@ -2094,8 +2240,15 @@ fn menu_ui(world: &mut World) {
                             ui.horizontal_top(|ui| {
                                 ui.vertical(|ui| {
                                     ui.set_width(left_w);
-                                    if let Some((k, 2)) = slot_rows(ui, &defs, &i.slots, i.you, false, left_w) {
-                                        l.client.send(&C2S::Faction(next_faction(i.slots[k].faction)));
+                                    if let Some((k, edit)) = slot_rows(ui, &defs, &i.slots, i.you, i.observing, false, left_w) {
+                                        match edit {
+                                            SlotEdit::Faction => l.client.send(&C2S::Faction(next_faction(i.slots[k].faction))),
+                                            SlotEdit::Team(t) => l.client.send(&C2S::Team(t)),
+                                            SlotEdit::Color(c) => l.client.send(&C2S::Color(c)),
+                                            SlotEdit::Choice(SlotChoice::Move(j)) => l.client.send(&C2S::Slot(j as u8)),
+                                            SlotEdit::Choice(SlotChoice::Take) => l.client.send(&C2S::Slot(k as u8)),
+                                            SlotEdit::Choice(_) => {}
+                                        }
                                     }
                                     if let Some(ObserverClick::Watch(w)) = observer_rows(ui, &i.observers, i.you >= 0, i.observing, i.slots.iter().any(|s| s.kind == 0), false, left_w) {
                                         l.client.send(&C2S::Observe(w));
@@ -2108,7 +2261,7 @@ fn menu_ui(world: &mut World) {
                                 ui.add_space(20.0);
                                 ui.vertical(|ui| {
                                     ui.set_width(right_w);
-                                    map_picture(ui, l.tex.as_ref().map(|t| &t.1), &i.starts, &i.points, &defs, pic);
+                                    map_picture(ui, l.tex.as_ref().map(|t| &t.1), &i.starts, &i.slots.iter().map(|s| s.color).collect::<Vec<_>>(), &i.points, &defs, pic);
                                     ui.label(egui::RichText::new(&i.map_name).strong());
                                     // What the game will download from the host.
                                     if !i.map_file.is_empty() {
@@ -2520,7 +2673,7 @@ fn selftest() {
     let kind = |i: usize| kinds[i % kinds.len()];
     // LR_TEAMS=2 puts the players into that many teams (player i in team i % n).
     let teams = std::env::var("LR_TEAMS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(n).clamp(2, n);
-    let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i} {}", kind(i).name()), team: (i % teams) as u8, is_ai: true, slot: i, faction }).collect();
+    let setup: Vec<PlayerSetup> = (0..n).map(|i| PlayerSetup { name: format!("AI {i} {}", kind(i).name()), team: (i % teams) as u8, is_ai: true, slot: i, color: i as u8, faction }).collect();
     let world = app.world_mut();
     setup_game(world, map, &setup);
     for i in 0..n {
@@ -2604,7 +2757,7 @@ fn combattest() {
             *h = 2.0;
         }
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         place(world, &map);
@@ -2802,7 +2955,7 @@ fn combattest() {
             *h = if ridge && (x - 125.0).abs() < 6.0 { 22.0 } else { 2.0 };
         }
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         spawn(world, &map, "radar_tower", 0, v2(101.0, 101.0), 0.0);
@@ -2828,7 +2981,7 @@ fn combattest() {
             let mut map = MapData::generate(192, 4242, 2);
             map.heights.iter_mut().for_each(|h| *h = 2.0);
             map.rebuild_blocked();
-            let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+            let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
             let world = app.world_mut();
             setup_game(world, map.clone(), &setup);
             spawn(world, &map, tower, 0, v2(60.0, 190.0), 0.0);
@@ -2853,7 +3006,7 @@ fn combattest() {
         let mut map = MapData::generate(192, 4242, 2);
         map.heights.iter_mut().for_each(|h| *h = 2.0);
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         let dist = (d.max_range() * 0.9).min(160.0).max(d.vision + 6.0);
@@ -2878,7 +3031,7 @@ fn combattest() {
         let mut map = MapData::generate(192, 4242, 2);
         map.heights.iter_mut().for_each(|h| *h = 2.0);
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         world.resource_mut::<Game>().players[0].energy = 4000.0;
@@ -2920,7 +3073,7 @@ fn combattest() {
         let mut map = MapData::generate(n, 4242, 2);
         map.heights.iter_mut().for_each(|h| *h = 2.0);
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
             p.energy = 100000.0;
@@ -2986,7 +3139,7 @@ fn combattest() {
         // (The spot test 7 builds a windmill on.)
         let mill_at = snap(&defs, &map, defs.id("windmill").unwrap(), v2(107.0, 101.0));
         map.features.push(Feature { kind: rock, pos: mill_at + v2(0.5, -0.5), yaw: 0.0, scale: 1.0 });
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         let world = app.world_mut();
         let eng = spawn(world, &map, "engineer", 0, v2(100.0, 100.0), 0.0);
@@ -3046,7 +3199,7 @@ fn combattest() {
         for k in 0..16 {
             map.features.push(Feature { kind: pine, pos: v2(mid, 188.0 + k as f32 * 1.5), yaw: 0.0, scale: 1.0 });
         }
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         let world = app.world_mut();
         spawn(world, &map, "crony", 0, a, 0.0);
@@ -3080,7 +3233,7 @@ fn combattest() {
             map.features.push(Feature { kind: pine, pos: spot + V2::from_angle(k as f32 * 1.57) * 2.0, yaw: 0.0, scale: 1.0 });
         }
         map.features.push(Feature { kind: rock, pos: spot, yaw: 0.0, scale: 1.0 });
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         let world = app.world_mut();
         let pike = spawn(world, &map, "pike", 0, v2(100.0, 180.0), 0.0);
@@ -3367,7 +3520,7 @@ fn apc_tests(defs: &Defs) {
             };
         }
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         (app, map)
     };
@@ -3468,6 +3621,50 @@ fn apc_tests(defs: &Defs) {
     println!("== {} destroyed with {boarded} riflemen inside: {out} bail out", carriers[0]);
     assert!(boarded == 4 && out == 4, "infantry bail out of a destroyed carrier");
 
+    // 2b. A land factory queues the carrier with a loadout: the riders are built after it, inside,
+    //     and it leaves with them aboard; the whole job is paid (transport + riders).
+    let (mut app, map) = world_with(None);
+    let world = app.world_mut();
+    let fac = spawn(world, &map, "land_factory", 0, v2(100.0, 100.0), 0.0);
+    {
+        let mut game = world.resource_mut::<Game>();
+        let p = &mut game.players[0];
+        p.mass = 5000.0;
+        p.energy = 50000.0;
+        p.max_mass = 5000.0;
+        p.max_energy = 50000.0;
+    }
+    let fac_def = defs.id("land_factory").unwrap();
+    let host = defs.id(carriers[0]).unwrap();
+    let cap = defs.get(host).transport.as_ref().map_or(0, |t| t.capacity) as usize;
+    let rider = defs.id("trooper").unwrap();
+    let cargo = vec![rider; cap];
+    assert!(loadout_ok(defs, fac_def, host, &cargo), "the land factory fills its own carrier with riflemen");
+    assert!(!loadout_ok(defs, fac_def, host, &vec![rider; cap + 1]), "no more riders than the carrier holds");
+    world.run_schedule(SimTick);
+    let mut paid = 0.0;
+    let mut last_mass = world.resource::<Game>().players[0].mass;
+    world.resource_mut::<CommandQueue>().0.push((0, Command::ProduceLoaded { factory: fac, def: host, cargo: cargo.clone(), count: 1 }));
+    let mut out_at = None;
+    for t in 0..6000 {
+        world.run_schedule(SimTick);
+        // Real mass taken (income added back; `spend_m` shows demand during a stall).
+        let pl = &world.resource::<Game>().players[0];
+        paid += last_mass - pl.mass + pl.income_m * DT;
+        last_mass = pl.mass;
+        let left = world.query::<(&Unit, Has<Hosted>)>().iter(world).find(|(u, h)| u.def == host && !h).map(|(u, _)| u.id);
+        if let Some(c) = left {
+            out_at = Some((c, t));
+            break;
+        }
+    }
+    let (c, t) = out_at.expect("the filled carrier leaves the factory");
+    let aboard = world.query::<(&Unit, &Hosted)>().iter(world).filter(|(u, h)| h.0 == c && u.def == rider).count();
+    let want = defs.get(host).cost.mass + cap as f32 * defs.get(rider).cost.mass;
+    println!("== {} queued with {cap} riflemen: out after {:.0} s with {aboard} aboard, ~{paid:.0} mass paid (job {want:.0})", carriers[0], t as f32 * DT);
+    assert!(aboard == cap, "the carrier comes out with its loadout aboard");
+    assert!(paid > want * 0.9 && paid < want * 1.1, "the job costs the transport and its riders");
+
     // 3. A river 2.5 deep: the Slavuta drives across along the bottom, an Overtaker cannot.
     //    One 6 deep stops the Slavuta too.
     let Some(&amph) = carriers.iter().find(|c| defs.get(defs.id(c).unwrap()).mv.amphibious) else { return };
@@ -3508,7 +3705,7 @@ fn scavenger_tests(defs: &Defs) {
     }
     map.features.push(Feature { kind: 1, pos: v2(154.0, 104.0), yaw: 0.0, scale: 1.0 });
     map.rebuild_blocked();
-    let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+    let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
     setup_game(app.world_mut(), map.clone(), &setup);
     let world = app.world_mut();
     for p in world.resource_mut::<Game>().players.iter_mut() {
@@ -3659,7 +3856,7 @@ fn infantry_tests(defs: &Defs) {
             map.features.push(Feature { kind: k as u16, pos: *pos, yaw: 0.0, scale: 1.0 });
         }
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
             p.energy = 100000.0;
@@ -4189,7 +4386,7 @@ fn fieldwork_tests(defs: &Defs) {
         map.feature_kinds = vec![];
         map.features = vec![];
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
             p.energy = 100000.0;
@@ -4425,7 +4622,7 @@ fn binocular_tests(defs: &Defs) {
         map.feature_kinds = vec![];
         map.features = vec![];
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         setup_game(app.world_mut(), map.clone(), &setup);
         // The commanders wait in the far corners, out of binocular range of the test.
         let world = app.world_mut();
@@ -4598,7 +4795,7 @@ fn air_tests(defs: &Defs) {
         let mut map = MapData::generate(192, 4242, 2);
         map.heights.iter_mut().for_each(|h| *h = 2.0);
         map.rebuild_blocked();
-        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
         let world = app.world_mut();
         setup_game(world, map.clone(), &setup);
         for p in world.resource_mut::<Game>().players.iter_mut() {
@@ -4832,7 +5029,7 @@ fn nettest() {
     let faction = defs.playable_factions()[0] as u8;
     // LR_PLAYERS=3: fewer players than the map has starts (the lobby's default leaves slots open).
     let players = std::env::var("LR_PLAYERS").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4).clamp(2, map.starts.len());
-    let setup: Vec<PlayerSetup> = (0..players).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, faction }).collect();
+    let setup: Vec<PlayerSetup> = (0..players).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: i != 1, slot: i, color: i as u8, faction }).collect();
     host.send_msg(conn, &S2C::Start { map: map.clone(), you: 1, data: None });
     let replay_map = map.clone();
     let hw = happ.world_mut();
@@ -5264,7 +5461,7 @@ fn tank_tests(defs: &Defs) {
                     }
                 }
                 map.rebuild_blocked();
-                let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, faction }).collect();
+                let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
                 setup_game(app.world_mut(), map.clone(), &setup);
                 let world = app.world_mut();
                 let mut game = world.resource::<Game>().clone();
@@ -5408,7 +5605,7 @@ fn main() {
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
     .add_systems(Update, dev_screenshot)
-    .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
+    .add_systems(bevy_egui::EguiPrimaryContextPass, (longrange::settings::apply_ui_scale, menu_ui));
     // `--bench [minutes]`: the benchmark (view/bench.rs). LR_PROFILE=1: frame and tick times in the log.
     let bench = args.iter().position(|a| a == "--bench").map(|k| args.get(k + 1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(25.0));
     if bench.is_some() || std::env::var("LR_PROFILE").is_ok() {

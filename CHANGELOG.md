@@ -3,6 +3,29 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.13.0
+
+Controls
+- Pings and map drawing: with nothing selected, right double-click pings and right-drag draws on the map, in your colour, shown to your team.
+- Attack circle: infantry storm every enemy-held building in it, the rest shell the area; area ground fire now covers the circle evenly.
+- Enter-building orders (click and circle) also work on buildings in the fog.
+- Move orders spread out planes too.
+- Land transports can be queued pre-filled: a loadout picker, and the factory builds the riders into the carrier.
+- Factory build menu has tabs by unit kind (troopers, tanks, AA, radar, engineers, others).
+
+Combat
+- Machine-gun vehicles (tanks too) keep moving on attack-move, and gunships and machine guns no longer freeze for the salvo after a shot; a new order cuts a weapon hold short.
+- Idle armed planes keep attacking targets around them (bombers take ground targets first).
+
+Interface
+- Lobby: slot, team and colour dropdowns, move players between slots, 10000 default points, "AI reclaims trees and rocks" is a preset switch.
+- Interface scale setting for menus, HUD and editor; the replay bar sits at the bottom right of the minimap.
+- Anti-tank icons use a horizontal line, the Sniper Trooper a scope; neutral building icons are drawn beneath unit icons.
+- Preset editor: player colours in one wrapping row.
+
+Sound
+- The game has its own audio output on a thread that reopens the device after it fails; no more ALSA error spam on Linux.
+
 ## v0.12.9
 
 Performance

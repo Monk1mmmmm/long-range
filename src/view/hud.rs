@@ -4,12 +4,13 @@ use super::cursor::CursorKind;
 use super::icons;
 use super::intel::{FogGrid, IntelMemory};
 use super::terrain::{minimap_pixels, MainCamera};
-use super::{Interp, LocalCommands, Mode, ViewState};
+use super::{Interp, Loadout, LocalCommands, Mode, ViewState};
 use crate::ai::assign;
 use crate::data::{DefId, Defs, UnitDef};
 use crate::i18n::{unit_desc, unit_name, weapon_name};
 use crate::map::*;
 use crate::sim::*;
+use crate::net::Mark;
 use crate::sim::Command;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::MouseWheel;
@@ -203,6 +204,7 @@ pub struct UiParams<'w, 's> {
     #[allow(clippy::type_complexity)]
     units: Query<'w, 's, (&'static Unit, &'static Interp, &'static Health, &'static Intel, &'static Orders, Option<&'static Weapons>, Option<&'static Factory>, Option<&'static Builder>, Option<&'static UnderConstruction>, Option<&'static Upgrading>, Option<&'static Hosted>, Has<Paused>, (Option<&'static Capture>, Option<&'static Reactive>))>,
     ui_sounds: ResMut<'w, super::sound::UiSounds>,
+    marks: ResMut<'w, super::marks::Marks>,
     cursor: ResMut<'w, super::cursor::CursorWant>,
     wrecks: Query<'w, 's, &'static Wreck>,
     features: Res<'w, Features>,
@@ -360,6 +362,20 @@ impl Frame<'_> {
         units.iter().filter(|u| self.d(u.def).assault > 0.0 && rides_in(self.d(u.def), hd)).map(|u| u.id).collect()
     }
 
+    /// Infantry sent into (or to storm) building `b`; men inside another building step out
+    /// towards it first.
+    fn send_in(&self, b: u32, ids: Vec<u32>, near: V2, shift: bool, out: &mut Vec<Command>) {
+        let (out_of, rest): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| self.infos.get(id).is_some_and(|u| u.host != 0));
+        if !out_of.is_empty() {
+            let at = self.infos.get(&b).map_or(near, |u| u.pos);
+            out.push(Command::Orders { ids: out_of.clone(), orders: vec![Order::Move(at)], queue: shift });
+            out.push(Command::Orders { ids: out_of, orders: vec![Order::Load(b)], queue: true });
+        }
+        if !rest.is_empty() {
+            out.push(Command::Orders { ids: rest, orders: vec![Order::Load(b)], queue: shift });
+        }
+    }
+
     /// A Load circle dragged with infantry selected: every building in it they can garrison
     /// (centre within the circle or its footprint touching it). Own and empty ones are filled,
     /// each man to the nearest one with room left; ones enemy infantry hold are stormed first,
@@ -367,7 +383,9 @@ impl Frame<'_> {
     /// holders' (x `garrison_defense` x 1.5, as the AI does) or the men run out. Stormers left over
     /// join the nearest storm. Men already inside a building in the circle stay where they are.
     /// Returns (building, men, storm) in a fixed order; the men are in id order.
-    fn occupy_area(&self, units: &[&Info], c: V2, r: f32) -> Vec<(u32, Vec<u32>, bool)> {
+    /// `storm_only` (an attack circle): only the buildings enemy infantry hold, nobody is sent
+    /// into own or empty ones.
+    fn occupy_area(&self, units: &[&Info], c: V2, r: f32, storm_only: bool) -> Vec<(u32, Vec<u32>, bool)> {
         struct Target<'d> {
             id: u32,
             pos: V2,
@@ -378,7 +396,8 @@ impl Frame<'_> {
             men: Vec<u32>,
         }
         let mut targets: Vec<Target> = vec![];
-        for s in self.seen.iter().filter(|s| s.contact == Contact::Visible) {
+        // Own and neutral buildings count also in the fog (remembered ones); enemy ones only in sight.
+        for s in self.seen.iter().filter(|s| s.contact == Contact::Visible || !s.enemy) {
             let Some(d) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && d.is_structure()) else { continue };
             if !self.infos.get(&s.id).is_some_and(|i| i.built.is_none() && i.hp > 0.0) || s.pos.dist(c) > r + d.footprint.max(1) as f32 * CELL * 0.5 {
                 continue;
@@ -394,7 +413,7 @@ impl Frame<'_> {
                 }
                 let hold = riders.iter().map(|i| self.d(i.def).assault).sum::<f32>() * self.defs.rules.garrison_defense;
                 targets.push(Target { id: s.id, pos: s.pos, d, room: cap, hold: hold.max(0.01), men: vec![] });
-            } else if self.game.team_of(s.owner) == self.team || s.owner == NEUTRAL {
+            } else if !storm_only && (self.game.team_of(s.owner) == self.team || s.owner == NEUTRAL) {
                 targets.push(Target { id: s.id, pos: s.pos, d, room: cap - used, hold: 0.0, men: vec![] });
             }
         }
@@ -588,11 +607,7 @@ impl Frame<'_> {
         if !rally.is_empty() {
             out.push(Command::Orders { ids: rally, orders: vec![Order::Move(end)], queue: false });
         }
-        let planes: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_plane()).map(|u| u.id).collect();
-        if !planes.is_empty() {
-            out.push(Command::Orders { ids: planes, orders: vec![mk(end)], queue });
-        }
-        let mut movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure() && !self.d(u.def).is_plane()).collect();
+        let mut movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure()).collect();
         // Infantry in selected buildings leave them and go too.
         movers.extend(self.garrison_riders(view).into_iter().filter(|r| !self.d(r.def).is_plane()));
         if movers.is_empty() {
@@ -648,7 +663,7 @@ impl Frame<'_> {
                 return if s.contact == Contact::Stale { Context::AttackGround(s.pos) } else { Context::Attack(s.id) };
             } else if self.game.team_of(s.owner) != self.team {
                 // An empty building: infantry go in.
-                if let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.owner == NEUTRAL && s.contact != Contact::Stale) {
+                if let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.owner == NEUTRAL && self.infos.get(&s.id).is_some_and(|i| i.hp > 0.0)) {
                     let inf: Vec<u32> = units.iter().filter(|u| rides_in(self.d(u.def), hd)).map(|u| u.id).collect();
                     if !inf.is_empty() {
                         return Context::Load(inf, s.id);
@@ -968,6 +983,26 @@ fn hot_key(d: &UnitDef) -> Option<KeyCode> {
     }
 }
 
+/// Factory build menu tabs (keys in `hud_tabs`).
+const BUILD_TABS: [&str; 6] = [tx!("hud_tabs.troopers"), tx!("hud_tabs.tanks"), tx!("hud_tabs.aa"), tx!("hud_tabs.radar"), tx!("hud_tabs.engineers"), tx!("hud_tabs.others")];
+
+/// Which factory tab a unit belongs to.
+fn build_tab_of(d: &UnitDef) -> usize {
+    if d.is_infantry() {
+        0
+    } else if d.is_engineer() || d.is_scavenger() {
+        4
+    } else if d.armed() && d.weapons.iter().all(|w| w.hits_air && !w.hits_land) {
+        2
+    } else if d.armed() && !d.is_air() {
+        1
+    } else if !d.armed() && (d.has_radar() || d.vision >= 45.0) {
+        3
+    } else {
+        5
+    }
+}
+
 fn key_letter(k: KeyCode) -> &'static str {
     match k {
         KeyCode::KeyZ => "Z",
@@ -1028,16 +1063,34 @@ fn range_rings(d: &UnitDef, alpha: f32) -> Vec<(f32, Color)> {
     out
 }
 
-/// A production queue as runs of the same unit: (unit, how many in a row).
-fn queue_runs(queue: &[DefId]) -> Vec<(DefId, usize)> {
-    let mut runs: Vec<(DefId, usize)> = vec![];
+/// A production queue as runs of the same entry (unit and loadout): (entry, how many in a row).
+fn queue_runs(queue: &[Job]) -> Vec<(Job, usize)> {
+    let mut runs: Vec<(Job, usize)> = vec![];
     for d in queue {
         match runs.last_mut() {
             Some(r) if r.0 == *d => r.1 += 1,
-            _ => runs.push((*d, 1)),
+            _ => runs.push((d.clone(), 1)),
         }
     }
     runs
+}
+
+/// The infantry types a factory of type `fac` builds that may ride in its land transport `host`
+/// (empty when `host` is not such a transport).
+fn loadout_options(defs: &Defs, fac: DefId, host: DefId) -> Vec<DefId> {
+    let (f, h) = (defs.get(fac), defs.get(host));
+    if h.transport.is_none() || h.is_air() || h.is_structure() || !f.is_factory() {
+        return vec![];
+    }
+    f.builds.iter().copied().filter(|d| fits(h, defs.get(*d))).collect()
+}
+
+/// Height of the loadout picker.
+const PICK_H: f32 = 120.0;
+
+/// Where the loadout picker is drawn: above the factory queue strip.
+fn loadout_rect(panel: egui::Rect) -> egui::Rect {
+    egui::Rect::from_min_size(Pos2::new(panel.min.x, panel.min.y - QUEUE_H - 8.0 - PICK_H), egui::vec2(panel.width().min(540.0), PICK_H))
 }
 
 /// Width of one entry in the factory queue strip.
@@ -1200,7 +1253,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let idle_r = rect(sw - 56.0, TOP + 12.0 + game.players.len() as f32 * 16.0, 48.0, 48.0);
     // Idle factories (below it): finished, nothing queued or being built, not upgrading.
     let idle_fac: Vec<(DefId, Vec<(u32, V2)>)> = {
-        let mut v: Vec<(u32, DefId, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.upg.is_none() && !u.paused && defs.get(u.def).is_factory() && u.factory.as_ref().map_or(false, |f| f.queue.is_empty() && f.building == 0)).map(|u| (u.id, u.def, u.pos)).collect();
+        let mut v: Vec<(u32, DefId, V2)> = infos.values().filter(|u| u.owner == me && u.built.is_none() && u.upg.is_none() && !u.paused && defs.get(u.def).is_factory() && u.factory.as_ref().map_or(false, |f| f.queue.is_empty() && f.building == 0 && f.carrier == 0)).map(|u| (u.id, u.def, u.pos)).collect();
         v.sort_by_key(|x| x.0);
         let mut kinds: Vec<DefId> = v.iter().map(|x| x.1).collect();
         kinds.sort();
@@ -1219,6 +1272,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         || (!idle.is_empty() && idle_r.contains(mouse))
         || fac_zone.map_or(false, |z| z.contains(mouse))
         || queue_band
+        || (view.loadout.is_some() && loadout_rect(panel).contains(mouse))
         || view.queue_drag.is_some()
         || view.settings_open
         || ctx.is_pointer_over_egui();
@@ -1400,6 +1454,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let lmb_held = p.mouse.pressed(MouseButton::Left);
     let rmb_down = p.mouse.just_pressed(MouseButton::Right);
     let rmb_up = p.mouse.just_released(MouseButton::Right);
+    // Pings and drawings (`marks`): players only, not while watching a replay.
+    let can_mark = !observer && view.replay.is_none();
+    p.marks.expire(now);
 
     // ---------------------------------------------------------------- world input
     if !view.menu_open {
@@ -1448,7 +1505,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
                             Some(h) => Order::Attack(seen[h].id),
                             None => Order::AttackGround { pos: start, radius: if radius < 1.5 { 0.0 } else { radius } },
                         };
-                        out.push(Command::Orders { ids: view.sel.clone(), orders: vec![order], queue: shift });
+                        // An attack circle: infantry that can storm take every building in it enemy
+                        // infantry hold (as many men to each as beat its holders, nearest first, the
+                        // rest joining the nearest storm); the others shell the circle evenly.
+                        let mut rest = view.sel.clone();
+                        if radius >= 1.5 {
+                            for (b, ids, _) in fr.occupy_area(&fr.selected(view), start, radius, true) {
+                                rest.retain(|id| !ids.contains(id));
+                                fr.send_in(b, ids, start, shift, out);
+                            }
+                        }
+                        if !rest.is_empty() {
+                            out.push(Command::Orders { ids: rest, orders: vec![order], queue: shift });
+                        }
                     }
                     Mode::Reclaim => {
                         let mut ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist() || fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
@@ -1495,7 +1564,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         // Our own transports and buildings, and empty buildings (infantry only).
                         // ... and buildings enemy infantry hold (storming them).
                         let ours = |s: &Seen| game.team_of(s.owner) == team || (s.owner == NEUTRAL && s.def.map_or(false, |d| fr.d(d).is_garrison())) || !fr.stormers(&sel, s).is_empty();
-                        let target = hover.filter(|h| radius < 1.5 && seen[*h].contact == Contact::Visible && ours(&seen[*h])).map(|h| &seen[h]);
+                        let target = hover.filter(|h| radius < 1.5 && (seen[*h].contact == Contact::Visible || !seen[*h].enemy) && ours(&seen[*h])).map(|h| &seen[h]);
                         match target.and_then(|s| s.def.map(|d| (s, fr.d(d)))) {
                             Some((s, _)) if s.enemy => out.push(Command::Orders { ids: fr.stormers(&sel, s), orders: vec![Order::Load(s.id)], queue: shift }),
                             // Click on a transport: the selected units get in.
@@ -1513,17 +1582,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                                 // Infantry occupy (or storm) every building in the circle; transports
                                 // pick up what stands in it.
                                 let men: Vec<&Info> = sel.iter().copied().filter(|u| !carriers.contains(&u.id)).collect();
-                                for (b, ids, _) in fr.occupy_area(&men, start, radius) {
-                                    // Men inside another building step out towards this one first.
-                                    let (out_of, rest): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| fr.infos.get(id).is_some_and(|u| u.host != 0));
-                                    if !out_of.is_empty() {
-                                        let at = fr.infos.get(&b).map_or(start, |u| u.pos);
-                                        out.push(Command::Orders { ids: out_of.clone(), orders: vec![Order::Move(at)], queue: shift });
-                                        out.push(Command::Orders { ids: out_of, orders: vec![Order::Load(b)], queue: true });
-                                    }
-                                    if !rest.is_empty() {
-                                        out.push(Command::Orders { ids: rest, orders: vec![Order::Load(b)], queue: shift });
-                                    }
+                                for (b, ids, _) in fr.occupy_area(&men, start, radius, false) {
+                                    fr.send_in(b, ids, start, shift, out);
                                 }
                                 if !carriers.is_empty() {
                                     out.push(Command::Orders { ids: carriers, orders: vec![Order::LoadArea { pos: start, radius }], queue: shift });
@@ -1682,6 +1742,20 @@ pub fn ui_system(mut p: UiParams) -> Result {
             } else if !view.sel.is_empty() {
                 view.path = vec![ground];
                 view.pathing = Some(1);
+            } else if can_mark {
+                // Nothing selected: a right-drag draws on the map, a right-click pings.
+                view.path = vec![ground];
+                view.pathing = Some(3);
+            }
+        }
+        if rmb_up && view.pathing == Some(3) {
+            view.pathing = None;
+            let path = std::mem::take(&mut view.path);
+            if path_len(&path) >= (view.cam_dist * 0.03).max(1.5) {
+                p.marks.make(me, Mark::Line(super::marks::thin(path)), now);
+            } else if p.marks.double_click(path[0], (view.cam_dist * 0.04).max(1.5), now) {
+                p.ui_sounds.0.push(("ping", 0.8));
+                p.marks.make(me, Mark::Ping(path[0]), now);
             }
         }
         if view.pathing.is_some() && view.path.len() < 500 && view.path.last().map_or(false, |l| l.dist(ground) > 0.8) {
@@ -1752,7 +1826,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
     view.preset = (p.settings.hotkeys == "faf_alternative") as u8;
     let faf = view.preset == 1;
     if p.keys.just_pressed(KeyCode::Escape) {
-        if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
+        if view.loadout.is_some() {
+            view.loadout = None;
+        } else if view.mode != Mode::None || view.pathing.is_some() || view.drag_start.is_some() {
             view.mode = Mode::None;
             view.pathing = None;
             view.drag_start = None;
@@ -2171,8 +2247,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, a, a.dist(ground).max(least), c);
                     ground_line(g, map, a, ground, c);
                     // Infantry: the buildings they would occupy (blue) or storm (red).
-                    if view.mode == Mode::Load && a.dist(ground) >= 1.5 {
-                        for (b, _, storm) in fr.occupy_area(&selected, a, a.dist(ground)) {
+                    // An attack circle: the buildings the infantry would storm.
+                    if matches!(view.mode, Mode::Load | Mode::GroundAttack) && a.dist(ground) >= 1.5 {
+                        for (b, _, storm) in fr.occupy_area(&selected, a, a.dist(ground), view.mode == Mode::GroundAttack) {
                             if let Some(u) = fr.infos.get(&b) {
                                 let col = if storm { Color::srgba(1.0, 0.35, 0.25, 1.0) } else { c };
                                 ring(g, map, u.pos, fr.d(u.def).footprint.max(1) as f32 * CELL * 0.6, col);
@@ -2192,6 +2269,33 @@ pub fn ui_system(mut p: UiParams) -> Result {
         let movers: Vec<&Info> = selected.iter().copied().filter(|u| !fr.d(u.def).is_structure() && !fr.d(u.def).is_plane()).collect();
         for pt in fr.formation(&movers, &view.path) {
             ring(g, map, pt, 0.45, c);
+        }
+    }
+
+    // Pings and drawings: lines hug the ground, a ping sends rings out from its spot for a few seconds.
+    let mark_col = |owner: u8, a: f32| {
+        let c = super::owner_color(defs, game, owner).1;
+        Color::srgba(c[0], c[1], c[2], a)
+    };
+    if view.pathing == Some(3) && view.path.len() > 1 {
+        let c = mark_col(me, 1.0);
+        g.linestrip(view.path.iter().map(|pt| pt.at(map.surface(*pt) + 0.4)), c);
+    }
+    for m in &p.marks.shown {
+        let a = m.alpha(now);
+        match &m.mark {
+            Mark::Line(pts) => g.linestrip(pts.iter().map(|pt| pt.at(map.surface(*pt) + 0.4)), mark_col(m.owner, a)),
+            Mark::Ping(pt) => {
+                let age = (now - m.born) as f32;
+                let size = (view.cam_dist * 0.035).clamp(1.5, 12.0);
+                for k in 0..2 {
+                    let t = (age * 0.8 + k as f32 * 0.5).fract();
+                    ring(g, map, *pt, size * (0.3 + 2.2 * t), mark_col(m.owner, a * (1.0 - t)));
+                }
+                ring(g, map, *pt, size * 0.3, mark_col(m.owner, a));
+                let y = map.surface(*pt);
+                g.line(pt.at(y), pt.at(y + size * 2.5), mark_col(m.owner, a));
+            }
         }
     }
 
@@ -2218,7 +2322,14 @@ pub fn ui_system(mut p: UiParams) -> Result {
         bg.add(egui::Shape::convex_polygon(hex(0.8), rgba(60, 235, 95, 255), Stroke::NONE));
         bg.add(egui::Shape::convex_polygon(hex(0.42), rgba(225, 255, 190, 255), Stroke::NONE));
     }
-    for (k, s) in seen.iter().enumerate() {
+    // Neutral buildings are drawn first so every unit icon (and its bars) lands on top of them.
+    let mut order: Vec<usize> = (0..seen.len()).collect();
+    order.sort_by_key(|&k| {
+        let s = &seen[k];
+        !(s.owner == NEUTRAL && s.def.map_or(false, |d| defs.get(d).is_structure()))
+    });
+    for k in order {
+        let s = &seen[k];
         if !s.on_screen {
             continue;
         }
@@ -2633,6 +2744,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
         hud.circle_filled(at, 4.5, rgba(0, 0, 0, 220));
         hud.circle_filled(at, 3.2, rgb(team_rgb(cp.owner)));
     }
+    for m in &p.marks.shown {
+        let c = rgb(super::owner_color(defs, game, m.owner).1).gamma_multiply(m.alpha(now));
+        match &m.mark {
+            Mark::Line(pts) => {
+                hud.add(egui::Shape::line(pts.iter().map(|pt| to_mm(*pt)).collect(), Stroke::new(1.5, c)));
+            }
+            Mark::Ping(pt) => {
+                let t = ((now - m.born) as f32 * 0.8).fract();
+                hud.circle_stroke(to_mm(*pt), 3.0 + 9.0 * t, Stroke::new(1.5, c.gamma_multiply(1.0 - t)));
+                hud.circle_filled(to_mm(*pt), 2.5, c);
+            }
+        }
+    }
     let corners = [Pos2::new(0.0, TOP), Pos2::new(sw, TOP), Pos2::new(sw, sh), Pos2::new(0.0, sh)].map(|c| {
         let q = to_mm(ray_ground(view, c));
         Pos2::new(q.x.clamp(mm.min.x, mm.max.x), q.y.clamp(mm.min.y, mm.max.y))
@@ -2647,6 +2771,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         if rmb_down && !view.sel.is_empty() {
             fr.order_move(view, &[wp], if alt { MoveKind::AttackMove } else { MoveKind::Move }, shift, out);
+        } else if rmb_down && can_mark && view.pathing.is_none() && p.marks.double_click(wp, world / MM * 6.0, now) {
+            p.ui_sounds.0.push(("ping", 0.8));
+            p.marks.make(me, Mark::Ping(map.clamp(wp)), now);
         }
     }
 
@@ -2824,6 +2951,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
             if let Some(pr) = u.upg {
                 text(ix, y, &tr!("hud_unit_info.upgrading_progress", pr * 100.0), 12.0, rgba(130, 225, 255, 255));
+            } else if let Some((c, f)) = u.factory.as_ref().and_then(|f| Some((infos.get(&f.carrier)?, f))) {
+                let aboard = infos.values().filter(|r| r.host == c.id).count();
+                text(ix, y, &tr!("hud_unit_info.filling", unit_name(fr.d(c.def)), aboard, aboard + f.cargo.len()), 12.0, rgba(130, 225, 255, 255));
             } else if let Some(b) = u.factory.as_ref().and_then(|f| infos.get(&f.building)) {
                 text(ix, y, &tr!("hud_unit_info.building_progress", unit_name(fr.d(b.def)), b.built.unwrap_or(1.0) * 100.0), 12.0, rgba(130, 225, 255, 255));
             }
@@ -2872,7 +3002,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let shown = runs.len().min((((panel.width() - 8.0) / QUEUE_W) as usize).max(1));
             hud.rect_filled(rect(panel.min.x, qy - 2.0, shown as f32 * QUEUE_W + 8.0, QUEUE_H + 2.0), 4.0, panel_bg);
             let mut start = 0usize;
-            for (k, (d, n)) in runs.iter().take(shown).enumerate() {
+            for (k, (j, n)) in runs.iter().take(shown).enumerate() {
+                let d = &j.def;
                 let r = rect(panel.min.x + 4.0 + k as f32 * QUEUE_W, qy, QUEUE_W - 4.0, QUEUE_H - 4.0);
                 let dragged = view.queue_drag == Some((lead.id, k));
                 let hov = button(r, dragged);
@@ -2886,7 +3017,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 if *n > 1 {
                     hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 1.0), Align2::RIGHT_BOTTOM, n.to_string(), font(14.0), rgba(255, 230, 80, 255));
                 }
-                if k == 0 {
+                if !j.cargo.is_empty() {
+                    // A transport with riders: how many come with it.
+                    hud.text(Pos2::new(r.min.x + 3.0, r.max.y - 1.0), Align2::LEFT_BOTTOM, format!("+{}", j.cargo.len()), font(12.0), rgba(150, 230, 255, 255));
+                }
+                if k == 0 && f.carrier == 0 {
                     if let Some(pr) = infos.get(&f.building).and_then(|b| b.built) {
                         hud.rect_filled(rect(r.min.x + 2.0, r.min.y + 2.0, (r.width() - 4.0) * pr.clamp(0.0, 1.0), 3.0), 0.0, rgba(100, 200, 255, 255));
                     }
@@ -2906,8 +3041,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 let gap = (((mouse.x - panel.min.x - 4.0) / QUEUE_W).round().max(0.0) as usize).min(runs.len());
                 let gx = panel.min.x + 2.0 + gap as f32 * QUEUE_W;
                 hud.line_segment([Pos2::new(gx, qy - 2.0), Pos2::new(gx, qy + QUEUE_H - 2.0)], Stroke::new(3.0, rgba(120, 255, 150, 255)));
-                if let Some((d, _)) = runs.get(from_run) {
-                    let dd = fr.d(*d);
+                if let Some((j, _)) = runs.get(from_run) {
+                    let dd = fr.d(j.def);
                     let ir = egui::Rect::from_center_size(mouse, egui::vec2(34.0, 34.0));
                     match p.assets.portrait(&ctx, dd) {
                         Some(t) => hud.image(t.id(), ir, UV, Color32::WHITE),
@@ -2917,15 +3052,147 @@ pub fn ui_system(mut p: UiParams) -> Result {
             }
         }
 
+        // Loadout picker of a land transport: who rides inside when it leaves the factory.
+        if view.loadout.as_ref().map_or(false, |l| l.factory != lead.def || loadout_options(defs, l.factory, l.host).is_empty()) {
+            view.loadout = None;
+        }
+        if let Some(mut lo) = view.loadout.clone() {
+            let opts = loadout_options(defs, lo.factory, lo.host);
+            let hd = fr.d(lo.host);
+            let cap = hd.transport.as_ref().map_or(0, |t| t.capacity as u32);
+            let used = |c: &[DefId]| c.iter().map(|r| fr.d(*r).cargo as u32).sum::<u32>();
+            let pr = loadout_rect(panel);
+            hud.rect_filled(pr, 4.0, panel_bg);
+            hud.rect_stroke(pr, 4.0, Stroke::new(1.0, line_c), StrokeKind::Inside);
+            text(pr.min.x + 8.0, pr.min.y + 5.0, &tr!("hud_loadout.title", unit_name(hd), used(&lo.cargo), cap), 13.0, Color32::WHITE);
+            // Price of the whole job: the transport and everybody inside.
+            let (mass, energy) = lo.cargo.iter().fold((hd.cost.mass, hd.cost.energy), |a, r| (a.0 + fr.d(*r).cost.mass, a.1 + fr.d(*r).cost.energy));
+            let cx = stat(&hud, pr.max.x - 230.0, pr.min.y + 5.0, 12.0, "mass", &format!("{mass:.0}"), rgba(190, 215, 240, 255));
+            stat(&hud, cx, pr.min.y + 5.0, 12.0, "energy", &format!("{energy:.0}"), rgba(255, 215, 65, 255));
+            let close = rect(pr.max.x - 24.0, pr.min.y + 4.0, 20.0, 18.0);
+            if button(close, false) && lmb_down {
+                view.loadout = None;
+            }
+            hud.text(close.center(), Align2::CENTER_CENTER, "x", font(13.0), Color32::WHITE);
+            // One button per infantry type: left-click adds one (Shift: fills up), right-click takes one out.
+            let oy = pr.min.y + 26.0;
+            for (k, d) in opts.iter().enumerate() {
+                let r = rect(pr.min.x + 6.0 + k as f32 * 56.0, oy, 52.0, 60.0);
+                if r.max.x > pr.max.x - 104.0 {
+                    break;
+                }
+                let bd = fr.d(*d);
+                let room = used(&lo.cargo) + bd.cargo as u32 <= cap;
+                let hov = button(r, false);
+                let ir = rect(r.min.x + 6.0, r.min.y + 3.0, 40.0, 40.0);
+                let tint = if room { Color32::WHITE } else { rgba(255, 255, 255, 110) };
+                match p.assets.portrait(&ctx, bd) {
+                    Some(t) => hud.image(t.id(), ir, UV, tint),
+                    None => hud.image(p.assets.icon(&ctx, bd).id(), ir, UV, my_col),
+                };
+                stat(&hud, r.min.x + 1.0, r.max.y - 15.0, 10.5, "mass", &format!("{:.0}", bd.cost.mass), rgba(190, 215, 240, 255));
+                let n = lo.cargo.iter().filter(|c| *c == d).count();
+                if n > 0 {
+                    hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 17.0), Align2::RIGHT_TOP, n.to_string(), font(15.0), rgba(255, 230, 80, 255));
+                }
+                if hov {
+                    tip = Some((*d, ld.build_rate().max(1.0)));
+                    if lmb_down {
+                        while used(&lo.cargo) + bd.cargo.max(1) as u32 <= cap {
+                            lo.cargo.push(*d);
+                            if !shift {
+                                break;
+                            }
+                        }
+                    } else if rmb_down {
+                        if let Some(i) = lo.cargo.iter().rposition(|c| c == d) {
+                            lo.cargo.remove(i);
+                        }
+                    }
+                }
+            }
+            // Who is aboard so far, in order: click one to take it out.
+            let ry = pr.max.y - 28.0;
+            if lo.cargo.is_empty() {
+                text(pr.min.x + 8.0, ry + 4.0, tr!("hud_loadout.empty"), 11.5, rgba(170, 180, 195, 255));
+            }
+            let mut drop: Option<usize> = None;
+            for (k, d) in lo.cargo.iter().enumerate() {
+                let r = rect(pr.min.x + 6.0 + k as f32 * 25.0, ry, 23.0, 23.0);
+                if r.max.x > pr.max.x - 104.0 {
+                    break;
+                }
+                let hov = r.contains(mouse);
+                if hov {
+                    hud.rect_filled(r, 2.0, rgba(90, 60, 60, 230));
+                    if lmb_down || rmb_down {
+                        drop = Some(k);
+                    }
+                }
+                hud.image(p.assets.icon(&ctx, fr.d(*d)).id(), r.shrink(2.0), UV, my_col);
+            }
+            if let Some(k) = drop {
+                lo.cargo.remove(k);
+            }
+            // Queue the transport with this loadout (Shift: five); the picker stays open to queue more.
+            let qb = rect(pr.max.x - 98.0, oy, 92.0, 30.0);
+            if button(qb, false) && lmb_down {
+                let n: i16 = if shift { 5 } else { 1 };
+                for f in units.iter().filter(|u| u.def == lead.def) {
+                    out.push(if lo.cargo.is_empty() {
+                        Command::Produce { factory: f.id, def: lo.host, count: n }
+                    } else {
+                        Command::ProduceLoaded { factory: f.id, def: lo.host, cargo: lo.cargo.clone(), count: n }
+                    });
+                }
+                view.last_loadout.insert(lo.host, lo.cargo.clone());
+            }
+            hud.text(qb.center(), Align2::CENTER_CENTER, tr!("hud_loadout.queue"), font(13.0), rgba(170, 255, 190, 255));
+            let cb = rect(pr.max.x - 98.0, oy + 34.0, 92.0, 24.0);
+            if button(cb, false) && lmb_down {
+                lo.cargo.clear();
+            }
+            hud.text(cb.center(), Align2::CENTER_CENTER, tr!("hud_loadout.clear"), font(12.0), Color32::WHITE);
+            if view.loadout.is_some() {
+                view.loadout = Some(lo);
+            }
+        }
+
         // Build menu.
         let bx0 = panel.min.x + 310.0;
         let (bw, bh) = (52.0, 60.0);
         let per_row = (((panel.width() - 318.0) / (bw + 4.0)).floor() as usize).max(1);
         let is_factory = ld.is_factory();
         let builders = ld.is_engineer() || is_factory;
+        // A factory's list is split into tabs by kind of unit.
+        let mut shown: Vec<(usize, DefId)> = ld.builds.iter().copied().enumerate().collect();
+        let mut menu_y = py + 6.0;
+        if is_factory {
+            let used: Vec<usize> = (0..BUILD_TABS.len()).filter(|t| ld.builds.iter().any(|d| build_tab_of(fr.d(*d)) == *t)).collect();
+            if let Some(first) = used.first().copied() {
+                if !used.contains(&view.build_tab) {
+                    view.build_tab = first;
+                }
+                let mut tx0 = bx0;
+                for t in &used {
+                    let label = crate::i18n::tr(BUILD_TABS[*t]);
+                    let w = label.chars().count() as f32 * 7.0 + 14.0;
+                    let r = rect(tx0, py + 4.0, w, 20.0);
+                    let hov = button(r, view.build_tab == *t);
+                    hud.text(r.center(), Align2::CENTER_CENTER, label, font(12.0), Color32::WHITE);
+                    if hov && lmb_down {
+                        view.build_tab = *t;
+                    }
+                    tx0 += w + 3.0;
+                }
+                menu_y = py + 30.0;
+                let tab = view.build_tab;
+                shown.retain(|(_, d)| build_tab_of(fr.d(*d)) == tab);
+            }
+        }
         if builders {
-            for (k, d) in ld.builds.iter().enumerate() {
-                let r = rect(bx0 + (k % per_row) as f32 * (bw + 4.0), py + 6.0 + (k / per_row) as f32 * (bh + 4.0), bw, bh);
+            for (k, (_, d)) in shown.iter().enumerate() {
+                let r = rect(bx0 + (k % per_row) as f32 * (bw + 4.0), menu_y + (k / per_row) as f32 * (bh + 4.0), bw, bh);
                 let bd = fr.d(*d);
                 let hov = button(r, view.mode == Mode::Place(*d));
                 let ir = rect(r.min.x + 6.0, r.min.y + 3.0, 40.0, 40.0);
@@ -2947,14 +3214,18 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     hud.text(Pos2::new(r.max.x - 3.0, r.min.y + 1.0), Align2::RIGHT_TOP, format!("T{}", bd.tier), font(10.5), rgba(255, 200, 120, 255));
                 }
                 if is_factory {
-                    let n = lead.factory.as_ref().map_or(0, |f| f.queue.iter().filter(|q| **q == *d).count());
+                    let n = lead.factory.as_ref().map_or(0, |f| f.queue.iter().filter(|q| q.def == *d).count());
                     if n > 0 {
                         hud.text(Pos2::new(r.max.x - 3.0, r.max.y - 17.0), Align2::RIGHT_TOP, n.to_string(), font(15.0), rgba(255, 230, 80, 255));
                     }
                 }
                 if hov {
                     tip = Some((*d, ld.build_rate().max(1.0)));
-                    if is_factory {
+                    if is_factory && lmb_down && !loadout_options(defs, lead.def, *d).is_empty() {
+                        // A land transport: pick its riders first (click again to close).
+                        let lo = Loadout { factory: lead.def, host: *d, cargo: view.last_loadout.get(d).cloned().unwrap_or_default() };
+                        view.loadout = if view.loadout.as_ref().map_or(false, |l| l.factory == lo.factory && l.host == lo.host) { None } else { Some(lo) };
+                    } else if is_factory {
                         let n: i16 = if shift { 5 } else { 1 };
                         if lmb_down || rmb_down {
                             for f in units.iter().filter(|u| u.def == lead.def) {
@@ -3266,7 +3537,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         text_c(sw * 0.5, TOP + 44.0, tr!("hud_screens.commander_lost"), 20.0, rgba(255, 130, 105, 255));
     }
 
-    replay_bar(&ctx, view, game, sw, sh);
+    // The bar sits on the bottom edge, or above the selection panel (and a factory queue) when one is shown.
+    let panel_top = if units.is_empty() { sh } else if has_queue { sh - PANEL_H - QUEUE_H - 14.0 } else { sh - PANEL_H - 10.0 };
+    replay_bar(&ctx, view, game, sw, panel_top);
 
     let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("top")));
     if view.show_help {
@@ -3275,6 +3548,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             tr!("hud_help.left_click_drag_select_box_select"),
             tr!("hud_help.right_click_move_attack_enemy_assist"),
             tr!("hud_help.right_drag_a_line_spread_the"),
+            tr!("hud_help.pings_and_drawing"),
             if faf { tr!("hud_help.faf_alternative_keys_w_move_alt") } else { tr!("hud_help.a_attack_move_p_patrol_s") },
             if faf { tr!("hud_help.i_t_assist_repair_esc_stop") } else { tr!("hud_help.u_upgrade_pumps_factories_r_factory") },
             if faf { tr!("hud_help.hotbuild_press_again_to_cycle_z") } else { tr!("hud_help.hotkey_preset_can_be_switched_to") },
@@ -3357,9 +3631,9 @@ fn round_speed(v: f32) -> f32 {
     ((v / step).round() * step).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
 }
 
-/// Replay controls above the bottom panel: pause, speed, the time line (click or drag to jump),
-/// and whose view to see the game from.
-fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, sh: f32) {
+/// Replay controls at the bottom, right of the minimap, with `bottom` the lowest y they may take:
+/// pause, speed, the time line (click or drag to jump), and whose view to see the game from.
+fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, bottom: f32) {
     let Some(mut bar) = view.replay.take() else { return };
     let clock = |t: u32| {
         let s = t / 10;
@@ -3369,11 +3643,11 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
             format!("{}:{:02}", s / 60, s % 60)
         }
     };
-    let w = 880.0f32.min(sw - 16.0);
-    let y = sh - PANEL_H - QUEUE_H - 64.0;
+    let left = if sw > MM + 420.0 { MM + 18.0 } else { 8.0 };
+    let w = 760.0f32.min(sw - left - 8.0).max(300.0);
     let mut toggle = false;
     let mut vision = view.me;
-    egui::Area::new(egui::Id::new("replay_bar")).fixed_pos(Pos2::new((sw - w) * 0.5, y)).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("replay_bar")).pivot(Align2::LEFT_BOTTOM).fixed_pos(Pos2::new(left, bottom - 8.0)).show(ctx, |ui| {
         egui::Frame::window(ui.style()).fill(rgba(16, 20, 27, 235)).show(ui, |ui| {
             ui.set_width(w - 16.0);
             ui.horizontal(|ui| {
@@ -3384,7 +3658,7 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
                 }
                 // Speed: a slider on a logarithmic scale, x1 in the middle; double-click puts it back to x1.
                 let mut speed = bar.speed;
-                ui.spacing_mut().slider_width = 110.0;
+                ui.spacing_mut().slider_width = 90.0;
                 let r = ui
                     .add(egui::Slider::new(&mut speed, REPLAY_SPEED.0..=REPLAY_SPEED.1).logarithmic(true).custom_formatter(|v, _| format!("x{}", round_speed(v as f32))).custom_parser(|t| t.trim().trim_start_matches(['x', 'X']).parse().ok()))
                     .on_hover_text(tr!("hud_replay.speed_tip"));
@@ -3396,7 +3670,8 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
                 let shown = bar.drag.unwrap_or(bar.tick);
                 ui.label(format!("{} / {}", clock(shown.saturating_sub(bar.first)), clock(bar.end.saturating_sub(bar.first))));
                 let mut t = shown;
-                ui.spacing_mut().slider_width = (w - 700.0).max(120.0);
+                // The time line takes what the row has left beside the vision list.
+                ui.spacing_mut().slider_width = (ui.available_width() - 160.0).max(100.0);
                 let r = ui.add(egui::Slider::new(&mut t, bar.first..=bar.end.max(bar.first + 1)).show_value(false));
                 if r.dragged() {
                     bar.drag = Some(t);
