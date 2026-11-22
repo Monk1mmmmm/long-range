@@ -16,6 +16,7 @@ pub mod fx;
 pub mod hud;
 pub mod icons;
 pub mod intel;
+pub mod marks;
 pub mod models;
 pub mod perf;
 pub mod sound;
@@ -239,6 +240,7 @@ pub fn start_view(world: &mut World, me: u8, with_fog: bool) {
     let start = world.resource::<Game>().players.get(me as usize).map_or(map.center(), |p| p.start);
     world.insert_resource(ViewState::new(me, start));
     world.insert_resource(LocalCommands::default());
+    world.insert_resource(marks::Marks::default());
     world.insert_resource(intel::IntelMemory::default());
     world.insert_resource(intel::FogGrid::new(map.n));
     world.insert_resource(hud::HudAssets::default());
@@ -692,7 +694,7 @@ pub fn in_game(view: Option<Res<ViewState>>, game: Option<Res<Game>>, map: Optio
 pub struct ViewPlugin;
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LocalCommands>().init_resource::<sound::UiSounds>();
+        app.init_resource::<LocalCommands>().init_resource::<marks::Marks>().init_resource::<sound::UiSounds>();
         app.add_plugins(surface::SurfacePlugin);
         app.add_systems(Startup, sound::load);
         app.add_systems(
