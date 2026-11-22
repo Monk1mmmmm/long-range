@@ -68,7 +68,8 @@ struct Editor {
     seed: u64,
     start_index: usize,
     prop: DefId,
-    prop_hostile: bool,
+    /// Owner code of the next placed prop: `PROP_NEUTRAL`, `PROP_HOSTILE` or `PROP_SLOT0 + k`.
+    prop_owner: u8,
     prop_yaw: f32,
     dirty: bool,
     flatten_height: Option<f32>,
@@ -344,7 +345,14 @@ fn rebuild(commands: &mut Commands, ed: &mut Editor, map: &mut MapData, defs: &D
     spawn_flora(commands, map, defs, flora, meshes);
     for p in &map.props {
         let Some(d) = defs.id(&p.def) else { continue };
-        let (ci, rgb) = if p.owner == PROP_HOSTILE { (201, defs.rules.hostile_color) } else { (200, defs.rules.neutral_color) };
+        let (ci, rgb) = match p.owner {
+            PROP_NEUTRAL => (200, defs.rules.neutral_color),
+            PROP_HOSTILE => (201, defs.rules.hostile_color),
+            o => {
+                let k = (o - PROP_SLOT0) as usize;
+                (k as u8, defs.rules.player_colors[k % defs.rules.player_colors.len()])
+            }
+        };
         let root = spawn_model(commands, cache, defs, d, ci, rgb, false, None, meshes, images, materials);
         let h = map.h(p.pos);
         commands.spawn((Transform::from_translation(p.pos.at(h)).with_rotation(yaw_quat(p.yaw)), Visibility::Visible, GroundSnap(0.0), GameScene)).add_child(root);
@@ -576,7 +584,17 @@ fn editor_ui(
                     }
                 }
             });
-            ui.checkbox(&mut ed.prop_hostile, tr!("map_editor.prop_hostile"));
+            let owner_name = |o: u8| match o {
+                PROP_NEUTRAL => tr!("map_editor.owner_neutral").to_string(),
+                PROP_HOSTILE => tr!("map_editor.owner_hostile").to_string(),
+                o => tr!("map_editor.owner_slot", o - PROP_SLOT0 + 1),
+            };
+            egui::ComboBox::from_label(tr!("map_editor.owner")).selected_text(owner_name(ed.prop_owner)).show_ui(ui, |ui| {
+                let slots = map.starts.len().min(crate::sim::MAX_PLAYERS);
+                for o in [PROP_NEUTRAL, PROP_HOSTILE].into_iter().chain((0..slots as u8).map(|k| PROP_SLOT0 + k)) {
+                    ui.selectable_value(&mut ed.prop_owner, o, owner_name(o));
+                }
+            });
             ui.add(egui::Slider::new(&mut ed.prop_yaw, 0.0..=6.28).text(tr!("map_editor.facing")));
         }
         ui.separator();
@@ -804,7 +822,7 @@ fn editor_ui(
                 Tool::Prop => {
                     let d = defs.get(ed.prop);
                     let pos = if d.is_structure() { crate::sim::snap(&defs, map, ed.prop, p) } else { p };
-                    map.props.push(Prop { def: d.id.clone(), pos, yaw: ed.prop_yaw, owner: if ed.prop_hostile { PROP_HOSTILE } else { PROP_NEUTRAL } });
+                    map.props.push(Prop { def: d.id.clone(), pos, yaw: ed.prop_yaw, owner: ed.prop_owner });
                     if d.is_structure() {
                         map.clear_features_square(pos, d.footprint);
                     }
@@ -1067,7 +1085,7 @@ pub fn run() {
             seed: 1,
             start_index: 0,
             prop: first_prop,
-            prop_hostile: false,
+            prop_owner: PROP_NEUTRAL,
             prop_yaw: 0.0,
             dirty: true,
             flatten_height: None,
