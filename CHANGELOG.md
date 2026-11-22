@@ -3,6 +3,16 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+New map: Dubrovnik 1991 (4 players): the city as it stood before the Franjo Tudman Bridge, from Lapad in the west to
+Ploce in the east with Srdj and Fort Imperial above it. Two bases at each end, every control point in the city.
+
+Tools
+- `tools/osm_map.py --source overture` makes maps from Overture Maps data when the Overpass servers are not available
+  (`tools/overture_src.py`). New options: `--sea` (coasts), `--drop-bridges` / `--drop-names` (maps of the past),
+  `--cp-area`, `--cp-town`, `--outpost`.
+
 ## v0.12.6
 
 The last box models are gone. Hit boxes of the changed buildings follow their models, so everybody in a multiplayer
