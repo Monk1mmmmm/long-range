@@ -14,7 +14,7 @@ use longrange::netplay::{ClientSim, HostSim};
 use longrange::replay::{self, Playback, Recorder, ReplayInfo, ReplayStart};
 use longrange::sim::*;
 use longrange::sim::Command;
-use longrange::view::{self, terrain::MainCamera, LocalCommands, ViewState};
+use longrange::view::{self, bench::Bench, terrain::MainCamera, LocalCommands, ViewState};
 
 const SIZES: [(usize, &str); 3] = [(192, tx!("lobby.size_small")), (256, tx!("lobby.size_medium")), (384, tx!("lobby.size_large"))];
 
@@ -430,7 +430,7 @@ struct Session {
 /// Starts recording a game that begins with `map` and `state`, as player `me` sees it
 /// (none when replays are switched off in the settings, or `LR_NOREPLAY` is set).
 fn start_recording(world: &World, map: &MapData, state: &Snapshot, me: u8) -> Option<Recorder> {
-    if !world.resource::<longrange::settings::Settings>().save_replays || std::env::var("LR_NOREPLAY").is_ok() {
+    if !world.resource::<longrange::settings::Settings>().save_replays || std::env::var("LR_NOREPLAY").is_ok() || world.contains_resource::<Bench>() {
         return None;
     }
     let pack = (*world.resource::<Defs>().pack).clone();
@@ -856,7 +856,8 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         }
         let idx = setup.len() as u8;
         // LR_WATCH=1 lets an AI play the local slot too (spectating / testing).
-        if s.kind == 3 || (s.conn == 0 && std::env::var("LR_WATCH").is_ok()) {
+        // So does the benchmark (`--bench`).
+        if s.kind == 3 || (s.conn == 0 && (std::env::var("LR_WATCH").is_ok() || world.contains_resource::<Bench>())) {
             let mut ai = Ai::with_kind(idx, seed, s.ai);
             ai.reclaim = l.ai_reclaim;
             ais.push(ai);
@@ -1027,7 +1028,31 @@ fn leave_game(world: &mut World) {
 
 /// Runs the simulation once per frame before rendering: the host at its own pace, a client
 /// predicting ahead of the turns the host confirms (`netplay.rs`).
+/// The benchmark's fast-forward: every 5 game minutes, what the ticks cost (`SimProfile`).
+fn bench_ff_report(world: &mut World) {
+    let tick = world.resource::<Game>().tick;
+    if tick % 3000 != 0 {
+        return;
+    }
+    let units = world.query::<&Unit>().iter(world).count();
+    let wrecks = world.query::<&Wreck>().iter(world).count();
+    let shells = world.query::<&Projectile>().iter(world).count();
+    let Some(mut p) = world.get_resource_mut::<longrange::sim::systems::SimProfile>() else { return };
+    let line = format!("{:2} min, {units} units, {wrecks} wrecks, {shells} shells: {}", tick / 600, p.short(5));
+    *p = Default::default();
+    println!("bench: {line}");
+    world.resource_mut::<Bench>().ff_lines.push(line);
+}
+
 fn session_update(world: &mut World) {
+    let t0 = std::time::Instant::now();
+    session_frame(world);
+    if let Some(mut p) = world.get_resource_mut::<view::perf::FrameProfile>() {
+        p.add(view::perf::SESSION, t0.elapsed());
+    }
+}
+
+fn session_frame(world: &mut World) {
     let Some(mut app) = world.remove_non_send::<AppState>() else { return };
     let mut over: Option<String> = None;
     let mut promoted: Option<Role> = None;
@@ -1146,12 +1171,28 @@ fn session_update(world: &mut World) {
                 if let Some(mut v) = world.get_resource_mut::<ViewState>() {
                     v.net_note = note;
                 }
-                let cap = (3.0 * speed).ceil() as i32;
+                let mut cap = (3.0 * speed).ceil() as i32;
+                // The benchmark: ticks flat out for up to 100 ms a frame, or none at all.
+                let (ff, hold) = world.get_resource::<Bench>().map_or((false, false), |b| (b.ff, b.hold));
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
+                if hold {
+                    s.acc = 0.0;
+                } else if ff {
+                    s.acc = DT * 1e6;
+                    cap = i32::MAX;
+                }
                 let mut n = 0;
                 while s.acc >= DT && n < cap {
+                    if ff && std::time::Instant::now() > deadline {
+                        s.acc = 0.0;
+                        break;
+                    }
                     s.acc -= DT;
                     n += 1;
                     let turn = sim.tick(world, std::mem::take(&mut cmds), !remote.is_empty());
+                    if ff {
+                        bench_ff_report(world);
+                    }
                     if let (Some(rec), S2C::Turn { tick, cmds }) = (s.rec.as_mut(), &turn) {
                         rec.push(*tick, cmds.iter().map(|(p, _, c)| (*p, c.clone())).collect());
                         if tick % replay::HASH_EVERY == 0 {
@@ -2497,6 +2538,7 @@ fn selftest() {
         world.insert_resource(longrange::sim::systems::SimProfile::default());
     }
     let t0 = std::time::Instant::now();
+    let mut whole = longrange::sim::systems::SimProfile::default();
     let mut alive = vec![true; n];
     // LR_EVERY=600 prints the report every that many ticks (default 3000: every five minutes).
     let every = std::env::var("LR_EVERY").ok().and_then(|s| s.parse::<u32>().ok()).unwrap_or(3000).max(1);
@@ -2513,6 +2555,14 @@ fn selftest() {
             let snap = make_snapshot(world);
             let bytes = bincode::serialize(&snap).map(|b| b.len()).unwrap_or(0);
             println!("t={:5}s units={} projectiles={} wrecks={} features touched={} state={}B hash={:016x} wall={:?}", t / 10, snap.units.len(), snap.projectiles.len(), snap.wrecks.len(), snap.features.len(), bytes, state_hash(&snap), t0.elapsed());
+            // With LR_PROFILE=1: what the ticks since the last report cost (the lag late in a game).
+            if let Some(mut p) = world.get_resource_mut::<longrange::sim::systems::SimProfile>() {
+                if p.ticks > 0 {
+                    println!("   profile {}", p.short(6));
+                    let part = std::mem::take(&mut *p);
+                    whole.add(&part);
+                }
+            }
             for (k, p) in game.players.iter().enumerate() {
                 let mine: Vec<&UnitSnap> = snap.units.iter().filter(|u| u.unit.owner as usize == k).collect();
                 let top = mine.iter().map(|u| defs.get(u.unit.def).tier).max().unwrap_or(0);
@@ -2536,7 +2586,8 @@ fn selftest() {
         }
     }
     if let Some(p) = world.get_resource::<longrange::sim::systems::SimProfile>() {
-        print!("{}", p.report());
+        whole.add(p);
+        print!("{}", whole.report());
     }
 }
 
@@ -5348,13 +5399,22 @@ fn main() {
     .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))
     .insert_resource(settings)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish"), settings_open: false, base_defs: defs })
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, base_defs: defs })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
     .add_systems(Update, dev_screenshot)
     .add_systems(bevy_egui::EguiPrimaryContextPass, menu_ui);
+    // `--bench [minutes]`: the benchmark (view/bench.rs). LR_PROFILE=1: frame and tick times in the log.
+    let bench = args.iter().position(|a| a == "--bench").map(|k| args.get(k + 1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(25.0));
+    if bench.is_some() || std::env::var("LR_PROFILE").is_ok() {
+        view::perf::add_profiling(&mut app, true);
+        app.insert_resource(view::perf::FrameProfile::default()).insert_resource(longrange::sim::systems::SimProfile::default());
+    }
+    if let Some(minutes) = bench {
+        app.insert_resource(Bench::new(minutes)).insert_resource(view::perf::Benching).add_systems(Update, view::bench::bench_system);
+    }
     longrange::settings::tolerate_render_errors(&mut app);
     longrange::settings::add_window_icon(&mut app);
     longrange::settings::gl_window_display(&mut app);

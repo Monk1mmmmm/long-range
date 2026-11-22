@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
+pub mod bench;
 pub mod cursor;
 pub mod debris;
 pub mod flora;
@@ -16,11 +17,13 @@ pub mod hud;
 pub mod icons;
 pub mod intel;
 pub mod models;
+pub mod perf;
 pub mod sound;
 pub mod surface;
 pub mod terrain;
 
 use models::*;
+use perf::vmark;
 use terrain::*;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -679,7 +682,13 @@ impl Plugin for ViewPlugin {
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
-            (tick_sync, terrain::terrain_sync, terrain::map_edge_sync, flora::flora_sync, intel::update_intel, unit_visuals, wreck_visuals, ghost_visuals, debris::debris_visuals, unit_transforms, drive_anims, animate_parts, fx::projectile_visuals, fx::spawn_fx, fx::update_fx, light_follow)
+            // `perf::vmark::<I>` between the systems times them while a `perf::FrameProfile` exists
+            // (LR_PROFILE=1, --bench). Inner tuples need their own chain().
+            (
+                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
+                (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
+                (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, vmark::<16>).chain(),
+            )
                 .chain()
                 .run_if(in_game),
         );

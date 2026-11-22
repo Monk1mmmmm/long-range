@@ -36,6 +36,9 @@ cargo run -- --selftest           # headless 4-AI match, prints economy/tier sta
 cargo run -- --combattest         # headless duels: accuracy, reversing, assisted upgrade, radar line of sight
 cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting client, state hashes must match (LR_TICKS=n,
                                   # LR_AI=zones,.. AI types, LR_CLIENT_AI=zones an AI plays the client, LR_MAP=name, LR_PLAYERS=3)
+cargo run --release -- --bench [MIN]   # benchmark: AIs play every slot, the game runs flat out to MIN (25), then every graphics
+                                  # setting is measured in turn (frame / main / render / GPU per pass); report -> bench-*.txt in the
+                                  # config folder (LR_BENCH_SECS=n per scenario, LR_MAP=name). view/bench.rs, view/perf.rs
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
 cargo run -- --ground out.png     # every ground texture in one picture, plus table vs measured average colours
 cargo run -- --editor             # map editor (also the main menu's "Map editor": the game starts itself with --editor)
@@ -67,7 +70,9 @@ what every player owns), `LR_MOAT=1` (water around the second start: tests trans
 (report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
 distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
-(screenshot of a running game after `secs` of game time, then quit). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per tick and its slowest tick), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
+(screenshot of a running game after `secs` of game time, then quit). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
+windowed game a `profile:` line goes to the log every 30 s: fps, frame / main / render CPU / GPU ms, the costliest view
+systems and sim systems, `view::perf::FrameProfile`), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 
 ### Testing the window without a desktop
 

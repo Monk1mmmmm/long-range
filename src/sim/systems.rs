@@ -62,6 +62,26 @@ impl SimProfile {
         }
         out
     }
+
+    /// One line: time per tick, slowest tick and the `n` systems that took longest (ms per tick).
+    pub fn short(&self, n: usize) -> String {
+        let ticks = self.ticks.max(1) as f64;
+        let sum: f64 = self.total.iter().map(|d| d.as_secs_f64()).sum();
+        let mut rows: Vec<(usize, f64)> = self.total.iter().map(|d| d.as_secs_f64()).enumerate().collect();
+        rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let top: Vec<String> = rows.iter().take(n).map(|(i, t)| format!("{} {:.2}", SYSTEM_NAMES[*i], t * 1000.0 / ticks)).collect();
+        format!("{:.2} ms/tick (slowest {:.1}): {}", sum * 1000.0 / ticks, self.worst_tick.as_secs_f64() * 1000.0, top.join(", "))
+    }
+
+    /// Adds `o` into this one (totals, slowest ticks).
+    pub fn add(&mut self, o: &SimProfile) {
+        for i in 0..SYSTEM_NAMES.len() {
+            self.total[i] += o.total[i];
+            self.worst[i] = self.worst[i].max(o.worst[i]);
+        }
+        self.worst_tick = self.worst_tick.max(o.worst_tick);
+        self.ticks += o.ticks;
+    }
 }
 
 fn mark<const I: usize>(p: Option<ResMut<SimProfile>>) {
