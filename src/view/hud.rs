@@ -3421,7 +3421,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
         text_c(sw * 0.5, TOP + 44.0, tr!("hud_screens.commander_lost"), 20.0, rgba(255, 130, 105, 255));
     }
 
-    replay_bar(&ctx, view, game, sw, sh);
+    // The bar sits on the bottom edge, or above the selection panel (and a factory queue) when one is shown.
+    let panel_top = if units.is_empty() { sh } else if has_queue { sh - PANEL_H - QUEUE_H - 14.0 } else { sh - PANEL_H - 10.0 };
+    replay_bar(&ctx, view, game, sw, panel_top);
 
     let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("top")));
     if view.show_help {
@@ -3512,9 +3514,9 @@ fn round_speed(v: f32) -> f32 {
     ((v / step).round() * step).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
 }
 
-/// Replay controls above the bottom panel: pause, speed, the time line (click or drag to jump),
-/// and whose view to see the game from.
-fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, sh: f32) {
+/// Replay controls at the bottom, right of the minimap, with `bottom` the lowest y they may take:
+/// pause, speed, the time line (click or drag to jump), and whose view to see the game from.
+fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, bottom: f32) {
     let Some(mut bar) = view.replay.take() else { return };
     let clock = |t: u32| {
         let s = t / 10;
@@ -3524,11 +3526,11 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
             format!("{}:{:02}", s / 60, s % 60)
         }
     };
-    let w = 880.0f32.min(sw - 16.0);
-    let y = sh - PANEL_H - QUEUE_H - 64.0;
+    let left = if sw > MM + 420.0 { MM + 18.0 } else { 8.0 };
+    let w = 760.0f32.min(sw - left - 8.0).max(300.0);
     let mut toggle = false;
     let mut vision = view.me;
-    egui::Area::new(egui::Id::new("replay_bar")).fixed_pos(Pos2::new((sw - w) * 0.5, y)).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("replay_bar")).pivot(Align2::LEFT_BOTTOM).fixed_pos(Pos2::new(left, bottom - 8.0)).show(ctx, |ui| {
         egui::Frame::window(ui.style()).fill(rgba(16, 20, 27, 235)).show(ui, |ui| {
             ui.set_width(w - 16.0);
             ui.horizontal(|ui| {
@@ -3539,7 +3541,7 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
                 }
                 // Speed: a slider on a logarithmic scale, x1 in the middle; double-click puts it back to x1.
                 let mut speed = bar.speed;
-                ui.spacing_mut().slider_width = 110.0;
+                ui.spacing_mut().slider_width = 90.0;
                 let r = ui
                     .add(egui::Slider::new(&mut speed, REPLAY_SPEED.0..=REPLAY_SPEED.1).logarithmic(true).custom_formatter(|v, _| format!("x{}", round_speed(v as f32))).custom_parser(|t| t.trim().trim_start_matches(['x', 'X']).parse().ok()))
                     .on_hover_text(tr!("hud_replay.speed_tip"));
@@ -3551,7 +3553,8 @@ fn replay_bar(ctx: &egui::Context, view: &mut ViewState, game: &Game, sw: f32, s
                 let shown = bar.drag.unwrap_or(bar.tick);
                 ui.label(format!("{} / {}", clock(shown.saturating_sub(bar.first)), clock(bar.end.saturating_sub(bar.first))));
                 let mut t = shown;
-                ui.spacing_mut().slider_width = (w - 700.0).max(120.0);
+                // The time line takes what the row has left beside the vision list.
+                ui.spacing_mut().slider_width = (ui.available_width() - 160.0).max(100.0);
                 let r = ui.add(egui::Slider::new(&mut t, bar.first..=bar.end.max(bar.first + 1)).show_value(false));
                 if r.dragged() {
                     bar.drag = Some(t);

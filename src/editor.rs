@@ -1106,7 +1106,8 @@ pub fn run() {
         .insert_resource(defs)
         .init_resource::<ModelCache>()
         .add_systems(Startup, setup)
-        .add_systems(EguiPrimaryContextPass, editor_ui)
+        .insert_resource(crate::settings::Settings::load())
+        .add_systems(EguiPrimaryContextPass, (crate::settings::apply_ui_scale, editor_ui))
         .add_systems(Update, crate::view::terrain::map_edge_sync);
     crate::settings::tolerate_render_errors(&mut app);
     crate::settings::add_window_icon(&mut app);
