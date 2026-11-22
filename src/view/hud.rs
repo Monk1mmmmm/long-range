@@ -360,6 +360,20 @@ impl Frame<'_> {
         units.iter().filter(|u| self.d(u.def).assault > 0.0 && rides_in(self.d(u.def), hd)).map(|u| u.id).collect()
     }
 
+    /// Infantry sent into (or to storm) building `b`; men inside another building step out
+    /// towards it first.
+    fn send_in(&self, b: u32, ids: Vec<u32>, near: V2, shift: bool, out: &mut Vec<Command>) {
+        let (out_of, rest): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| self.infos.get(id).is_some_and(|u| u.host != 0));
+        if !out_of.is_empty() {
+            let at = self.infos.get(&b).map_or(near, |u| u.pos);
+            out.push(Command::Orders { ids: out_of.clone(), orders: vec![Order::Move(at)], queue: shift });
+            out.push(Command::Orders { ids: out_of, orders: vec![Order::Load(b)], queue: true });
+        }
+        if !rest.is_empty() {
+            out.push(Command::Orders { ids: rest, orders: vec![Order::Load(b)], queue: shift });
+        }
+    }
+
     /// A Load circle dragged with infantry selected: every building in it they can garrison
     /// (centre within the circle or its footprint touching it). Own and empty ones are filled,
     /// each man to the nearest one with room left; ones enemy infantry hold are stormed first,
@@ -367,7 +381,9 @@ impl Frame<'_> {
     /// holders' (x `garrison_defense` x 1.5, as the AI does) or the men run out. Stormers left over
     /// join the nearest storm. Men already inside a building in the circle stay where they are.
     /// Returns (building, men, storm) in a fixed order; the men are in id order.
-    fn occupy_area(&self, units: &[&Info], c: V2, r: f32) -> Vec<(u32, Vec<u32>, bool)> {
+    /// `storm_only` (an attack circle): only the buildings enemy infantry hold, nobody is sent
+    /// into own or empty ones.
+    fn occupy_area(&self, units: &[&Info], c: V2, r: f32, storm_only: bool) -> Vec<(u32, Vec<u32>, bool)> {
         struct Target<'d> {
             id: u32,
             pos: V2,
@@ -394,7 +410,7 @@ impl Frame<'_> {
                 }
                 let hold = riders.iter().map(|i| self.d(i.def).assault).sum::<f32>() * self.defs.rules.garrison_defense;
                 targets.push(Target { id: s.id, pos: s.pos, d, room: cap, hold: hold.max(0.01), men: vec![] });
-            } else if self.game.team_of(s.owner) == self.team || s.owner == NEUTRAL {
+            } else if !storm_only && (self.game.team_of(s.owner) == self.team || s.owner == NEUTRAL) {
                 targets.push(Target { id: s.id, pos: s.pos, d, room: cap - used, hold: 0.0, men: vec![] });
             }
         }
@@ -1444,7 +1460,19 @@ pub fn ui_system(mut p: UiParams) -> Result {
                             Some(h) => Order::Attack(seen[h].id),
                             None => Order::AttackGround { pos: start, radius: if radius < 1.5 { 0.0 } else { radius } },
                         };
-                        out.push(Command::Orders { ids: view.sel.clone(), orders: vec![order], queue: shift });
+                        // An attack circle: infantry that can storm take every building in it enemy
+                        // infantry hold (as many men to each as beat its holders, nearest first, the
+                        // rest joining the nearest storm); the others shell the circle evenly.
+                        let mut rest = view.sel.clone();
+                        if radius >= 1.5 {
+                            for (b, ids, _) in fr.occupy_area(&fr.selected(view), start, radius, true) {
+                                rest.retain(|id| !ids.contains(id));
+                                fr.send_in(b, ids, start, shift, out);
+                            }
+                        }
+                        if !rest.is_empty() {
+                            out.push(Command::Orders { ids: rest, orders: vec![order], queue: shift });
+                        }
                     }
                     Mode::Reclaim => {
                         let mut ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).can_assist() || fr.d(u.def).is_scavenger()).map(|u| u.id).collect();
@@ -1509,17 +1537,8 @@ pub fn ui_system(mut p: UiParams) -> Result {
                                 // Infantry occupy (or storm) every building in the circle; transports
                                 // pick up what stands in it.
                                 let men: Vec<&Info> = sel.iter().copied().filter(|u| !carriers.contains(&u.id)).collect();
-                                for (b, ids, _) in fr.occupy_area(&men, start, radius) {
-                                    // Men inside another building step out towards this one first.
-                                    let (out_of, rest): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| fr.infos.get(id).is_some_and(|u| u.host != 0));
-                                    if !out_of.is_empty() {
-                                        let at = fr.infos.get(&b).map_or(start, |u| u.pos);
-                                        out.push(Command::Orders { ids: out_of.clone(), orders: vec![Order::Move(at)], queue: shift });
-                                        out.push(Command::Orders { ids: out_of, orders: vec![Order::Load(b)], queue: true });
-                                    }
-                                    if !rest.is_empty() {
-                                        out.push(Command::Orders { ids: rest, orders: vec![Order::Load(b)], queue: shift });
-                                    }
+                                for (b, ids, _) in fr.occupy_area(&men, start, radius, false) {
+                                    fr.send_in(b, ids, start, shift, out);
                                 }
                                 if !carriers.is_empty() {
                                     out.push(Command::Orders { ids: carriers, orders: vec![Order::LoadArea { pos: start, radius }], queue: shift });
@@ -2167,8 +2186,9 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, a, a.dist(ground).max(least), c);
                     ground_line(g, map, a, ground, c);
                     // Infantry: the buildings they would occupy (blue) or storm (red).
-                    if view.mode == Mode::Load && a.dist(ground) >= 1.5 {
-                        for (b, _, storm) in fr.occupy_area(&selected, a, a.dist(ground)) {
+                    // An attack circle: the buildings the infantry would storm.
+                    if matches!(view.mode, Mode::Load | Mode::GroundAttack) && a.dist(ground) >= 1.5 {
+                        for (b, _, storm) in fr.occupy_area(&selected, a, a.dist(ground), view.mode == Mode::GroundAttack) {
                             if let Some(u) = fr.infos.get(&b) {
                                 let col = if storm { Color::srgba(1.0, 0.35, 0.25, 1.0) } else { c };
                                 ring(g, map, u.pos, fr.d(u.def).footprint.max(1) as f32 * CELL * 0.6, col);
