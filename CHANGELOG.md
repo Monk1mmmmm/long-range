@@ -3,6 +3,24 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.12.9
+
+Performance
+- Late-game lag on maps with towns: working out who sees and who has whom on radar was most of each simulation tick.
+  Radar sight lines between two ends that stay put (radar towers, buildings, parked units) are now worked out once
+  instead of every tick (most of them went to the neutral town buildings), and every unit only looks at the viewers that
+  can reach it. That part of the tick is 40-60% cheaper on the town maps (Ivano-Frankivsk City, Liberec 8 players), with
+  exactly the same results.
+- Bevy's fixed timestep, which nothing in the game uses, no longer runs several times a frame when the frame rate drops.
+
+Tools
+- `longrange --bench [minutes]`: a benchmark. AIs play every slot, the game runs flat out to that minute (25 by default),
+  then the camera goes to the biggest crowd of units and every graphics setting is measured in turn: frame rate, frame
+  time and its slowest 1%, main and render thread time, GPU time per render pass (Vulkan / DX12). The report is written to
+  `bench-*.txt` in the settings folder; the settings themselves are not changed. `LR_MAP=name` benchmarks a premade map.
+- `LR_PROFILE=1` in a game writes a `profile:` line to `longrange.log` every 30 seconds (frame rate, where the frame time
+  goes, the costliest simulation parts); with `--selftest` it now prints the cost of every report interval as well.
+
 ## v0.12.8
 
 The Sudzha duel map now has its river: the Sudzha runs north to south through the town and its winding course, with the

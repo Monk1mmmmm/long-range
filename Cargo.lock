@@ -3823,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "longrange"
-version = "0.12.8"
+version = "0.12.9"
 dependencies = [
  "bevy",
  "bevy_egui",
