@@ -596,7 +596,7 @@
    "icon": {
     "shape": "bot",
     "glyphs": [
-     "chevron"
+     "line"
     ]
    },
    "model": {
@@ -1528,7 +1528,7 @@
    "icon": {
     "shape": "land",
     "glyphs": [
-     "chevron"
+     "line"
     ]
    },
    "model": {

@@ -484,7 +484,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under the body (SupCom style);
   the loader rejects two units with the same icon (playable factions only; map buildings share icons by kind). Shapes: land (diamond), bot, air (triangle), structure
   (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
-  arc = anti-air, chevron = missile, ring = scout, wave = radar, eng (wrench; beside a second glyph it sits on the left), mass (funnel), bolt, store (tray under a
+  arc = anti-air, chevron = missile (anti-air, drones), line = anti-tank missile, ring = scout, wave = radar, eng (wrench; beside a second glyph it sits on the left), mass (funnel), bolt, store (tray under a
   stored resource), cargo (transports), frame, bar, land / tri (outlines of what a factory builds).
 - **Reclaim**: `Order::Reclaim(id)` takes a wreck id or the id of a standing building (ids never collide);
   a building gives `wreck_mass_fraction` of its cost in step with its hit points and leaves no wreck.

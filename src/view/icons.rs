@@ -64,6 +64,8 @@ fn glyph_sd(g: &str, x: f32, y: f32) -> f32 {
             }
         }
         "chevron" => seg(x, y, -0.28, 0.16, 0.0, -0.2).min(seg(x, y, 0.0, -0.2, 0.28, 0.16)) - 0.07,
+        // A horizontal bar across the middle: anti-tank missiles.
+        "line" => seg(x, y, -0.3, 0.0, 0.3, 0.0) - 0.075,
         "wave" => {
             let a = ((x * x + (y - 0.25) * (y - 0.25)).sqrt() - 0.22).abs() - 0.05;
             let b = ((x * x + (y - 0.25) * (y - 0.25)).sqrt() - 0.44).abs() - 0.05;
