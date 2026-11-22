@@ -884,8 +884,15 @@ fn think(
 
         match orders.0.first().copied() {
             None => {
-                if plane && any_air {
-                    if let Some(t) = census.nearest_enemy(pos, team, air_range + 45.0, 0.0, false, true) {
+                // Idle armed planes fight what is around them and follow it (SupCom style): they take
+                // what is within reach plus a margin (bombers ground targets first, so after the
+                // ordered target dies they go on with the army). Ground units stay put.
+                if plane && !df.weapons.is_empty() {
+                    let ground_first = df.weapons.iter().any(|w| w.kind == WeaponKind::Bomb);
+                    let land_t = || if any_land { census.nearest_enemy(pos, team, df.max_range() + 45.0, 0.0, true, false) } else { None };
+                    let air_t = || if any_air { census.nearest_enemy(pos, team, air_range + 45.0, 0.0, false, true) } else { None };
+                    let t = if ground_first { land_t().or_else(air_t) } else { air_t().or_else(land_t) };
+                    if let Some(t) = t {
                         goal = Some(t.pos);
                     }
                 }
