@@ -731,8 +731,9 @@ impl Cen {
 #[derive(Resource, Default)]
 pub struct Census {
     pub list: Vec<Cen>,
-    pub index: HashMap<u32, usize>,
-    grid: HashMap<(i32, i32), Vec<u32>>,
+    /// Only looked up, never iterated: the faster (not keyed) hasher changes nothing.
+    pub index: bevy::platform::collections::HashMap<u32, usize>,
+    grid: bevy::platform::collections::HashMap<(i32, i32), Vec<u32>>,
 }
 
 const GRID: f32 = 16.0;
@@ -741,13 +742,20 @@ impl Census {
     pub fn clear(&mut self) {
         self.list.clear();
         self.index.clear();
-        self.grid.clear();
+        // The cells keep their buffers from tick to tick (clearing them in any order is the same).
+        for v in self.grid.values_mut() {
+            v.clear();
+        }
     }
     pub fn push(&mut self, c: Cen) {
         let i = self.list.len();
         self.index.insert(c.id, i);
         self.grid.entry(((c.pos.x / GRID) as i32, (c.pos.y / GRID) as i32)).or_default().push(i as u32);
         self.list.push(c);
+    }
+    /// Index in `list` of an entry `near` handed out (saves a lookup by id).
+    fn slot(&self, c: &Cen) -> usize {
+        (c as *const Cen as usize - self.list.as_ptr() as usize) / std::mem::size_of::<Cen>()
     }
     pub fn get(&self, id: u32) -> Option<&Cen> {
         if id == 0 {
@@ -793,7 +801,7 @@ impl Census {
         self.near(pos, range, |c| {
             let d2 = (c.pos - pos).len2();
             if d2 >= m2 && self.valid_target(c, team, land, air) {
-                list.push((!preferred(c), c.structure, d2, c.id, self.index[&c.id]));
+                list.push((!preferred(c), c.structure, d2, c.id, self.slot(c)));
             }
         });
         let eng = list.iter().any(|e| self.list[e.4].engineer);
@@ -816,7 +824,7 @@ impl Census {
         self.near(pos, range, |c| {
             let d2 = (c.pos - pos).len2();
             if d2 >= m2 && best.map_or(true, |b| d2 < b.0) && self.valid_target(c, team, land, air) {
-                best = Some((d2, self.index[&c.id]));
+                best = Some((d2, self.slot(c)));
             }
         });
         best.map(|b| &self.list[b.1])
@@ -1113,6 +1121,10 @@ pub struct Ground {
     /// Too many changes to list (or nobody is looking): the view redraws all of the terrain.
     pub touched_all: bool,
     saved: Option<(u64, Arc<Vec<(u32, f32)>>)>,
+    /// The highest the ground has been in each block of `map::TOP_BLOCK` x `TOP_BLOCK` cells (`MapData::top_grid`).
+    /// It only ever rises (a crater does not lower it), so it is never below the ground: `MapData::los_top`
+    /// skips the height samples of a ray that passes above it. Derived from the heights, not part of the state.
+    pub top: Vec<f32>,
 }
 
 fn ground_mix(idx: u32, h: f32) -> u64 {
@@ -1124,7 +1136,7 @@ fn ground_mix(idx: u32, h: f32) -> u64 {
 
 impl Ground {
     pub fn new(map: &MapData) -> Ground {
-        Ground { base: map.heights.clone(), ..default() }
+        Ground { base: map.heights.clone(), top: map.top_grid(), ..default() }
     }
 
     /// Sets one vertex and keeps the passability of the cells around it up to date.
@@ -1144,6 +1156,7 @@ impl Ground {
         }
         map.heights[idx] = h;
         let (x, y) = (idx % (map.n + 1), idx / (map.n + 1));
+        map.raise_top(&mut self.top, x, y, h);
         map.reblock_around(x, y);
         let p = v2(x as f32 * CELL, y as f32 * CELL);
         if self.touched.len() >= 2048 {

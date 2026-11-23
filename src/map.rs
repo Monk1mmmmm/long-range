@@ -246,6 +246,11 @@ pub struct Feature {
     pub scale: f32,
 }
 
+/// Cells per side of a block of `MapData::top_grid`.
+pub const TOP_BLOCK: usize = 8;
+/// Rounding allowance of the bilinear height against a block's highest vertex.
+const TOP_MARGIN: f32 = 0.01;
+
 #[derive(Clone, Serialize, Deserialize, Default, Resource)]
 pub struct MapData {
     pub name: String,
@@ -591,6 +596,87 @@ impl MapData {
             if self.height(p.x, p.z) > p.y {
                 return false;
             }
+        }
+        true
+    }
+
+    /// Highest vertex of every block of `TOP_BLOCK` x `TOP_BLOCK` cells (row by row), for `los_top`.
+    pub fn top_grid(&self) -> Vec<f32> {
+        let b = self.top_side();
+        let mut top = vec![f32::NEG_INFINITY; b * b];
+        for y in 0..=self.n {
+            for x in 0..=self.n {
+                self.raise_top(&mut top, x, y, self.vertex(x, y));
+            }
+        }
+        top
+    }
+    fn top_side(&self) -> usize {
+        self.n.div_ceil(TOP_BLOCK).max(1)
+    }
+    /// Vertex (x, y) at height `h`: raises the blocks of the cells it is a corner of (never lowers).
+    pub fn raise_top(&self, top: &mut [f32], x: usize, y: usize, h: f32) {
+        let b = self.top_side();
+        if top.len() != b * b {
+            return;
+        }
+        let last = self.n.saturating_sub(1);
+        for cy in [y.saturating_sub(1), y.min(last)] {
+            for cx in [x.saturating_sub(1), x.min(last)] {
+                let t = &mut top[(cy / TOP_BLOCK) * b + cx / TOP_BLOCK];
+                if h > *t {
+                    *t = h;
+                }
+            }
+        }
+    }
+    /// `los` with a `top_grid` (that may be higher than the ground, never lower): the same answer,
+    /// but a sample point above its block's highest vertex needs no terrain height. An empty or
+    /// wrong-sized `top` checks every sample.
+    pub fn los_top(&self, a: Vec3, b: Vec3, top: &[f32]) -> bool {
+        let side = self.top_side();
+        if top.len() != side * side {
+            return self.los(a, b);
+        }
+        let d = b - a;
+        let len = Vec2::new(d.x, d.z).length();
+        let steps = (len / CELL).ceil().max(1.0) as i32;
+        let lim = self.n as f32 - 0.001;
+        let at = |i: i32| a + d * (i as f32 / steps as f32);
+        // The block of the cell `height` samples at p (same clamping); bilinear heights never exceed
+        // the cell's corners.
+        let block = |p: Vec3| ((p.z / CELL).clamp(0.0, lim) as usize / TOP_BLOCK) * side + (p.x / CELL).clamp(0.0, lim) as usize / TOP_BLOCK;
+        // Cells per step along x and z, for guessing how many samples stay in a block.
+        let (sx, sz) = (d.x / steps as f32 / CELL, d.z / steps as f32 / CELL);
+        let span = TOP_BLOCK as f32;
+        let mut i = 1;
+        while i < steps {
+            let p = at(i);
+            let b = block(p);
+            let t = top[b] + TOP_MARGIN;
+            if p.y > t {
+                // Samples are evenly spaced on a straight line, so their positions and heights between
+                // two samples lie between those two: when a later sample is still in this block and
+                // still above it, so is every sample before it. The guess only says which sample to try.
+                let to_edge = |f: f32, s: f32| {
+                    let inside = f - (f / span).floor() * span;
+                    if s > 1e-6 { (span - inside) / s } else if s < -1e-6 { inside / -s } else { f32::INFINITY }
+                };
+                let k = to_edge(p.x / CELL, sx).min(to_edge(p.z / CELL, sz)).min((steps - 1 - i) as f32) as i32;
+                if k >= 2 {
+                    let q = at(i + k);
+                    if block(q) == b && q.y > t {
+                        i += k + 1;
+                        continue;
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            if self.height(p.x, p.z) > p.y {
+                return false;
+            }
+            i += 1;
         }
         true
     }
