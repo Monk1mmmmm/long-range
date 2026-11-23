@@ -1311,7 +1311,7 @@ fn eco(b: &mut Brain, rng: &mut Rng, pf: &Profile, reclaim: bool, me: u8, cx: &C
     let home_comp = b.zones[b.home].comp;
     let far_deps = free_deps.iter().any(|d| d.1 != home_comp);
     // Whole wrecks lying in zones we hold: work for scavengers.
-    let wreck_mass: f32 = cx.wrecks.0.iter().filter(|w| w.4 <= 0.0 && w.2 >= 40.0 && b.zones[b.zone_at(w.1)].safe() && b.zones[b.zone_at(w.1)].reachable).map(|w| w.2).sum();
+    let wreck_mass: f32 = cx.wrecks.0.iter().filter(|w| crate::sim::revivable(w, cx.game.tick) && w.2 >= 40.0 && b.zones[b.zone_at(w.1)].safe() && b.zones[b.zone_at(w.1)].reachable).map(|w| w.2).sum();
     let want_eng = (pf.eng + mexes as f32 / 3.0 + free_deps.iter().filter(|d| d.1 == home_comp).count().min(6) as f32 * 0.5).min(pf.eng_max) as u32 + if float_m || p.power < 0.9 { 4 } else { 0 };
     let mut eng_count = engineers;
     let land_mass = role_mass[Role::Tank as usize] + role_mass[Role::Arty as usize] + role_mass[Role::Aa as usize];
@@ -2249,7 +2249,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     // when there is nothing to revive, and wait at the rally zone otherwise
     for m in live.iter().filter(|m| role(m) == Role::Scavenger && m.orders == 0) {
         let ok = |q: V2| b.zones[b.zone_at(q)].safe() && b.zones[b.zone_at(q)].comp == home_comp;
-        let wreck = cx.wrecks.0.iter().filter(|w| w.4 <= 0.0 && w.2 >= 40.0 && ok(w.1)).max_by(|x, y| (x.2 / (40.0 + x.1.dist(m.pos))).total_cmp(&(y.2 / (40.0 + y.1.dist(m.pos)))));
+        let wreck = cx.wrecks.0.iter().filter(|w| crate::sim::revivable(w, cx.game.tick) && w.2 >= 40.0 && ok(w.1)).max_by(|x, y| (x.2 / (40.0 + x.1.dist(m.pos))).total_cmp(&(y.2 / (40.0 + y.1.dist(m.pos)))));
         let scrap = cx.wrecks.0.iter().filter(|w| w.2 >= 10.0 && w.1.dist(m.pos) < 80.0 && ok(w.1)).min_by(|x, y| x.1.dist(m.pos).total_cmp(&y.1.dist(m.pos)));
         match (wreck, scrap) {
             (Some(w), _) => {

@@ -299,6 +299,11 @@ pub struct Wreck {
     /// Debris still falling (`vel` its velocity): not reclaimable or in `WreckList` until it lands.
     pub falling: bool,
     pub vel: V3,
+    /// Game tick before which scavengers may not revive it: the wreck of a revived unit or of
+    /// an unfinished revival site (`rules.revive_cooldown`), so one unit is not brought back
+    /// over and over where it keeps getting killed.
+    #[serde(default)]
+    pub revive_at: u32,
 }
 
 impl Wreck {
@@ -833,9 +838,14 @@ impl Census {
 }
 
 /// Wrecks and landed debris at the start of the tick, for reclaim orders:
-/// (id, position, mass, def, piece size; 0 = a whole wreck).
+/// (id, position, mass, def, piece size; 0 = a whole wreck, tick from which it may be revived).
 #[derive(Resource, Default)]
-pub struct WreckList(pub Vec<(u32, V2, f32, DefId, f32)>);
+pub struct WreckList(pub Vec<(u32, V2, f32, DefId, f32, u32)>);
+
+/// A whole wreck that may be revived at `tick` (not debris, not cooling down after a revival).
+pub fn revivable(w: &(u32, V2, f32, DefId, f32, u32), tick: u32) -> bool {
+    w.4 <= 0.0 && tick >= w.5
+}
 
 /// Effects on other entities are queued and applied by dedicated systems.
 #[derive(Resource, Default)]
