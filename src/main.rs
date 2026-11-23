@@ -4112,19 +4112,22 @@ fn infantry_tests(defs: &Defs) {
     // `from`: how far west of the house the stormers start (6 = at the door, so only the
     // close-quarters fight counts; further out the defenders shoot at them on the way in).
     // `attack`: the stormers get an attack order on the house instead of a load order (they storm it all the same).
-    for (inside, storm, n_in, n_out, from, want_taken, attack) in [
-        ("at_trooper", "trooper", 1, 1, 6.0, Some(true), false),
-        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false),
-        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true), false),
-        ("trooper", "at_trooper", 1, 1, 6.0, Some(false), false),
-        ("trooper", "trooper", 1, 1, 6.0, Some(false), false),
-        ("trooper", "trooper", 1, 2, 6.0, Some(true), false),
-        ("at_trooper", "trooper", 2, 3, 40.0, None, false),
-        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), true),
+    // A field bunker or watch tower the enemy built is held and stormed the same way.
+    for (inside, storm, n_in, n_out, from, want_taken, attack, building) in [
+        ("at_trooper", "trooper", 1, 1, 6.0, Some(true), false, "house"),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false, "house"),
+        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true), false, "house"),
+        ("trooper", "at_trooper", 1, 1, 6.0, Some(false), false, "house"),
+        ("trooper", "trooper", 1, 1, 6.0, Some(false), false, "house"),
+        ("trooper", "trooper", 1, 2, 6.0, Some(true), false, "house"),
+        ("at_trooper", "trooper", 2, 3, 40.0, None, false, "house"),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), true, "house"),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false, "field_bunker"),
+        ("at_trooper", "trooper", 1, 2, 6.0, Some(true), true, "watch_tower"),
     ] {
         let (mut app, map) = world_with(&[]);
         let world = app.world_mut();
-        let house = spawn(world, &map, "house", NEUTRAL, v2(129.0, 129.0), 0.0);
+        let house = spawn(world, &map, building, if building == "house" { NEUTRAL } else { 1 }, v2(129.0, 129.0), 0.0);
         let held: Vec<u32> = (0..n_in).map(|k| spawn(world, &map, inside, 1, v2(140.0, 126.0 + k as f32 * 2.0), 3.14)).collect();
         order(world, 1, held.clone(), Order::Load(house));
         for _ in 0..80 {
@@ -4144,7 +4147,7 @@ fn infantry_tests(defs: &Defs) {
         let ours_in = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
         let hps: Vec<f32> = men.iter().map(|id| hp(world, *id)).collect();
         println!(
-            "== Storm from {from}{}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a house: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
+            "== Storm from {from}{}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a {building}: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
             if attack { " (attack order)" } else { "" },
             owner_of(world, house),
             done_at.map(|t| (t + 1) as f32 / 10.0)
@@ -4158,8 +4161,9 @@ fn infantry_tests(defs: &Defs) {
     }
 
     // 3b2. Infantry capture (lobby option, Cossacks style): troopers take an enemy building over
-    // while no armed enemy stands near it; never a factory or a garrison (house, bunker: those are
-    // stormed or entered), and nothing with the option off. No order is needed: idle troopers and
+    // while no armed enemy stands near it; never a factory or an unarmed garrison (house: entered or
+    // stormed), and nothing with the option off. Turrets are taken too, so is an empty bunker (a held
+    // one is stormed first). No order is needed: idle troopers and
     // troopers on a plain move or attack-move take what they stand near (`how`: 0 Capture order, 1 idle,
     // 2 move past it, 3 attack-move past it).
     for (target, on, guard, how, want) in [
@@ -4174,8 +4178,10 @@ fn infantry_tests(defs: &Defs) {
         ("radar_tower", true, false, 3, true),
         ("land_factory", true, false, 1, false),
         ("house", true, false, 1, false),
-        ("bunker", true, false, 1, false),
-        ("bunker", true, false, 2, false),
+        ("bunker", true, false, 1, true),
+        ("bunker", true, false, 2, true),
+        ("aa_turret", true, false, 0, true),
+        ("gauss_turret", true, false, 1, true),
     ] {
         let (mut app, map) = world_with(&[]);
         let world = app.world_mut();
@@ -4605,6 +4611,23 @@ fn fieldwork_tests(defs: &Defs) {
         let seen = world.query::<(&Unit, &Intel)>().iter(world).find(|(u, _)| u.id == far).map_or(false, |(_, i)| i.seen & 1 != 0);
         println!("== Garrisons: {n_bunker} of 5 troopers in the field bunker, {n_tower} of 3 in the watch tower; a tank at {:.0} (trooper vision {vision:.0}, x{gain} from the tower) is seen: {seen}", vision * (1.0 + gain) * 0.5);
         assert!(n_bunker == 4 && n_tower == 2 && seen, "bunker and watch tower");
+    }
+
+    // 7. Like any building of the map, an empty field bunker the enemy built is nobody's: our
+    // troopers walk in and it is ours while they hold it.
+    {
+        let owner_of = |world: &mut World, id: u32| -> Option<u8> { world.query::<&Unit>().iter(world).find(|u| u.id == id).map(|u| u.owner) };
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let bunker = spawn(world, &map, "field_bunker", 1, v2(130.0, 130.0), 0.0);
+        run(world, 5);
+        let empty_owner = owner_of(world, bunker);
+        let men: Vec<u32> = (0..2).map(|i| spawn(world, &map, "trooper", 0, v2(122.0, 128.0 + i as f32 * 1.5), 0.0)).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: men.clone(), orders: vec![Order::Load(bunker)], queue: false }));
+        run(world, 150);
+        let inside = men.iter().filter(|id| body(world, **id).map_or(false, |x| x.2)).count();
+        println!("== Abandoned field bunker: enemy-built and empty, owner {empty_owner:?}; {inside} of 2 troopers walked in, owner {:?}", owner_of(world, bunker));
+        assert!(empty_owner == Some(NEUTRAL) && inside == 2 && owner_of(world, bunker) == Some(0), "abandoned field bunker");
     }
 }
 

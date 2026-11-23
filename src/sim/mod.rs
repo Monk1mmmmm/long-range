@@ -417,10 +417,12 @@ pub struct Game {
     pub infantry_capture: bool,
 }
 
-/// A building infantry may capture when `Game.infantry_capture` is on: not a factory, a
-/// garrison (those are stormed) or a field work.
+/// A building infantry may capture when `Game.infantry_capture` is on: not a factory or a field
+/// work, and of the garrisons only the military ones - armed (the map's bunkers) or built by a
+/// side (field bunker, watch tower) - once empty (`systems::can_seize`; a held one is stormed
+/// first). Every turret can be taken; houses are entered or stormed instead.
 pub fn seizable(d: &crate::data::UnitDef) -> bool {
-    d.is_structure() && !d.is_factory() && !d.is_garrison() && !d.is_fieldwork()
+    d.is_structure() && !d.is_factory() && !d.is_fieldwork() && (!d.is_garrison() || d.armed() || d.built_by.is_some())
 }
 
 pub const MODE_ANNIHILATION: u8 = 0;
