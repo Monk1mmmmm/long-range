@@ -428,7 +428,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/
-  radar car, T2 Overtaker/Crony/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request). Change `tier` in JSON to move a unit.
+  radar car, T2 Overtaker/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request; the Crony moved to T1 on request). Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
   SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (lattice masts), UC-02R/03R mobile radars
   (radar car mesh with a raised dish / a radome), T3 Swift fast assault transport (tilt-rotor, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (stealth fighter model, stealth 2, own

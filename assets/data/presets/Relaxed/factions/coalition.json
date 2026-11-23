@@ -1419,7 +1419,7 @@
    ],
    "name": "Crony M1",
    "desc": "Main battle tank. Slow turret, heavy armor, 200 damage at range 80.",
-   "tier": 2,
+   "tier": 1,
    "hp": 689,
    "armor": "MediumTank",
    "cost": {
