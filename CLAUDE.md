@@ -571,13 +571,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
   new orders). `--combattest` "Ferry" line: 6 tanks across in 3 trips, then on to their queued goal.
 - **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
-  takes 0.1 of it (`LightTank`, `MediumTank`, `APC`); the other classes take what they take from `Normal` (Light 1,
+  takes 0.1 of it (`LightTank`, `MediumTank`); the other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.
 - **Armoured carriers** (requested; Tavria and Slavuta are ZAZ cars, `built_by` land): T1 Tavria (`apc`: 220 hp
   LightTank, fast 5.8, 4 slots, unarmed), T2 Slavuta (`apc_amph`: 300 hp LightTank, 5.2, 6 slots, amphibious, unarmed),
-  T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `APC` - Normal 0.1, Autocannon 0.5, AP and Explosive 1.0, SmallArms
-  0.1 -, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
-  mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp APC,
+  T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `MediumTank`, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
+  mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp MediumTank,
   reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): it also drives along the
   bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
