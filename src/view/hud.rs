@@ -3584,11 +3584,21 @@ pub fn ui_system(mut p: UiParams) -> Result {
             tr!("hud_help.reclaim_click_a_wreck_tree_rock"),
             tr!("hud_help.a_box_selects_the_army_engineers"),
         ];
-        let (w, h) = (820.0, lines.len() as f32 * 20.0 + 20.0);
+        // Translated lines can be much longer than the English ones: wrap them to the box.
+        let w = (sw - 20.0).clamp(300.0, 1000.0);
+        let galleys: Vec<_> = lines
+            .iter()
+            .enumerate()
+            .map(|(k, l)| top.layout((*l).to_string(), font(13.5), if k == 0 { rgba(255, 230, 130, 255) } else { Color32::WHITE }, w - 28.0))
+            .collect();
+        let h = galleys.iter().map(|g| g.size().y + 4.0).sum::<f32>() + 16.0;
         let r = rect(sw * 0.5 - w * 0.5, TOP + 50.0, w, h);
         top.rect_filled(r, 4.0, rgba(12, 15, 20, 240));
-        for (k, l) in lines.iter().enumerate() {
-            top.text(Pos2::new(r.min.x + 14.0, r.min.y + 10.0 + k as f32 * 20.0), Align2::LEFT_TOP, *l, font(13.5), if k == 0 { rgba(255, 230, 130, 255) } else { Color32::WHITE });
+        let mut y = r.min.y + 10.0;
+        for g in galleys {
+            let gh = g.size().y + 4.0;
+            top.galley(Pos2::new(r.min.x + 14.0, y), g, Color32::WHITE);
+            y += gh;
         }
     }
     if view.menu_open {
