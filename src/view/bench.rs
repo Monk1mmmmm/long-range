@@ -261,7 +261,7 @@ fn finish(bench: &mut Bench) {
             let _ = writeln!(r, "  {:<34}   sim {}", "", sim);
         }
     }
-    let _ = writeln!(r, "\nGPU time of the render passes, ms per frame (Vulkan / DX12 only):");
+    let _ = writeln!(r, "\nGPU time of the render passes, ms per frame (Vulkan; on DirectX 12 only with LR_BENCH_GPU=1):");
     for (name, p, _) in &bench.rows {
         let (_, passes) = p.gpu();
         if passes.is_empty() {

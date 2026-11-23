@@ -38,7 +38,8 @@ cargo run -- --nettest            # loopback netplay: 3 AIs + a predicting clien
                                   # LR_AI=zones,.. AI types, LR_CLIENT_AI=zones an AI plays the client, LR_MAP=name, LR_PLAYERS=3)
 cargo run --release -- --bench [MIN]   # benchmark: AIs play every slot, the game runs flat out to MIN (25), then every graphics
                                   # setting is measured in turn (frame / main / render / GPU per pass); report -> bench-*.txt in the
-                                  # config folder (LR_BENCH_SECS=n per scenario, LR_MAP=name). view/bench.rs, view/perf.rs
+                                  # config folder (LR_BENCH_SECS=n per scenario, LR_MAP=name; GPU pass times are off on DX12, where they
+                                  # lost the device on an RX 5700 XT: LR_BENCH_GPU=1 forces them, or LR_BACKEND=vulkan). view/bench.rs, view/perf.rs
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
 cargo run -- --ground out.png     # every ground texture in one picture, plus table vs measured average colours
 cargo run -- --editor             # map editor (also the main menu's "Map editor": the game starts itself with --editor)

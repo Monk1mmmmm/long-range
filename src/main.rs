@@ -5609,7 +5609,15 @@ fn main() {
     // `--bench [minutes]`: the benchmark (view/bench.rs). LR_PROFILE=1: frame and tick times in the log.
     let bench = args.iter().position(|a| a == "--bench").map(|k| args.get(k + 1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(25.0));
     if bench.is_some() || std::env::var("LR_PROFILE").is_ok() {
-        view::perf::add_profiling(&mut app, true);
+        // GPU time per render pass (timestamp queries). Off on DirectX 12 unless LR_BENCH_GPU=1: an
+        // RX 5700 XT lost the device ("GPU device instance has been suspended") with them on.
+        let dx12 = app.world().resource::<longrange::settings::Settings>().effective_backend() == "dx12";
+        let gpu = match std::env::var("LR_BENCH_GPU").as_deref() {
+            Ok("0") => false,
+            Ok(_) => true,
+            Err(_) => !dx12,
+        };
+        view::perf::add_profiling(&mut app, gpu);
         app.insert_resource(view::perf::FrameProfile::default()).insert_resource(longrange::sim::systems::SimProfile::default());
     }
     if let Some(minutes) = bench {
