@@ -1653,7 +1653,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     Mode::Unload => {
                         let ids: Vec<u32> = fr.selected(view).iter().filter(|u| fr.d(u.def).transport.is_some()).map(|u| u.id).collect();
                         if !ids.is_empty() {
-                            out.push(Command::Orders { ids, orders: vec![Order::Unload { pos: start, radius: radius.max(3.0) }], queue: shift });
+                            out.push(Command::Orders { ids, orders: vec![Order::Unload { pos: start, radius: radius.max(3.0), occupy: radius >= 1.5 }], queue: shift });
                         }
                     }
                     _ => {}
@@ -2152,7 +2152,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, *pos, radius.max(0.6), Color::srgba(0.4, 0.8, 1.0, 0.8));
                     (Some(*pos), Color::srgba(0.4, 0.8, 1.0, 0.8))
                 }
-                Order::Unload { pos, radius } => {
+                Order::Unload { pos, radius, .. } => {
                     ring(g, map, *pos, radius.max(0.6), Color::srgba(1.0, 0.75, 0.3, 0.8));
                     (Some(*pos), Color::srgba(1.0, 0.75, 0.3, 0.8))
                 }

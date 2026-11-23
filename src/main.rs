@@ -3419,7 +3419,7 @@ fn combattest() {
         let riders: Vec<u32> = (0..3).map(|k| spawn(world, &map, "trooper", 0, v2(110.0 + k as f32 * 2.5, 146.0), 0.0)).collect();
         world.flush();
         order(world, vec![stork], Order::LoadArea { pos: v2(105.0, 101.0), radius: 12.0 });
-        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0 }], queue: true }));
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0, occupy: false }], queue: true }));
         order(world, riders.clone(), Order::Load(apc));
         // Orders queued behind boarding are kept for after the ride.
         world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: riders.clone(), orders: vec![Order::Move(v2(166.0, 148.0))], queue: true }));
@@ -3430,7 +3430,7 @@ fn combattest() {
             most = most.max(q.iter(world).filter(|h| h.0 == stork).count());
             in_apc = in_apc.max(q.iter(world).filter(|h| h.0 == apc).count());
             if t == 200 {
-                world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![apc], orders: vec![Order::Unload { pos: v2(150.0, 150.0), radius: 4.0 }], queue: false }));
+                world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![apc], orders: vec![Order::Unload { pos: v2(150.0, 150.0), radius: 4.0, occupy: false }], queue: false }));
             }
         }
         let mut q = world.query::<(&Unit, &Body, Has<Hosted>)>();
@@ -3440,6 +3440,52 @@ fn combattest() {
         let cap = defs.get(defs.id("air_transport").unwrap()).transport.as_ref().map_or(0, |t| t.capacity);
         println!("== Transport aircraft (capacity {cap}, a tank takes 4 slots) offered 10 tanks: carried {most}, set down at the target {moved}, left behind {left}.  APC: {in_apc} of 3 boarded, {out} set down and drove on to their queued goal");
         assert!(most == cap as usize / 4 && moved == most && left == 10 - most && in_apc == 3 && out == 3, "transports");
+    }
+    // 9a. Swift transport plane: scoops up troopers it flies over, then drops them over a dragged circle
+    // without stopping; they fall spread over it and land about 2.5 s later.
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let swift = spawn(world, &map, "fast_transport", 0, v2(60.0, 100.0), 0.0);
+        let men: Vec<u32> = (0..8).map(|k| spawn(world, &map, "trooper", 0, v2(100.0 + (k % 4) as f32 * 1.5, 100.0 + (k / 4) as f32 * 1.5), 0.0)).collect();
+        world.flush();
+        let (target, radius) = (v2(220.0, 100.0), 14.0);
+        let house = spawn(world, &map, "house", NEUTRAL, v2(224.0, 104.0), 0.0);
+        order(world, vec![swift], Order::LoadArea { pos: v2(101.0, 100.7), radius: 10.0 });
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![swift], orders: vec![Order::Unload { pos: target, radius, occupy: true }], queue: true }));
+        let (mut most, mut slowest, mut first_fall, mut landed, mut high) = (0, f32::MAX, None, None, 0.0f32);
+        let mut last = v2(0.0, 0.0);
+        for t in 0..1500u32 {
+            world.run_schedule(SimTick);
+            let mut q = world.query::<&Hosted>();
+            most = most.max(q.iter(world).filter(|h| h.0 == swift).count());
+            let mut q = world.query::<(&Unit, &Body)>();
+            let plane = q.iter(world).find(|(u, _)| u.id == swift).map(|(_, b)| b.pos).unwrap();
+            let mut q = world.query::<(&Unit, &Body, &Mover)>();
+            let falling = q.iter(world).filter(|(u, _, m)| men.contains(&u.id) && m.drop > 0.0).count();
+            if falling > 0 {
+                first_fall.get_or_insert(t);
+                if t > 0 {
+                    slowest = slowest.min(plane.dist(last) / 0.1);
+                }
+                for (u, b, _) in q.iter(world).filter(|(u, _, m)| men.contains(&u.id) && m.drop > 0.0) {
+                    let _ = u;
+                    high = high.max(b.y);
+                }
+            }
+            if first_fall.is_some() && falling == 0 && landed.is_none() {
+                landed = Some(t);
+            }
+            last = plane;
+        }
+        let mut q = world.query::<(&Unit, &Body, Has<Hosted>)>();
+        let spots: Vec<V2> = q.iter(world).filter(|(u, _, h)| men.contains(&u.id) && !h).map(|(_, b, _)| b.pos).collect();
+        let inside = spots.iter().filter(|p| p.dist(target) <= radius + 2.0).count();
+        let in_house = world.query::<&Hosted>().iter(world).filter(|h| h.0 == house).count();
+        let spread = spots.iter().map(|p| p.dist(target)).fold(0.0, f32::max);
+        let secs = landed.zip(first_fall).map_or(0.0, |(l, f)| (l - f) as f32 * 0.1);
+        println!("== Swift airdrop: {most} of 8 scooped up, {inside} landed in the circle and {in_house} walked into the house there (widest {spread:.1} of {radius}), first fall at tick {first_fall:?}, all down {secs:.1} s after, plane never slower than {slowest:.1}, highest rider {high:.1}");
+        assert!(most == 8 && inside + in_house == 8 && in_house > 0 && spread > radius * 0.5 && slowest > 15.0 && (2.0..4.0).contains(&secs) && high > 4.0, "swift airdrop");
     }
     // 9b. Ferry route: a transport shuttles between its beacon and the drop point until everybody
     // waiting at the beacon is across; they then go on with the orders queued behind the ferry.
@@ -4313,7 +4359,7 @@ fn infantry_tests(defs: &Defs) {
         world.query::<(&Unit, &mut Health)>().iter_mut(world).filter(|(u, _)| u.id == tank).for_each(|(_, mut h)| h.0 = -1.0);
         set_hp(world, house, 1.0e6);
         // Out again, to a spot west of the house.
-        order(world, 0, vec![house], Order::Unload { pos: v2(110.0, 129.0), radius: 4.0 });
+        order(world, 0, vec![house], Order::Unload { pos: v2(110.0, 129.0), radius: 4.0, occupy: false });
         for _ in 0..150 {
             world.run_schedule(SimTick);
         }

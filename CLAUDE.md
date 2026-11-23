@@ -432,7 +432,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   radar car, T2 Overtaker/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request; the Crony moved to T1 on request). Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
   SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (lattice masts), UC-02R/03R mobile radars
-  (radar car mesh with a raised dish / a radome), T3 Swift fast assault transport (tilt-rotor, 2x Stork speed, 8 slots like the Stork; moved from T2 on request). T3 Cyclone interceptor (stealth fighter model, stealth 2, own
+  (radar car mesh with a raised dish / a radome), T3 Swift airdrop transport plane (winged cargo plane with turboprops, a real `plane`: 2x Stork speed, 8 slots like the Stork; moved from T2 on request; see **Airdrops**). T3 Cyclone interceptor (stealth fighter model, stealth 2, own
   T3 radar 80 so it finds stealthed aircraft) and T3 Phalanx Railgun Battery (own model, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
   Mobile anti-air beyond the T1 MBFAG (requested; there is no T3 SAM trooper, only the T2 one): T2 Hailstorm
   (`flak_carrier`, Dragoon mesh + twin flak guns, airburst flak bursts, air only) and T3 Skylance (`mobile_sam`, Robin mesh + missile box, own level-2
@@ -596,6 +596,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   when full or when nobody who fits is waiting within `FERRY_PICK` or still coming within `FERRY_COMING`. A waiting
   unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
   new orders). `--combattest` "Ferry" line: 6 tanks across in 3 trips, then on to their queued goal.
+- **Airdrops** (the Swift, `MoveKind::Plane` with a `transport` block; `systems.rs`, `Order::Unload`): a transport plane cannot stop, so
+  it never lands. *Unloading*: it flies at the circle (a click is a circle of 3), and once within `AIRDROP_MARGIN` of it flies straight on
+  through, letting each rider go when it passes over his spot (`drop_spot(id, c, r)`: golden-ratio angle and radius from the id alone, so the
+  spread does not depend on who is already out); riders left when it flies out of the circle are dropped on the next pass. A released rider gets
+  `Mover.drop` (`DROP_SECS` 2.5, snapshotted with the Mover): `locomotion` glides it from the plane to its spot, `drop_h` above the ground at
+  first (`h (1 - t^2)`), and `think` / `weapons` leave it alone until it lands - for gameplay the fall is mostly visual, but he is helpless for
+  2.5 s. *Loading*: it scoops up what it flies within `PLANE_SCOOP` (5) more than a hovering transport would (`Load`, `LoadArea`, ferry beacons: it
+  circles round the beacon). `Unload.occupy` (set by the HUD for a dragged circle, also for APCs and the Stork): the infantry set down get
+  `Order::Load(building)` for the nearest free garrisonable building in the circle (capacity and `may_board` counted), the rest stay spread out.
+  `--combattest` "Swift airdrop" line (scoops 8 troopers, drops them over a circle with a house in it, never slows down, they land 2-4 s later).
 - **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
   takes 0.1 of it (`LightTank`, `MediumTank`); the other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.

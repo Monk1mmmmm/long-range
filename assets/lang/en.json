@@ -334,7 +334,7 @@
     "terraform_lower": "lower",
     "hint_load_units": "LOAD: click a unit, or drag a circle to pick up everything inside",
     "hint_board": "LOAD: click the transport to board (infantry: or a building to occupy, or drag a circle to occupy and storm every building inside)",
-    "hint_unload": "UNLOAD: click or drag a circle; the cargo is set down spread over it",
+    "hint_unload": "UNLOAD: click or drag a circle; the cargo is set down spread over it; with a drag, infantry also go into free buildings in it",
     "hint_ferry": "FERRY: click where to set the cargo down (Shift: add points); units waiting at the beacon where the transports are get carried there, again and again",
     "hint_ferry_wait": "FERRY: click a ferry beacon; the units wait there to be carried and then go on with their next orders",
     "hint_build_deposit": "BUILD {}: click a deposit, or drag a circle to queue every deposit inside",
@@ -543,7 +543,7 @@
     },
     "fast_transport": {
       "name": "Swift",
-      "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries eight land units like it (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed."
+      "desc": "Fast transport plane for airdrops: twice as fast as the Stork and never stops. Unload (K) over a spot or a dragged circle: it flies straight through and the cargo falls spread over it, landing 2-3 s later (a dragged circle also sends infantry into free buildings). Carries eight land units like the Stork (L load: it scoops up units it flies over). Stealth 1: only T2+ radar finds it. Unarmed."
     },
     "delivery_boy": {
       "name": "Delivery Boy",
