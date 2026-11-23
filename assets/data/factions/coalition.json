@@ -35,7 +35,7 @@
     "normal": "models/commander_normal.png",
     "scale": 0.475
    },
-   "portrait": "icons/units/trooper.png",
+   "portrait": "icons/units/commander.png",
    "move": {
     "kind": "land",
     "speed": 2.4,
@@ -116,6 +116,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/engineer.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -169,6 +170,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/scavenger.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -218,6 +220,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/apc.png",
    "built_by": "land",
    "select_sound": "select_vehicle",
    "move": {
@@ -266,6 +269,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/apc_amph.png",
    "built_by": "land",
    "select_sound": "select_vehicle",
    "move": {
@@ -316,6 +320,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/apc_heavy.png",
    "built_by": "land",
    "select_sound": "select_vehicle",
    "weapons": [
@@ -394,6 +399,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/apc_heavy3.png",
    "built_by": "land",
    "select_sound": "select_vehicle",
    "weapons": [
@@ -606,7 +612,7 @@
     "normal": "models/at_trooper_normal.png",
     "scale": 0.1562
    },
-   "portrait": "icons/units/trooper.png",
+   "portrait": "icons/units/at_trooper.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -681,7 +687,7 @@
     "normal": "models/sniper_trooper_normal.png",
     "scale": 0.1562
    },
-   "portrait": "icons/units/trooper.png",
+   "portrait": "icons/units/sniper_trooper.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -755,7 +761,7 @@
     "normal": "models/sam_trooper_normal.png",
     "scale": 0.1562
    },
-   "portrait": "icons/units/trooper.png",
+   "portrait": "icons/units/sam_trooper.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1082,7 +1088,7 @@
     "normal": "models/flak_carrier_normal.png",
     "scale": 0.175
    },
-   "portrait": "icons/units/dragoon.png",
+   "portrait": "icons/units/flak_carrier.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1154,7 +1160,7 @@
     "normal": "models/mobile_sam_normal.png",
     "scale": 0.175
    },
-   "portrait": "icons/units/robin.png",
+   "portrait": "icons/units/mobile_sam.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1275,7 +1281,7 @@
     "normal": "models/radar_car2_normal.png",
     "scale": 0.375
    },
-   "portrait": "icons/units/radar_car.png",
+   "portrait": "icons/units/radar_car2.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1323,7 +1329,7 @@
     "normal": "models/radar_car3_normal.png",
     "scale": 0.4375
    },
-   "portrait": "icons/units/radar_car.png",
+   "portrait": "icons/units/radar_car3.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1603,6 +1609,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/sparky.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1679,6 +1686,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/engineer2.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1805,7 +1813,7 @@
     "normal": "models/bastion_normal.png",
     "scale": 0.1925
    },
-   "portrait": "icons/units/crony.png",
+   "portrait": "icons/units/bastion.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1898,6 +1906,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/engineer3.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1957,6 +1966,7 @@
      }
     ]
    },
+   "portrait": "icons/units/air_scout.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -1997,6 +2007,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/interceptor.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -2052,6 +2063,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/interceptor3.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -2126,6 +2138,7 @@
      }
     ]
    },
+   "portrait": "icons/units/bomber.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -2185,6 +2198,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/fighter_bomber.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -2269,6 +2283,7 @@
      }
     ]
    },
+   "portrait": "icons/units/gunship.png",
    "built_by": "air",
    "move": {
     "kind": "hover",
@@ -2342,6 +2357,7 @@
      }
     ]
    },
+   "portrait": "icons/units/dove.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -2412,6 +2428,7 @@
      }
     ]
    },
+   "portrait": "icons/units/air_transport.png",
    "built_by": "air",
    "move": {
     "kind": "hover",
@@ -2471,6 +2488,7 @@
      }
     ]
    },
+   "portrait": "icons/units/fast_transport.png",
    "built_by": "air",
    "move": {
     "kind": "hover",
@@ -2582,6 +2600,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/pump.png",
    "footprint": 1,
    "built_by": "structure",
    "eco": {
@@ -2628,6 +2647,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/pump2.png",
    "footprint": 1,
    "built_by": "structure",
    "eco": {
@@ -2674,6 +2694,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/pump3.png",
    "footprint": 1,
    "built_by": "structure",
    "eco": {
@@ -2762,6 +2783,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/power_plant.png",
    "footprint": 3,
    "built_by": "structure",
    "eco": {
@@ -2843,6 +2865,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/energy_storage.png",
    "footprint": 1,
    "built_by": "structure",
    "eco": {
@@ -2886,6 +2909,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/mass_storage.png",
    "footprint": 1,
    "built_by": "structure",
    "eco": {
@@ -2923,6 +2947,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/land_factory.png",
    "footprint": 4,
    "built_by": "structure",
    "vision": 20,
@@ -2970,6 +2995,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/land_factory2.png",
    "footprint": 4,
    "built_by": "structure",
    "vision": 20,
@@ -3017,6 +3043,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/land_factory3.png",
    "footprint": 4,
    "built_by": "structure",
    "vision": 20,
@@ -3070,6 +3097,7 @@
      }
     ]
    },
+   "portrait": "icons/units/air_factory.png",
    "footprint": 4,
    "built_by": "structure",
    "vision": 20,
@@ -3124,6 +3152,7 @@
      }
     ]
    },
+   "portrait": "icons/units/air_factory2.png",
    "footprint": 4,
    "built_by": "structure",
    "vision": 20,
@@ -3171,6 +3200,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/air_factory3.png",
    "footprint": 4,
    "built_by": "structure",
    "vision": 20,
@@ -3334,6 +3364,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/aa_turret.png",
    "footprint": 1,
    "built_by": "structure",
    "vision": 24,
@@ -3398,6 +3429,7 @@
      }
     ]
    },
+   "portrait": "icons/units/sam.png",
    "footprint": 2,
    "built_by": "structure",
    "vision": 24,
@@ -3472,6 +3504,7 @@
      }
     ]
    },
+   "portrait": "icons/units/aa_turret3.png",
    "footprint": 2,
    "built_by": "structure",
    "vision": 26,
@@ -3543,6 +3576,7 @@
      }
     ]
    },
+   "portrait": "icons/units/radar_tower.png",
    "footprint": 1,
    "built_by": "structure",
    "vision": 20,
@@ -3601,6 +3635,7 @@
      }
     ]
    },
+   "portrait": "icons/units/radar_tower2.png",
    "footprint": 1,
    "built_by": "structure",
    "vision": 22,
@@ -3665,6 +3700,7 @@
      }
     ]
    },
+   "portrait": "icons/units/radar_tower3.png",
    "footprint": 1,
    "built_by": "structure",
    "vision": 24,
@@ -3712,6 +3748,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/eng_station.png",
    "footprint": 1,
    "built_by": "structure",
    "vision": 15,
@@ -3818,6 +3855,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/sandbags.png",
    "built_by": "field",
    "vision": 0
   },
@@ -3858,6 +3896,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/trench.png",
    "built_by": "field",
    "vision": 0
   },
@@ -3896,6 +3935,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/field_bunker.png",
    "built_by": "field",
    "vision": 20
   },
@@ -3936,6 +3976,7 @@
     "scale": 1,
     "brightness": 1.0
    },
+   "portrait": "icons/units/watch_tower.png",
    "built_by": "field",
    "vision": 35
   }
