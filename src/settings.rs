@@ -176,6 +176,9 @@ pub fn render_plugin(s: &Settings) -> bevy::render::RenderPlugin {
         // "auto": whatever wgpu prefers (WGPU_BACKEND is honoured by `WgpuSettings::default`).
         _ => {}
     }
+    // Pipeline statistics queries: nothing needs them, but Bevy's render diagnostics (`--bench`,
+    // LR_PROFILE=1) use them when present, and they are the least tested query kind on DX12 drivers.
+    w.disabled_features = Some(w.disabled_features.unwrap_or_default() | bevy::render::settings::WgpuFeatures::PIPELINE_STATISTICS_QUERY);
     // DX12 shader compiler. MSVC builds have DXC linked in (Bevy selects it). Other Windows builds
     // (MinGW cross build) look for dxcompiler.dll next to the executable: Bevy only checks the
     // current directory, and falls back to FXC, with which the 3D view stays black.
