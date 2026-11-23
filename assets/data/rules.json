@@ -78,13 +78,6 @@
     "SmallArms"
   ],
   "armor": {
-    "APC": {
-      "Normal": 0.1,
-      "Autocannon": 0.5,
-      "AP": 1.0,
-      "Explosive": 1.0,
-      "SmallArms": 0.1
-    },
     "Light": {
       "Normal": 1.0,
       "Autocannon": 1.0,
