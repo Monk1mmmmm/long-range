@@ -1188,7 +1188,15 @@ fn session_frame(world: &mut World) {
                     v.paused = s.paused;
                 }
                 // LR_SPEED=4 fast-forwards a hosted game (testing, watching AIs).
-                let speed = std::env::var("LR_SPEED").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).clamp(0.1, 20.0);
+                let mut speed = std::env::var("LR_SPEED").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).clamp(0.1, 20.0);
+                // A game of AIs only: the host sets the speed in the HUD.
+                let ai_only = world.resource::<Game>().players.iter().all(|p| p.is_ai);
+                if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+                    v.host_speed_ui = ai_only;
+                    if ai_only {
+                        speed *= v.host_speed;
+                    }
+                }
                 let dt = world.resource::<Time>().delta_secs().min(0.25);
                 s.acc += dt * speed;
                 if s.paused.is_some() {
@@ -1260,6 +1268,9 @@ fn session_frame(world: &mut World) {
                 s.held = cmds;
             }
             Role::Client { client, sim, heard, rejoin, skip } => {
+                if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+                    v.host_speed_ui = false;
+                }
                 let dt = world.resource::<Time>().delta_secs().min(0.25);
                 let mut lost = false;
                 let mut note = None;
