@@ -264,7 +264,7 @@ fn apply_commands(
                             *pos = map.clamp(*pos);
                             *radius = radius.clamp(1.0, 24.0);
                         }
-                        Order::LoadArea { pos, radius } | Order::Unload { pos, radius } => {
+                        Order::LoadArea { pos, radius } | Order::Unload { pos, radius, .. } => {
                             if df.transport.is_none() || !radius.is_finite() {
                                 continue;
                             }
@@ -1444,7 +1444,7 @@ fn think(
                     (false, None) => {
                         pop = true;
                         if aboard {
-                            push_front = Some(Order::Unload { pos: c, radius: FERRY_DROP });
+                            push_front = Some(Order::Unload { pos: c, radius: FERRY_DROP, occupy: false });
                         }
                     }
                     (true, Some(_)) => {
@@ -1499,7 +1499,7 @@ fn think(
                         pop = true;
                         rotate = true;
                         if aboard {
-                            push_front = Some(Order::Unload { pos: c, radius: FERRY_DROP });
+                            push_front = Some(Order::Unload { pos: c, radius: FERRY_DROP, occupy: false });
                         }
                     }
                 }
@@ -1541,7 +1541,7 @@ fn think(
                     }
                 }
             }
-            Some(Order::Unload { pos: c, radius }) => {
+            Some(Order::Unload { pos: c, radius, occupy }) => {
                 // A ground transport cannot stop on a cliff or a building: the nearest free spot will do.
                 let mut c = c;
                 if !df.is_air() && nav.at(&map, c) != 0 {
@@ -1571,6 +1571,18 @@ fn think(
                 } else {
                     // Everybody out, spread over the circle (a spiral from the middle).
                     let n = cargo.len() as f32;
+                    // A dragged circle: infantry go on into the free buildings in it (the nearest to where they
+                    // are set down, while there is room); the rest just stand spread out.
+                    let mut room_left: Vec<(u32, V2, i32)> = vec![];
+                    if occupy {
+                        for b in census.list.iter().filter(|b| b.structure && b.done && !b.hosted && b.hp > 0.0 && b.host != id && defs.get(b.def).is_garrison() && c.dist(b.pos) <= radius + b.radius) {
+                            let Some(tr) = &defs.get(b.def).transport else { continue };
+                            let used: i32 = census.list.iter().filter(|r| r.host == b.id && r.hp > 0.0).map(|r| defs.get(r.def).cargo as i32).sum();
+                            room_left.push((b.id, b.pos, tr.capacity as i32 - used));
+                        }
+                        room_left.sort_by_key(|r| r.0);
+                    }
+                    let mut enter: Vec<(u32, u32)> = vec![];
                     for (k, t) in cargo.iter().enumerate() {
                         let mut p = map.clamp(c + V2::from_angle(k as f32 * 2.4) * (radius.max(1.5) * ((k as f32 + 0.5) / n).sqrt()));
                         if nav.at(&map, p) != 0 {
@@ -1581,6 +1593,20 @@ fn think(
                         }
                         // Their own orders stay: what they were told to do before or while riding.
                         commands.entity(t.e).try_remove::<Hosted>().try_insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
+                        let td = defs.get(t.def);
+                        if occupy && td.is_infantry() && carriable(td) {
+                            let best = room_left.iter_mut().filter(|r| r.2 >= td.cargo as i32 && census.get(r.0).is_some_and(|b| may_board(&defs, &census, td, b, team))).min_by(|a, b| a.1.dist(p).total_cmp(&b.1.dist(p)).then(a.0.cmp(&b.0)));
+                            if let Some(r) = best {
+                                r.2 -= td.cargo as i32;
+                                enter.push((t.id, r.0));
+                            }
+                        }
+                    }
+                    // Those with a building go to it (their queued orders give way); the others stay where they stand.
+                    for (rid, bid) in enter {
+                        if let Some(t) = census.get(rid) {
+                            commands.entity(t.e).try_insert(Orders(vec![Order::Load(bid)]));
+                        }
                     }
                     pop = true;
                 }

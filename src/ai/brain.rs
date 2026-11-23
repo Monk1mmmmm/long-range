@@ -1854,7 +1854,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                 for (id, _) in load.iter().skip(1) {
                     then.push((t.id, Order::Load(*id)));
                 }
-                then.push((t.id, Order::Unload { pos: drop, radius: 6.0 }));
+                then.push((t.id, Order::Unload { pos: drop, radius: 6.0, occupy: false }));
                 then.push((t.id, Order::Move(rally)));
                 carriers.push(t.id);
                 for (id, h) in load {
@@ -1930,7 +1930,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         let z = &b.zones[b.zone_at(c.pos)];
         let keep = b.held.contains_key(&c.id) || enemy_near(c.pos, 45.0) > 0.0 || shelled(c.pos) > 0.0;
         if !keep && !near_front(c.pos) && !(attacking && c.pos.dist(step) < 70.0) && tick.saturating_sub(z.alert) > 1200 && tick % 100 < 10 {
-            out.push(Command::Orders { ids: vec![c.id], orders: vec![Order::Unload { pos: c.pos + (rally - c.pos).norm() * 6.0, radius: 3.0 }], queue: false });
+            out.push(Command::Orders { ids: vec![c.id], orders: vec![Order::Unload { pos: c.pos + (rally - c.pos).norm() * 6.0, radius: 3.0, occupy: false }], queue: false });
         }
     }
     b.stats[2] = housed;
@@ -2282,7 +2282,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         }
         if aboard {
             // Something went wrong on the way: bring them home.
-            orders.insert(t.id, Order::Unload { pos: rally, radius: 8.0 });
+            orders.insert(t.id, Order::Unload { pos: rally, radius: 8.0, occupy: false });
             continue;
         }
         let cap = defs.get(t.def).transport.as_ref().map_or(0, |c| c.capacity as i32);
@@ -2351,7 +2351,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                 for id in who.iter().skip(1) {
                     then.push((t.id, Order::Load(*id)));
                 }
-                then.push((t.id, Order::Unload { pos: to, radius: 8.0 }));
+                then.push((t.id, Order::Unload { pos: to, radius: 8.0, occupy: false }));
                 then.push((t.id, Order::Move(rally)));
                 b.stats[1] += 1;
                 for id in who {
@@ -2439,7 +2439,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             continue;
         }
         if aboard {
-            orders.insert(t.id, Order::Unload { pos: fwd_drop.unwrap_or(rally), radius: 6.0 });
+            orders.insert(t.id, Order::Unload { pos: fwd_drop.unwrap_or(rally), radius: 6.0, occupy: false });
             then.push((t.id, Order::Move(rally)));
             continue;
         }
@@ -2462,7 +2462,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             for id in who.iter().skip(1) {
                 then.push((t.id, Order::Load(*id)));
             }
-            then.push((t.id, Order::Unload { pos: fwd_drop.unwrap(), radius: 6.0 }));
+            then.push((t.id, Order::Unload { pos: fwd_drop.unwrap(), radius: 6.0, occupy: false }));
             then.push((t.id, Order::Move(rally)));
             b.acts[3] += 1;
             for id in who {
@@ -2531,7 +2531,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         for (id, _) in who.iter().skip(1) {
             then.push((t.id, Order::Load(*id)));
         }
-        then.push((t.id, Order::Unload { pos: drop, radius: 6.0 }));
+        then.push((t.id, Order::Unload { pos: drop, radius: 6.0, occupy: false }));
         then.push((t.id, Order::Move(rally)));
         b.acts[3] += 1;
         for (id, o) in who {

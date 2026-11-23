@@ -55,8 +55,10 @@ pub enum Order {
     Load(u32),
     /// Transports: pick up own units inside the circle until full.
     LoadArea { pos: V2, radius: f32 },
-    /// Transports: set the cargo down spread over the circle.
-    Unload { pos: V2, radius: f32 },
+    /// Transports: set the cargo down spread over the circle. With `occupy` (a dragged circle) the
+    /// infantry set down are sent into the free garrisonable buildings in it, nearest first; the
+    /// rest, or all of them where there are none, stay spread over the circle.
+    Unload { pos: V2, radius: f32, occupy: bool },
     /// Ferry route (SupCom). For a transport, one point of a route it flies round and round, like a
     /// patrol: at the `pick` point (the beacon) it loads own units waiting there, at the point before
     /// it on the loop it sets them down, the points between are waypoints. For any other unit: go to

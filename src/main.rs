@@ -3419,7 +3419,7 @@ fn combattest() {
         let riders: Vec<u32> = (0..3).map(|k| spawn(world, &map, "trooper", 0, v2(110.0 + k as f32 * 2.5, 146.0), 0.0)).collect();
         world.flush();
         order(world, vec![stork], Order::LoadArea { pos: v2(105.0, 101.0), radius: 12.0 });
-        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0 }], queue: true }));
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![stork], orders: vec![Order::Unload { pos: v2(220.0, 220.0), radius: 6.0, occupy: false }], queue: true }));
         order(world, riders.clone(), Order::Load(apc));
         // Orders queued behind boarding are kept for after the ride.
         world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: riders.clone(), orders: vec![Order::Move(v2(166.0, 148.0))], queue: true }));
@@ -3430,7 +3430,7 @@ fn combattest() {
             most = most.max(q.iter(world).filter(|h| h.0 == stork).count());
             in_apc = in_apc.max(q.iter(world).filter(|h| h.0 == apc).count());
             if t == 200 {
-                world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![apc], orders: vec![Order::Unload { pos: v2(150.0, 150.0), radius: 4.0 }], queue: false }));
+                world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![apc], orders: vec![Order::Unload { pos: v2(150.0, 150.0), radius: 4.0, occupy: false }], queue: false }));
             }
         }
         let mut q = world.query::<(&Unit, &Body, Has<Hosted>)>();
@@ -4313,7 +4313,7 @@ fn infantry_tests(defs: &Defs) {
         world.query::<(&Unit, &mut Health)>().iter_mut(world).filter(|(u, _)| u.id == tank).for_each(|(_, mut h)| h.0 = -1.0);
         set_hp(world, house, 1.0e6);
         // Out again, to a spot west of the house.
-        order(world, 0, vec![house], Order::Unload { pos: v2(110.0, 129.0), radius: 4.0 });
+        order(world, 0, vec![house], Order::Unload { pos: v2(110.0, 129.0), radius: 4.0, occupy: false });
         for _ in 0..150 {
             world.run_schedule(SimTick);
         }
