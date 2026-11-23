@@ -183,7 +183,7 @@ fn census_build(
     }
     wrecks.0.clear();
     // Falling debris cannot be reclaimed, hit or hidden behind until it lands.
-    wrecks.0.extend(wq.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.def, w.piece)));
+    wrecks.0.extend(wq.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.def, w.piece, w.revive_at)));
     wrecks.0.sort_by_key(|w| w.0);
 }
 
@@ -1247,7 +1247,7 @@ fn think(
                 }
                 _ => pop = true,
             },
-            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid && w.4 <= 0.0).copied() {
+            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid && revivable(w, game.tick)).copied() {
                 Some(w) if df.is_scavenger() => {
                     let wd = defs.get(w.3);
                     if let Some(done) = effects.revived.iter().find(|r| r.0 == wid) {
@@ -1275,7 +1275,7 @@ fn think(
                 let best = wrecks
                     .0
                     .iter()
-                    .filter(|w| w.4 <= 0.0 && w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
+                    .filter(|w| revivable(w, game.tick) && w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
                     .filter(|w| !defs.get(w.3).is_structure() || can_place(&defs, &map, &nav.occ, w.3, w.1))
                     .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
                     .copied();
@@ -1776,7 +1776,7 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
         }
     });
     if rules.wreck_cover > 0.05 {
-        for &(_, wp, mass, wd, piece) in &wrecks.0 {
+        for &(_, wp, mass, wd, piece, _) in &wrecks.0 {
             // Debris too small to hide behind does not count.
             if mass > 0.0 && wp.dist(anchor) <= search + 3.0 && (piece <= 0.0 || piece >= rules.debris.sight_size) {
                 let (r, top) = Wreck::shape(defs, wd, piece);
@@ -1878,7 +1878,7 @@ fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q:
 /// Turns a wreck into a construction site of `owner` that already holds the wreck's mass;
 /// finishing it costs the rest, like any building work. Returns the new unit's id.
 #[allow(clippy::too_many_arguments)]
-fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId, f32), owner: u8) -> u32 {
+fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId, f32, u32), owner: u8) -> u32 {
     let wd = defs.get(w.3);
     let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
     let sid = spawn_site(commands, defs, game, map, w.3, owner, w.1, PI * 0.5, Some(built), 0, w.0);
@@ -2103,7 +2103,8 @@ fn build_progress(
             uc.0 += prog;
             h.0 = (h.0 + prog * max_hp).min(max_hp);
             if uc.0 >= 0.9999 {
-                commands.entity(te).remove::<(UnderConstruction, Revival)>();
+                // `Revival` stays: its wreck, should it die, cannot be revived again at once.
+                commands.entity(te).remove::<UnderConstruction>();
                 // Marked complete right away so later contributions in this tick see it.
                 uc.0 = 2.0;
                 // Field works (sandbags, trenches) belong to nobody once built: cover for every side.
@@ -3241,7 +3242,7 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
     if rules.wreck_cover > 0.0 {
         let (lo, hi) = (flat(a), flat(b));
         let (x0, x1, z0, z1) = (lo.x.min(hi.x) - 4.0, lo.x.max(hi.x) + 4.0, lo.y.min(hi.y) - 4.0, lo.y.max(hi.y) + 4.0);
-        for &(id, pos, mass, def, piece) in &wrecks.0 {
+        for &(id, pos, mass, def, piece, _) in &wrecks.0 {
             if mass <= 0.0 || pos.x < x0 || pos.x > x1 || pos.y < z0 || pos.y > z1 {
                 continue;
             }
@@ -3347,7 +3348,7 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
     for (i, left) in hit {
         features.set_left(i, left);
     }
-    for &(id, pos, mass, def, piece) in &wrecks.0 {
+    for &(id, pos, mass, def, piece, _) in &wrecks.0 {
         let d = defs.get(def);
         let (r, h) = Wreck::shape(defs, def, piece);
         let horiz = (pos.dist(centre) - r).max(0.0);
@@ -3575,7 +3576,7 @@ fn apply_capture(
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn deaths(
-    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>, Option<&Shed>)>,
+    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>, Option<&Shed>, Has<Revival>)>,
     mut wrecks: Query<(Entity, &mut Wreck)>,
     (mut features, wreck_list): (ResMut<Features>, Res<WreckList>),
     census: Res<Census>,
@@ -3597,7 +3598,7 @@ fn deaths(
     let mut riders_hit: Vec<(u32, f32, usize)> = vec![];
     for (id, dmg, dtype) in effects.damage.drain(..) {
         let Some(c) = census.get(id) else { continue };
-        let Ok((e, u, b, mut h, uc, hosted, shed)) = q.get_mut(c.e) else { continue };
+        let Ok((e, u, b, mut h, uc, hosted, shed, _)) = q.get_mut(c.e) else { continue };
         let d = defs.get(u.def);
         let real = dmg * defs.armor_mult(dtype, d.armor_id);
         let standing = h.0 > 0.0;
@@ -3638,7 +3639,9 @@ fn deaths(
     let mut blasts: Vec<(V2, f32, f32, f32, u8)> = vec![];
     let mut new_wrecks = 0;
     let reclaimed = std::mem::take(&mut effects.reclaimed);
-    for (e, u, b, mut h, uc, hosted, shed) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, mut h, uc, hosted, shed, revived) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        // A revived unit (or revival site) leaves a wreck that must cool down before it is revived again.
+        let revive_at = if revived { tick + (defs.rules.revive_cooldown / DT).round() as u32 } else { 0 };
         let d = defs.get(u.def);
         let player_dead = game.players.get(u.owner as usize).map_or(false, |p| !p.alive);
         if player_dead && (u.id + tick) % 6 == 0 {
@@ -3686,7 +3689,7 @@ fn deaths(
         if uc.is_some() {
             if d.wreck && defs.rules.wrecks && !d.is_air() && invested * defs.rules.wreck_mass_fraction >= 5.0 {
                 let id = game.alloc();
-                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw, ..default() });
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw, revive_at, ..default() });
                 new_wrecks += 1;
             }
             continue;
@@ -3712,7 +3715,7 @@ fn deaths(
             }
             if mass >= 5.0 {
                 let id = game.alloc();
-                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass, pos: b.pos, y: b.y, yaw: b.yaw, ..default() });
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass, pos: b.pos, y: b.y, yaw: b.yaw, revive_at, ..default() });
                 new_wrecks += 1;
             }
         }
@@ -3779,7 +3782,7 @@ fn drop_debris(commands: &mut Commands, game: &mut Game, rng: &mut Rng, d: &crat
         let yaw = rng.range(-PI, PI);
         // Bigger for heavier pieces and bigger buildings.
         let piece = (0.2 + 0.1 * m.sqrt() + 0.07 * r).min(2.5);
-        spawn_wreck(commands, Wreck { id, def, mass: m, pos: start, y, yaw, piece, falling: true, vel: Vec3::new(dir.x * out, up, dir.y * out).into() });
+        spawn_wreck(commands, Wreck { id, def, mass: m, pos: start, y, yaw, piece, falling: true, vel: Vec3::new(dir.x * out, up, dir.y * out).into(), revive_at: 0 });
     }
     n as usize
 }

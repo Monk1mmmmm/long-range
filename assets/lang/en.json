@@ -990,6 +990,8 @@
     "wrecks_max_wrecks_tip": "At most this many wrecks lie on the map at once; the oldest disappear first.",
     "wrecks_wreck_hp": "Wreck hit points",
     "wrecks_wreck_hp_tip": "A wreck's hit points as a share of the unit's. Shells and blasts wear wrecks down; the mass goes with the hit points.",
+    "wrecks_revive_cooldown": "Revive cooldown",
+    "wrecks_revive_cooldown_tip": "Seconds before the wreck of a revived unit, or of a revival site destroyed unfinished, can be revived again.",
     "wrecks_wreck_cover": "Wreck cover",
     "wrecks_wreck_cover_tip": "Share of a shot's damage a wreck soaks up when the shot passes through it.",
     "cover_grace": "Cover grace distance",

@@ -180,6 +180,9 @@ impl Default for DebrisRules {
 fn wreck_hp() -> f32 {
     0.5
 }
+fn revive_cooldown() -> f32 {
+    60.0
+}
 fn trunk_color() -> [f32; 3] {
     [0.33, 0.24, 0.16]
 }
@@ -308,6 +311,9 @@ pub struct Rules {
     /// A wreck's hit points as a share of the unit's (weapons wear wrecks down).
     #[serde(default = "wreck_hp")]
     pub wreck_hp: f32,
+    /// Seconds before the wreck of a revived unit (or of an unfinished revival site) can be revived again.
+    #[serde(default = "revive_cooldown")]
+    pub revive_cooldown: f32,
     /// Buildings dropping pieces of debris when hit hard or destroyed.
     #[serde(default)]
     pub debris: DebrisRules,

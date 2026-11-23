@@ -502,7 +502,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Scavengers take `Assist`: on a revival site, or on a scavenger/engineer to revive or reclaim what it works on
   (any assister reclaims the tree/rock/wreck the assisted unit reclaims). On `ReclaimArea` / `ReviveArea` a target
   the side already works on (or an own unfinished revival in the circle) counts `systems::TEAMWORK` (12) nearer,
-  so a group works together; a `Revive` whose wreck a teammate already revived helps build that site. While a
+  so a group works together; a `Revive` whose wreck a teammate already revived helps build that site. A revived unit keeps `Revival` when finished; its wreck, or that of a revival site killed unfinished,
+  cannot be revived for `rules.revive_cooldown` (60 s, `Wreck.revive_at`, `sim::revivable`), so scavengers do not bring the same
+  unit back over and over where it keeps dying (`ReclaimArea` still takes it). While a
   reclaim or revive order is being given, the HUD shows what the circle (or the thing under the pointer) yields or costs.
 - **Trees and rocks** (map "features"): types in `rules.json: features` (class tree/rock, shape, mass,
   energy, size, weight); a map holds `feature_kinds` + `features` (saved as one line each, "kind x z yaw
