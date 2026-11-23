@@ -4340,6 +4340,28 @@ fn infantry_tests(defs: &Defs) {
         assert!(out == cap && freed == Some(NEUTRAL) && again == cap && thrown.len() == cap && thrown.iter().all(|h| *h > 0.0 && *h < full * 0.7), "garrison exit");
     }
 
+    // 3c. AT Troopers (weapon `hold`) fire from inside a building: the set-up hold must not be blocked
+    // by the speed and goal they had when they walked in.
+    {
+        let (mut app, map) = world_with(&[]);
+        let world = app.world_mut();
+        let house = spawn(world, &map, "house", NEUTRAL, v2(129.0, 129.0), 0.0);
+        let men: Vec<u32> = (0..2).map(|k| spawn(world, &map, "at_trooper", 0, v2(110.0, 124.0 + k as f32 * 3.0), 0.0)).collect();
+        order(world, 0, men.clone(), Order::Load(house));
+        for _ in 0..200 {
+            world.run_schedule(SimTick);
+        }
+        let inside = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
+        let tank = spawn(world, &map, "overtaker", 1, v2(150.0, 129.0), 3.14);
+        set_hp(world, tank, 1.0e6);
+        for _ in 0..300 {
+            world.run_schedule(SimTick);
+        }
+        let dealt = 1.0e6 - hp(world, tank);
+        println!("== AT from a building: {inside} of 2 AT troopers inside, {dealt:.0} damage to a tank in 30 s");
+        assert!(inside == 2 && dealt > 0.0, "AT trooper fires from a building");
+    }
+
     // 4. A mortar (weapon `hold`) stays put after firing and does not fire on the move.
     {
         let (mut app, map) = world_with(&[]);

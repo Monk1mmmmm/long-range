@@ -2982,7 +2982,9 @@ fn weapons(
             };
             // Weapons with a hold fire only from a standstill, when the unit is not trying to go anywhere,
             // and only start aiming there: the aim time is the set-up after it stops.
-            let unsettled = w.hold > 0.0 && mover.as_ref().map_or(false, |m| m.goal.is_some() || m.speed > 0.05);
+            // A rider inside a building is settled by definition: `locomotion` skips hosted units, so
+            // the speed and goal it had when it walked in would never clear.
+            let unsettled = w.hold > 0.0 && hosted.is_none() && mover.as_ref().map_or(false, |m| m.goal.is_some() || m.speed > 0.05);
             if aligned && !unsettled {
                 st.aim += DT;
             } else {
@@ -3014,7 +3016,8 @@ fn weapons(
             st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
             st.burst_cd = w.salvo_delay;
             // Aircraft (gunships) and machine guns never stand still for a shot or a burst.
-            if let Some(m) = mover.as_mut().filter(|_| !df.is_air() && !w.is_machine_gun()) {
+            // (Nor does a rider in a building: nothing would run the hold down while it is inside.)
+            if let Some(m) = mover.as_mut().filter(|_| !df.is_air() && !w.is_machine_gun() && hosted.is_none()) {
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
