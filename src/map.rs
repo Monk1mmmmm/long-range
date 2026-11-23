@@ -580,14 +580,14 @@ impl MapData {
         Vec3::new(-dx, 2.0 * e, -dz).normalize()
     }
 
-    /// Passability of a cell: 1 = too steep, or too deep under water even for amphibious units;
-    /// `OCC_DEEP` = under water, but only `AMPHIBIOUS_DEPTH` or less; 0 = free.
+    /// Passability of a cell: 1 = too steep; `OCC_DEEP` = under water (any depth: amphibious units
+    /// float over it); 0 = free.
     fn cell_blocked(&self, x: usize, y: usize) -> u8 {
         let hs = [self.vertex(x, y), self.vertex(x + 1, y), self.vertex(x, y + 1), self.vertex(x + 1, y + 1)];
         let (mn, mx) = (hs.iter().cloned().fold(f32::MAX, f32::min), hs.iter().cloned().fold(f32::MIN, f32::max));
         let avg = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25;
         let water = self.water_cell(x, y);
-        if (mx - mn) / CELL > 0.85 || mn < water - AMPHIBIOUS_DEPTH {
+        if (mx - mn) / CELL > 0.85 {
             1
         } else if avg < water - 0.3 {
             OCC_DEEP
@@ -1235,9 +1235,6 @@ pub const OCC_WORK: u8 = 3;
 /// through along the bottom, and other land units cannot enter.
 pub const OCC_DEEP: u8 = 4;
 
-/// The deepest water (from its surface to the lowest corner of a cell's ground) amphibious units go
-/// into. A Tavria is 1.75 high: it dives about twice its height.
-pub const AMPHIBIOUS_DEPTH: f32 = 4.0;
 
 /// Can a unit stand on a cell with this occupancy value?
 pub fn passable(occ: u8) -> bool {
@@ -1468,13 +1465,13 @@ mod tests {
         assert_eq!(m.surface(c), 8.0);
         assert_eq!(m.water_at(v2(80.0, 80.0)), 0.0);
         assert_eq!(m.surface(v2(80.0, 80.0)), 10.0);
-        // Water 2 deep stops land units but not amphibious ones, the far ground stops nobody.
+        // Water stops land units but not amphibious ones (they float), the far ground stops nobody.
         let (cx, cy) = m.cell_of(c);
         assert_eq!(m.blocked[cy as usize * m.n + cx as usize], OCC_DEEP);
         let mut deep = m.clone();
         deep.heights.iter_mut().for_each(|h| *h -= 3.0);
         deep.rebuild_blocked();
-        assert_eq!(deep.blocked[cy as usize * m.n + cx as usize], 1, "5 under the lake: too deep for amphibious units");
+        assert_eq!(deep.blocked[cy as usize * m.n + cx as usize], OCC_DEEP, "5 under the lake: amphibious units float over it");
         assert_eq!(m.blocked[40 * m.n + 40], 0);
         // The pointer ray stops at the lake's surface.
         let hit = m.raycast(Vec3::new(40.0, 50.0, 40.0), Vec3::NEG_Y).unwrap();

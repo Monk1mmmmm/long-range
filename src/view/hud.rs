@@ -3367,7 +3367,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             lines.push(tr!("hud_unit_info.tooltip_reactive", era.charges, era.block * 100.0));
         }
         if bd.mv.amphibious {
-            lines.push(tr!("hud_unit_info.tooltip_amphibious", crate::map::AMPHIBIOUS_DEPTH));
+            lines.push(tr!("hud_unit_info.tooltip_amphibious").to_string());
         }
         for w in &bd.weapons {
             let mut t = tr!("hud_unit_info.tooltip_weapon", weapon_name(w), w.damage, w.damage_type);

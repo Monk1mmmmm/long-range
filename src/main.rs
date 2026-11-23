@@ -3508,7 +3508,7 @@ fn combattest() {
 }
 
 /// The armoured carriers (Tavria, Slavuta, Zaporozhets): small arms barely scratch them, their
-/// infantry bail out of the wreck, and the Slavuta fords water up to `AMPHIBIOUS_DEPTH` deep where
+/// infantry bail out of the wreck, and the Slavuta floats over water of any depth where
 /// other vehicles stop (`--combattest`, or alone with `LR_TEST=apc`).
 fn apc_tests(defs: &Defs) {
     let carriers: Vec<&str> = ["apc", "apc_amph", "apc_heavy", "apc_heavy3"].into_iter().filter(|c| defs.id(c).is_some()).collect();
@@ -3679,10 +3679,9 @@ fn apc_tests(defs: &Defs) {
     assert!(aboard == cap, "the carrier comes out with its loadout aboard");
     assert!(paid > want * 0.9 && paid < want * 1.1, "the job costs the transport and its riders");
 
-    // 3. A river 2.5 deep: the Slavuta drives across along the bottom, an Overtaker cannot.
-    //    One 6 deep stops the Slavuta too.
+    // 3. Rivers 2.5 and 6 deep: the Slavuta floats across both, an Overtaker cannot.
     let Some(&amph) = carriers.iter().find(|c| defs.get(defs.id(c).unwrap()).mv.amphibious) else { return };
-    for (bed, crosses) in [(-2.5f32, true), (-6.0, false)] {
+    for (bed, crosses) in [(-2.5f32, true), (-6.0, true)] {
         let (mut app, map) = world_with(Some(bed));
         let world = app.world_mut();
         let apc = spawn(world, &map, amph, 0, v2(100.0, 128.0), 0.0);
@@ -3695,10 +3694,10 @@ fn apc_tests(defs: &Defs) {
             lowest = lowest.min(body(world, apc).map_or(f32::MAX, |b| b.1));
         }
         let (ax, tx) = (body(world, apc).unwrap().0.x, body(world, tank).unwrap().0.x);
-        println!("== River with its bed at {bed}: {amph} at x {ax:.0} (deepest {lowest:.1}, water 0), Overtaker at x {tx:.0} (goal 160)");
+        println!("== River with its bed at {bed}: {amph} at x {ax:.0} (lowest {lowest:.1}, water 0), Overtaker at x {tx:.0} (goal 160)");
         assert!(tx < 130.0, "an Overtaker does not drive into the river");
         if crosses {
-            assert!(ax > 155.0 && lowest < -1.6, "an amphibious carrier fords a river 2.5 deep, submerged");
+            assert!(ax > 155.0 && lowest > -0.1, "an amphibious carrier floats across the river on its surface");
         } else {
             assert!(ax < 130.0, "a river 6 deep stops an amphibious carrier");
         }
