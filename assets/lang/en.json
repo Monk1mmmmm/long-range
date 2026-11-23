@@ -390,7 +390,7 @@
     "factory_menu_left_click_queues": "Factory menu: left-click queues (Shift x5), right-click removes.",
     "ctrl_0_9_set_group_0": "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
     "tab_pauses_resumes_the_selection": "Tab pauses / resumes the selection: builders and factories stop, pumps and radars switch off (no upkeep).",
-    "wheel_zoom_arrows_or_middle_drag": "Wheel zoom, arrows or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.  Pause / Ctrl+P pauses the game.",
+    "wheel_zoom_arrows_or_middle_drag": "Wheel zoom, arrows, screen edges or middle-drag pan, minimap click.  F6 shadows on/off.  F11 fullscreen.  Pause / Ctrl+P pauses the game.",
     "radar_is_blocked_by_hills_seen": "Radar is blocked by hills.  Seen buildings stay marked until you look again.",
     "l_load_board_a_transport_k": "L load / board a transport   K unload (drag = area)   J revive wrecks (scavengers, drag = area)",
     "reclaim_click_a_wreck_tree_rock": "Reclaim: click a wreck, tree, rock or building, drag = every wreck, tree and rock in the circle.  Terraform button: drag a circle, wheel = raise / lower.",

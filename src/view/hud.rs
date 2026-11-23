@@ -1334,6 +1334,30 @@ pub fn ui_system(mut p: UiParams) -> Result {
         if p.keys.pressed(KeyCode::ArrowDown) {
             view.cam_target = view.cam_target - ahead * pan;
         }
+        // Edge scrolling: the pointer within a few pixels of the window edge pans like the arrow keys
+        // (not while turning the camera, dragging with the middle button or with a window open).
+        if ctx.input(|i| i.focused)
+            && ctx.pointer_latest_pos().is_some()
+            && !p.keys.pressed(KeyCode::Space)
+            && !p.mouse.pressed(MouseButton::Middle)
+            && !view.settings_open
+        {
+            const EDGE: f32 = 4.0;
+            let mut dir = Vec2::ZERO;
+            if mouse.x <= EDGE {
+                dir.x -= 1.0;
+            }
+            if mouse.x >= sw - EDGE {
+                dir.x += 1.0;
+            }
+            if mouse.y <= EDGE {
+                dir.y += 1.0;
+            }
+            if mouse.y >= sh - EDGE {
+                dir.y -= 1.0;
+            }
+            view.cam_target = view.cam_target + right * (dir.x * pan) + ahead * (dir.y * pan);
+        }
         if p.mouse.pressed(MouseButton::Middle) {
             if let Some(last) = view.mmb_last {
                 let (a, b) = (ray_ground(view, Pos2::new(last.x, last.y)), ray_ground(view, mouse));
@@ -1349,7 +1373,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             view.terra_delta = (view.terra_delta + wheel).clamp(-10.0, 10.0);
         } else if wheel != 0.0 && !over_hud {
             let before = ray_ground(view, mouse);
-            view.cam_dist = (view.cam_dist * if wheel > 0.0 { 0.85 } else { 1.0 / 0.85 }).clamp(6.0, world * 1.4);
+            view.cam_dist = (view.cam_dist * if wheel > 0.0 { 0.8 } else { 1.0 / 0.8 }).clamp(6.0, world * 1.4);
             set_matrices(view);
             if wheel > 0.0 {
                 let after = ray_ground(view, mouse);
