@@ -337,6 +337,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   (`sim::sight_block` -> `map::SightBlock`: per-cell blocker height plus the building standing there; `map.sight_line`;
   the end cells never block, nor the building a viewer looks out of or the one it looks at, so garrisons see from the roof). Within 6
   units everything is seen. The fog view (`intel.rs`) uses the same blockers.
+- **Visibility cost** (`systems::visibility`, the costliest tick system on town maps): viewers are found through a grid
+  (`VIEW_CELL`/`VIEW_NEAR`, longer-reaching ones checked by every unit); radar rays between two ends that both stand still
+  are kept in `RadarLosCache` (exact ends + `Ground.hash` must match, two generations swapped every 300 ticks; not state:
+  a hit is what `map.los` would say); `map.los_top` skips ray samples above `Ground.top` (highest vertex per 8x8-cell
+  block, only ever raised by `Ground::set`); who sees a neutral building is redone every `NEUTRAL_EVERY` (5) ticks,
+  staggered by id. `Census` index/grid use bevy's (foldhash) `HashMap`: lookups only, never iterated.
 - **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
   buildings once detected stay as ghosts until the spot is seen again and found empty. A ghost of a building
   that was seen keeps its model (as last seen: type, owner, facing, construction height) out of sight
