@@ -2141,9 +2141,6 @@ fn build_progress(
     }
 }
 
-/// Speed of an amphibious unit under water, as a share of its speed on land.
-const AMPHIBIOUS_SPEED: f32 = 0.6;
-
 #[allow(clippy::type_complexity)]
 fn locomotion(
     mut q: Query<(&Unit, &mut Body, &mut Mover, &mut Orders), (Without<UnderConstruction>, Without<Hosted>)>,
@@ -2248,7 +2245,7 @@ fn locomotion(
                     m.stuck = 0;
                     m.speed = 0.0;
                     body.vel = v2(0.0, 0.0);
-                    body.y = map.h(body.pos);
+                    body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
                     continue;
                 };
                 if m.path.is_empty() || m.path_goal.dist(g) > 3.0 {
@@ -2299,11 +2296,7 @@ fn locomotion(
                 let face = if m.reversing { wrap(desired + PI) } else { desired };
                 body.yaw = turn_toward(body.yaw, face, turn * DT);
                 let off = wrap(face - body.yaw).abs();
-                let mut top = if m.reversing { mv.reverse } else { mv.speed };
-                if mv.amphibious && map.h(body.pos) < map.water_at(body.pos) - 0.3 {
-                    // Driving along the bottom: slower than on land.
-                    top *= AMPHIBIOUS_SPEED;
-                }
+                let top = if m.reversing { mv.reverse } else { mv.speed };
                 let mut want = if off < 0.35 {
                     top
                 } else if off < 1.0 {
@@ -2341,7 +2334,8 @@ fn locomotion(
                 } else if m.stuck > 0 {
                     m.stuck -= 1;
                 }
-                body.y = map.h(body.pos);
+                // Amphibious units float on the water, others stand on the ground.
+                body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
             }
         }
         body.pos = v2(body.pos.x.clamp(0.5, world - 0.5), body.pos.y.clamp(0.5, world - 0.5));
@@ -2401,7 +2395,7 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
                 if let Ok((_, _, mut body, _)) = q.get_mut(a.e) {
                     body.pos = np;
                     if !a.air {
-                        body.y = map.h(np);
+                        body.y = if a.amph { map.surface(np) } else { map.h(np) };
                     }
                 }
             }

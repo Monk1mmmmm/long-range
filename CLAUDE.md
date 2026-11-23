@@ -578,10 +578,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `APC` - Normal 0.1, Autocannon 0.5, AP and Explosive 1.0, SmallArms
   0.1 -, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
   mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp APC,
-  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): it also drives along the
-  bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
+  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): it also floats over water of any
+  depth, on the surface (`map.surface`), at full speed. `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
-  submerged, shells stop at the surface and guns have no line of fire. `--combattest` carrier and "River" lines
+  `--combattest` carrier and "River" lines
   (alone: `LR_TEST=apc`).
 - **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
   `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);

@@ -529,8 +529,7 @@ pub struct Move {
     pub turn: f32,
     #[serde(default)]
     pub altitude: f32,
-    /// Land units only: also drives along the bottom of water up to `map::AMPHIBIOUS_DEPTH` deep
-    /// (submerged, out of reach of shells and guns).
+    /// Land units only: also floats over water of any depth (on its surface, at full speed).
     #[serde(default)]
     pub amphibious: bool,
 }
