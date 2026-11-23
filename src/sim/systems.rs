@@ -888,6 +888,21 @@ fn think(
         };
         // Infantry: a spot behind a tree, rock or wreck near `anchor`, re-chosen every half second.
         let infantry = df.is_infantry() && !is_struct && !plane;
+        // No shot from here (see `no_shot`): a spot nearby with a clear line to the targets, to
+        // move to and aim again from. Kept in `Mover.cover` (infantry use that for real cover),
+        // re-searched every second.
+        let reposition = |mover: &mut Option<Mut<Mover>>| -> Option<V2> {
+            if is_struct || plane || infantry || !no_shot(None) {
+                return None;
+            }
+            let ws = weapons.as_deref()?;
+            let m = mover.as_mut()?;
+            let keep = m.cover.filter(|c| c.dist(pos) > 0.5 && c.dist(pos) < 25.0);
+            if keep.is_none() || (game.tick + id) % 10 == 0 {
+                m.cover = firing_spot(&defs, &census, &map, &nav, id, team, df, pos, ws, keep);
+            }
+            m.cover.filter(|c| c.dist(pos) > 0.5)
+        };
         let mut in_cover = false;
         let cover = |mover: &mut Option<Mut<Mover>>, anchor: Option<V2>, search: f32| -> Option<V2> {
             let m = mover.as_mut()?;
@@ -976,6 +991,7 @@ fn think(
             }
             Some(Order::AttackMove(p)) | Some(Order::Patrol(p)) => {
                 let mut engaged = false;
+                let mut shift: Option<V2> = None;
                 if let Some(w) = w0 {
                     if plane {
                         // Bombers (fighter-bombers too) go for ground targets first, fighters for
@@ -988,10 +1004,15 @@ fn think(
                             goal = Some(t.pos);
                             engaged = true;
                         }
-                    } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() && !no_shot(None) {
-                        // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
-                        // they never stop for a fight.
-                        engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
+                    } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() {
+                        if !no_shot(None) {
+                            // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
+                            // they never stop for a fight.
+                            engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
+                        } else {
+                            // Enemy in range but nothing to shoot with: step to where the guns have a line.
+                            shift = reposition(&mut mover);
+                        }
                     }
                 }
                 // A building infantry can take is not a fight: they walk up to it instead of
@@ -1012,6 +1033,8 @@ fn think(
                     // Fighting on the way: into cover close to where the fight found them.
                     in_cover = true;
                     goal = cover(&mut mover, Some(pos), defs.rules.cover_search * 0.6);
+                } else if let Some(s) = shift {
+                    goal = Some(s);
                 } else if !engaged {
                     // Passing a building it may take, infantry take it on the way.
                     let auto = if infantry && game.infantry_capture { seize_target(&census, &defs, team, pos) } else { None };
@@ -1039,8 +1062,11 @@ fn think(
                     if range > 0.0 && t.hp > 0.0 && !t.hosted && t.known_to(team) && t.team != team {
                         pop = false;
                         focus = tid;
-                        if plane || (!is_struct && (pos.dist(t.pos) > range * 0.9 || no_shot(Some(tid)))) {
+                        if plane || (!is_struct && pos.dist(t.pos) > range * 0.9) {
                             goal = Some(t.pos);
+                        } else if !is_struct && no_shot(Some(tid)) {
+                            // No line to it from here: another angle if one is near, else straight in.
+                            goal = reposition(&mut mover).or(Some(t.pos));
                         }
                     }
                 }
@@ -1697,6 +1723,53 @@ fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
 /// nearest known armed enemy; within `search` of `anchor`, not taken by another unit of the side,
 /// preferring spots close to the unit and to the anchor. None when there is no threat or no cover.
 #[allow(clippy::too_many_arguments)]
+/// A nearby spot from which every direct-fire gun of the unit that has no shot now (a building,
+/// a hill or a friend in the way) would have a clear line to its target and be in range: the unit
+/// moves there and lays its guns again instead of driving straight at the target. Rings of
+/// growing radius round the unit, the spot picked last time first (`keep`), so a unit does not
+/// dither between two spots.
+#[allow(clippy::too_many_arguments)]
+fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>) -> Option<V2> {
+    let lane = Lane {
+        census,
+        map,
+        team,
+        friendly_fire: defs.rules.friendly_fire,
+        grace: defs.rules.cover_grace,
+        shooter: id,
+        host: 0,
+        g: defs.rules.gravity,
+    };
+    let jobs: Vec<(&WeaponDef, &Cen)> = df
+        .weapons
+        .iter()
+        .zip(ws.list.iter())
+        .filter(|(w, s)| w.kind == WeaponKind::Direct && s.target != 0 && s.blocked)
+        .filter_map(|(w, s)| census.get(s.target).map(|c| (w, c)))
+        .collect();
+    if jobs.is_empty() {
+        return None;
+    }
+    let h = df.height() * 0.8;
+    let mut cands: Vec<V2> = keep.into_iter().collect();
+    for (ri, r) in [3.0f32, 6.0, 10.0, 15.0].into_iter().enumerate() {
+        let n = 8 + ri * 4;
+        for k in 0..n {
+            cands.push(pos + V2::from_angle(k as f32 / n as f32 * std::f32::consts::TAU + ri as f32 * 0.4) * r);
+        }
+    }
+    cands.into_iter().find(|&spot| {
+        if map.clamp(spot) != spot || nav.at(map, spot) != 0 || map.h(spot) < map.water_at(spot) + 0.4 {
+            return false;
+        }
+        let origin = spot.at(map.h(spot) + h);
+        jobs.iter().all(|(w, c)| {
+            let d = c.pos.dist(spot);
+            d <= w.range * 0.95 && d >= w.min_range && lane.aim(w, origin, c).is_some()
+        })
+    })
+}
+
 fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckList, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, anchor: V2, search: f32) -> Option<V2> {
     let rules = &defs.rules;
     let mut threat: Option<(f32, V2)> = None;
@@ -2901,6 +2974,21 @@ fn weapons(
             // Direct fire needs a clear line; otherwise hold fire rather than shoot the hill.
             if direct && if gpoint.is_some() { !map.los(origin, sol.point + Vec3::Y * 0.3) } else { st.blocked } {
                 continue;
+            }
+            // The check above can be two ticks old and the unit may have moved or something stepped
+            // in front: look once more right before the shot, and lay again if the aim height changed.
+            if let Some(c) = target.filter(|_| direct && gpoint.is_none()) {
+                match lane.aim(w, origin, c) {
+                    None => {
+                        st.blocked = true;
+                        continue;
+                    }
+                    Some(l) if (l - st.lift).abs() > 1e-4 => {
+                        st.lift = l;
+                        continue;
+                    }
+                    _ => {}
+                }
             }
             st.cd = w.reload;
             st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
