@@ -9,6 +9,24 @@ Maps
 - The lobby lists an adaptive map once, as its variant with the most starts (Jablonec 8 players, Liberec 8, Frankivsk 10, Frankivsk mini 6), not once per player count. With fewer players, leave slots empty: the deposits of empty starts are still dropped.
 - Jablonec has about twice the buildings (1170 instead of 600 plus landmarks), taken from Overture Maps building data for the same area; terrain, roads, deposits and starts are unchanged (`tools/graft_buildings.py`).
 
+## v0.15.0
+
+Transports
+- The T3 Swift is now a winged cargo plane (new model, twin turboprops) that airdrops on the go: Unload (K) over a spot or a dragged circle and it flies straight through without stopping; the cargo falls spread over the circle, each unit let go as the plane passes over its spot, and lands about 2.5 s later (helpless while falling). It scoops up units it flies close over when loading.
+- A dragged Unload circle (APC, Stork or Swift) sends the infantry that come out into the free buildings in it, nearest first; those left over, or all of them where there is no building, stay spread out over the circle. A plain click unloads as before.
+
+Units and balance
+- The Crony is a tier 1 unit.
+- Unit categories: anti-air, artillery and transport tags.
+- AT troopers fire from inside buildings (a weapon hold no longer counts them as unsettled).
+
+Maps
+- Jablonec has about twice the buildings (Overture data; `tools/graft_buildings.py`); the lobby lists an adaptive map once, as its variant with the most starts; Tokmachka's control points were rebalanced (a home point per start, one between each pair of neighbours, one in the centre).
+
+Interface
+- Camera: pan at the screen edges, a slightly faster wheel zoom.
+- Icons for every unit in the mod's style (3/4 view, white glow); F1 help wraps lines to the box so long translations fit.
+
 ## v0.14.1
 
 Performance (late game, maps with towns)
