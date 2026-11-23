@@ -108,14 +108,14 @@ impl HostLobby {
     fn map_label(&self) -> String {
         match SIZES.get(self.map_choice) {
             Some((n, name)) => tr!("lobby.random_size", tr(name), *n as f32 * CELL, *n as f32 * CELL),
-            None => self.maps.get(self.map_choice - SIZES.len()).cloned().unwrap_or_default(),
+            None => self.maps.get(self.map_choice - SIZES.len()).map(|m| longrange::data::split_map(m).0.to_string()).unwrap_or_default(),
         }
     }
     /// Number of start positions of the chosen map.
     fn start_count(&self) -> usize {
         match SIZES.get(self.map_choice) {
             Some(_) => self.players,
-            None => MapData::start_count(&longrange::data::map_dir(&self.maps[self.map_choice - SIZES.len()])),
+            None => self.counts.get(self.map_choice - SIZES.len()).copied().unwrap_or(0),
         }
         .clamp(2, MAX_PLAYERS)
     }
@@ -156,7 +156,7 @@ impl HostLobby {
                 m.scatter_features(&defs.rules.features, self.seed, 1.0);
                 m
             }
-            None => MapData::load(&longrange::data::map_dir(&self.maps[self.map_choice - SIZES.len()]))?,
+            None => longrange::data::load_map(&self.maps[self.map_choice - SIZES.len()])?,
         };
         self.preview = view::terrain::map_preview(&map, defs, PREVIEW);
         let w = map.world().max(1.0);
@@ -832,9 +832,8 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     slots[0].name = name.to_string();
     slots[2].kind = 3;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(1) | 1;
-    let maps = MapData::list(&asset_root());
+    let (maps, counts): (Vec<String>, Vec<usize>) = longrange::data::map_entries(&asset_root()).into_iter().unzip();
     let thumbs = vec![None; maps.len()];
-    let counts = maps.iter().map(|m| MapData::start_count(&longrange::data::map_dir(m))).collect();
     let mut l = HostLobby {
         host,
         slots,
@@ -900,6 +899,9 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         remote.push((o.conn, OBSERVER));
         hashes.push((o.conn, o.hash));
     }
+    // Deposits attached to starts nobody plays on are left out (the same in every copy of the game).
+    let mut map = map;
+    map.adapt(&setup.iter().map(|p| p.slot).collect::<Vec<_>>());
     let sent_map = map.clone();
     setup_game(world, map, &setup);
     if l.mode == MODE_POINTS {
@@ -2124,7 +2126,7 @@ fn menu_ui(world: &mut World) {
                             } else {
                                 // One thumbnail per frame, so opening the tab does not stall.
                                 if let Some(k) = l.thumbs.iter().position(|t| t.is_none()) {
-                                    let px = MapData::load(&longrange::data::map_dir(&l.maps[k])).map(|m| view::terrain::map_preview(&m, &cur, 64)).unwrap_or_else(|_| vec![60; 64 * 64 * 4]);
+                                    let px = longrange::data::load_map(&l.maps[k]).map(|m| view::terrain::map_preview(&m, &cur, 64)).unwrap_or_else(|_| vec![60; 64 * 64 * 4]);
                                     l.thumbs[k] = Some(ctx.load_texture(format!("thumb_{k}"), egui::ColorImage::from_rgba_unmultiplied([64, 64], &px), egui::TextureOptions::LINEAR));
                                 }
                                 let mut pick = None;
@@ -2146,7 +2148,7 @@ fn menu_ui(world: &mut World) {
                                                 None => {
                                                     let k = c - SIZES.len();
                                                     let starts = l.counts.get(k).copied().unwrap_or(0);
-                                                    tr!("lobby.map_players", l.maps[k], starts)
+                                                    tr!("lobby.map_players", longrange::data::split_map(&l.maps[k]).0, starts)
                                                 }
                                             };
                                             if ui.add_sized([right_w - 80.0, 48.0], egui::Button::selectable(l.map_choice == c, label)).clicked() {
@@ -2214,7 +2216,8 @@ fn menu_ui(world: &mut World) {
                                     }
                                     // A premade map or a preset this player lacks is theirs from now on.
                                     let file = l.info.as_ref().map(|i| i.map_file.clone()).unwrap_or_default();
-                                    let keep = (!file.is_empty()).then(|| (map.clone(), file));
+                                    // (A variant of a map with several is the host's file; ours is the whole map.)
+                                    let keep = (!file.is_empty() && longrange::data::split_map(&file).1.is_none()).then(|| (map.clone(), file));
                                     keep_downloads(keep, keep_pack);
                                     l.pending = Some((map, you));
                                 }
@@ -2655,7 +2658,7 @@ fn selftest() {
     // LR_MAP=<name> plays a premade map instead (one AI per start position).
     let (map, n) = match std::env::var("LR_MAP") {
         Ok(name) => {
-            let map = MapData::load(&longrange::data::map_dir(&name)).unwrap_or_else(|e| panic!("map {name}: {e}"));
+            let map = longrange::data::load_map(&name).unwrap_or_else(|e| panic!("map {name}: {e}"));
             let k = map.starts.len().clamp(2, MAX_PLAYERS);
             (map, k)
         }
@@ -5030,7 +5033,7 @@ fn nettest() {
     let ticks: u32 = std::env::var("LR_TICKS").ok().and_then(|s| s.parse().ok()).unwrap_or(6000);
     // LR_MAP=<name>: a premade 4-player map (with its neutral buildings) instead of a generated one.
     let map = match std::env::var("LR_MAP") {
-        Ok(name) => MapData::load(&longrange::data::map_dir(&name)).unwrap_or_else(|e| panic!("map {name}: {e}")),
+        Ok(name) => longrange::data::load_map(&name).unwrap_or_else(|e| panic!("map {name}: {e}")),
         Err(_) => {
             let mut map = MapData::generate(128, 7, 4);
             map.scatter_features(&defs.rules.features, 7, 1.0);
@@ -5650,7 +5653,7 @@ mod tests {
     fn kept_map_counts_as_same() {
         let root = asset_root();
         let dir = std::env::temp_dir().join(format!("lr_keep_map_{}", std::process::id()));
-        for name in ["duel", "laketest"] {
+        for name in ["duel", "liberec"] {
             let m = MapData::load(&root.join("maps").join(name)).unwrap();
             m.save(&dir).unwrap();
             let back = MapData::load(&dir).unwrap();

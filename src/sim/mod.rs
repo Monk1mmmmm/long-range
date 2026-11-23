@@ -1421,8 +1421,10 @@ pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
 }
 
 /// Sets up a fresh game world: resources, commanders and map props.
-pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
+pub fn setup_game(world: &mut World, mut map: MapData, setup: &[PlayerSetup]) {
     clear_game(world);
+    // Deposits attached to the starts of empty slots do not exist in this game (no-op when already done).
+    map.adapt(&setup.iter().map(|p| p.slot).collect::<Vec<_>>());
     let defs = world.resource::<Defs>().clone();
     let mut game = Game::default();
     let mut nav = Nav { occ: map.blocked.clone(), ..default() };

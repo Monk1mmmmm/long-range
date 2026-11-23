@@ -1072,8 +1072,43 @@ pub fn user_maps_dir() -> PathBuf {
 
 /// Folder of a premade map: the player's own copy if there is one, else the one shipped in `assets/maps`.
 pub fn map_dir(name: &str) -> PathBuf {
+    let name = split_map(name).0;
     let own = user_maps_dir().join(name);
     if own.join("map.json").exists() { own } else { asset_root().join("maps").join(name) }
+}
+
+/// A lobby map entry is a folder name, or `folder#k` for variant k of a map that has several
+/// (`MapData::variant`): the folder and the variant.
+pub fn split_map(name: &str) -> (&str, Option<usize>) {
+    match name.rsplit_once('#') {
+        Some((folder, k)) if k.parse::<usize>().is_ok() => (folder, k.parse().ok()),
+        _ => (name, None),
+    }
+}
+
+/// Loads a lobby map entry (see `split_map`): the map of that variant, ready to play.
+pub fn load_map(name: &str) -> Result<crate::map::MapData, String> {
+    let (_, variant) = split_map(name);
+    let m = crate::map::MapData::load(&map_dir(name))?;
+    Ok(match variant {
+        Some(k) => m.variant(k),
+        None => m,
+    })
+}
+
+/// The premade maps as the lobby lists them: one entry per variant of a map that has several,
+/// with the number of players it takes.
+pub fn map_entries(root: &Path) -> Vec<(String, usize)> {
+    let mut out = vec![];
+    for name in crate::map::MapData::list(root) {
+        let counts = crate::map::MapData::start_counts(&map_dir(&name));
+        if counts.len() > 1 {
+            out.extend(counts.iter().enumerate().map(|(k, c)| (format!("{name}#{k}"), *c)));
+        } else {
+            out.push((name, counts.first().copied().unwrap_or(0)));
+        }
+    }
+    out
 }
 
 /// A name that is safe as a folder name.

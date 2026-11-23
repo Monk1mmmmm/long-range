@@ -246,6 +246,34 @@ pub struct Feature {
     pub scale: f32,
 }
 
+/// A way to play a premade map (SupCom adaptive maps): which of the map's starts it uses, in lobby
+/// slot order, and optionally its own control points. A map without variants plays on all its starts.
+#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq)]
+pub struct Variant {
+    /// Indices into `MapData::starts`; the n-th is lobby slot n.
+    pub starts: Vec<usize>,
+    /// Control points of this variant; empty = the map's own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<V2>,
+}
+
+/// A deposit that exists only in some games: `start` = only when that start is played (SupCom
+/// adaptive maps: the extractors beside a spawn), `variant` = only in that variant. Matched to the
+/// deposit by position.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Attach {
+    pub pos: V2,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<usize>,
+}
+
+/// Distance round a used start within which a variant map clears trees, rocks and buildings that
+/// were placed for another variant.
+pub const START_CLEAR_FEATURES: f32 = 26.0;
+pub const START_CLEAR_PROPS: f32 = 40.0;
+
 #[derive(Clone, Serialize, Deserialize, Default, Resource)]
 pub struct MapData {
     pub name: String,
@@ -263,6 +291,12 @@ pub struct MapData {
     pub lake_of: Vec<u8>,
     pub deposits: Vec<V2>,
     pub starts: Vec<V2>,
+    /// Ways to play the map (player counts). Empty: one game on all `starts`. See `variant`.
+    #[serde(default)]
+    pub variants: Vec<Variant>,
+    /// Deposits that only exist when their start (or variant) is played. See `adapt`, `variant`.
+    #[serde(default)]
+    pub attached: Vec<Attach>,
     /// Control points of the control points mode (placed in the editor like the starts).
     /// Empty: the game places them itself (`auto_points`).
     #[serde(default)]
@@ -313,6 +347,10 @@ struct MapFile {
     max_height: f32,
     deposits: Vec<V2>,
     starts: Vec<V2>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    variants: Vec<Variant>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    attached: Vec<Attach>,
     /// Control points (control points mode); maps without them get `MapData::auto_points`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     points: Vec<V2>,
@@ -942,6 +980,8 @@ impl MapData {
             max_height: mx,
             deposits: self.deposits.clone(),
             starts: self.starts.clone(),
+            variants: self.variants.clone(),
+            attached: self.attached.clone(),
             points: self.points.clone(),
             props: self.props.clone(),
             seed: self.seed,
@@ -984,7 +1024,7 @@ impl MapData {
             return Err(format!("height.png must be {side}x{side} pixels for a map of {} cells", f.n));
         }
         let heights = img.as_raw().iter().map(|v| f.min_height + (*v as f32 / 65535.0) * (f.max_height - f.min_height)).collect();
-        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, points: f.points, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
+        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, variants: f.variants, attached: f.attached, points: f.points, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
         for line in &f.roads {
             m.roads.push(crate::surface::parse_road(line)?);
         }
@@ -1069,9 +1109,77 @@ impl MapData {
         if self.points.is_empty() { self.auto_points() } else { self.points.clone() }
     }
 
-    /// Number of start positions of a saved map, without loading the heightmap.
-    pub fn start_count(dir: &Path) -> usize {
-        std::fs::read_to_string(dir.join("map.json")).ok().and_then(|t| serde_json::from_str::<MapFile>(&t).ok()).map_or(0, |f| f.starts.len())
+    /// Number of start positions of each way to play a saved map (one per variant, or the number
+    /// of starts when it has none), without loading the heightmap.
+    pub fn start_counts(dir: &Path) -> Vec<usize> {
+        #[derive(Deserialize)]
+        struct Head {
+            starts: Vec<V2>,
+            #[serde(default)]
+            variants: Vec<Variant>,
+        }
+        let Some(h) = std::fs::read_to_string(dir.join("map.json")).ok().and_then(|t| serde_json::from_str::<Head>(&t).ok()) else { return vec![] };
+        if h.variants.is_empty() { vec![h.starts.len()] } else { h.variants.iter().map(|v| v.starts.iter().filter(|i| **i < h.starts.len()).count()).collect() }
+    }
+
+    /// The game on variant `k`: only its starts (slot n = its n-th start), the deposits, buildings
+    /// and control points that belong to it, and the ground round its starts cleared of what was
+    /// placed for another variant. A map without variants is returned as it is.
+    pub fn variant(&self, k: usize) -> MapData {
+        let mut m = self.clone();
+        let Some(v) = self.variants.get(k) else { return m };
+        let used: Vec<usize> = v.starts.iter().copied().filter(|i| *i < self.starts.len()).collect();
+        let local = |s: usize| used.iter().position(|i| *i == s);
+        m.starts = used.iter().map(|i| self.starts[*i]).collect();
+        m.variants.clear();
+        m.attached.clear();
+        if !v.points.is_empty() {
+            m.points = v.points.clone();
+        }
+        let mut kept = vec![];
+        m.deposits.retain(|d| {
+            let Some(a) = self.attached.iter().find(|a| a.pos.dist(*d) < 0.01) else { return true };
+            if a.variant.map_or(false, |x| x != k) {
+                return false;
+            }
+            match a.start {
+                None => true,
+                Some(s) => local(s).map_or(false, |l| {
+                    kept.push(Attach { pos: *d, start: Some(l), variant: None });
+                    true
+                }),
+            }
+        });
+        m.attached = kept;
+        let starts = m.starts.clone();
+        m.props.retain_mut(|p| {
+            if p.owner >= PROP_SLOT0 {
+                return match local((p.owner - PROP_SLOT0) as usize) {
+                    Some(l) => {
+                        p.owner = PROP_SLOT0 + l as u8;
+                        true
+                    }
+                    None => false,
+                };
+            }
+            p.owner != PROP_NEUTRAL || starts.iter().all(|s| s.dist(p.pos) >= START_CLEAR_PROPS)
+        });
+        m.features.retain(|f| starts.iter().all(|s| s.dist(f.pos) >= START_CLEAR_FEATURES));
+        m
+    }
+
+    /// Takes out the deposits attached to starts nobody plays on (`slots` = the occupied lobby
+    /// slots), the way adaptive SupCom maps leave out the extractors of empty spawns. Done once:
+    /// the attachments are dropped afterwards.
+    pub fn adapt(&mut self, slots: &[usize]) {
+        if self.attached.is_empty() {
+            return;
+        }
+        let attached = std::mem::take(&mut self.attached);
+        self.deposits.retain(|d| match attached.iter().find(|a| a.pos.dist(*d) < 0.01) {
+            Some(Attach { start: Some(s), .. }) => slots.contains(s),
+            _ => true,
+        });
     }
 
     /// Names of the maps in `assets/maps` and in the player's own maps folder.
@@ -1301,6 +1409,37 @@ pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, amph: bool, sc: &mut Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Variants take their own starts, deposits and slot props; `adapt` drops the deposits of empty slots.
+    #[test]
+    fn variants_and_adaptive_deposits() {
+        let mut m = MapData { n: 48, starts: vec![v2(10.0, 10.0), v2(80.0, 10.0), v2(10.0, 80.0), v2(80.0, 80.0)], ..Default::default() };
+        m.deposits = vec![v2(12.0, 12.0), v2(82.0, 12.0), v2(12.0, 82.0), v2(50.0, 50.0), v2(60.0, 60.0)];
+        m.attached = vec![
+            Attach { pos: m.deposits[0], start: Some(0), variant: None },
+            Attach { pos: m.deposits[1], start: Some(1), variant: None },
+            Attach { pos: m.deposits[2], start: Some(2), variant: None },
+            Attach { pos: m.deposits[4], start: None, variant: Some(1) },
+        ];
+        m.props = vec![Prop { def: "x".into(), pos: v2(40.0, 40.0), yaw: 0.0, owner: PROP_SLOT0 + 2 }, Prop { def: "x".into(), pos: v2(80.0, 80.0), yaw: 0.0, owner: 0 }];
+        m.variants = vec![Variant { starts: vec![0, 3], points: vec![] }, Variant { starts: vec![2, 1, 0], points: vec![v2(5.0, 5.0)] }];
+        assert_eq!(m.variant(0).starts, vec![v2(10.0, 10.0), v2(80.0, 80.0)]);
+        let v0 = m.variant(0);
+        assert_eq!(v0.deposits, vec![v2(12.0, 12.0), v2(50.0, 50.0)]);
+        assert!(v0.props.is_empty(), "slot prop of an unused start and a building at a used start are gone");
+        let v1 = m.variant(1);
+        assert_eq!(v1.starts, vec![v2(10.0, 80.0), v2(80.0, 10.0), v2(10.0, 10.0)]);
+        assert_eq!(v1.deposits.len(), 5);
+        assert_eq!(v1.points, vec![v2(5.0, 5.0)]);
+        assert_eq!(v1.props.iter().filter(|p| p.owner == PROP_SLOT0).count(), 1, "slot prop follows its start to slot 0");
+        // Only slots 0 and 2 are played: the extractors of start 1 are not there.
+        let mut g = v1.clone();
+        g.adapt(&[0, 2]);
+        assert_eq!(g.deposits.len(), 4);
+        assert!(!g.deposits.contains(&v2(82.0, 12.0)));
+        assert!(g.deposits.contains(&v2(12.0, 12.0)) && g.deposits.contains(&v2(12.0, 82.0)));
+        assert!(g.attached.is_empty());
+    }
 
     /// A flat map at height 10 with a bowl (bottom 6) around (40, 40); the sea is at 0.
     fn bowl() -> MapData {
