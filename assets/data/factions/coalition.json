@@ -187,7 +187,8 @@
   {
    "id": "apc",
    "categories": [
-    "armored"
+    "armored",
+    "transport"
    ],
    "name": "Tavria",
    "desc": "Light armoured carrier. Fast and cheap: takes four land units under thin armour (L load, K unload), proof against rifles and machine guns but not much more. Unarmed.",
@@ -235,7 +236,8 @@
   {
    "id": "apc_amph",
    "categories": [
-    "armored"
+    "armored",
+    "transport"
    ],
    "name": "Slavuta",
    "desc": "Amphibious armoured carrier. The Tavria's light hull made watertight: takes six land units (L load, K unload) and drives along the bottom of rivers and lakes up to 4 deep, out of reach of guns, slower there. Unarmed.",
@@ -284,7 +286,8 @@
   {
    "id": "apc_heavy",
    "categories": [
-    "armored"
+    "armored",
+    "transport"
    ],
    "name": "Zaporozhets",
    "desc": "Infantry fighting vehicle, heavily armoured. Takes eight land units under thick armour (L load, K unload): shrugs off small arms, riot guns and much of an autocannon's fire, and takes several tank shells. A roof machine gun keeps infantry off it. Slow.",
@@ -358,7 +361,8 @@
   {
    "id": "apc_heavy3",
    "categories": [
-    "armored"
+    "armored",
+    "transport"
    ],
    "name": "Hetman",
    "desc": "Heavy infantry fighting vehicle, the Zaporozhets grown up. Takes ten land units under thick armour (L load, K unload), with explosive reactive armor on top: its first four missile hits (AT troopers, Robins) lose three quarters of their damage, and a full repair replaces the tiles. Twin roof machine guns.",
@@ -722,7 +726,8 @@
    "stealth": 3,
    "assault": 2.5,
    "categories": [
-    "infantry"
+    "infantry",
+    "anti_air"
    ],
    "name": "SAM Trooper",
    "desc": "Infantry with a shoulder-fired homing anti-air missile and six rounds of it; spent rounds come back one a minute for mass. Aircraft only.",
@@ -889,7 +894,8 @@
    "id": "pike",
    "cargo": 4,
    "categories": [
-    "armored"
+    "armored",
+    "artillery"
    ],
    "name": "Pike Mortar",
    "desc": "Mobile mortar. High-arc fire over hills, range 25-100. Slow traverse. Fires only standing and stays put 3 s after each shot.",
@@ -958,7 +964,8 @@
    "id": "mbfag",
    "cargo": 4,
    "categories": [
-    "armored"
+    "armored",
+    "anti_air"
    ],
    "name": "MBFAG-113",
    "desc": "Mobile anti-air system. Rotary cannon bursts, long reach against aircraft.",
@@ -1051,7 +1058,8 @@
    "id": "flak_carrier",
    "cargo": 4,
    "categories": [
-    "armored"
+    "armored",
+    "anti_air"
    ],
    "name": "Hailstorm",
    "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells at aircraft out to 100; cannot shoot at the ground.",
@@ -1122,7 +1130,8 @@
    "id": "mobile_sam",
    "cargo": 4,
    "categories": [
-    "armored"
+    "armored",
+    "anti_air"
    ],
    "name": "Skylance",
    "desc": "Mobile SAM on the Robin chassis. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides a heavy homing missile at aircraft out to 130, then it reloads for 10 s.",
@@ -1704,7 +1713,8 @@
    "id": "bohdana",
    "cargo": 4,
    "categories": [
-    "armored"
+    "armored",
+    "artillery"
    ],
    "name": "Bohdana",
    "desc": "Self-propelled howitzer. Range 60-300. Slow to aim, useless without spotters. Fires only standing and stays put 5 s after each shot.",
@@ -1968,6 +1978,9 @@
   },
   {
    "id": "interceptor",
+   "categories": [
+    "anti_air"
+   ],
    "name": "Porter",
    "desc": "Interceptor. Fixed forward railguns, air targets only.",
    "tier": 1,
@@ -2023,6 +2036,9 @@
   },
   {
    "id": "interceptor3",
+   "categories": [
+    "anti_air"
+   ],
    "name": "Cyclone",
    "desc": "Heavy air superiority fighter. Railguns for aircraft only. Stealth 2, and its own T3 fire-control radar finds stealthed aircraft within 80 (needs energy).",
    "tier": 3,
@@ -2155,6 +2171,9 @@
   },
   {
    "id": "fighter_bomber",
+   "categories": [
+    "anti_air"
+   ],
    "name": "Harrier FB",
    "desc": "Fighter-bomber. Fast; railguns for aircraft and a pair of bombs for ground targets.",
    "tier": 2,
@@ -2371,6 +2390,9 @@
   },
   {
    "id": "air_transport",
+   "categories": [
+    "transport"
+   ],
    "name": "Stork",
    "desc": "Transport aircraft. Lifts eight land units over cliffs and water (L load, K unload). Unarmed.",
    "tier": 2,
@@ -2429,6 +2451,9 @@
   },
   {
    "id": "fast_transport",
+   "categories": [
+    "transport"
+   ],
    "name": "Swift",
    "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries eight land units like it (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed.",
    "tier": 3,
@@ -3246,6 +3271,9 @@
   },
   {
    "id": "gauss_turret",
+   "categories": [
+    "artillery"
+   ],
    "name": "Pike-G Gauss Turret",
    "desc": "Anti-armor emplacement. High-arc fire, range 30-105, very slow traverse.",
    "tier": 1,
@@ -3305,6 +3333,9 @@
   },
   {
    "id": "aa_turret",
+   "categories": [
+    "anti_air"
+   ],
    "name": "Dart Railgun",
    "desc": "Anti-air turret.",
    "tier": 1,
@@ -3361,6 +3392,9 @@
   },
   {
    "id": "sam",
+   "categories": [
+    "anti_air"
+   ],
    "name": "Faust SAM",
    "desc": "Long-range SAM site. Its own T2 search radar (needs energy; finds stealth 1 aircraft) guides one heavy homing missile at an aircraft, then it reloads for 12 s.",
    "tier": 2,
@@ -3435,6 +3469,9 @@
   },
   {
    "id": "aa_turret3",
+   "categories": [
+    "anti_air"
+   ],
    "name": "Phalanx Railgun Battery",
    "desc": "Heavy anti-air battery: twin long railguns guided by its own T3 radar (finds stealth 2 aircraft within 120; needs energy).",
    "tier": 3,
@@ -3725,6 +3762,9 @@
   },
   {
    "id": "heavy_battery",
+   "categories": [
+    "artillery"
+   ],
    "name": "Bertha Heavy Battery",
    "desc": "Fortified 120 mm gun. Range 40-200, big blast, traverses at a crawl.",
    "tier": 2,

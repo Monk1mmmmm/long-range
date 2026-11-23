@@ -339,6 +339,9 @@ impl FormCtx {
         }
         add(&mut c.categories, "infantry");
         add(&mut c.categories, "armored");
+        for cat in ["anti_air", "artillery", "transport"] {
+            add(&mut c.categories, cat);
+        }
         for (_, text) in &pack.factions {
             let v: Value = serde_json::from_str(text).unwrap_or_default();
             for u in v["units"].as_array().into_iter().flatten() {

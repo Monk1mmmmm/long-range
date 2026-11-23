@@ -1120,7 +1120,7 @@
     "general_armor": "Armor",
     "general_armor_tip": "Armor class: decides how much each damage type hurts it (Armor table in rules.json).",
     "general_categories": "Categories",
-    "general_categories_tip": "Special roles. infantry: takes cover behind trees, rocks and wrecks and can occupy buildings. armored: what cannons (target priority armored) shoot first.",
+    "general_categories_tip": "Special roles. infantry: takes cover behind trees, rocks and wrecks and can occupy buildings. armored: what cannons (target priority armored) shoot first. anti_air, artillery, transport: what the unit does (tags for grouping; no effect on the rules yet).",
     "general_built_by": "Built by",
     "general_built_by_tip": "Build category: builders and factories that build this category can make it. none = nobody builds it.",
     "general_buildable": "Buildable",
