@@ -3,6 +3,16 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.14.1
+
+Performance (late game, maps with towns)
+- Working out who sees whom, the costliest part of each simulation tick on town maps, is about 40% cheaper over a game
+  on Liberec and Jablonec (8 players): radar sight lines skip ground they pass high above, radar sight lines between two
+  ends that stay put are kept longer, and who sees a neutral building is worked out every half second instead of every
+  tick (a town building can show up to 0.4 s later). Building the per-tick unit list is about 30% cheaper.
+- Remembered buildings' models are only updated when something changes, not every frame; the HUD no longer checks
+  every unit against every unit inside a transport or building each frame.
+
 ## v0.14.0
 
 Maps
