@@ -337,3 +337,83 @@ def bunker():
         k.box((0.5, 0.4, 0.25), (-1.4 + i * 0.7, -2.0, 0.14), "sandbag", bevel=0.06)
     k.box((1.0, 1.2, 0.3), (0.5, 0.2, 1.7), "grass" if False else "dirt", bevel=0.1, taper=(0.5, 0.5))
     return k
+
+
+# ---------------------------------------------------------------- small village houses (one cell, 2 x 2)
+
+def small_house(k, w, l, wall_h, roof_h, wall, roof, door_x=0.0, chimney=None, win_n=2, plinth=0.22, overhang=0.14, trim="white"):
+    """Gable-roofed cottage, ridge along y: the door in the front gable, windows along both long sides."""
+    from models_buildings import shed
+    shed(k, w, l, wall_h, roof_h, wall=wall, roof=roof, plinth=plinth, gable=wall, overhang=overhang)
+    k.door((door_x, -l / 2, plinth), (0, -1, 0), 0.42, 0.8, "door", frame=trim)
+    k.box((0.7, 0.3, 0.05), (door_x, -l / 2 - 0.15, 0.95), "wood")  # little porch roof
+    for sx in (-1, 1):
+        k.windows((sx * w / 2, 0.0, wall_h / 2), (sx, 0, 0), l - 0.5, wall_h - 0.05, 1, win_n, win=(0.34, 0.4), sill=0.22, frame=trim, lit=0.0)
+    k.windows((0, l / 2, wall_h / 2), (0, 1, 0), w, wall_h, 1, 1, win=(0.34, 0.4), sill=0.22, frame=trim)
+    if chimney is not None:
+        cx, cy = chimney
+        k.box((0.26, 0.26, roof_h + 0.35), (cx, cy, wall_h + (roof_h + 0.35) / 2 - 0.05), "brick")
+        k.box((0.34, 0.34, 0.06), (cx, cy, wall_h + roof_h + 0.28), "concrete")
+
+
+@model
+def khata():
+    """Whitewashed village hut with a thatched roof and a clay plinth."""
+    k = Kit("khata")
+    small_house(k, 1.5, 1.9, 0.95, 0.75, "plaster_w", "thatch", door_x=0.0, chimney=(0.35, 0.4), plinth=0.28, overhang=0.18, trim="plaster_b")
+    return k
+
+
+@model
+def khata_slate():
+    """Village hut, yellow-washed, slate roof, a chimney."""
+    k = Kit("khata_slate")
+    small_house(k, 1.6, 1.8, 0.95, 0.65, "plaster_y", "roof_slate", door_x=0.3, chimney=(-0.35, 0.3), trim="plaster_b")
+    return k
+
+
+@model
+def cottage():
+    """Small brick house with a tiled roof and a chimney."""
+    k = Kit("cottage")
+    small_house(k, 1.7, 1.95, 1.05, 0.7, "brick", "roof_tile", door_x=-0.35, chimney=(0.4, 0.3), win_n=2)
+    return k
+
+
+@model
+def dacha():
+    """Timber summer cabin with a green corrugated roof and a veranda."""
+    k = Kit("dacha")
+    small_house(k, 1.5, 1.6, 0.95, 0.6, "timber", "corr_green", door_x=0.3, trim="white")
+    k.box((1.5, 0.45, 0.06), (0, -1.05, 0.28), "wood")  # veranda deck
+    k.box((1.6, 0.5, 0.05), (0, -1.05, 1.0), "corr_green")
+    for sx in (-0.7, 0.7):
+        k.box((0.05, 0.05, 0.72), (sx, -1.25, 0.64), "white")
+    return k
+
+
+@model
+def outbuilding():
+    """Barn-like outbuilding of boards and corrugated sheet."""
+    k = Kit("outbuilding")
+    from models_buildings import shed
+    shed(k, 1.6, 1.8, 0.8, 0.5, wall="barn", roof="corr_d", plinth=0.12, gable="barn", overhang=0.1)
+    k.box((0.7, 0.04, 0.65), (0, -0.92, 0.45), "wood")
+    k.box((0.5, 0.04, 0.5), (0, 0.92, 0.5), "black")
+    return k
+
+
+@model
+def farmhouse():
+    """Larger country house: two brick wings under tiled roofs, a chimney and a fence post gateway."""
+    k = Kit("farmhouse")
+    from models_buildings import shed
+    shed(k, 2.4, 3.4, 1.15, 0.9, wall="brick_y", roof="roof_tile", plinth=0.25, gable="brick_y", loc=(-0.5, 0.0), overhang=0.16)
+    shed(k, 1.5, 1.8, 0.95, 0.6, wall="plaster_w", roof="roof_tile", plinth=0.2, gable="plaster_w", loc=(1.1, 0.7), overhang=0.12)
+    k.door((-0.5, -1.7, 0.25), (0, -1, 0), 0.5, 0.85, "door")
+    for sx in (-1, 1):
+        k.windows((-0.5 + sx * 1.2, 0.0, 0.575), (sx, 0, 0), 2.8, 1.1, 1, 3, win=(0.42, 0.48), sill=0.3)
+    k.windows((-0.5, -1.7, 0.575), (0, -1, 0), 2.4, 1.1, 1, 2, win=(0.4, 0.46), sill=0.3, skip=((0, 0),))
+    k.box((0.3, 0.3, 1.5), (-1.0, 0.4, 1.7), "brick")
+    k.box((0.38, 0.38, 0.06), (-1.0, 0.4, 2.46), "concrete")
+    return k

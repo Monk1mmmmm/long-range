@@ -45,6 +45,218 @@
    ]
   },
   {
+   "id": "khata",
+   "name": "Hut",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 150,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 8,
+    "energy": 40,
+    "time": 100
+   },
+   "size": [2.0, 1.7, 2.0],
+   "hit_box": [1.6, 1.7, 1.9],
+   "footprint": 1,
+   "transport": {
+    "capacity": 2
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/khata.glb",
+    "albedo": "models/khata_albedo.png",
+    "team_mask": "models/khata_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+     "residential"
+   ]
+  },
+  {
+   "id": "khata_slate",
+   "name": "Village House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 150,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 8,
+    "energy": 40,
+    "time": 100
+   },
+   "size": [2.0, 1.7, 2.0],
+   "hit_box": [1.7, 1.7, 1.9],
+   "footprint": 1,
+   "transport": {
+    "capacity": 2
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/khata_slate.glb",
+    "albedo": "models/khata_slate_albedo.png",
+    "team_mask": "models/khata_slate_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+     "residential"
+   ]
+  },
+  {
+   "id": "cottage",
+   "name": "Cottage",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 10,
+    "energy": 50,
+    "time": 100
+   },
+   "size": [2.0, 1.9, 2.0],
+   "hit_box": [1.8, 1.9, 2.0],
+   "footprint": 1,
+   "transport": {
+    "capacity": 2
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/cottage.glb",
+    "albedo": "models/cottage_albedo.png",
+    "team_mask": "models/cottage_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+     "residential"
+   ]
+  },
+  {
+   "id": "dacha",
+   "name": "Dacha",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 150,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 8,
+    "energy": 40,
+    "time": 100
+   },
+   "size": [2.0, 1.6, 2.0],
+   "hit_box": [1.6, 1.6, 1.9],
+   "footprint": 1,
+   "transport": {
+    "capacity": 2
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/dacha.glb",
+    "albedo": "models/dacha_albedo.png",
+    "team_mask": "models/dacha_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+     "residential"
+   ]
+  },
+  {
+   "id": "outbuilding",
+   "name": "Outbuilding",
+   "desc": "Farm outbuilding.",
+   "tier": 0,
+   "hp": 120,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 5,
+    "energy": 25,
+    "time": 100
+   },
+   "size": [2.0, 1.4, 2.0],
+   "hit_box": [1.7, 1.4, 1.9],
+   "footprint": 1,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/outbuilding.glb",
+    "albedo": "models/outbuilding_albedo.png",
+    "team_mask": "models/outbuilding_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian"
+   ]
+  },
+  {
+   "id": "farmhouse",
+   "name": "Farmhouse",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 350,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 18,
+    "energy": 90,
+    "time": 100
+   },
+   "size": [4.0, 2.5, 4.0],
+   "hit_box": [3.6, 2.5, 3.6],
+   "footprint": 2,
+   "transport": {
+    "capacity": 4
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/farmhouse.glb",
+    "albedo": "models/farmhouse_albedo.png",
+    "team_mask": "models/farmhouse_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+     "residential"
+   ]
+  },
+  {
    "id": "row_house",
    "name": "Row House",
    "desc": "Residential building.",

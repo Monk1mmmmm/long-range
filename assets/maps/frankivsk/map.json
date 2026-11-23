@@ -4206,7 +4206,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "cottage",
       "pos": {
         "x": 448.0,
         "y": 324.0
@@ -4269,7 +4269,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "farmhouse",
       "pos": {
         "x": 584.0,
         "y": 390.0
@@ -4296,7 +4296,7 @@
       "owner": 0
     },
     {
-      "def": "old_house3",
+      "def": "farmhouse",
       "pos": {
         "x": 414.0,
         "y": 398.0
@@ -4314,7 +4314,7 @@
       "owner": 0
     },
     {
-      "def": "house2",
+      "def": "dacha",
       "pos": {
         "x": 630.0,
         "y": 400.0
@@ -4350,7 +4350,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "cottage",
       "pos": {
         "x": 668.0,
         "y": 412.0
@@ -4404,7 +4404,7 @@
       "owner": 0
     },
     {
-      "def": "house3",
+      "def": "khata",
       "pos": {
         "x": 506.0,
         "y": 428.0
@@ -4458,7 +4458,7 @@
       "owner": 0
     },
     {
-      "def": "old_house2",
+      "def": "dacha",
       "pos": {
         "x": 684.0,
         "y": 438.0
@@ -4485,7 +4485,7 @@
       "owner": 0
     },
     {
-      "def": "old_house4",
+      "def": "cottage",
       "pos": {
         "x": 534.0,
         "y": 444.0
@@ -4494,7 +4494,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "farmhouse",
       "pos": {
         "x": 526.0,
         "y": 446.0
@@ -4512,7 +4512,7 @@
       "owner": 0
     },
     {
-      "def": "old_house4",
+      "def": "cottage",
       "pos": {
         "x": 642.0,
         "y": 452.0
@@ -4548,7 +4548,7 @@
       "owner": 0
     },
     {
-      "def": "old_house3",
+      "def": "farmhouse",
       "pos": {
         "x": 582.0,
         "y": 466.0
@@ -4566,7 +4566,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "khata_slate",
       "pos": {
         "x": 602.0,
         "y": 474.0
@@ -4575,7 +4575,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "farmhouse",
       "pos": {
         "x": 628.0,
         "y": 474.0
@@ -4584,7 +4584,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "khata",
       "pos": {
         "x": 636.0,
         "y": 472.0
@@ -4593,7 +4593,7 @@
       "owner": 0
     },
     {
-      "def": "old_house4",
+      "def": "khata_slate",
       "pos": {
         "x": 642.0,
         "y": 472.0
@@ -4602,7 +4602,7 @@
       "owner": 0
     },
     {
-      "def": "house2",
+      "def": "khata_slate",
       "pos": {
         "x": 502.0,
         "y": 474.0
@@ -4620,7 +4620,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "cottage",
       "pos": {
         "x": 472.0,
         "y": 480.0
@@ -4638,7 +4638,7 @@
       "owner": 0
     },
     {
-      "def": "house5",
+      "def": "dacha",
       "pos": {
         "x": 642.0,
         "y": 488.0
@@ -4647,7 +4647,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "dacha",
       "pos": {
         "x": 598.0,
         "y": 490.0
@@ -4665,7 +4665,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "khata",
       "pos": {
         "x": 502.0,
         "y": 492.0
@@ -4683,7 +4683,7 @@
       "owner": 0
     },
     {
-      "def": "old_house2",
+      "def": "dacha",
       "pos": {
         "x": 618.0,
         "y": 498.0
@@ -4692,7 +4692,7 @@
       "owner": 0
     },
     {
-      "def": "house5",
+      "def": "khata",
       "pos": {
         "x": 476.0,
         "y": 502.0
@@ -4701,7 +4701,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "cottage",
       "pos": {
         "x": 482.0,
         "y": 504.0
@@ -4710,7 +4710,7 @@
       "owner": 0
     },
     {
-      "def": "house2",
+      "def": "khata_slate",
       "pos": {
         "x": 530.0,
         "y": 502.0
@@ -4719,7 +4719,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "outbuilding",
       "pos": {
         "x": 500.0,
         "y": 506.0
@@ -4755,7 +4755,7 @@
       "owner": 0
     },
     {
-      "def": "house5",
+      "def": "dacha",
       "pos": {
         "x": 634.0,
         "y": 510.0
@@ -4782,7 +4782,7 @@
       "owner": 0
     },
     {
-      "def": "house2",
+      "def": "cottage",
       "pos": {
         "x": 470.0,
         "y": 520.0
@@ -4791,7 +4791,7 @@
       "owner": 0
     },
     {
-      "def": "old_house2",
+      "def": "farmhouse",
       "pos": {
         "x": 524.0,
         "y": 520.0
@@ -4809,7 +4809,7 @@
       "owner": 0
     },
     {
-      "def": "house4",
+      "def": "outbuilding",
       "pos": {
         "x": 502.0,
         "y": 520.0
@@ -4854,7 +4854,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "farmhouse",
       "pos": {
         "x": 616.0,
         "y": 528.0
@@ -4863,7 +4863,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "khata",
       "pos": {
         "x": 530.0,
         "y": 528.0
@@ -4881,7 +4881,7 @@
       "owner": 0
     },
     {
-      "def": "old_house3",
+      "def": "cottage",
       "pos": {
         "x": 458.0,
         "y": 530.0
@@ -4917,7 +4917,7 @@
       "owner": 0
     },
     {
-      "def": "old_house2",
+      "def": "outbuilding",
       "pos": {
         "x": 556.0,
         "y": 534.0
@@ -4953,7 +4953,7 @@
       "owner": 0
     },
     {
-      "def": "house2",
+      "def": "khata",
       "pos": {
         "x": 490.0,
         "y": 542.0
@@ -4971,7 +4971,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "farmhouse",
       "pos": {
         "x": 472.0,
         "y": 548.0
@@ -4989,7 +4989,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "khata",
       "pos": {
         "x": 466.0,
         "y": 554.0
@@ -4998,7 +4998,7 @@
       "owner": 0
     },
     {
-      "def": "old_house2",
+      "def": "outbuilding",
       "pos": {
         "x": 532.0,
         "y": 556.0
@@ -5007,7 +5007,7 @@
       "owner": 0
     },
     {
-      "def": "house4",
+      "def": "cottage",
       "pos": {
         "x": 662.0,
         "y": 562.0
@@ -5025,7 +5025,7 @@
       "owner": 0
     },
     {
-      "def": "old_house3",
+      "def": "khata",
       "pos": {
         "x": 460.0,
         "y": 564.0
@@ -5070,7 +5070,7 @@
       "owner": 0
     },
     {
-      "def": "house4",
+      "def": "farmhouse",
       "pos": {
         "x": 552.0,
         "y": 584.0
@@ -5106,7 +5106,7 @@
       "owner": 0
     },
     {
-      "def": "house3",
+      "def": "khata",
       "pos": {
         "x": 390.0,
         "y": 598.0
@@ -5133,7 +5133,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "cottage",
       "pos": {
         "x": 512.0,
         "y": 606.0
@@ -5142,7 +5142,7 @@
       "owner": 0
     },
     {
-      "def": "old_house4",
+      "def": "dacha",
       "pos": {
         "x": 380.0,
         "y": 608.0
@@ -5160,7 +5160,7 @@
       "owner": 0
     },
     {
-      "def": "house5",
+      "def": "dacha",
       "pos": {
         "x": 374.0,
         "y": 610.0
@@ -5259,7 +5259,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "khata",
       "pos": {
         "x": 468.0,
         "y": 638.0
@@ -5286,7 +5286,7 @@
       "owner": 0
     },
     {
-      "def": "house6",
+      "def": "khata_slate",
       "pos": {
         "x": 498.0,
         "y": 642.0
@@ -5295,7 +5295,7 @@
       "owner": 0
     },
     {
-      "def": "house4",
+      "def": "khata_slate",
       "pos": {
         "x": 412.0,
         "y": 644.0

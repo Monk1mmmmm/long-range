@@ -663,6 +663,30 @@
       "name": "House",
       "desc": "Residential building."
     },
+    "khata": {
+      "name": "Hut",
+      "desc": "Residential building."
+    },
+    "khata_slate": {
+      "name": "Village House",
+      "desc": "Residential building."
+    },
+    "cottage": {
+      "name": "Cottage",
+      "desc": "Residential building."
+    },
+    "dacha": {
+      "name": "Dacha",
+      "desc": "Residential building."
+    },
+    "outbuilding": {
+      "name": "Outbuilding",
+      "desc": "Farm outbuilding."
+    },
+    "farmhouse": {
+      "name": "Farmhouse",
+      "desc": "Residential building."
+    },
     "row_house": {
       "name": "Row House",
       "desc": "Residential building."
