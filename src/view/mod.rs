@@ -128,6 +128,10 @@ pub struct ViewState {
     pub auto_garrison_tick: u32,
     /// Playing back a replay: the controls the HUD shows (`hud::replay_bar`), shared with the session.
     pub replay: Option<ReplayBar>,
+    /// Game speed chosen by the host (a game of AIs only); read by the session.
+    pub host_speed: f32,
+    /// The session allows the speed control this frame (host, every player an AI).
+    pub host_speed_ui: bool,
 }
 
 /// Replay controls. The session fills in where the playback is; the HUD sets the `want_*` requests.
@@ -204,6 +208,8 @@ impl ViewState {
             screen_h: 720.0,
             replay: None,
             auto_garrison_tick: 0,
+            host_speed: 1.0,
+            host_speed_ui: false,
         }
     }
 }

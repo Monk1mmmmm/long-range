@@ -360,6 +360,8 @@
   },
   "hud_replay": {
     "replay": "REPLAY",
+    "game_speed": "SPEED",
+    "game_speed_tip": "Game speed (host, games of AIs only), x0.25 to x20. Double-click: back to x1.",
     "speed_tip": "Playback speed, x0.25 to x32. Double-click: back to x1.",
     "vision_all": "Everything",
     "vision_tip": "See the game as a player does: their fog of war, radar and economy.",
