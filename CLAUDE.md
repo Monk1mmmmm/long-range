@@ -456,6 +456,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Overtaker unopposed; with a radar tower an MBFAG downs 4 of 6, a T1 AA turret all 6.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
+- **Adaptive maps** (SupCom style; `frankivsk_mini`, `frankivsk`, `liberec`, made by `tools/merge_variants.py` from the former
+  per-player-count maps): `map.json` holds the union of the starts plus `variants` (`{starts: [indices in slot order], points}`:
+  one way to play per player count) and `attached` (`{pos, start}` / `{pos, variant}` per deposit, matched by position).
+  The lobby lists a map with variants as one entry per variant (`folder#k`, `data::map_entries` / `split_map` / `load_map`;
+  `MapData::variant(k)` makes the plain map: that variant's starts, its deposits, slot props renumbered, trees, rocks and
+  buildings cleared round its starts, its points). A deposit attached to a start is only there when that slot is played:
+  `MapData::adapt` (called by the host in `start_game` before the map is sent, and again in `setup_game`, where it does
+  nothing once done) drops the others, so clients, joiners and replays all hold the same trimmed map. Maps without
+  variants play as before. The map editor edits the raw union map and keeps both lists (deposits are matched by position:
+  a moved deposit loses its attachment).
 - **Game browser** (main menu "Join game" -> `Screen::Browse`, `main.rs::browser_ui`): a table of the games found by UDP
   discovery (`net::Discovery`, broadcast + localhost once a second, Refresh/F5 asks again, hosts silent 4 s drop off).
   A host answers with its version and a `net::GameAd` (host name, map folder or random size, 48x48 RGB picture + starts,
@@ -735,7 +745,7 @@ to open in Blender; `art/render.py` renders exports for a look (Workbench, team 
     failure (`find_spot_where`); the engineer is called off;
   - `LR_AIOFF=landing,tries,...` (also infantry, works, carrier, crescent, focus, bounds, outgunned) switches parts off for tests.
   The report line ends with `landings N (air/amphibious/land) shelters N hunts N`. Premade maps have the towns
-  (`LR_MAP=ivano_frankivsk_city`); generated `--selftest` maps have no buildings.
+  (`LR_MAP=frankivsk_mini#1`); generated `--selftest` maps have no buildings.
   Test a change with duels against `simple` on a few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); the
   new types should win all of them.
 - The hostile side only holds positions; it has no AI.
