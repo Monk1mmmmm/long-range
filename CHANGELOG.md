@@ -3,6 +3,12 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## Unreleased
+
+Maps
+- The lobby lists an adaptive map once, as its variant with the most starts (Jablonec 8 players, Liberec 8, Frankivsk 10, Frankivsk mini 6), not once per player count. With fewer players, leave slots empty: the deposits of empty starts are still dropped.
+- Jablonec has about twice the buildings (1170 instead of 600 plus landmarks), taken from Overture Maps building data for the same area; terrain, roads, deposits and starts are unchanged (`tools/graft_buildings.py`).
+
 ## v0.14.1
 
 Performance (late game, maps with towns)

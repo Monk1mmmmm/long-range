@@ -236,6 +236,15 @@ in the city, the hostile outpost on Fort Imperial:
 
     .venv/bin/python tools/osm_map.py dubrovnik_1991 --center 42.649,18.099 --km 6 --cells 512 --players 4 --relief 0.8 --source overture --sea --drop-bridges 42.660,18.060,42.675,18.095 --title "Dubrovnik 1991" --max-props 1400 --village 0.5 --points 7 --cp-town 1.0 --cp-area 42.60,18.05,42.6655,18.14 --dep-area 42.60,18.05,42.6685,18.15 --starts "83,293;114,499;880,450;985,700" --outpost 42.6505,18.1135
 
+## graft_buildings.py - new buildings for a finished map
+
+    .venv/bin/python tools/osm_map.py NAME_new --source overture --bbox ... --cells N --starts "..." --max-props 9000 --village 1.0
+    python3 tools/graft_buildings.py NAME NAME_new      # then delete assets/maps/NAME_new
+
+Replaces the neutral buildings of an existing map (terrain, roads, ground, deposits, starts, points and variants stay) with those
+of the same place made again, nudging each up to 2 cells off the map's roads, deposits and kept props (pylons, towers, outpost).
+Used for `jablonec` (bbox 50.661,15.091,50.751,15.233, the starts of its 8-player variant): 600 -> 1170 buildings.
+
 ## merge_variants.py - one adaptive map from per-player-count maps
 
     python3 tools/merge_variants.py liberec --title "Liberec and Jablonec" liberec_4p liberec_6p liberec_8p [--attach-radius 26]
