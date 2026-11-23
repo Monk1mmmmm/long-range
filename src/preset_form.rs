@@ -118,6 +118,7 @@ pub const RULE_WRECKS: &[Field] = &[
     num("wreck_mass_fraction", tx!("preset_rules.wrecks_wreck_mass_fraction"), 0.6, 10.0, tx!("preset_rules.wrecks_wreck_mass_fraction_tip")),
     f("max_wrecks", tx!("preset_rules.wrecks_max_wrecks"), Kind::Int(400, 0, 100000), tx!("preset_rules.wrecks_max_wrecks_tip")),
     num("wreck_hp", tx!("preset_rules.wrecks_wreck_hp"), 0.5, 100.0, tx!("preset_rules.wrecks_wreck_hp_tip")),
+    num("revive_cooldown", tx!("preset_rules.wrecks_revive_cooldown"), 60.0, 3600.0, tx!("preset_rules.wrecks_revive_cooldown_tip")),
     num("wreck_cover", tx!("preset_rules.wrecks_wreck_cover"), 0.5, 1.0, tx!("preset_rules.wrecks_wreck_cover_tip")),
 ];
 

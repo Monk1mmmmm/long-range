@@ -7,6 +7,8 @@
   "max_wrecks": 400,
   "_comment_wreck_hp": "Hit points of a wreck as a share of the unit's. Shells and blasts wear wrecks, trees and rocks (hp in features) down; what they are worth goes with their hit points.",
   "wreck_hp": 0.5,
+  "_comment_revive_cooldown": "Seconds before the wreck of a revived unit, or of a revival site destroyed unfinished, can be revived again (scavengers would otherwise bring the same unit back over and over where it keeps getting killed).",
+  "revive_cooldown": 60,
   "_comment_debris": "Buildings hit hard (one hit of at least min_hit of their hit points) or destroyed drop pieces of debris around them: reclaimable like wrecks, worn down by shells, the big ones (sight_size) block sight, falling ones hurt what they land on (land_damage per mass, at most land_damage_max). Their mass comes out of the building's wreck value: a hit drops hit_share of the value its damage stands for, hits drop at most max_shed of it in all, and a destroyed building drops death_share of what is left. At most max pieces lie around.",
   "debris": { "enabled": true, "min_hit": 0.08, "hit_share": 0.5, "max_shed": 0.5, "death_share": 0.3, "death_pieces": 6, "hit_pieces": 4, "min_mass": 1.5, "max": 300, "land_damage": 2.0, "land_damage_max": 40.0, "sight_size": 0.9 },
   "reclaim_rate": 2.0,
@@ -78,13 +80,6 @@
     "SmallArms"
   ],
   "armor": {
-    "APC": {
-      "Normal": 0.1,
-      "Autocannon": 0.5,
-      "AP": 1.0,
-      "Explosive": 1.0,
-      "SmallArms": 0.1
-    },
     "Light": {
       "Normal": 1.0,
       "Autocannon": 1.0,

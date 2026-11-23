@@ -299,6 +299,11 @@ pub struct Wreck {
     /// Debris still falling (`vel` its velocity): not reclaimable or in `WreckList` until it lands.
     pub falling: bool,
     pub vel: V3,
+    /// Game tick before which scavengers may not revive it: the wreck of a revived unit or of
+    /// an unfinished revival site (`rules.revive_cooldown`), so one unit is not brought back
+    /// over and over where it keeps getting killed.
+    #[serde(default)]
+    pub revive_at: u32,
 }
 
 impl Wreck {
@@ -417,10 +422,21 @@ pub struct Game {
     pub infantry_capture: bool,
 }
 
-/// A building infantry may capture when `Game.infantry_capture` is on: not a factory, a
-/// garrison (those are stormed) or a field work.
+/// A building infantry may capture when `Game.infantry_capture` is on: not a factory or a field
+/// work, and of the garrisons only the military ones - armed (the map's bunkers) or built by a
+/// side (field bunker, watch tower) - once empty (`systems::can_seize`; a held one is stormed
+/// first). Every turret can be taken; houses are entered or stormed instead.
 pub fn seizable(d: &crate::data::UnitDef) -> bool {
-    d.is_structure() && !d.is_factory() && !d.is_garrison() && !d.is_fieldwork()
+    d.is_structure() && !d.is_factory() && !d.is_fieldwork() && (!d.is_garrison() || d.armed() || d.built_by.is_some()) && has_function(d)
+}
+
+/// A building that does something for its owner (economy, guns, radar, building, sight): pylons,
+/// towers and tanks that only stand there are not worth taking.
+pub fn has_function(d: &crate::data::UnitDef) -> bool {
+    let e = &d.eco;
+    e.mass != 0.0 || e.energy != 0.0 || e.upkeep != 0.0 || e.store_mass != 0.0 || e.store_energy != 0.0
+        || !d.weapons.is_empty() || d.radar > 0.0 || d.radar2 > 0.0 || d.radar3 > 0.0
+        || d.build.is_some() || d.vision > 0.0
 }
 
 pub const MODE_ANNIHILATION: u8 = 0;
@@ -832,9 +848,14 @@ impl Census {
 }
 
 /// Wrecks and landed debris at the start of the tick, for reclaim orders:
-/// (id, position, mass, def, piece size; 0 = a whole wreck).
+/// (id, position, mass, def, piece size; 0 = a whole wreck, tick from which it may be revived).
 #[derive(Resource, Default)]
-pub struct WreckList(pub Vec<(u32, V2, f32, DefId, f32)>);
+pub struct WreckList(pub Vec<(u32, V2, f32, DefId, f32, u32)>);
+
+/// A whole wreck that may be revived at `tick` (not debris, not cooling down after a revival).
+pub fn revivable(w: &(u32, V2, f32, DefId, f32, u32), tick: u32) -> bool {
+    w.4 <= 0.0 && tick >= w.5
+}
 
 /// Effects on other entities are queued and applied by dedicated systems.
 #[derive(Resource, Default)]
@@ -1425,8 +1446,10 @@ pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
 }
 
 /// Sets up a fresh game world: resources, commanders and map props.
-pub fn setup_game(world: &mut World, map: MapData, setup: &[PlayerSetup]) {
+pub fn setup_game(world: &mut World, mut map: MapData, setup: &[PlayerSetup]) {
     clear_game(world);
+    // Deposits attached to the starts of empty slots do not exist in this game (no-op when already done).
+    map.adapt(&setup.iter().map(|p| p.slot).collect::<Vec<_>>());
     let defs = world.resource::<Defs>().clone();
     let mut game = Game::default();
     let mut nav = Nav { occ: map.blocked.clone(), ..default() };

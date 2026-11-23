@@ -183,7 +183,7 @@ fn census_build(
     }
     wrecks.0.clear();
     // Falling debris cannot be reclaimed, hit or hidden behind until it lands.
-    wrecks.0.extend(wq.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.def, w.piece)));
+    wrecks.0.extend(wq.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.def, w.piece, w.revive_at)));
     wrecks.0.sort_by_key(|w| w.0);
 }
 
@@ -909,6 +909,21 @@ fn think(
         };
         // Infantry: a spot behind a tree, rock or wreck near `anchor`, re-chosen every half second.
         let infantry = df.is_infantry() && !is_struct && !plane;
+        // No shot from here (see `no_shot`): a spot nearby with a clear line to the targets, to
+        // move to and aim again from. Kept in `Mover.cover` (infantry use that for real cover),
+        // re-searched every second.
+        let reposition = |mover: &mut Option<Mut<Mover>>| -> Option<V2> {
+            if is_struct || plane || infantry || !no_shot(None) {
+                return None;
+            }
+            let ws = weapons.as_deref()?;
+            let m = mover.as_mut()?;
+            let keep = m.cover.filter(|c| c.dist(pos) > 0.5 && c.dist(pos) < 25.0);
+            if keep.is_none() || (game.tick + id) % 10 == 0 {
+                m.cover = firing_spot(&defs, &census, &map, &nav, id, team, df, pos, ws, keep);
+            }
+            m.cover.filter(|c| c.dist(pos) > 0.5)
+        };
         let mut in_cover = false;
         let cover = |mover: &mut Option<Mut<Mover>>, anchor: Option<V2>, search: f32| -> Option<V2> {
             let m = mover.as_mut()?;
@@ -997,6 +1012,7 @@ fn think(
             }
             Some(Order::AttackMove(p)) | Some(Order::Patrol(p)) => {
                 let mut engaged = false;
+                let mut shift: Option<V2> = None;
                 if let Some(w) = w0 {
                     if plane {
                         // Bombers (fighter-bombers too) go for ground targets first, fighters for
@@ -1009,10 +1025,15 @@ fn think(
                             goal = Some(t.pos);
                             engaged = true;
                         }
-                    } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() && !no_shot(None) {
-                        // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
-                        // they never stop for a fight.
-                        engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
+                    } else if census.nearest_enemy(pos, team, w.range * 0.95, w.min_range, w.hits_land, w.hits_air).is_some() {
+                        if !no_shot(None) {
+                            // Vehicles with a machine gun (also a tank's secondary one) shoot on the move:
+                            // they never stop for a fight.
+                            engaged = infantry || !df.weapons.iter().any(|w| w.is_machine_gun());
+                        } else {
+                            // Enemy in range but nothing to shoot with: step to where the guns have a line.
+                            shift = reposition(&mut mover);
+                        }
                     }
                 }
                 // A building infantry can take is not a fight: they walk up to it instead of
@@ -1021,7 +1042,7 @@ fn think(
                     if let Some(w) = w0 {
                         let mut foe = false;
                         census.near(pos, w.range * 0.95, |c| {
-                            let takeable = c.structure && can_seize(&defs, team, c) && !guarded(&census, &defs, c);
+                            let takeable = c.structure && can_seize(&census, &defs, team, c) && !guarded(&census, &defs, c);
                             foe |= !takeable && census.valid_target(c, team, w.hits_land, w.hits_air);
                         });
                         engaged = foe;
@@ -1033,6 +1054,8 @@ fn think(
                     // Fighting on the way: into cover close to where the fight found them.
                     in_cover = true;
                     goal = cover(&mut mover, Some(pos), defs.rules.cover_search * 0.6);
+                } else if let Some(s) = shift {
+                    goal = Some(s);
                 } else if !engaged {
                     // Passing a building it may take, infantry take it on the way.
                     let auto = if infantry && game.infantry_capture { seize_target(&census, &defs, team, pos) } else { None };
@@ -1060,8 +1083,11 @@ fn think(
                     if range > 0.0 && t.hp > 0.0 && !t.hosted && t.known_to(team) && t.team != team {
                         pop = false;
                         focus = tid;
-                        if plane || (!is_struct && (pos.dist(t.pos) > range * 0.9 || no_shot(Some(tid)))) {
+                        if plane || (!is_struct && pos.dist(t.pos) > range * 0.9) {
                             goal = Some(t.pos);
+                        } else if !is_struct && no_shot(Some(tid)) {
+                            // No line to it from here: another angle if one is near, else straight in.
+                            goal = reposition(&mut mover).or(Some(t.pos));
                         }
                     }
                 }
@@ -1247,7 +1273,7 @@ fn think(
             },
             // Infantry capture (lobby option): walk up to it and take it while nobody guards it.
             Some(Order::Capture(tid)) if !df.is_engineer() => match census.get(tid) {
-                Some(t) if infantry && game.infantry_capture && can_seize(&defs, team, t) => {
+                Some(t) if infantry && game.infantry_capture && can_seize(&census, &defs, team, t) => {
                     if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
                         goal = Some(t.pos);
                     } else if !guarded(&census, &defs, t) {
@@ -1268,7 +1294,7 @@ fn think(
                 }
                 _ => pop = true,
             },
-            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid && w.4 <= 0.0).copied() {
+            Some(Order::Revive(wid)) => match wrecks.0.iter().find(|w| w.0 == wid && revivable(w, game.tick)).copied() {
                 Some(w) if df.is_scavenger() => {
                     let wd = defs.get(w.3);
                     if let Some(done) = effects.revived.iter().find(|r| r.0 == wid) {
@@ -1296,7 +1322,7 @@ fn think(
                 let best = wrecks
                     .0
                     .iter()
-                    .filter(|w| w.4 <= 0.0 && w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
+                    .filter(|w| revivable(w, game.tick) && w.1.dist(c) <= radius && w.2 > 0.0 && !effects.revived.iter().any(|r| r.0 == w.0))
                     .filter(|w| !defs.get(w.3).is_structure() || can_place(&defs, &map, &nav.occ, w.3, w.1))
                     .min_by(|a, b| a.1.dist(pos).partial_cmp(&b.1.dist(pos)).unwrap_or(std::cmp::Ordering::Equal))
                     .copied();
@@ -1650,9 +1676,10 @@ const FERRY_DROP: f32 = 6.0;
 fn may_board(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, team: u8) -> bool {
     let td = defs.get(t.def);
     if td.is_garrison() {
-        let map_building = t.owner != HOSTILE && defs.factions.get(td.faction as usize).map_or(false, |f| !f.playable);
+        // Every garrison (houses, bunkers, field bunkers, watch towers) belongs to whoever holds
+        // it: an empty one is open to anybody but the hostile side's.
         let empty = || !census.list.iter().any(|r| r.host == t.id && r.hp > 0.0);
-        df.is_infantry() && (t.team == team || t.owner == NEUTRAL || (map_building && empty()))
+        df.is_infantry() && (t.team == team || t.owner == NEUTRAL || (t.owner != HOSTILE && empty()))
     } else {
         t.team == team && (td.transport.is_none() || fits(td, df))
     }
@@ -1718,6 +1745,53 @@ fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
 /// nearest known armed enemy; within `search` of `anchor`, not taken by another unit of the side,
 /// preferring spots close to the unit and to the anchor. None when there is no threat or no cover.
 #[allow(clippy::too_many_arguments)]
+/// A nearby spot from which every direct-fire gun of the unit that has no shot now (a building,
+/// a hill or a friend in the way) would have a clear line to its target and be in range: the unit
+/// moves there and lays its guns again instead of driving straight at the target. Rings of
+/// growing radius round the unit, the spot picked last time first (`keep`), so a unit does not
+/// dither between two spots.
+#[allow(clippy::too_many_arguments)]
+fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>) -> Option<V2> {
+    let lane = Lane {
+        census,
+        map,
+        team,
+        friendly_fire: defs.rules.friendly_fire,
+        grace: defs.rules.cover_grace,
+        shooter: id,
+        host: 0,
+        g: defs.rules.gravity,
+    };
+    let jobs: Vec<(&WeaponDef, &Cen)> = df
+        .weapons
+        .iter()
+        .zip(ws.list.iter())
+        .filter(|(w, s)| w.kind == WeaponKind::Direct && s.target != 0 && s.blocked)
+        .filter_map(|(w, s)| census.get(s.target).map(|c| (w, c)))
+        .collect();
+    if jobs.is_empty() {
+        return None;
+    }
+    let h = df.height() * 0.8;
+    let mut cands: Vec<V2> = keep.into_iter().collect();
+    for (ri, r) in [3.0f32, 6.0, 10.0, 15.0].into_iter().enumerate() {
+        let n = 8 + ri * 4;
+        for k in 0..n {
+            cands.push(pos + V2::from_angle(k as f32 / n as f32 * std::f32::consts::TAU + ri as f32 * 0.4) * r);
+        }
+    }
+    cands.into_iter().find(|&spot| {
+        if map.clamp(spot) != spot || nav.at(map, spot) != 0 || map.h(spot) < map.water_at(spot) + 0.4 {
+            return false;
+        }
+        let origin = spot.at(map.h(spot) + h);
+        jobs.iter().all(|(w, c)| {
+            let d = c.pos.dist(spot);
+            d <= w.range * 0.95 && d >= w.min_range && lane.aim(w, origin, c).is_some()
+        })
+    })
+}
+
 fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckList, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, anchor: V2, search: f32) -> Option<V2> {
     let rules = &defs.rules;
     let mut threat: Option<(f32, V2)> = None;
@@ -1797,7 +1871,7 @@ fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckL
         }
     });
     if rules.wreck_cover > 0.05 {
-        for &(_, wp, mass, wd, piece) in &wrecks.0 {
+        for &(_, wp, mass, wd, piece, _) in &wrecks.0 {
             // Debris too small to hide behind does not count.
             if mass > 0.0 && wp.dist(anchor) <= search + 3.0 && (piece <= 0.0 || piece >= rules.debris.sight_size) {
                 let (r, top) = Wreck::shape(defs, wd, piece);
@@ -1866,9 +1940,10 @@ fn assaults(census: Res<Census>, defs: Res<Defs>, mut effects: ResMut<Effects>) 
     }
 }
 
-/// Occupied buildings of the map belong to the side inside (they can be shot at and the side sees
-/// from them); once empty they are neutral again. Buildings of playable factions keep their owner.
-fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q: Query<(&mut Unit, &mut Orders), With<Structure>>) {
+/// Occupied buildings (the map's and field bunkers / watch towers alike) belong to the side inside
+/// (they can be shot at and the side sees from them); once empty they are neutral again. The
+/// hostile side's keep their owner, and so, with infantry capture on, do armed ones (bunkers).
+fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, game: Res<Game>, mut q: Query<(&mut Unit, &mut Orders), With<Structure>>) {
     // Host -> owner of its lowest-id rider (the census is in id order).
     let mut inside: BTreeMap<u32, u8> = BTreeMap::new();
     for c in &census.list {
@@ -1883,11 +1958,13 @@ fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q:
     }
     for c in &census.list {
         let d = defs.get(c.def);
-        if !d.is_garrison() || c.hp <= 0.0 || c.owner == HOSTILE || defs.factions.get(d.faction as usize).map_or(true, |f| f.playable) {
+        if !d.is_garrison() || c.hp <= 0.0 || c.owner == HOSTILE {
             continue;
         }
         let want = inside.get(&c.id).copied().unwrap_or(NEUTRAL);
-        if want != c.owner {
+        // With infantry capture on, an armed one (a bunker) is a turret too: taken over, or
+        // left by its riders, it keeps the side that has it.
+        if want != c.owner && !(want == NEUTRAL && d.armed() && game.infantry_capture) {
             if let Ok((mut u, mut o)) = q.get_mut(c.e) {
                 u.owner = want;
                 o.0.clear();
@@ -1899,7 +1976,7 @@ fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q:
 /// Turns a wreck into a construction site of `owner` that already holds the wreck's mass;
 /// finishing it costs the rest, like any building work. Returns the new unit's id.
 #[allow(clippy::too_many_arguments)]
-fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId, f32), owner: u8) -> u32 {
+fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, nav: &mut Nav, effects: &mut Effects, w: (u32, V2, f32, DefId, f32, u32), owner: u8) -> u32 {
     let wd = defs.get(w.3);
     let built = (w.2 / wd.cost.mass.max(1.0)).clamp(0.05, 0.95);
     let sid = spawn_site(commands, defs, game, map, w.3, owner, w.1, PI * 0.5, Some(built), 0, w.0);
@@ -2124,7 +2201,8 @@ fn build_progress(
             uc.0 += prog;
             h.0 = (h.0 + prog * max_hp).min(max_hp);
             if uc.0 >= 0.9999 {
-                commands.entity(te).remove::<(UnderConstruction, Revival)>();
+                // `Revival` stays: its wreck, should it die, cannot be revived again at once.
+                commands.entity(te).remove::<UnderConstruction>();
                 // Marked complete right away so later contributions in this tick see it.
                 uc.0 = 2.0;
                 // Field works (sandbags, trenches) belong to nobody once built: cover for every side.
@@ -2161,9 +2239,6 @@ fn build_progress(
         pl.energy = pl.energy.clamp(0.0, pl.max_energy.max(1.0));
     }
 }
-
-/// Speed of an amphibious unit under water, as a share of its speed on land.
-const AMPHIBIOUS_SPEED: f32 = 0.6;
 
 #[allow(clippy::type_complexity)]
 fn locomotion(
@@ -2269,7 +2344,7 @@ fn locomotion(
                     m.stuck = 0;
                     m.speed = 0.0;
                     body.vel = v2(0.0, 0.0);
-                    body.y = map.h(body.pos);
+                    body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
                     continue;
                 };
                 if m.path.is_empty() || m.path_goal.dist(g) > 3.0 {
@@ -2320,11 +2395,7 @@ fn locomotion(
                 let face = if m.reversing { wrap(desired + PI) } else { desired };
                 body.yaw = turn_toward(body.yaw, face, turn * DT);
                 let off = wrap(face - body.yaw).abs();
-                let mut top = if m.reversing { mv.reverse } else { mv.speed };
-                if mv.amphibious && map.h(body.pos) < map.water_at(body.pos) - 0.3 {
-                    // Driving along the bottom: slower than on land.
-                    top *= AMPHIBIOUS_SPEED;
-                }
+                let top = if m.reversing { mv.reverse } else { mv.speed };
                 let mut want = if off < 0.35 {
                     top
                 } else if off < 1.0 {
@@ -2362,7 +2433,8 @@ fn locomotion(
                 } else if m.stuck > 0 {
                     m.stuck -= 1;
                 }
-                body.y = map.h(body.pos);
+                // Amphibious units float on the water, others stand on the ground.
+                body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
             }
         }
         body.pos = v2(body.pos.x.clamp(0.5, world - 0.5), body.pos.y.clamp(0.5, world - 0.5));
@@ -2422,7 +2494,7 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
                 if let Ok((_, _, mut body, _)) = q.get_mut(a.e) {
                     body.pos = np;
                     if !a.air {
-                        body.y = map.h(np);
+                        body.y = if a.amph { map.surface(np) } else { map.h(np) };
                     }
                 }
             }
@@ -2923,6 +2995,21 @@ fn weapons(
             if direct && if gpoint.is_some() { !map.los(origin, sol.point + Vec3::Y * 0.3) } else { st.blocked } {
                 continue;
             }
+            // The check above can be two ticks old and the unit may have moved or something stepped
+            // in front: look once more right before the shot, and lay again if the aim height changed.
+            if let Some(c) = target.filter(|_| direct && gpoint.is_none()) {
+                match lane.aim(w, origin, c) {
+                    None => {
+                        st.blocked = true;
+                        continue;
+                    }
+                    Some(l) if (l - st.lift).abs() > 1e-4 => {
+                        st.lift = l;
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             st.cd = w.reload;
             st.burst = w.salvo.min(st.ammo_left(w).map_or(u8::MAX, |l| l.min(255) as u8)).saturating_sub(1);
             st.burst_cd = w.salvo_delay;
@@ -3262,7 +3349,7 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
     if rules.wreck_cover > 0.0 {
         let (lo, hi) = (flat(a), flat(b));
         let (x0, x1, z0, z1) = (lo.x.min(hi.x) - 4.0, lo.x.max(hi.x) + 4.0, lo.y.min(hi.y) - 4.0, lo.y.max(hi.y) + 4.0);
-        for &(id, pos, mass, def, piece) in &wrecks.0 {
+        for &(id, pos, mass, def, piece, _) in &wrecks.0 {
             if mass <= 0.0 || pos.x < x0 || pos.x > x1 || pos.y < z0 || pos.y > z1 {
                 continue;
             }
@@ -3368,7 +3455,7 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
     for (i, left) in hit {
         features.set_left(i, left);
     }
-    for &(id, pos, mass, def, piece) in &wrecks.0 {
+    for &(id, pos, mass, def, piece, _) in &wrecks.0 {
         let d = defs.get(def);
         let (r, h) = Wreck::shape(defs, def, piece);
         let horiz = (pos.dist(centre) - r).max(0.0);
@@ -3479,10 +3566,17 @@ fn apply_reclaim(
 }
 
 /// `t` is a building infantry of `team` may take over right now: finished, standing, known, not
-/// theirs and `seizable` (never garrisons, factories or field works). Guarded ones can be
-/// walked up to and waited at, but not taken.
-fn can_seize(defs: &Defs, team: u8, t: &Cen) -> bool {
-    t.hp > 0.0 && t.done && !t.hosted && t.team != team && t.known_to(team) && seizable(defs.get(t.def))
+/// theirs and `seizable` (never factories or field works; of the garrisons only bunkers and other
+/// military ones, and only once nobody is inside: a held one is stormed). Guarded ones can be walked
+/// up to and waited at, but not taken.
+fn can_seize(census: &Census, defs: &Defs, team: u8, t: &Cen) -> bool {
+    t.hp > 0.0
+        && t.done
+        && !t.hosted
+        && t.team != team
+        && t.known_to(team)
+        && seizable(defs.get(t.def))
+        && !(defs.get(t.def).is_garrison() && census.list.iter().any(|r| r.host == t.id && r.hp > 0.0))
 }
 
 /// The nearest building within `infantry_capture_reach` that infantry of `team` standing at `pos`
@@ -3491,7 +3585,7 @@ fn seize_target(census: &Census, defs: &Defs, team: u8, pos: V2) -> Option<Cen> 
     let r = defs.rules.infantry_capture_reach;
     let mut best: Option<(f32, Cen)> = None;
     census.near(pos, r + 8.0, |t| {
-        if !t.structure || !can_seize(defs, team, t) || guarded(census, defs, t) {
+        if !t.structure || !can_seize(census, defs, team, t) || guarded(census, defs, t) {
             return;
         }
         let d = pos.dist(t.pos);
@@ -3596,7 +3690,7 @@ fn apply_capture(
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn deaths(
-    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>, Option<&Shed>)>,
+    mut q: Query<(Entity, &Unit, &Body, &mut Health, Option<&UnderConstruction>, Option<&Hosted>, Option<&Shed>, Has<Revival>)>,
     mut wrecks: Query<(Entity, &mut Wreck)>,
     (mut features, wreck_list): (ResMut<Features>, Res<WreckList>),
     census: Res<Census>,
@@ -3618,7 +3712,7 @@ fn deaths(
     let mut riders_hit: Vec<(u32, f32, usize)> = vec![];
     for (id, dmg, dtype) in effects.damage.drain(..) {
         let Some(c) = census.get(id) else { continue };
-        let Ok((e, u, b, mut h, uc, hosted, shed)) = q.get_mut(c.e) else { continue };
+        let Ok((e, u, b, mut h, uc, hosted, shed, _)) = q.get_mut(c.e) else { continue };
         let d = defs.get(u.def);
         let real = dmg * defs.armor_mult(dtype, d.armor_id);
         let standing = h.0 > 0.0;
@@ -3659,7 +3753,9 @@ fn deaths(
     let mut blasts: Vec<(V2, f32, f32, f32, u8)> = vec![];
     let mut new_wrecks = 0;
     let reclaimed = std::mem::take(&mut effects.reclaimed);
-    for (e, u, b, mut h, uc, hosted, shed) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+    for (e, u, b, mut h, uc, hosted, shed, revived) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        // A revived unit (or revival site) leaves a wreck that must cool down before it is revived again.
+        let revive_at = if revived { tick + (defs.rules.revive_cooldown / DT).round() as u32 } else { 0 };
         let d = defs.get(u.def);
         let player_dead = game.players.get(u.owner as usize).map_or(false, |p| !p.alive);
         if player_dead && (u.id + tick) % 6 == 0 {
@@ -3707,7 +3803,7 @@ fn deaths(
         if uc.is_some() {
             if d.wreck && defs.rules.wrecks && !d.is_air() && invested * defs.rules.wreck_mass_fraction >= 5.0 {
                 let id = game.alloc();
-                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw, ..default() });
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass: invested * defs.rules.wreck_mass_fraction, pos: b.pos, y: b.y, yaw: b.yaw, revive_at, ..default() });
                 new_wrecks += 1;
             }
             continue;
@@ -3733,7 +3829,7 @@ fn deaths(
             }
             if mass >= 5.0 {
                 let id = game.alloc();
-                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass, pos: b.pos, y: b.y, yaw: b.yaw, ..default() });
+                spawn_wreck(&mut commands, Wreck { id, def: u.def, mass, pos: b.pos, y: b.y, yaw: b.yaw, revive_at, ..default() });
                 new_wrecks += 1;
             }
         }
@@ -3800,7 +3896,7 @@ fn drop_debris(commands: &mut Commands, game: &mut Game, rng: &mut Rng, d: &crat
         let yaw = rng.range(-PI, PI);
         // Bigger for heavier pieces and bigger buildings.
         let piece = (0.2 + 0.1 * m.sqrt() + 0.07 * r).min(2.5);
-        spawn_wreck(commands, Wreck { id, def, mass: m, pos: start, y, yaw, piece, falling: true, vel: Vec3::new(dir.x * out, up, dir.y * out).into() });
+        spawn_wreck(commands, Wreck { id, def, mass: m, pos: start, y, yaw, piece, falling: true, vel: Vec3::new(dir.x * out, up, dir.y * out).into(), revive_at: 0 });
     }
     n as usize
 }

@@ -108,14 +108,14 @@ impl HostLobby {
     fn map_label(&self) -> String {
         match SIZES.get(self.map_choice) {
             Some((n, name)) => tr!("lobby.random_size", tr(name), *n as f32 * CELL, *n as f32 * CELL),
-            None => self.maps.get(self.map_choice - SIZES.len()).cloned().unwrap_or_default(),
+            None => self.maps.get(self.map_choice - SIZES.len()).map(|m| longrange::data::split_map(m).0.to_string()).unwrap_or_default(),
         }
     }
     /// Number of start positions of the chosen map.
     fn start_count(&self) -> usize {
         match SIZES.get(self.map_choice) {
             Some(_) => self.players,
-            None => MapData::start_count(&longrange::data::map_dir(&self.maps[self.map_choice - SIZES.len()])),
+            None => self.counts.get(self.map_choice - SIZES.len()).copied().unwrap_or(0),
         }
         .clamp(2, MAX_PLAYERS)
     }
@@ -156,7 +156,7 @@ impl HostLobby {
                 m.scatter_features(&defs.rules.features, self.seed, 1.0);
                 m
             }
-            None => MapData::load(&longrange::data::map_dir(&self.maps[self.map_choice - SIZES.len()]))?,
+            None => longrange::data::load_map(&self.maps[self.map_choice - SIZES.len()])?,
         };
         self.preview = view::terrain::map_preview(&map, defs, PREVIEW);
         let w = map.world().max(1.0);
@@ -832,9 +832,8 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
     slots[0].name = name.to_string();
     slots[2].kind = 3;
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(1) | 1;
-    let maps = MapData::list(&asset_root());
+    let (maps, counts): (Vec<String>, Vec<usize>) = longrange::data::map_entries(&asset_root()).into_iter().unzip();
     let thumbs = vec![None; maps.len()];
-    let counts = maps.iter().map(|m| MapData::start_count(&longrange::data::map_dir(m))).collect();
     let mut l = HostLobby {
         host,
         slots,
@@ -900,6 +899,9 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
         remote.push((o.conn, OBSERVER));
         hashes.push((o.conn, o.hash));
     }
+    // Deposits attached to starts nobody plays on are left out (the same in every copy of the game).
+    let mut map = map;
+    map.adapt(&setup.iter().map(|p| p.slot).collect::<Vec<_>>());
     let sent_map = map.clone();
     setup_game(world, map, &setup);
     if l.mode == MODE_POINTS {
@@ -1188,7 +1190,15 @@ fn session_frame(world: &mut World) {
                     v.paused = s.paused;
                 }
                 // LR_SPEED=4 fast-forwards a hosted game (testing, watching AIs).
-                let speed = std::env::var("LR_SPEED").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).clamp(0.1, 20.0);
+                let mut speed = std::env::var("LR_SPEED").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).clamp(0.1, 20.0);
+                // A game of AIs only: the host sets the speed in the HUD.
+                let ai_only = world.resource::<Game>().players.iter().all(|p| p.is_ai);
+                if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+                    v.host_speed_ui = ai_only;
+                    if ai_only {
+                        speed *= v.host_speed;
+                    }
+                }
                 let dt = world.resource::<Time>().delta_secs().min(0.25);
                 s.acc += dt * speed;
                 if s.paused.is_some() {
@@ -1260,6 +1270,9 @@ fn session_frame(world: &mut World) {
                 s.held = cmds;
             }
             Role::Client { client, sim, heard, rejoin, skip } => {
+                if let Some(mut v) = world.get_resource_mut::<ViewState>() {
+                    v.host_speed_ui = false;
+                }
                 let dt = world.resource::<Time>().delta_secs().min(0.25);
                 let mut lost = false;
                 let mut note = None;
@@ -2113,7 +2126,7 @@ fn menu_ui(world: &mut World) {
                             } else {
                                 // One thumbnail per frame, so opening the tab does not stall.
                                 if let Some(k) = l.thumbs.iter().position(|t| t.is_none()) {
-                                    let px = MapData::load(&longrange::data::map_dir(&l.maps[k])).map(|m| view::terrain::map_preview(&m, &cur, 64)).unwrap_or_else(|_| vec![60; 64 * 64 * 4]);
+                                    let px = longrange::data::load_map(&l.maps[k]).map(|m| view::terrain::map_preview(&m, &cur, 64)).unwrap_or_else(|_| vec![60; 64 * 64 * 4]);
                                     l.thumbs[k] = Some(ctx.load_texture(format!("thumb_{k}"), egui::ColorImage::from_rgba_unmultiplied([64, 64], &px), egui::TextureOptions::LINEAR));
                                 }
                                 let mut pick = None;
@@ -2135,7 +2148,7 @@ fn menu_ui(world: &mut World) {
                                                 None => {
                                                     let k = c - SIZES.len();
                                                     let starts = l.counts.get(k).copied().unwrap_or(0);
-                                                    tr!("lobby.map_players", l.maps[k], starts)
+                                                    tr!("lobby.map_players", longrange::data::split_map(&l.maps[k]).0, starts)
                                                 }
                                             };
                                             if ui.add_sized([right_w - 80.0, 48.0], egui::Button::selectable(l.map_choice == c, label)).clicked() {
@@ -2203,7 +2216,8 @@ fn menu_ui(world: &mut World) {
                                     }
                                     // A premade map or a preset this player lacks is theirs from now on.
                                     let file = l.info.as_ref().map(|i| i.map_file.clone()).unwrap_or_default();
-                                    let keep = (!file.is_empty()).then(|| (map.clone(), file));
+                                    // (A variant of a map with several is the host's file; ours is the whole map.)
+                                    let keep = (!file.is_empty() && longrange::data::split_map(&file).1.is_none()).then(|| (map.clone(), file));
                                     keep_downloads(keep, keep_pack);
                                     l.pending = Some((map, you));
                                 }
@@ -2644,7 +2658,7 @@ fn selftest() {
     // LR_MAP=<name> plays a premade map instead (one AI per start position).
     let (map, n) = match std::env::var("LR_MAP") {
         Ok(name) => {
-            let map = MapData::load(&longrange::data::map_dir(&name)).unwrap_or_else(|e| panic!("map {name}: {e}"));
+            let map = longrange::data::load_map(&name).unwrap_or_else(|e| panic!("map {name}: {e}"));
             let k = map.starts.len().clamp(2, MAX_PLAYERS);
             (map, k)
         }
@@ -3494,7 +3508,7 @@ fn combattest() {
 }
 
 /// The armoured carriers (Tavria, Slavuta, Zaporozhets): small arms barely scratch them, their
-/// infantry bail out of the wreck, and the Slavuta fords water up to `AMPHIBIOUS_DEPTH` deep where
+/// infantry bail out of the wreck, and the Slavuta floats over water of any depth where
 /// other vehicles stop (`--combattest`, or alone with `LR_TEST=apc`).
 fn apc_tests(defs: &Defs) {
     let carriers: Vec<&str> = ["apc", "apc_amph", "apc_heavy", "apc_heavy3"].into_iter().filter(|c| defs.id(c).is_some()).collect();
@@ -3665,10 +3679,9 @@ fn apc_tests(defs: &Defs) {
     assert!(aboard == cap, "the carrier comes out with its loadout aboard");
     assert!(paid > want * 0.9 && paid < want * 1.1, "the job costs the transport and its riders");
 
-    // 3. A river 2.5 deep: the Slavuta drives across along the bottom, an Overtaker cannot.
-    //    One 6 deep stops the Slavuta too.
+    // 3. Rivers 2.5 and 6 deep: the Slavuta floats across both, an Overtaker cannot.
     let Some(&amph) = carriers.iter().find(|c| defs.get(defs.id(c).unwrap()).mv.amphibious) else { return };
-    for (bed, crosses) in [(-2.5f32, true), (-6.0, false)] {
+    for (bed, crosses) in [(-2.5f32, true), (-6.0, true)] {
         let (mut app, map) = world_with(Some(bed));
         let world = app.world_mut();
         let apc = spawn(world, &map, amph, 0, v2(100.0, 128.0), 0.0);
@@ -3681,10 +3694,10 @@ fn apc_tests(defs: &Defs) {
             lowest = lowest.min(body(world, apc).map_or(f32::MAX, |b| b.1));
         }
         let (ax, tx) = (body(world, apc).unwrap().0.x, body(world, tank).unwrap().0.x);
-        println!("== River with its bed at {bed}: {amph} at x {ax:.0} (deepest {lowest:.1}, water 0), Overtaker at x {tx:.0} (goal 160)");
+        println!("== River with its bed at {bed}: {amph} at x {ax:.0} (lowest {lowest:.1}, water 0), Overtaker at x {tx:.0} (goal 160)");
         assert!(tx < 130.0, "an Overtaker does not drive into the river");
         if crosses {
-            assert!(ax > 155.0 && lowest < -1.6, "an amphibious carrier fords a river 2.5 deep, submerged");
+            assert!(ax > 155.0 && lowest > -0.1, "an amphibious carrier floats across the river on its surface");
         } else {
             assert!(ax < 130.0, "a river 6 deep stops an amphibious carrier");
         }
@@ -4112,19 +4125,22 @@ fn infantry_tests(defs: &Defs) {
     // `from`: how far west of the house the stormers start (6 = at the door, so only the
     // close-quarters fight counts; further out the defenders shoot at them on the way in).
     // `attack`: the stormers get an attack order on the house instead of a load order (they storm it all the same).
-    for (inside, storm, n_in, n_out, from, want_taken, attack) in [
-        ("at_trooper", "trooper", 1, 1, 6.0, Some(true), false),
-        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false),
-        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true), false),
-        ("trooper", "at_trooper", 1, 1, 6.0, Some(false), false),
-        ("trooper", "trooper", 1, 1, 6.0, Some(false), false),
-        ("trooper", "trooper", 1, 2, 6.0, Some(true), false),
-        ("at_trooper", "trooper", 2, 3, 40.0, None, false),
-        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), true),
+    // A field bunker or watch tower the enemy built is held and stormed the same way.
+    for (inside, storm, n_in, n_out, from, want_taken, attack, building) in [
+        ("at_trooper", "trooper", 1, 1, 6.0, Some(true), false, "house"),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false, "house"),
+        ("sam_trooper", "trooper", 2, 2, 6.0, Some(true), false, "house"),
+        ("trooper", "at_trooper", 1, 1, 6.0, Some(false), false, "house"),
+        ("trooper", "trooper", 1, 1, 6.0, Some(false), false, "house"),
+        ("trooper", "trooper", 1, 2, 6.0, Some(true), false, "house"),
+        ("at_trooper", "trooper", 2, 3, 40.0, None, false, "house"),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), true, "house"),
+        ("at_trooper", "trooper", 2, 2, 6.0, Some(true), false, "field_bunker"),
+        ("at_trooper", "trooper", 1, 2, 6.0, Some(true), true, "watch_tower"),
     ] {
         let (mut app, map) = world_with(&[]);
         let world = app.world_mut();
-        let house = spawn(world, &map, "house", NEUTRAL, v2(129.0, 129.0), 0.0);
+        let house = spawn(world, &map, building, if building == "house" { NEUTRAL } else { 1 }, v2(129.0, 129.0), 0.0);
         let held: Vec<u32> = (0..n_in).map(|k| spawn(world, &map, inside, 1, v2(140.0, 126.0 + k as f32 * 2.0), 3.14)).collect();
         order(world, 1, held.clone(), Order::Load(house));
         for _ in 0..80 {
@@ -4144,7 +4160,7 @@ fn infantry_tests(defs: &Defs) {
         let ours_in = men.iter().filter(|id| body(world, **id).map_or(false, |b| b.1)).count();
         let hps: Vec<f32> = men.iter().map(|id| hp(world, *id)).collect();
         println!(
-            "== Storm from {from}{}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a house: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
+            "== Storm from {from}{}: {n_out} {storm} vs {in_before}/{n_in} {inside} in a {building}: defenders left {left_in}, stormers inside {ours_in} (hp {hps:.0?}), house owner {:?} after {:?} s",
             if attack { " (attack order)" } else { "" },
             owner_of(world, house),
             done_at.map(|t| (t + 1) as f32 / 10.0)
@@ -4158,8 +4174,9 @@ fn infantry_tests(defs: &Defs) {
     }
 
     // 3b2. Infantry capture (lobby option, Cossacks style): troopers take an enemy building over
-    // while no armed enemy stands near it; never a factory or a garrison (house, bunker: those are
-    // stormed or entered), and nothing with the option off. No order is needed: idle troopers and
+    // while no armed enemy stands near it; never a factory or an unarmed garrison (house: entered or
+    // stormed), and nothing with the option off. Turrets are taken too, so is an empty bunker (a held
+    // one is stormed first). No order is needed: idle troopers and
     // troopers on a plain move or attack-move take what they stand near (`how`: 0 Capture order, 1 idle,
     // 2 move past it, 3 attack-move past it).
     for (target, on, guard, how, want) in [
@@ -4174,8 +4191,10 @@ fn infantry_tests(defs: &Defs) {
         ("radar_tower", true, false, 3, true),
         ("land_factory", true, false, 1, false),
         ("house", true, false, 1, false),
-        ("bunker", true, false, 1, false),
-        ("bunker", true, false, 2, false),
+        ("bunker", true, false, 1, true),
+        ("bunker", true, false, 2, true),
+        ("aa_turret", true, false, 0, true),
+        ("gauss_turret", true, false, 1, true),
     ] {
         let (mut app, map) = world_with(&[]);
         let world = app.world_mut();
@@ -4606,6 +4625,23 @@ fn fieldwork_tests(defs: &Defs) {
         println!("== Garrisons: {n_bunker} of 5 troopers in the field bunker, {n_tower} of 3 in the watch tower; a tank at {:.0} (trooper vision {vision:.0}, x{gain} from the tower) is seen: {seen}", vision * (1.0 + gain) * 0.5);
         assert!(n_bunker == 4 && n_tower == 2 && seen, "bunker and watch tower");
     }
+
+    // 7. Like any building of the map, an empty field bunker the enemy built is nobody's: our
+    // troopers walk in and it is ours while they hold it.
+    {
+        let owner_of = |world: &mut World, id: u32| -> Option<u8> { world.query::<&Unit>().iter(world).find(|u| u.id == id).map(|u| u.owner) };
+        let (mut app, map) = new_world();
+        let world = app.world_mut();
+        let bunker = spawn(world, &map, "field_bunker", 1, v2(130.0, 130.0), 0.0);
+        run(world, 5);
+        let empty_owner = owner_of(world, bunker);
+        let men: Vec<u32> = (0..2).map(|i| spawn(world, &map, "trooper", 0, v2(122.0, 128.0 + i as f32 * 1.5), 0.0)).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: men.clone(), orders: vec![Order::Load(bunker)], queue: false }));
+        run(world, 150);
+        let inside = men.iter().filter(|id| body(world, **id).map_or(false, |x| x.2)).count();
+        println!("== Abandoned field bunker: enemy-built and empty, owner {empty_owner:?}; {inside} of 2 troopers walked in, owner {:?}", owner_of(world, bunker));
+        assert!(empty_owner == Some(NEUTRAL) && inside == 2 && owner_of(world, bunker) == Some(0), "abandoned field bunker");
+    }
 }
 
 /// Binoculars, spotting delay, buildings blocking sight (`--combattest`, or alone with `LR_TEST=binoculars`).
@@ -5019,7 +5055,7 @@ fn nettest() {
     let ticks: u32 = std::env::var("LR_TICKS").ok().and_then(|s| s.parse().ok()).unwrap_or(6000);
     // LR_MAP=<name>: a premade 4-player map (with its neutral buildings) instead of a generated one.
     let map = match std::env::var("LR_MAP") {
-        Ok(name) => MapData::load(&longrange::data::map_dir(&name)).unwrap_or_else(|e| panic!("map {name}: {e}")),
+        Ok(name) => longrange::data::load_map(&name).unwrap_or_else(|e| panic!("map {name}: {e}")),
         Err(_) => {
             let mut map = MapData::generate(128, 7, 4);
             map.scatter_features(&defs.rules.features, 7, 1.0);
@@ -5639,7 +5675,7 @@ mod tests {
     fn kept_map_counts_as_same() {
         let root = asset_root();
         let dir = std::env::temp_dir().join(format!("lr_keep_map_{}", std::process::id()));
-        for name in ["duel", "laketest"] {
+        for name in ["duel", "liberec"] {
             let m = MapData::load(&root.join("maps").join(name)).unwrap();
             m.save(&dir).unwrap();
             let back = MapData::load(&dir).unwrap();

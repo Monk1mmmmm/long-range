@@ -3,6 +3,31 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.14.0
+
+Maps
+- Adaptive maps (SupCom style): Frankivsk, Frankivsk mini, Liberec and Jablonec are one map each, with a way to play per player count; deposits belong to a start and are only there when that slot is played. The lobby lists each variant.
+- Small village houses (khata, cottage, dacha, farmhouse...), used on real-life maps, mostly Tokmachka.
+
+Units
+- The Slavuta floats and crosses water of any depth.
+- The Zaporozhets and Hetman take MediumTank armor (the APC armor class is gone).
+- Scavengers: wrecks of revived units, and of killed revival sites, cannot be revived again for 60 s.
+
+Combat
+- Direct-fire units with no line of fire step to a spot with a clear shot, and recheck the lane right before firing.
+- Scorch marks are a solid charred core, charcoal at up to 90% opacity.
+
+Infantry capture
+- Infantry cannot capture buildings with no function (pylons, towers); turrets and empty bunkers can be taken, and field bunkers and watch towers act like map buildings.
+
+AI
+- Idle transports lift units on long walks, parked transports count as free, and captures go for turrets and empty bunkers.
+
+Interface
+- The host can change the game speed with a slider in games of AIs only.
+- Benchmark / `LR_PROFILE`: no GPU pass timing on DX12 unless `LR_BENCH_GPU=1` (the device was lost on an RX 5700 XT).
+
 ## v0.13.1
 
 Maps

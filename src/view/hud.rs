@@ -3366,7 +3366,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             lines.push(tr!("hud_unit_info.tooltip_reactive", era.charges, era.block * 100.0));
         }
         if bd.mv.amphibious {
-            lines.push(tr!("hud_unit_info.tooltip_amphibious", crate::map::AMPHIBIOUS_DEPTH));
+            lines.push(tr!("hud_unit_info.tooltip_amphibious").to_string());
         }
         for w in &bd.weapons {
             let mut t = tr!("hud_unit_info.tooltip_weapon", weapon_name(w), w.damage, w.damage_type);
@@ -3539,6 +3539,25 @@ pub fn ui_system(mut p: UiParams) -> Result {
     // The bar sits on the bottom edge, or above the selection panel (and a factory queue) when one is shown.
     let panel_top = if units.is_empty() { sh } else if has_queue { sh - PANEL_H - QUEUE_H - 14.0 } else { sh - PANEL_H - 10.0 };
     replay_bar(&ctx, view, game, sw, panel_top);
+    if view.host_speed_ui {
+        let left = if sw > MM + 420.0 { MM + 18.0 } else { 8.0 };
+        let mut speed = view.host_speed;
+        egui::Area::new(egui::Id::new("host_speed")).pivot(Align2::LEFT_BOTTOM).fixed_pos(Pos2::new(left, panel_top - 8.0)).show(&ctx, |ui| {
+            egui::Frame::window(ui.style()).fill(rgba(16, 20, 27, 235)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(tr!("hud_replay.game_speed")).strong().color(rgba(255, 215, 100, 255)));
+                    ui.spacing_mut().slider_width = 120.0;
+                    let r = ui
+                        .add(egui::Slider::new(&mut speed, 0.25..=20.0).logarithmic(true).custom_formatter(|v, _| format!("x{}", round_speed(v as f32))).custom_parser(|t| t.trim().trim_start_matches(['x', 'X']).parse().ok()))
+                        .on_hover_text(tr!("hud_replay.game_speed_tip"));
+                    if r.double_clicked() {
+                        speed = 1.0;
+                    }
+                });
+            });
+        });
+        view.host_speed = round_speed(speed).clamp(0.25, 20.0);
+    }
 
     let top = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("top")));
     if view.show_help {

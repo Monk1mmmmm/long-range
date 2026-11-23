@@ -96,7 +96,8 @@ impl SurfaceView {
     /// Darkens the ground around `p` after a blast of size `size` (about its radius).
     pub fn burn(&mut self, p: Vec2, size: f32) {
         let r = (0.8 + size * 1.0).min(10.0);
-        let strength = (0.2 + size * 0.25).min(0.75);
+        // Strong enough that one blast leaves a solid charred core.
+        let strength = (0.55 + size * 0.3).min(1.0);
         let k = BURN_PER_UNIT;
         let side = self.side as i32;
         let (x0, x1) = (((p.x - r) * k).floor() as i32, ((p.x + r) * k).ceil() as i32);
@@ -110,11 +111,12 @@ impl SurfaceView {
                 }
                 // Ragged rim: a little noise on the reach.
                 let jag = noise(q.x * 0.9, q.y * 0.9, 77) * 0.5 + 0.75;
-                let f = ((1.0 - d) * jag).clamp(0.0, 1.0);
+                // Solid core, fading only near the rim.
+                let f = ((1.0 - d) * jag * 1.8).clamp(0.0, 1.0);
                 let f = f * f * (3.0 - 2.0 * f) * strength;
                 let c = &mut self.burn[y as usize * self.side + x as usize];
-                // Accumulates towards black, never quite there.
-                *c = (*c as f32 + (235.0 - *c as f32).max(0.0) * f) as u8;
+                // Accumulates towards full char.
+                *c = (*c as f32 + (255.0 - *c as f32).max(0.0) * f) as u8;
             }
         }
         self.burn_dirty = true;

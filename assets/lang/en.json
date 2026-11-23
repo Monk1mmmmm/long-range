@@ -268,7 +268,7 @@
     "tooltip_hp_armor_stealth": "HP {:.0}   Armor {}{}",
     "tooltip_hp_armor": "HP {:.0}   Armor {}",
     "tooltip_reactive": "Reactive armor: {} charges, each stops {:.0}% of a missile hit; a full repair replaces them",
-    "tooltip_amphibious": "Amphibious: drives under water up to {:.0} deep",
+    "tooltip_amphibious": "Amphibious: floats and drives over water of any depth",
     "tooltip_weapon": "{}: {:.0} {} dmg",
     "tooltip_salvo": " x{}",
     "tooltip_reload": " every {:.1}s, range {:.0}",
@@ -360,6 +360,8 @@
   },
   "hud_replay": {
     "replay": "REPLAY",
+    "game_speed": "SPEED",
+    "game_speed_tip": "Game speed (host, games of AIs only), x0.25 to x20. Double-click: back to x1.",
     "speed_tip": "Playback speed, x0.25 to x32. Double-click: back to x1.",
     "vision_all": "Everything",
     "vision_tip": "See the game as a player does: their fog of war, radar and economy.",
@@ -661,6 +663,30 @@
     },
     "house": {
       "name": "House",
+      "desc": "Residential building."
+    },
+    "khata": {
+      "name": "Hut",
+      "desc": "Residential building."
+    },
+    "khata_slate": {
+      "name": "Village House",
+      "desc": "Residential building."
+    },
+    "cottage": {
+      "name": "Cottage",
+      "desc": "Residential building."
+    },
+    "dacha": {
+      "name": "Dacha",
+      "desc": "Residential building."
+    },
+    "outbuilding": {
+      "name": "Outbuilding",
+      "desc": "Farm outbuilding."
+    },
+    "farmhouse": {
+      "name": "Farmhouse",
       "desc": "Residential building."
     },
     "row_house": {
@@ -990,6 +1016,8 @@
     "wrecks_max_wrecks_tip": "At most this many wrecks lie on the map at once; the oldest disappear first.",
     "wrecks_wreck_hp": "Wreck hit points",
     "wrecks_wreck_hp_tip": "A wreck's hit points as a share of the unit's. Shells and blasts wear wrecks down; the mass goes with the hit points.",
+    "wrecks_revive_cooldown": "Revive cooldown",
+    "wrecks_revive_cooldown_tip": "Seconds before the wreck of a revived unit, or of a revival site destroyed unfinished, can be revived again.",
     "wrecks_wreck_cover": "Wreck cover",
     "wrecks_wreck_cover_tip": "Share of a shot's damage a wreck soaks up when the shot passes through it.",
     "cover_grace": "Cover grace distance",
@@ -1134,7 +1162,7 @@
     "body_move_altitude": "Flying height",
     "body_move_altitude_tip": "Aircraft: height above the ground.",
     "body_move_amphibious": "Amphibious",
-    "body_move_amphibious_tip": "Land units: also drives along the bottom of water up to 4 deep, slower there, where shells and guns cannot reach it.",
+    "body_move_amphibious_tip": "Land units: also floats and drives over water of any depth, at full speed.",
     "intel_vision": "Vision range",
     "intel_vision_tip": "How far it sees (hills, trees and rocks may block it, see the rules switches).",
     "intel_spot_time": "Time to spot, hiding (s)",

@@ -388,8 +388,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   garrison, origin at the building's top) and see from it (`visibility`, `intel.rs`), with vision and binocular
   range x `rules.garrison_vision` (1.3). Every hit on the building also costs each rider
   `rules.garrison_damage` (0.04) x the raw damage, their armor applied (`deaths`). `systems::garrisons`
-  gives a map building to the owner of its lowest-id rider and back to `NEUTRAL` when empty (playable
-  factions' buildings and `HOSTILE` ones keep their owner); garrisonable buildings can't be captured.
+  gives a garrison to the owner of its lowest-id rider and back to `NEUTRAL` when empty - map buildings, field
+  bunkers and watch towers alike (requested: they act like the map's buildings, entered when empty, stormed when
+  held); `HOSTILE` ones keep their owner, and with infantry capture on so do armed ones (the map's bunker).
   `Unload` from a building sets them down at its side and walks them to the spot. Move-type orders (move,
   attack-move, patrol) given to riders of a building take them out of the side facing the goal first
   (`apply_commands`, `garrison_door`); the HUD sends a selected own building's move orders to its riders
@@ -402,8 +403,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   queues them in `Effects.assault` and `systems::assaults` trades damage: attackers' summed assault -> the lowest-id
   defender, defenders' summed assault x `rules.garrison_defense` (1.25) -> the lowest-id attacker. Defenders of a stormed
   building (`Effects.stormed`) do not fire out. When nobody is left inside, `may_board` lets them in (a map building
-  whose riders all died counts as empty before `garrisons` makes it neutral); an emptied enemy bunker (playable
-  faction) or `HOSTILE` building keeps its owner and cannot be entered. Riders now die inside at hp <= 0 (no wreck);
+  whose riders all died counts as empty before `garrisons` makes it neutral); an emptied `HOSTILE` building keeps
+  its owner and cannot be entered (with infantry capture on, an armed one is captured instead). Riders now die inside at hp <= 0 (no wreck);
   death blasts skip hosted units. Results: `--combattest` "Storm" lines (1 trooper beats 1 AT inside, an even trooper fight goes to the defender).
   **Trenches are stormed the same way**: an attack order by such infantry on enemy infantry standing in a trench piece, or on
   the piece they hold, becomes `Load(piece)` (`systems::trench_to_storm`); `think` runs them to its edge and queues them in
@@ -413,14 +414,15 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
 - **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, off by default; Cossacks
   style): infantry may take `Order::Capture` (right-click an enemy or neutral building, or the Capture button) on any
-  building `sim::seizable` (not factories, garrisons - those are stormed - or field works). At the building it queues
+  building `sim::seizable` (every turret; not factories or field works; of the garrisons only bunkers and other
+  military ones - armed, or built by a side - and only once empty, `systems::can_seize`: held ones are stormed). At the building it queues
   `Effects.seize`; `apply_capture` adds `DT / rules.infantry_capture_secs` (20) per man, free of energy, but nothing
   while an armed finished mobile unit of the building's side is within `rules.infantry_capture_guard` (15,
   `systems::guarded`). With infantry and other units selected, the infantry capture and the rest attack. The zone AI
-  sends up to 4 infantry within 40 at a known unguarded enemy building. **No order needed**: idle infantry, and infantry
+  sends up to 4 infantry (6 at a turret) within 40 at a known unguarded enemy building nobody holds (report: `captures`). **No order needed**: idle infantry, and infantry
   on Move, AttackMove or Patrol (not engaged), take the nearest unguarded `seizable` building within
   `rules.infantry_capture_reach` (12; `systems::seize_target`, in `think`) - they walk up to it and capture, then go on
-  with the order. Garrisons (houses, bunker), factories and field works (trenches) are never taken this way, so they keep
+  with the order. Houses, factories and field works (trenches) are never taken this way, so they keep
   their own behaviour (entered, stormed, cover). `--combattest` infantry "Infantry capture" lines (ordered, idle, moving,
   attack-moving, garrison/factory refused).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
@@ -463,6 +465,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Overtaker unopposed; with a radar tower an MBFAG downs 4 of 6, a T1 AA turret all 6.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
+- **Adaptive maps** (SupCom style; `frankivsk_mini`, `frankivsk`, `liberec`, made by `tools/merge_variants.py` from the former
+  per-player-count maps): `map.json` holds the union of the starts plus `variants` (`{starts: [indices in slot order], points}`:
+  one way to play per player count) and `attached` (`{pos, start}` / `{pos, variant}` per deposit, matched by position).
+  The lobby lists a map with variants as one entry per variant (`folder#k`, `data::map_entries` / `split_map` / `load_map`;
+  `MapData::variant(k)` makes the plain map: that variant's starts, its deposits, slot props renumbered, trees, rocks and
+  buildings cleared round its starts, its points). A deposit attached to a start is only there when that slot is played:
+  `MapData::adapt` (called by the host in `start_game` before the map is sent, and again in `setup_game`, where it does
+  nothing once done) drops the others, so clients, joiners and replays all hold the same trimmed map. Maps without
+  variants play as before. The map editor edits the raw union map and keeps both lists (deposits are matched by position:
+  a moved deposit loses its attachment).
 - **Game browser** (main menu "Join game" -> `Screen::Browse`, `main.rs::browser_ui`): a table of the games found by UDP
   discovery (`net::Discovery`, broadcast + localhost once a second, Refresh/F5 asks again, hosts silent 4 s drop off).
   A host answers with its version and a `net::GameAd` (host name, map folder or random size, 48x48 RGB picture + starts,
@@ -486,6 +498,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   team (observers see all, make none; none in replays), pings 8 s with the `ping` UI sound, lines 45 s, fading out.
   They are not commands: `C2S::Mark` to the host, which passes them on as `S2C::Mark(player, ..)` to everyone else
   (`main.rs::session_frame`), so they skip the sim, its hash and the replay, and work while paused.
+- **Small village houses** (requested; `khata`, `khata_slate`, `cottage`, `dacha`, `farmhouse` garrisons for 2-4, `outbuilding` not
+  garrisonable; own models `art/models_civilian.py`, footprint 1 = 2x2 units, the farmhouse 2): `tools/small_houses.py` swaps a share
+  of the detached houses (`house*`, `old_house*`) of the real-life maps for them, on Tokmachka nearly every residential building
+  (also town houses and most small apartment buildings), so it is a village; `osm_map.py` draws them among its houses.
 - **Model scale**: the mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) use 2.5x the blueprint's
   `UniformScale`, with sizes and footprints to match; the buggy was enlarged a further x1.75 on request. Our own models
@@ -509,7 +525,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Scavengers take `Assist`: on a revival site, or on a scavenger/engineer to revive or reclaim what it works on
   (any assister reclaims the tree/rock/wreck the assisted unit reclaims). On `ReclaimArea` / `ReviveArea` a target
   the side already works on (or an own unfinished revival in the circle) counts `systems::TEAMWORK` (12) nearer,
-  so a group works together; a `Revive` whose wreck a teammate already revived helps build that site. While a
+  so a group works together; a `Revive` whose wreck a teammate already revived helps build that site. A revived unit keeps `Revival` when finished; its wreck, or that of a revival site killed unfinished,
+  cannot be revived for `rules.revive_cooldown` (60 s, `Wreck.revive_at`, `sim::revivable`), so scavengers do not bring the same
+  unit back over and over where it keeps dying (`ReclaimArea` still takes it). While a
   reclaim or revive order is being given, the HUD shows what the circle (or the thing under the pointer) yields or costs.
 - **Trees and rocks** (map "features"): types in `rules.json: features` (class tree/rock, shape, mass,
   energy, size, weight); a map holds `feature_kinds` + `features` (saved as one line each, "kind x z yaw
@@ -578,17 +596,16 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
   new orders). `--combattest` "Ferry" line: 6 tanks across in 3 trips, then on to their queued goal.
 - **Small arms** (damage type `SmallArms`: the Trooper and Sniper rifles and every machine gun): every armored class
-  takes 0.1 of it (`LightTank`, `MediumTank`, `APC`); the other classes take what they take from `Normal` (Light 1,
+  takes 0.1 of it (`LightTank`, `MediumTank`); the other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.
 - **Armoured carriers** (requested; Tavria and Slavuta are ZAZ cars, `built_by` land): T1 Tavria (`apc`: 220 hp
   LightTank, fast 5.8, 4 slots, unarmed), T2 Slavuta (`apc_amph`: 300 hp LightTank, 5.2, 6 slots, amphibious, unarmed),
-  T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `APC` - Normal 0.1, Autocannon 0.5, AP and Explosive 1.0, SmallArms
-  0.1 -, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
-  mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp APC,
-  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): it also drives along the
-  bottom of water up to `map::AMPHIBIOUS_DEPTH` (4) deep, at `AMPHIBIOUS_SPEED` (0.6x). `map.blocked` marks such
+  T2 Zaporozhets (`apc_heavy`, an infantry fighting vehicle - БМП: 700 hp, armor class `MediumTank`, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as a separate T3 unit -
+  mobile units do not upgrade in place: close to the Zaporozhets but a little dearer (330 mass / 4000 energy), 750 hp MediumTank,
+  reactive armor 4 x 0.75 like the Bastion, twin machine gun ~15 dps). The zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): it also floats over water of any
+  depth, on the surface (`map.surface`), at full speed. `map.blocked` marks such
   cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
-  submerged, shells stop at the surface and guns have no line of fire. `--combattest` carrier and "River" lines
+  `--combattest` carrier and "River" lines
   (alone: `LR_TEST=apc`).
 - **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
   `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);
@@ -720,6 +737,12 @@ to open in Blender; `art/render.py` renders exports for a look (Workbench, team 
     buildings there (`Order::Load`), the body's infantry into buildings within 45 of the step it passes (towns
     stand between the bases: only looking near the rally point, the AI never garrisoned anything on most maps);
     buildings neither near the rally point nor the attack are emptied (`Unload` on the building);
+  - lifts (requested: transports stood idle at the rally point most of the game): a transport (air or land carrier)
+    with no other job picks up a group of our units walking more than 80 (air: 110) to their goal - new units on
+    their way to the rally point, reinforcements to the attack, defenders, raiders - sets them down 12 (18) short of
+    it and returns; they carry on with their own order. Air transports skip drops and routes covered by known
+    anti-air (`aa_on_route`). Counted in the report's `ferries`. A transport whose only order is a move to where it
+    stands counts as free (`parked`: crowded rally points left APCs a step short of their goal for ever);
   - air transports: zones carry the number of their land mass (`Zone::comp`). Jobs of an idle transport, in
     order: an engineer to a land mass with free deposits (it then builds extractors there only), army units
     from the rally point to an enemy that cannot be reached by land (they fight on their own over there,
@@ -742,7 +765,7 @@ to open in Blender; `art/render.py` renders exports for a look (Workbench, team 
     failure (`find_spot_where`); the engineer is called off;
   - `LR_AIOFF=landing,tries,...` (also infantry, works, carrier, crescent, focus, bounds, outgunned) switches parts off for tests.
   The report line ends with `landings N (air/amphibious/land) shelters N hunts N`. Premade maps have the towns
-  (`LR_MAP=ivano_frankivsk_city`); generated `--selftest` maps have no buildings.
+  (`LR_MAP=frankivsk_mini#1`); generated `--selftest` maps have no buildings.
   Test a change with duels against `simple` on a few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); the
   new types should win all of them.
 - The hostile side only holds positions; it has no AI.
