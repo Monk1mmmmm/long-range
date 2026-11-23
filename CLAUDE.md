@@ -55,6 +55,7 @@ python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/mode
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
 python3 tools/relaxed_preset.py                           # remake the Relaxed preset from the built-in data (after data changes)
 python3 tools/model_bounds.py                             # model bounds of every unit vs its JSON size / hit_box
+.venv/bin/python tools/render_icons.py [id ..] [--all]   # unit portraits (assets/icons/units, 3/4 view + white glow like the mod's) rendered from our models with Blender; default: units without their own icon
 .venv/bin/python tools/osm_map.py NAME --bbox S,W,N,E      # map of a real place (OSM + terrain tiles) -> assets/maps/NAME, see tools/README.md
 .venv/bin/python tools/scmap_map.py "<FA maps>/<map folder>" NAME [--size 512] [--variants 4,6]   # port a SupCom map (.scmap + _save.lua) -> assets/maps/NAME, NAME_<k>p
 # The converters need numpy + Pillow: they live in the project venv (python3 -m venv .venv; .venv/bin/pip install numpy pillow).

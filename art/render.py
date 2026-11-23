@@ -7,7 +7,7 @@ from mathutils import Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.environ.get("LR_MODELS_OUT") or os.path.join(HERE, "..", "assets", "models")
-TEAM = (0.2, 0.4, 0.95)
+TEAM = tuple(float(x) for x in os.environ.get("LR_TEAM", "0.2,0.4,0.95").split(","))
 
 
 def setup(size):
@@ -101,6 +101,9 @@ def render(name, size, anim, yaw):
     sc.camera = cam
     path = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"_lr_{name}.png")
     sc.render.filepath = path
+    if os.environ.get("LR_TRANSPARENT"):  # tools/render_icons.py: no background, alpha kept
+        sc.render.film_transparent = True
+        sc.render.image_settings.color_mode = "RGBA"
     bpy.ops.render.render(write_still=True)
     return path
 
@@ -132,4 +135,5 @@ def main():
     print(out)
 
 
-main()
+if __name__ == "__main__":
+    main()
