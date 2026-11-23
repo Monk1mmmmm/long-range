@@ -313,7 +313,7 @@ def tiles():
         "wood": tile_wood(P["wood"]), "barn": tile_wood(P["barn"], seed=26), "track": tile_track(), "era": tile_era(),
         "hazard": tile_hazard(), "vent": tile_vent(), "copper": tile_plain(P["copper"], 1.0), "door": tile_wood(rgb(96, 64, 44), 1.0, seed=27),
         "sandbag": tile_sandbag(), "dirt": tile_dirt(rgb(104, 84, 60)), "mud": tile_dirt(rgb(70, 56, 42), seed=32),
-        "timber": tile_wood(rgb(110, 84, 58), 1.2, seed=33), "concrete_old": tile_concrete(rgb(150, 150, 140), 3.0, 1.5, seed=34),
+        "timber": tile_wood(rgb(110, 84, 58), 1.2, seed=33), "thatch": tile_wood(rgb(176, 146, 84), 0.8, seed=40), "plaster_b": tile_plaster(rgb(120, 160, 190), seed=41), "concrete_old": tile_concrete(rgb(150, 150, 140), 3.0, 1.5, seed=34),
         "red_white": tile_plain(rgb(200, 50, 40), 1.0, 0.08), "rust": tile_dirt(rgb(120, 70, 44), 1.5, seed=35),
         "metal_door": tile_steel(rgb(110, 116, 120), 1.0, (1.0, 0.5), seed=28),
     })

@@ -490,6 +490,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   team (observers see all, make none; none in replays), pings 8 s with the `ping` UI sound, lines 45 s, fading out.
   They are not commands: `C2S::Mark` to the host, which passes them on as `S2C::Mark(player, ..)` to everyone else
   (`main.rs::session_frame`), so they skip the sim, its hash and the replay, and work while paused.
+- **Small village houses** (requested; `khata`, `khata_slate`, `cottage`, `dacha`, `farmhouse` garrisons for 2-4, `outbuilding` not
+  garrisonable; own models `art/models_civilian.py`, footprint 1 = 2x2 units, the farmhouse 2): `tools/small_houses.py` swaps a share
+  of the detached houses (`house*`, `old_house*`) of the real-life maps for them, on Tokmachka nearly every residential building
+  (also town houses and most small apartment buildings), so it is a village; `osm_map.py` draws them among its houses.
 - **Model scale**: the mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
   buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) use 2.5x the blueprint's
   `UniformScale`, with sizes and footprints to match; the buggy was enlarged a further x1.75 on request. Our own models

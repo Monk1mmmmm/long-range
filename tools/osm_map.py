@@ -366,7 +366,7 @@ def nearest(px, pz, pts, chunk=6000):
 
 # ---------------------------------------------------------------- buildings
 
-HOUSES = ["house", "house2", "house3", "house4", "house5", "house6", "house7", "house8", "house9"]
+HOUSES = ["house", "house2", "house3", "house4", "house5", "house6", "house7", "house8", "house9", "khata", "khata_slate", "cottage", "dacha"]
 OLD = ["old_house2", "old_house3", "old_house4", "row_house"]
 CORNER = ["corner_house1", "corner_house2", "corner_house3", "corner_house4", "row_house"]
 
