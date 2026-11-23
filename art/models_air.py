@@ -224,22 +224,25 @@ def air_transport():
 
 @model
 def fast_transport():
-    """T3 Swift: tilt-rotor assault transport, rotors at the wing tips."""
+    """T3 Swift: high-winged airdrop transport, twin turboprops, T-tail, rear cargo ramp."""
     k = Kit("fast_transport")
     w, h = 0.95, 1.0
     sec = [(-w / 2, 0.1), (w / 2, 0.1), (w / 2 + 0.04, 0.6), (w / 2 - 0.08, h), (-w / 2 + 0.08, h), (-w / 2 - 0.04, 0.6)]
-    k.prism(sec, "y", -1.6, 1.4, "tank", side_mats=["steel_d", "tank", "tank", "team", "tank", "tank"])
-    k.prism(sec, "y", -1.6, -2.15, "tank", scale1=0.45)
-    k.prism([(1.4, 0.55), (2.25, 0.85), (2.25, 1.0), (1.4, h)], "x", -0.3, 0.3, "tank")
-    k.box((0.5, 0.35, 0.2), (0, -1.9, 0.75), "glass", rot=(-35, 0, 0))
-    wing(k, -0.35, 0.65, 1.35, 0.6, 0.05, h, t=0.07, x0=0.1, tip_mat=None)
+    k.prism(sec, "y", -1.5, 1.5, "tank", side_mats=["steel_d", "tank", "tank", "team", "tank", "tank"])
+    k.prism(sec, "y", -1.5, -2.2, "tank", scale1=0.45)
+    k.prism([(1.5, 0.15), (2.5, 0.75), (2.5, 0.95), (1.5, h)], "x", -0.3, 0.3, "tank")  # upswept tail cone
+    k.box((0.5, 0.35, 0.2), (0, -1.85, 0.75), "glass", rot=(-35, 0, 0))
+    wing(k, -0.5, 1.0, 1.9, 0.55, 0.25, h, t=0.09, x0=0.35)
+    k.box((0.7, 2.6, 0.12), (0, -0.1, h + 0.04), "steel", faces={"top": "vent"})  # wing-root fairing
+    fin(k, 0, 1.75, 1.15, 0.75, 0.45, h - 0.05)
+    wing(k, 2.05, 0.45, 0.85, 0.3, 0.15, 2.0, t=0.05, x0=0.0, tip_mat=None)  # T-tailplane
     for s in (-1, 1):
-        fin(k, s * 0.55, 1.75, 0.6, 0.45, 0.2, 0.95, cant=0)
-        k.box((0.04, 1.6, 0.4), (s * (w / 2 + 0.03), 0.0, 0.5), "team")
-    for name, s in (("Rotor_L", -1), ("Rotor_R", 1)):
-        x = s * 1.5
-        k.cyl(0.16, 0.9, (x, -0.45, h + 0.05), "tank", axis="y", seg=10, caps={0: "steel_d"})
-        k.cyl(0.165, 0.12, (x, 0.0, h + 0.05), "team", axis="y", seg=10)
-        rotor(k, name, (x, -0.45, h + 0.28), 0.9, blades=3)
-    k.box((0.9, 0.04, 0.8), (0, 1.42, 0.5), "metal_door")
+        k.box((0.04, 1.6, 0.4), (s * (w / 2 + 0.03), 0.1, 0.5), "team")
+        k.box((0.3, 1.5, 0.4), (s * (w / 2 + 0.08), 0.35, 0.25), "steel")  # gear pods
+        x = s * 1.15
+        k.cyl(0.19, 1.3, (x, -0.95, 0.78), "tank", axis="y", seg=10, caps={0: "steel_d"})
+        k.cyl(0.195, 0.14, (x, -0.55, 0.78), "team", axis="y", seg=10)
+        k.box((0.05, 0.7, 0.2), (x, -0.4, 0.92), "steel_d")  # pylon
+        prop(k, "Prop_L" if s < 0 else "Prop_R", (x, -0.98, 0.78), 0.55, blades=4)
+    k.box((0.85, 0.04, 0.75), (0, 1.62, 0.5), "metal_door", rot=(-8, 0, 0))  # rear ramp
     return k

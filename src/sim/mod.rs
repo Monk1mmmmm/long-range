@@ -283,6 +283,16 @@ pub struct Mover {
     /// Seconds left that the unit must stay put after firing a weapon with a `hold` (mortars).
     #[serde(default)]
     pub hold: f32,
+    /// Seconds left of an airdrop fall (`systems::DROP_SECS` at the start): the unit glides from
+    /// `drop_from` to `drop_to`, `drop_h` above the ground at first, and does nothing until it lands.
+    #[serde(default)]
+    pub drop: f32,
+    #[serde(default)]
+    pub drop_from: V2,
+    #[serde(default)]
+    pub drop_to: V2,
+    #[serde(default)]
+    pub drop_h: f32,
 }
 
 /// A unit's wreck, or a piece of debris a building dropped (`piece` > 0).

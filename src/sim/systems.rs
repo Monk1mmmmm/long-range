@@ -879,11 +879,17 @@ fn think(
         if effects.loaded.iter().any(|l| l.0 == u.id) {
             continue;
         }
+        // Still falling from an airdrop: orders wait for the landing.
+        if mover.as_ref().is_some_and(|m| m.drop > 0.0) {
+            continue;
+        }
         let (pos, id, owner) = (body.pos, u.id, u.owner);
         let team = game.team_of(owner);
         let is_struct = df.is_structure();
         let plane = df.is_plane();
         let arrive = if plane { 9.0 } else { 0.8 };
+        // A transport plane cannot stop to load: it scoops up what it flies close over.
+        let scoop = if plane { PLANE_SCOOP } else { 0.0 };
         let mut goal: Option<V2> = None;
         let mut pop = false;
         // Popped orders that go round again (ferry routes; patrols always do), and an order to do first.
@@ -1372,7 +1378,7 @@ fn think(
             }
             Some(Order::Load(tid)) => {
                 pop = true;
-                let near = |t: &Cen| pos.dist(t.pos) <= 2.5 + t.radius + df.radius();
+                let near = |t: &Cen| pos.dist(t.pos) <= 2.5 + t.radius + df.radius() + scoop;
                 if is_struct {
                     // An occupiable building does not fetch anybody: infantry walk in.
                 } else if let Some(tr) = &df.transport {
@@ -1471,7 +1477,7 @@ fn think(
                                 }
                             });
                             if let Some(t) = best.and_then(|b| census.get(b.1)) {
-                                if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() {
+                                if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() + scoop {
                                     commands.entity(t.e).insert(Hosted(id));
                                     effects.loaded.push((t.id, id));
                                 } else {
@@ -1532,7 +1538,7 @@ fn think(
                     });
                     if let Some(t) = best.and_then(|b| census.get(b.1)) {
                         pop = false;
-                        if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() {
+                        if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() + scoop {
                             commands.entity(t.e).insert(Hosted(id));
                             effects.loaded.push((t.id, id));
                         } else {
@@ -1566,49 +1572,69 @@ fn think(
                         ));
                     }
                     pop = true;
-                } else if pos.dist(c) > arrive.max(1.5) {
+                } else if !plane && pos.dist(c) > arrive.max(1.5) {
                     goal = Some(c);
                 } else {
-                    // Everybody out, spread over the circle (a spiral from the middle).
-                    let n = cargo.len() as f32;
+                    let r = radius.max(1.5);
+                    // Who was set down this tick, and where they will stand.
+                    let mut released: Vec<(&Cen, V2)> = vec![];
+                    if plane {
+                        // An airdrop on the go: the plane flies straight through the circle and lets each rider
+                        // go as it passes over his spot; he falls (`Mover.drop`, mostly for show) and lands
+                        // `DROP_SECS` later. What is left when it flies out of the circle comes round again.
+                        let dir = V2::from_angle(body.yaw);
+                        let rel = pos - c;
+                        if rel.len() > r + AIRDROP_MARGIN {
+                            goal = Some(c);
+                        } else {
+                            goal = Some(pos + dir * 30.0);
+                            let along = rel.x * dir.x + rel.y * dir.y;
+                            for t in cargo.iter() {
+                                let spot = drop_spot(t.id, c, r);
+                                if along < (spot.x - c.x) * dir.x + (spot.y - c.y) * dir.y {
+                                    continue;
+                                }
+                                let to = set_down(&map, &nav, spot);
+                                let from = Body { pos, y: body.y, yaw: body.yaw, vel: v2(0.0, 0.0) };
+                                let mover = Mover { anchor: to, path_goal: to, drop: DROP_SECS, drop_from: pos, drop_to: to, drop_h: (body.y - map.h(to)).max(1.0), ..default() };
+                                commands.entity(t.e).try_remove::<Hosted>().try_insert((from, mover));
+                                released.push((t, to));
+                            }
+                        }
+                    } else {
+                        // Everybody out, spread over the circle (a spiral from the middle).
+                        let n = cargo.len() as f32;
+                        for (k, t) in cargo.iter().enumerate() {
+                            let p = set_down(&map, &nav, c + V2::from_angle(k as f32 * 2.4) * (r * ((k as f32 + 0.5) / n).sqrt()));
+                            // Their own orders stay: what they were told to do before or while riding.
+                            commands.entity(t.e).try_remove::<Hosted>().try_insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
+                            released.push((t, p));
+                        }
+                    }
                     // A dragged circle: infantry go on into the free buildings in it (the nearest to where they
                     // are set down, while there is room); the rest just stand spread out.
-                    let mut room_left: Vec<(u32, V2, i32)> = vec![];
-                    if occupy {
+                    if occupy && !released.is_empty() {
+                        let mut room_left: Vec<(u32, V2, i32)> = vec![];
                         for b in census.list.iter().filter(|b| b.structure && b.done && !b.hosted && b.hp > 0.0 && b.host != id && defs.get(b.def).is_garrison() && c.dist(b.pos) <= radius + b.radius) {
                             let Some(tr) = &defs.get(b.def).transport else { continue };
                             let used: i32 = census.list.iter().filter(|r| r.host == b.id && r.hp > 0.0).map(|r| defs.get(r.def).cargo as i32).sum();
                             room_left.push((b.id, b.pos, tr.capacity as i32 - used));
                         }
                         room_left.sort_by_key(|r| r.0);
-                    }
-                    let mut enter: Vec<(u32, u32)> = vec![];
-                    for (k, t) in cargo.iter().enumerate() {
-                        let mut p = map.clamp(c + V2::from_angle(k as f32 * 2.4) * (radius.max(1.5) * ((k as f32 + 0.5) / n).sqrt()));
-                        if nav.at(&map, p) != 0 {
-                            let (cx, cy) = map.cell_of(p);
-                            if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
-                                p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                        for &(t, p) in &released {
+                            let td = defs.get(t.def);
+                            if !td.is_infantry() || !carriable(td) {
+                                continue;
                             }
-                        }
-                        // Their own orders stay: what they were told to do before or while riding.
-                        commands.entity(t.e).try_remove::<Hosted>().try_insert((Body { pos: p, y: map.h(p), yaw: body.yaw, vel: v2(0.0, 0.0) }, Mover { anchor: p, path_goal: p, ..default() }));
-                        let td = defs.get(t.def);
-                        if occupy && td.is_infantry() && carriable(td) {
                             let best = room_left.iter_mut().filter(|r| r.2 >= td.cargo as i32 && census.get(r.0).is_some_and(|b| may_board(&defs, &census, td, b, team))).min_by(|a, b| a.1.dist(p).total_cmp(&b.1.dist(p)).then(a.0.cmp(&b.0)));
                             if let Some(r) = best {
                                 r.2 -= td.cargo as i32;
-                                enter.push((t.id, r.0));
+                                // Their queued orders give way; the others stay where they stand.
+                                commands.entity(t.e).try_insert(Orders(vec![Order::Load(r.0)]));
                             }
                         }
                     }
-                    // Those with a building go to it (their queued orders give way); the others stay where they stand.
-                    for (rid, bid) in enter {
-                        if let Some(t) = census.get(rid) {
-                            commands.entity(t.e).try_insert(Orders(vec![Order::Load(bid)]));
-                        }
-                    }
-                    pop = true;
+                    pop = released.len() == cargo.len();
                 }
             }
             Some(Order::ReclaimArea { pos: c, radius }) => {
@@ -1695,6 +1721,20 @@ const FERRY_PICK: f32 = 12.0;
 const FERRY_COMING: f32 = 40.0;
 const FERRY_SAME: f32 = 4.0;
 const FERRY_DROP: f32 = 6.0;
+/// Airdrops: how long a rider falls (visual, but he is helpless meanwhile), and how far outside the
+/// circle a transport plane is already lined up to start letting go.
+pub const DROP_SECS: f32 = 2.5;
+const AIRDROP_MARGIN: f32 = 4.0;
+/// A transport plane picks units up within this much more than a hovering transport does.
+const PLANE_SCOOP: f32 = 5.0;
+
+/// Where rider `id` of an airdrop over the circle (`c`, `r`) lands: a spread that depends on the id
+/// alone (golden-ratio angle and radius), so every tick agrees however many are already out.
+fn drop_spot(id: u32, c: V2, r: f32) -> V2 {
+    let k = id as f32;
+    let f = k * 0.618034;
+    c + V2::from_angle(k * 2.4) * (r * (f - f.floor()).sqrt())
+}
 
 /// Can unit type `df` of `team` get into `t`? Transports take their own side; infantry also
 /// walk into an empty (neutral) building or one their side already holds. A map building whose
@@ -2305,6 +2345,18 @@ fn locomotion(
         let mv = &df.mv;
         let old = body.pos;
         let turn = mv.turn.to_radians();
+        if m.drop > 0.0 {
+            // An airdrop fall: glides down onto its spot and does nothing else until it lands.
+            m.drop = (m.drop - DT).max(0.0);
+            let t = 1.0 - m.drop / DROP_SECS;
+            body.pos = m.drop_from + (m.drop_to - m.drop_from) * t;
+            let ground = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
+            body.y = ground + m.drop_h * (1.0 - t * t);
+            m.speed = 0.0;
+            m.path.clear();
+            body.vel = v2(0.0, 0.0);
+            continue;
+        }
         if m.hold > 0.0 && mv.kind != MoveKind::Plane {
             // Set up to fire: stays where it is, hull and all, until the hold runs out.
             m.hold = (m.hold - DT).max(0.0);
@@ -2758,6 +2810,10 @@ fn weapons(
     let g = defs.rules.gravity;
     let tick = game.tick;
     for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        // Still falling from an airdrop.
+        if mover.as_ref().is_some_and(|m| m.drop > 0.0) {
+            continue;
+        }
         // Infantry fighting off a storm of their building are too busy to shoot out of it.
         if hosted.is_some_and(|h| effects.stormed.contains(&h.0)) {
             continue;

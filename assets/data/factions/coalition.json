@@ -2430,7 +2430,7 @@
   {
    "id": "fast_transport",
    "name": "Swift",
-   "desc": "Fast assault transport for aggressive airdrops: twice as fast as the Stork, carries eight land units like it (L load, K unload). Stealth 1: only T2+ radar finds it. Unarmed.",
+   "desc": "Fast transport plane for airdrops: twice as fast as the Stork and never stops. Unload (K) over a spot or a dragged circle: it flies straight through and the cargo falls spread over it, landing 2-3 s later (a dragged circle also sends infantry into free buildings). Carries eight land units like the Stork (L load: it scoops up units it flies over). Stealth 1: only T2+ radar finds it. Unarmed.",
    "tier": 3,
    "hp": 600,
    "armor": "Air",
@@ -2440,11 +2440,11 @@
     "time": 1600
    },
    "size": [
-    3.0,
-    1.2,
-    4.5
+    4.5,
+    2.1,
+    5.0
    ],
-   "hit_box": [3.31, 1.55, 4.5],
+   "hit_box": [4.5, 2.1, 5.0],
    "icon": {
     "shape": "air",
     "glyphs": [
@@ -2460,25 +2460,25 @@
     "brightness": 1.0,
     "spin": [
      {
-      "bone": "Rotor_L",
-      "axis": [0, 1, 0],
-      "speed": 800
+      "bone": "Prop_L",
+      "axis": [0, 0, 1],
+      "speed": 1500
      },
      {
-      "bone": "Rotor_R",
-      "axis": [0, 1, 0],
-      "speed": -800
+      "bone": "Prop_R",
+      "axis": [0, 0, 1],
+      "speed": -1500
      }
     ]
    },
    "built_by": "air",
    "move": {
-    "kind": "hover",
+    "kind": "plane",
     "speed": 20,
-    "reverse": 6,
+    "reverse": 0,
     "accel": 11,
-    "turn": 160,
-    "altitude": 7
+    "turn": 70,
+    "altitude": 9
    },
    "vision": 28,
    "stealth": 1,
