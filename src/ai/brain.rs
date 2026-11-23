@@ -425,7 +425,7 @@ pub struct Brain {
     wet: bool,
     /// For the report: landings made, infantry sent into shelter, artillery hunts, landings by
     /// air / amphibious carrier / land carrier.
-    ops: [u32; 6],
+    ops: [u32; 7],
     /// Enemy guns being hunted down right now.
     hunted: Vec<u32>,
     /// Infantry kept back at the rally point for the next landing, and since when.
@@ -447,7 +447,7 @@ impl Brain {
     pub fn debug(&self) -> String {
         let held = self.zones.iter().filter(|z| z.mine > 0.0).count();
         let known: f32 = self.zones.iter().map(|z| z.danger()).sum();
-        format!("{:?} {:?} wave {} zones {}/{} raiders {} enemy known {:.0} peak {:.0} air {:.0} | {}", self.strategy, self.phase, self.wave, held, self.zones.len(), self.raiders.len(), known, self.enemy_peak, self.enemy_air_peak, self.note) + &format!(" | revives {} trips {} housed {} abroad {} | focus {} storms {} works {} ({} stand) ferries {} | landings {} (air {} amphibious {} land {}) shelters {} hunts {}", self.stats[0], self.stats[1], self.stats[2], self.stats[3], self.acts[0], self.acts[1], self.acts[2], self.dug, self.acts[3], self.ops[0], self.ops[3], self.ops[4], self.ops[5], self.ops[1], self.ops[2])
+        format!("{:?} {:?} wave {} zones {}/{} raiders {} enemy known {:.0} peak {:.0} air {:.0} | {}", self.strategy, self.phase, self.wave, held, self.zones.len(), self.raiders.len(), known, self.enemy_peak, self.enemy_air_peak, self.note) + &format!(" | revives {} trips {} housed {} abroad {} | focus {} storms {} works {} ({} stand) ferries {} | landings {} (air {} amphibious {} land {}) shelters {} hunts {} captures {}", self.stats[0], self.stats[1], self.stats[2], self.stats[3], self.acts[0], self.acts[1], self.acts[2], self.dug, self.acts[3], self.ops[0], self.ops[3], self.ops[4], self.ops[5], self.ops[1], self.ops[2], self.ops[6])
     }
     pub fn zone_at(&self, p: V2) -> usize {
         let mut best = (f32::MAX, 0);
@@ -1645,6 +1645,9 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         *aboard.entry(r.host).or_default() += defs.get(r.def).cargo as i32;
     }
     let riders = |id: u32| aboard.get(&id).copied().unwrap_or(0);
+    // A transport with no orders, or only a move to where it already stands (a crowded rally
+    // point can leave it a step short of its goal for ever), is free for a job.
+    let parked = |t: &Mine| t.orders == 0 || (t.orders == 1 && matches!(t.order, Some(Order::Move(q)) if q.dist(t.pos) < 10.0));
     // Buildings our infantry may walk into, with the room left in them.
     let mut refuges: Vec<(u32, V2, i32)> = census
         .list
@@ -1724,7 +1727,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         }
     }
     if b.landing.is_none() && pf.landing > 0.0 && tick >= b.landing_next && tick > 1800 && !off("landing") {
-        let idle = |t: &&&Mine| t.orders == 0 && riders(t.id) == 0 && !orders.contains_key(&t.id);
+        let idle = |t: &&&Mine| parked(t) && riders(t.id) == 0 && !orders.contains_key(&t.id);
         let air: Vec<&Mine> = live.iter().filter(|t| role(t) == Role::Transport).filter(idle).copied().collect();
         let apcs: Vec<&Mine> = live.iter().filter(|t| role(t) == Role::Carrier && t.pos.dist(rally) < 45.0).filter(idle).copied().collect();
         let swim: Vec<&Mine> = apcs.iter().filter(|t| defs.get(t.def).mv.amphibious).copied().collect();
@@ -2270,9 +2273,11 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     // far-away raid zone. Passengers walk to the transport, it sets them down and flies home.
     let carriers: Vec<&Mine> = live.iter().filter(|m| role(m) == Role::Transport).copied().collect();
     let mut used: Vec<u32> = vec![];
+    // Empty transports with no job of their own: they carry whoever has a long way to go (below).
+    let mut spare_lift: Vec<&Mine> = vec![];
     for t in &carriers {
         let aboard = riders(t.id) > 0;
-        if t.orders != 0 || on_op(t.id) || orders.contains_key(&t.id) {
+        if !parked(t) || on_op(t.id) || orders.contains_key(&t.id) {
             continue;
         }
         if aboard {
@@ -2355,7 +2360,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                     used.push(id);
                 }
             }
-            None => go(&mut orders, t, Order::Move(rally)),
+            None => spare_lift.push(t),
         }
     }
 
@@ -2399,11 +2404,12 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     b.acts[1] += storms;
 
     // --- infantry capture (lobby option): infantry near an enemy building no known armed enemy
-    // guards walks up and takes it over (up to 4 men each; factories and garrisons excepted)
+    // guards walks up and takes it over (up to 4 men each, 6 on a turret, which shoots back;
+    // factories excepted, and bunkers only once nobody holds them: those are stormed above)
     if game.infantry_capture {
         let guard = defs.rules.infantry_capture_guard + 10.0;
         let mut takers: Vec<&Mine> = land.iter().filter(|m| b.info[m.def as usize].infantry && !b.boarding.contains_key(&m.id) && !matches!(m.order, Some(Order::Load(_)) | Some(Order::Capture(_))) && !orders.contains_key(&m.id)).copied().collect();
-        for (id, s) in b.memory.iter().filter(|(_, s)| s.structure && s.known && s.hp > 0.0 && hostile(team, s.team) && seizable(defs.get(s.def))) {
+        for (id, s) in b.memory.iter().filter(|(id, s)| s.structure && s.known && s.hp > 0.0 && hostile(team, s.team) && seizable(defs.get(s.def)) && riders(**id) == 0) {
             if takers.is_empty() {
                 break;
             }
@@ -2413,7 +2419,10 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             }
             let mut near: Vec<&Mine> = takers.iter().filter(|m| m.pos.dist(s.pos) < 40.0).copied().collect();
             near.sort_by(|x, y| x.pos.dist(s.pos).total_cmp(&y.pos.dist(s.pos)).then(x.id.cmp(&y.id)));
-            near.truncate(4);
+            near.truncate(if defs.get(s.def).armed() { 6 } else { 4 });
+            if !near.is_empty() {
+                b.ops[6] += 1;
+            }
             for m in &near {
                 orders.insert(m.id, Order::Capture(*id));
             }
@@ -2426,7 +2435,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     let fwd_drop = if attacking && !b.body.is_empty() { Some(free_at(centre + (rally - centre).norm() * 10.0)).filter(|q| q.dist(rally) > 70.0) } else { None };
     for t in live.iter().filter(|m| role(m) == Role::Carrier) {
         let aboard = riders(t.id) > 0;
-        if t.orders != 0 || on_op(t.id) || orders.contains_key(&t.id) {
+        if !parked(t) || on_op(t.id) || orders.contains_key(&t.id) {
             continue;
         }
         if aboard {
@@ -2461,7 +2470,75 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
                 b.boarding.insert(id, tick + 450);
             }
         } else {
+            spare_lift.push(t);
+        }
+    }
+
+    // --- lifts: a transport with nothing else to do picks up a group of our units on a long walk
+    // (new units on their way from the factories to the rally point, reinforcements following the
+    // attack, defenders, raiders), sets them down short of where they are going and comes back;
+    // they then carry on with their own order. Air transports keep away from known anti-air.
+    let party_ids = b.party.clone();
+    let mut lifted: Vec<u32> = vec![];
+    for t in spare_lift {
+        let td = defs.get(t.def);
+        let air = td.is_air();
+        let cap = td.transport.as_ref().map_or(0, |c| c.capacity as i32);
+        let far = if air { 110.0 } else { 80.0 };
+        // Walkers this transport can take, with where they are headed.
+        let mut cands: Vec<(&Mine, V2, Order)> = land
+            .iter()
+            .filter(|m| fits(td, defs.get(m.def)) && !b.body.contains(&m.id) && !b.boarding.contains_key(&m.id) && !party_ids.contains(&m.id) && !lifted.contains(&m.id) && !used.contains(&m.id))
+            .filter_map(|m| {
+                let o = orders.get(&m.id).copied().or(m.order)?;
+                let q = match o {
+                    Order::Move(q) | Order::AttackMove(q) => q,
+                    _ => return None,
+                };
+                (m.pos.dist(q) > far && t.pos.dist(m.pos) < 200.0).then_some((*m, q, o))
+            })
+            .collect();
+        cands.sort_by(|x, y| (x.0.pos.dist(t.pos), x.0.id).partial_cmp(&(y.0.pos.dist(t.pos), y.0.id)).unwrap());
+        let Some(&(first, goal, _)) = cands.first() else {
             go(&mut orders, t, Order::Move(rally));
+            continue;
+        };
+        // Set down a little short of the goal, on the side they come from.
+        let drop = free_at(goal + (first.pos - goal).norm() * if air { 18.0 } else { 12.0 });
+        let risky = if air {
+            b.zones[b.zone_at(drop)].enemy_aa > 0.0 || enemy_near(drop, 40.0) > 0.0 || aa_on_route(b, first.pos, drop) > 0.0 || aa_on_route(b, t.pos, first.pos) > 0.0
+        } else {
+            enemy_near(drop, 35.0) > cands.iter().map(|c| threat(c.0)).sum::<f32>() * 0.5
+        };
+        if risky {
+            go(&mut orders, t, Order::Move(rally));
+            continue;
+        }
+        let mut room = cap;
+        let mut who: Vec<(u32, Order)> = vec![];
+        for (m, q, o) in &cands {
+            let c = defs.get(m.def).cargo as i32;
+            if c <= room && q.dist(goal) < 25.0 && m.pos.dist(first.pos) < 40.0 {
+                room -= c;
+                who.push((m.id, *o));
+            }
+        }
+        if cap - room < 2.max(cap / 2) {
+            go(&mut orders, t, Order::Move(rally));
+            continue;
+        }
+        orders.insert(t.id, Order::Load(who[0].0));
+        for (id, _) in who.iter().skip(1) {
+            then.push((t.id, Order::Load(*id)));
+        }
+        then.push((t.id, Order::Unload { pos: drop, radius: 6.0 }));
+        then.push((t.id, Order::Move(rally)));
+        b.acts[3] += 1;
+        for (id, o) in who {
+            orders.insert(id, Order::Load(t.id));
+            then.push((id, o));
+            b.boarding.insert(id, tick + 900);
+            lifted.push(id);
         }
     }
 
@@ -2577,4 +2654,18 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             out.push(Command::Orders { ids: vec![id], orders: vec![o], queue: true });
         }
     }
+}
+
+/// Known enemy anti-air covering a straight flight from `a` to `q`.
+fn aa_on_route(b: &Brain, a: V2, q: V2) -> f32 {
+    let ab = q - a;
+    b.memory
+        .values()
+        .filter(|s| !s.air && (s.known || s.structure) && b.info[s.def as usize].aa > 0.0)
+        .filter(|s| {
+            let t = ((s.pos - a).dot(ab) / ab.len2().max(1.0)).clamp(0.0, 1.0);
+            (a + ab * t).dist(s.pos) < b.info[s.def as usize].range.max(60.0) + 10.0
+        })
+        .map(|s| b.info[s.def as usize].aa)
+        .sum()
 }
