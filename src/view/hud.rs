@@ -19,6 +19,9 @@ use bevy_egui::egui::{self, Align2, Color32, FontId, Pos2, Stroke, StrokeKind, T
 use bevy_egui::EguiContexts;
 use std::collections::HashMap;
 
+/// This frame's units by id (only looked up and listed in sorted order: the faster hasher changes nothing).
+type Infos = bevy::platform::collections::HashMap<u32, Info>;
+
 pub const FOV: f32 = 0.785;
 const TOP: f32 = 30.0;
 const MM: f32 = 200.0;
@@ -298,7 +301,7 @@ struct Frame<'a> {
     defs: &'a Defs,
     game: &'a Game,
     map: &'a MapData,
-    infos: &'a HashMap<u32, Info>,
+    infos: &'a Infos,
     seen: &'a [Seen],
     team: u8,
     sw: f32,
@@ -879,7 +882,7 @@ fn can_do(d: &UnitDef, o: &Order) -> bool {
 /// take the list of the nearest unit that got one (and so help build, reclaim, fight there). Patrol
 /// routes are a loop of their own and are left out. Returns the commands, first order replacing the
 /// queue, the rest appended.
-fn distribute_orders(defs: &Defs, map: &MapData, infos: &HashMap<u32, Info>, wrecks: &[(u32, V2, f32, f32)], sel: &[u32]) -> Vec<Command> {
+fn distribute_orders(defs: &Defs, map: &MapData, infos: &Infos, wrecks: &[(u32, V2, f32, f32)], sel: &[u32]) -> Vec<Command> {
     let mut units: Vec<&Info> = sel.iter().filter_map(|id| infos.get(id)).filter(|u| u.host == 0 && u.built.is_none() && !defs.get(u.def).is_structure()).collect();
     units.sort_by_key(|u| u.id);
     let mut pool: Vec<Order> = vec![];
@@ -1023,7 +1026,7 @@ fn key_letter(k: KeyCode) -> &'static str {
 /// detected. A spot the enemy has taken unseen still looks free, so the order can be given.
 /// Sites the local player's builders have queued count as taken too, except the queues of `replaced`
 /// (the selected builders when the new order replaces their queue instead of adding to it).
-fn local_occ(map: &MapData, defs: &Defs, infos: &HashMap<u32, Info>, game: &Game, team: u8, mem: &IntelMemory, reveal: bool, replaced: &[u32]) -> Vec<u8> {
+fn local_occ(map: &MapData, defs: &Defs, infos: &Infos, game: &Game, team: u8, mem: &IntelMemory, reveal: bool, replaced: &[u32]) -> Vec<u8> {
     let mut occ = map.blocked.clone();
     let own = infos.values().filter(|u| reveal || game.team_of(u.owner) == team).map(|u| (u.def, u.pos));
     let known = mem.ghosts.values().filter(|g| g.structure).filter_map(|g| g.def.map(|d| (d, g.pos)));
@@ -1198,14 +1201,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
     let alt = p.keys.pressed(KeyCode::AltLeft) || p.keys.pressed(KeyCode::AltRight);
 
     // ---------------------------------------------------------------- per-frame unit data
-    let mut infos: HashMap<u32, Info> = HashMap::with_capacity(512);
-    let mut hosted: Vec<u32> = vec![];
+    let mut infos: Infos = Infos::with_capacity(512);
     for (u, i, h, intel, orders, w, f, b, uc, up, host, paused, (cap, era)) in &p.units {
         let known = reveal || game.team_of(u.owner) == team || (intel.seen | intel.radar) & (1 << team) != 0;
         let is_hosted = host.is_some();
-        if is_hosted {
-            hosted.push(u.id);
-        }
         if !known && !is_hosted {
             continue;
         }
@@ -1396,7 +1395,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
     };
     for u in infos.values() {
-        if hosted.contains(&u.id) {
+        if u.host != 0 {
             continue;
         }
         let ut = game.team_of(u.owner);

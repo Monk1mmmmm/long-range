@@ -605,14 +605,29 @@ fn ghost_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut last: Local<(bool, (Mat4, f32, f32), Option<crate::settings::Settings>)>,
 ) {
+    // The memory changes once a tick and the level of detail when the camera moves: frames in
+    // between have nothing to do (on town maps there are thousands of remembered buildings).
+    let cam = (view.vp, view.screen_h, view.cam_dist);
+    let moved = cam != last.1;
+    // Compared by value: the settings resource is written to (and so marked changed) by more than edits.
+    let new_settings = last.2.as_ref() != Some(&*settings);
+    let dirty = mem.is_changed() || new_settings || last.0;
+    if !dirty && !moved {
+        return;
+    }
+    last.1 = cam;
+    if new_settings {
+        last.2 = Some(settings.clone());
+    }
     // Graphics setting: without ghost models every one of them is despawned and none made.
     let want = |g: &intel::Ghost| settings.ghost_models && g.structure && !g.seen && g.def.is_some();
     let dim = |g: &intel::Ghost| g.gone && defs.rules.ghosts_show_destroyed;
     let mut shown = std::collections::HashSet::new();
     let lod_vis = |def: DefId, owner: u8, at: Vec3| if model_lod(&view, &settings, defs.get(def), owner, at) { Visibility::Hidden } else { Visibility::Visible };
     for (e, gv, t, mut vis) in &mut q {
-        let keep = mem.ghosts.get(&gv.id).is_some_and(|g| want(g) && g.def == Some(gv.def) && g.owner == gv.owner && g.built == gv.built && g.yaw == gv.yaw && dim(g) == gv.dim);
+        let keep = !dirty || mem.ghosts.get(&gv.id).is_some_and(|g| want(g) && g.def == Some(gv.def) && g.owner == gv.owner && g.built == gv.built && g.yaw == gv.yaw && dim(g) == gv.dim);
         if keep {
             shown.insert(gv.id);
             let v = lod_vis(gv.def, gv.owner, t.translation);
@@ -623,8 +638,13 @@ fn ghost_visuals(
             commands.entity(e).despawn();
         }
     }
+    if !dirty {
+        return;
+    }
     let mut fresh: Vec<&intel::Ghost> = mem.ghosts.values().filter(|g| want(g) && !shown.contains(&g.id)).collect();
     fresh.sort_by_key(|g| g.id);
+    // More than a frame's worth to make: come back next frame.
+    last.0 = fresh.len() > 12;
     for g in fresh.into_iter().take(12) {
         let def = g.def.unwrap();
         let d = defs.get(def);
