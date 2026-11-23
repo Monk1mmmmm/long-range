@@ -1021,7 +1021,7 @@ fn think(
                     if let Some(w) = w0 {
                         let mut foe = false;
                         census.near(pos, w.range * 0.95, |c| {
-                            let takeable = c.structure && can_seize(&defs, team, c) && !guarded(&census, &defs, c);
+                            let takeable = c.structure && can_seize(&census, &defs, team, c) && !guarded(&census, &defs, c);
                             foe |= !takeable && census.valid_target(c, team, w.hits_land, w.hits_air);
                         });
                         engaged = foe;
@@ -1252,7 +1252,7 @@ fn think(
             },
             // Infantry capture (lobby option): walk up to it and take it while nobody guards it.
             Some(Order::Capture(tid)) if !df.is_engineer() => match census.get(tid) {
-                Some(t) if infantry && game.infantry_capture && can_seize(&defs, team, t) => {
+                Some(t) if infantry && game.infantry_capture && can_seize(&census, &defs, team, t) => {
                     if pos.dist(t.pos) > t.radius + df.radius() + 1.5 {
                         goal = Some(t.pos);
                     } else if !guarded(&census, &defs, t) {
@@ -1655,9 +1655,10 @@ const FERRY_DROP: f32 = 6.0;
 fn may_board(defs: &Defs, census: &Census, df: &crate::data::UnitDef, t: &Cen, team: u8) -> bool {
     let td = defs.get(t.def);
     if td.is_garrison() {
-        let map_building = t.owner != HOSTILE && defs.factions.get(td.faction as usize).map_or(false, |f| !f.playable);
+        // Every garrison (houses, bunkers, field bunkers, watch towers) belongs to whoever holds
+        // it: an empty one is open to anybody but the hostile side's.
         let empty = || !census.list.iter().any(|r| r.host == t.id && r.hp > 0.0);
-        df.is_infantry() && (t.team == team || t.owner == NEUTRAL || (map_building && empty()))
+        df.is_infantry() && (t.team == team || t.owner == NEUTRAL || (t.owner != HOSTILE && empty()))
     } else {
         t.team == team && (td.transport.is_none() || fits(td, df))
     }
@@ -1918,9 +1919,10 @@ fn assaults(census: Res<Census>, defs: Res<Defs>, mut effects: ResMut<Effects>) 
     }
 }
 
-/// Occupied buildings of the map belong to the side inside (they can be shot at and the side sees
-/// from them); once empty they are neutral again. Buildings of playable factions keep their owner.
-fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q: Query<(&mut Unit, &mut Orders), With<Structure>>) {
+/// Occupied buildings (the map's and field bunkers / watch towers alike) belong to the side inside
+/// (they can be shot at and the side sees from them); once empty they are neutral again. The
+/// hostile side's keep their owner, and so, with infantry capture on, do armed ones (bunkers).
+fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, game: Res<Game>, mut q: Query<(&mut Unit, &mut Orders), With<Structure>>) {
     // Host -> owner of its lowest-id rider (the census is in id order).
     let mut inside: BTreeMap<u32, u8> = BTreeMap::new();
     for c in &census.list {
@@ -1935,11 +1937,13 @@ fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, mut q:
     }
     for c in &census.list {
         let d = defs.get(c.def);
-        if !d.is_garrison() || c.hp <= 0.0 || c.owner == HOSTILE || defs.factions.get(d.faction as usize).map_or(true, |f| f.playable) {
+        if !d.is_garrison() || c.hp <= 0.0 || c.owner == HOSTILE {
             continue;
         }
         let want = inside.get(&c.id).copied().unwrap_or(NEUTRAL);
-        if want != c.owner {
+        // With infantry capture on, an armed one (a bunker) is a turret too: taken over, or
+        // left by its riders, it keeps the side that has it.
+        if want != c.owner && !(want == NEUTRAL && d.armed() && game.infantry_capture) {
             if let Ok((mut u, mut o)) = q.get_mut(c.e) {
                 u.owner = want;
                 o.0.clear();
@@ -3541,10 +3545,17 @@ fn apply_reclaim(
 }
 
 /// `t` is a building infantry of `team` may take over right now: finished, standing, known, not
-/// theirs and `seizable` (never garrisons, factories or field works). Guarded ones can be
-/// walked up to and waited at, but not taken.
-fn can_seize(defs: &Defs, team: u8, t: &Cen) -> bool {
-    t.hp > 0.0 && t.done && !t.hosted && t.team != team && t.known_to(team) && seizable(defs.get(t.def))
+/// theirs and `seizable` (never factories or field works; of the garrisons only bunkers and other
+/// military ones, and only once nobody is inside: a held one is stormed). Guarded ones can be walked
+/// up to and waited at, but not taken.
+fn can_seize(census: &Census, defs: &Defs, team: u8, t: &Cen) -> bool {
+    t.hp > 0.0
+        && t.done
+        && !t.hosted
+        && t.team != team
+        && t.known_to(team)
+        && seizable(defs.get(t.def))
+        && !(defs.get(t.def).is_garrison() && census.list.iter().any(|r| r.host == t.id && r.hp > 0.0))
 }
 
 /// The nearest building within `infantry_capture_reach` that infantry of `team` standing at `pos`
@@ -3553,7 +3564,7 @@ fn seize_target(census: &Census, defs: &Defs, team: u8, pos: V2) -> Option<Cen> 
     let r = defs.rules.infantry_capture_reach;
     let mut best: Option<(f32, Cen)> = None;
     census.near(pos, r + 8.0, |t| {
-        if !t.structure || !can_seize(defs, team, t) || guarded(census, defs, t) {
+        if !t.structure || !can_seize(census, defs, team, t) || guarded(census, defs, t) {
             return;
         }
         let d = pos.dist(t.pos);

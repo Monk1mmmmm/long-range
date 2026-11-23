@@ -382,8 +382,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   garrison, origin at the building's top) and see from it (`visibility`, `intel.rs`), with vision and binocular
   range x `rules.garrison_vision` (1.3). Every hit on the building also costs each rider
   `rules.garrison_damage` (0.04) x the raw damage, their armor applied (`deaths`). `systems::garrisons`
-  gives a map building to the owner of its lowest-id rider and back to `NEUTRAL` when empty (playable
-  factions' buildings and `HOSTILE` ones keep their owner); garrisonable buildings can't be captured.
+  gives a garrison to the owner of its lowest-id rider and back to `NEUTRAL` when empty - map buildings, field
+  bunkers and watch towers alike (requested: they act like the map's buildings, entered when empty, stormed when
+  held); `HOSTILE` ones keep their owner, and with infantry capture on so do armed ones (the map's bunker).
   `Unload` from a building sets them down at its side and walks them to the spot. Move-type orders (move,
   attack-move, patrol) given to riders of a building take them out of the side facing the goal first
   (`apply_commands`, `garrison_door`); the HUD sends a selected own building's move orders to its riders
@@ -396,8 +397,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   queues them in `Effects.assault` and `systems::assaults` trades damage: attackers' summed assault -> the lowest-id
   defender, defenders' summed assault x `rules.garrison_defense` (1.25) -> the lowest-id attacker. Defenders of a stormed
   building (`Effects.stormed`) do not fire out. When nobody is left inside, `may_board` lets them in (a map building
-  whose riders all died counts as empty before `garrisons` makes it neutral); an emptied enemy bunker (playable
-  faction) or `HOSTILE` building keeps its owner and cannot be entered. Riders now die inside at hp <= 0 (no wreck);
+  whose riders all died counts as empty before `garrisons` makes it neutral); an emptied `HOSTILE` building keeps
+  its owner and cannot be entered (with infantry capture on, an armed one is captured instead). Riders now die inside at hp <= 0 (no wreck);
   death blasts skip hosted units. Results: `--combattest` "Storm" lines (1 trooper beats 1 AT inside, an even trooper fight goes to the defender).
   **Trenches are stormed the same way**: an attack order by such infantry on enemy infantry standing in a trench piece, or on
   the piece they hold, becomes `Load(piece)` (`systems::trench_to_storm`); `think` runs them to its edge and queues them in
@@ -407,14 +408,15 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
 - **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, off by default; Cossacks
   style): infantry may take `Order::Capture` (right-click an enemy or neutral building, or the Capture button) on any
-  building `sim::seizable` (not factories, garrisons - those are stormed - or field works). At the building it queues
+  building `sim::seizable` (every turret; not factories or field works; of the garrisons only bunkers and other
+  military ones - armed, or built by a side - and only once empty, `systems::can_seize`: held ones are stormed). At the building it queues
   `Effects.seize`; `apply_capture` adds `DT / rules.infantry_capture_secs` (20) per man, free of energy, but nothing
   while an armed finished mobile unit of the building's side is within `rules.infantry_capture_guard` (15,
   `systems::guarded`). With infantry and other units selected, the infantry capture and the rest attack. The zone AI
-  sends up to 4 infantry within 40 at a known unguarded enemy building. **No order needed**: idle infantry, and infantry
+  sends up to 4 infantry (6 at a turret) within 40 at a known unguarded enemy building nobody holds (report: `captures`). **No order needed**: idle infantry, and infantry
   on Move, AttackMove or Patrol (not engaged), take the nearest unguarded `seizable` building within
   `rules.infantry_capture_reach` (12; `systems::seize_target`, in `think`) - they walk up to it and capture, then go on
-  with the order. Garrisons (houses, bunker), factories and field works (trenches) are never taken this way, so they keep
+  with the order. Houses, factories and field works (trenches) are never taken this way, so they keep
   their own behaviour (entered, stormed, cover). `--combattest` infantry "Infantry capture" lines (ordered, idle, moving,
   attack-moving, garrison/factory refused).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
@@ -729,6 +731,12 @@ to open in Blender; `art/render.py` renders exports for a look (Workbench, team 
     buildings there (`Order::Load`), the body's infantry into buildings within 45 of the step it passes (towns
     stand between the bases: only looking near the rally point, the AI never garrisoned anything on most maps);
     buildings neither near the rally point nor the attack are emptied (`Unload` on the building);
+  - lifts (requested: transports stood idle at the rally point most of the game): a transport (air or land carrier)
+    with no other job picks up a group of our units walking more than 80 (air: 110) to their goal - new units on
+    their way to the rally point, reinforcements to the attack, defenders, raiders - sets them down 12 (18) short of
+    it and returns; they carry on with their own order. Air transports skip drops and routes covered by known
+    anti-air (`aa_on_route`). Counted in the report's `ferries`. A transport whose only order is a move to where it
+    stands counts as free (`parked`: crowded rally points left APCs a step short of their goal for ever);
   - air transports: zones carry the number of their land mass (`Zone::comp`). Jobs of an idle transport, in
     order: an engineer to a land mass with free deposits (it then builds extractors there only), army units
     from the rally point to an enemy that cannot be reached by land (they fight on their own over there,
