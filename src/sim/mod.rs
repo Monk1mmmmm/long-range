@@ -420,7 +420,16 @@ pub struct Game {
 /// A building infantry may capture when `Game.infantry_capture` is on: not a factory, a
 /// garrison (those are stormed) or a field work.
 pub fn seizable(d: &crate::data::UnitDef) -> bool {
-    d.is_structure() && !d.is_factory() && !d.is_garrison() && !d.is_fieldwork()
+    d.is_structure() && !d.is_factory() && !d.is_garrison() && !d.is_fieldwork() && has_function(d)
+}
+
+/// A building that does something for its owner (economy, guns, radar, building, sight): pylons,
+/// towers and tanks that only stand there are not worth taking.
+pub fn has_function(d: &crate::data::UnitDef) -> bool {
+    let e = &d.eco;
+    e.mass != 0.0 || e.energy != 0.0 || e.upkeep != 0.0 || e.store_mass != 0.0 || e.store_energy != 0.0
+        || !d.weapons.is_empty() || d.radar > 0.0 || d.radar2 > 0.0 || d.radar3 > 0.0
+        || d.build.is_some() || d.vision > 0.0
 }
 
 pub const MODE_ANNIHILATION: u8 = 0;
