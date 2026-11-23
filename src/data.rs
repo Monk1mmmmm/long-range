@@ -1101,14 +1101,18 @@ pub fn load_map(name: &str) -> Result<crate::map::MapData, String> {
     })
 }
 
-/// The premade maps as the lobby lists them: one entry per variant of a map that has several,
-/// with the number of players it takes.
+/// The premade maps as the lobby lists them: one entry per map, with the number of players it takes.
+/// A map that has several variants (`MapData::variant`) is listed once, as its variant with the most
+/// starts (`folder#k`); a game with fewer players leaves slots empty and `MapData::adapt` drops the
+/// deposits of those starts, so the smaller variants are not offered as maps of their own.
 pub fn map_entries(root: &Path) -> Vec<(String, usize)> {
     let mut out = vec![];
     for name in crate::map::MapData::list(root) {
         let counts = crate::map::MapData::start_counts(&map_dir(&name));
         if counts.len() > 1 {
-            out.extend(counts.iter().enumerate().map(|(k, c)| (format!("{name}#{k}"), *c)));
+            // The first of equal counts wins (`max_by_key` would take the last).
+            let (k, c) = counts.iter().enumerate().fold((0, 0), |best, (k, c)| if *c > best.1 { (k, *c) } else { best });
+            out.push((format!("{name}#{k}"), c));
         } else {
             out.push((name, counts.first().copied().unwrap_or(0)));
         }
@@ -1462,6 +1466,23 @@ impl Defs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The lobby lists every premade map once; a map with variants as the one with the most starts.
+    #[test]
+    fn lobby_lists_each_map_once() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+        let entries = map_entries(&root);
+        let mut folders: Vec<&str> = entries.iter().map(|(e, _)| split_map(e).0).collect();
+        let n = folders.len();
+        folders.sort();
+        folders.dedup();
+        assert_eq!(n, folders.len(), "a map is listed twice: {entries:?}");
+        for (e, count) in &entries {
+            let most = crate::map::MapData::start_counts(&map_dir(e)).into_iter().max().unwrap_or(0);
+            assert_eq!(*count, most, "{e} is not the variant with the most starts");
+        }
+        assert!(entries.iter().any(|(e, c)| split_map(e).0 == "jablonec" && *c == 8), "{entries:?}");
+    }
 
     /// Every preset shipped in `assets/data/presets` loads and passes validation.
     #[test]

@@ -469,7 +469,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Adaptive maps** (SupCom style; `frankivsk_mini`, `frankivsk`, `liberec`, made by `tools/merge_variants.py` from the former
   per-player-count maps): `map.json` holds the union of the starts plus `variants` (`{starts: [indices in slot order], points}`:
   one way to play per player count) and `attached` (`{pos, start}` / `{pos, variant}` per deposit, matched by position).
-  The lobby lists a map with variants as one entry per variant (`folder#k`, `data::map_entries` / `split_map` / `load_map`;
+  The lobby lists a map with variants once, as its variant with the most starts (`folder#k`, `data::map_entries` / `split_map` / `load_map`; smaller player counts are played by leaving slots empty, `adapt` then drops those starts' deposits, and `LR_MAP=folder#k` still loads any variant in the headless tests;
   `MapData::variant(k)` makes the plain map: that variant's starts, its deposits, slot props renumbered, trees, rocks and
   buildings cleared round its starts, its points). A deposit attached to a start is only there when that slot is played:
   `MapData::adapt` (called by the host in `start_game` before the map is sent, and again in `setup_game`, where it does
