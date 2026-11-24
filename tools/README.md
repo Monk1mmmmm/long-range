@@ -242,14 +242,19 @@ in the city, the hostile outpost on Fort Imperial:
 
     .venv/bin/python tools/osm_map.py dubrovnik_1991 --center 42.649,18.099 --km 6 --cells 512 --players 4 --relief 0.8 --source overture --sea --drop-bridges 42.660,18.060,42.675,18.095 --title "Dubrovnik 1991" --max-props 1400 --village 0.5 --points 7 --cp-town 1.0 --cp-area 42.60,18.05,42.6655,18.14 --dep-area 42.60,18.05,42.6685,18.15 --starts "83,293;114,499;880,450;985,700" --outpost 42.6505,18.1135
 
-## graft_buildings.py - new buildings for a finished map
+## graft_buildings.py, fill_town.py - more buildings (and narrower streets) for a finished map
 
-    .venv/bin/python tools/osm_map.py NAME_new --source overture --bbox ... --cells N --starts "..." --max-props 9000 --village 1.0
-    python3 tools/graft_buildings.py NAME NAME_new      # then delete assets/maps/NAME_new
+    .venv/bin/python tools/osm_map.py NAME_new --source overture --bbox S,W,N,E --cells N --starts "..." --max-props 9000 --village 1.0 --town-streets
+    python3 tools/graft_buildings.py NAME NAME_new --roads      # then delete assets/maps/NAME_new
+    python3 tools/fill_town.py NAME --bbox S,W,N,E --center LAT,LON --radius UNITS   # pack a town centre (needs the Overture cache of the run above)
 
-Replaces the neutral buildings of an existing map (terrain, roads, ground, deposits, starts, points and variants stay) with those
-of the same place made again, nudging each up to 2 cells off the map's roads, deposits and kept props (pylons, towers, outpost).
-Used for `jablonec` (bbox 50.661,15.091,50.751,15.233, the starts of its 8-player variant): 600 -> 1170 buildings.
+`--town-streets` (osm_map.py) narrows the side streets in towns and cuts the residential ones where buildings stand, like
+`--village` below 1 does, but keeps every village building. `graft_buildings.py` replaces the neutral buildings of an
+existing map (terrain, ground, deposits, starts, points and variants stay) with those of the scratch map, nudged up to 2 cells
+off deposits and kept props (pylons, towers, outpost); `--roads` takes the scratch map's roads too and removes trees and rocks
+now standing on them. `fill_town.py` then adds the real buildings of a centre that still did not fit, biggest first, nudged up
+to 3 cells, in dense-town kinds. Used for `jablonec` (bbox 50.661,15.091,50.751,15.233, the starts of its 8-player variant,
+downtown 50.7243,15.1709 radius 60): 600 -> about 1830 buildings.
 
 ## merge_variants.py - one adaptive map from per-player-count maps
 

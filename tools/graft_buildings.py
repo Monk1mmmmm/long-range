@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replaces the buildings of an existing map with those of a freshly made one, keeping everything else.
 
-    python3 tools/graft_buildings.py NAME SCRATCH [--margin 1]
+    python3 tools/graft_buildings.py NAME SCRATCH [--margin 1] [--roads]
 
 NAME is a map in assets/maps (an adaptive one too) whose terrain, ground, roads, deposits, starts, control points and
 variants stay as they are; SCRATCH is the same place made again by tools/osm_map.py (e.g. with a bigger --max-props,
@@ -11,7 +11,8 @@ props (the outpost bunkers) and the power pylons, towers and water towers (landm
 pylons / outpost are not used, so the landmarks stay where they were.
 
 Buildings near the starts of other variants are fine: `MapData::variant` clears them when that variant is played.
-Delete the scratch folder afterwards."""
+With --roads the scratch map's roads replace NAME's too (made with osm_map.py --town-streets they are narrower in towns,
+so more buildings fit) and trees and rocks standing on the new roads are taken away. Delete the scratch folder afterwards."""
 import json
 import math
 import os
@@ -31,7 +32,29 @@ def load(name):
     return json.load(open(os.path.join(ROOT, "assets", "maps", name, "map.json")))
 
 
+def clear_roads(features, roads, n):
+    """The features ("kind x z yaw scale") that do not stand on a road (crowns reach about 1.2 over its edge)."""
+    img = Image.new("L", (n * FINE, n * FINE), 0)
+    dr = ImageDraw.Draw(img)
+    s = FINE / CELL
+    for line in roads:
+        t = line.split()
+        pts = list(map(float, t[2:]))
+        dr.line([(pts[i] * s, pts[i + 1] * s) for i in range(0, len(pts), 2)], fill=1, width=max(1, int(round((float(t[1]) + 2.4) * s))), joint="curve")
+    mask = np.array(img)
+    out = []
+    for f in features:
+        t = f.split()
+        i, j = int(float(t[1]) * s), int(float(t[2]) * s)
+        if 0 <= i < n * FINE and 0 <= j < n * FINE and mask[j, i]:
+            continue
+        out.append(f)
+    print(f"trees and rocks on the roads: {len(features)} -> {len(out)}")
+    return out
+
+
 def main():
+    new_roads = "--roads" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     margin = int(sys.argv[sys.argv.index("--margin") + 1]) if "--margin" in sys.argv else 1
     if "--margin" in sys.argv:
@@ -47,6 +70,9 @@ def main():
         f = foot[p["def"]]
         return int(round(p["pos"]["x"] / CELL - f / 2)), int(round(p["pos"]["y"] / CELL - f / 2)), f
 
+    if new_roads:
+        old["roads"] = new["roads"]
+        old["features"] = clear_roads(old["features"], old["roads"], n)
     # What blocks a footprint: deposits, kept props, roads.
     occ = np.zeros((n, n), bool)
     for d in old["deposits"]:

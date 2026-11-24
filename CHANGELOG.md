@@ -52,6 +52,8 @@ Maps
 Interface
 - Camera: pan at the screen edges, a slightly faster wheel zoom.
 - Icons for every unit in the mod's style (3/4 view, white glow); F1 help wraps lines to the box so long translations fit.
+- The lobby lists an adaptive map once, as its variant with the most starts (Jablonec 8 players, Liberec 8, Frankivsk 10, Frankivsk mini 6), not once per player count. With fewer players, leave slots empty: the deposits of empty starts are still dropped.
+- Jablonec has about three times the buildings (about 1830 instead of 600 plus landmarks), most of all downtown, which is now packed block by block like the real centre. Buildings come from Overture Maps data for the same area, and the streets are rebuilt: side streets in town are narrow lanes between the buildings instead of wide empty strips. Terrain, deposits, starts and control points are unchanged (`tools/graft_buildings.py --roads`, `tools/fill_town.py`, `osm_map.py --town-streets`).
 
 ## v0.14.1
 
