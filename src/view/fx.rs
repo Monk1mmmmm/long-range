@@ -11,6 +11,14 @@ use bevy::prelude::*;
 pub struct FxAssets {
     sphere: Handle<Mesh>,
     shell: Handle<Mesh>,
+    /// High effects: flying chunks, the shock ring on the ground.
+    chunk: Handle<Mesh>,
+    ring: Handle<Mesh>,
+    hot: Handle<StandardMaterial>,
+    ember: Handle<StandardMaterial>,
+    rock: Handle<StandardMaterial>,
+    shock: Handle<StandardMaterial>,
+    soot: Handle<StandardMaterial>,
     flash: Handle<StandardMaterial>,
     fire: Handle<StandardMaterial>,
     smoke: Handle<StandardMaterial>,
@@ -28,6 +36,13 @@ impl FxAssets {
         FxAssets {
             sphere: meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap()),
             shell: meshes.add(Cuboid::new(0.12, 0.12, 1.0)),
+            chunk: meshes.add(Cuboid::new(1.0, 0.7, 0.85)),
+            ring: meshes.add(Cylinder::new(1.0, 0.04)),
+            hot: materials.add(glow(LinearRgba::rgb(14.0, 10.0, 4.0))),
+            ember: materials.add(glow(LinearRgba::rgb(7.0, 2.2, 0.4))),
+            rock: materials.add(StandardMaterial { base_color: Color::srgb(0.2, 0.18, 0.16), perceptual_roughness: 1.0, ..default() }),
+            shock: materials.add(StandardMaterial { base_color: Color::srgba(0.8, 0.75, 0.65, 0.22), alpha_mode: AlphaMode::Blend, unlit: true, ..default() }),
+            soot: materials.add(StandardMaterial { base_color: Color::srgba(0.05, 0.05, 0.05, 0.6), alpha_mode: AlphaMode::Blend, perceptual_roughness: 1.0, ..default() }),
             flash: materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.95, 0.75), unlit: true, ..default() }),
             fire: materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.5, 0.1), unlit: true, ..default() }),
             smoke: materials.add(StandardMaterial { base_color: Color::srgba(0.12, 0.11, 0.1, 0.55), alpha_mode: AlphaMode::Blend, perceptual_roughness: 1.0, ..default() }),
@@ -48,6 +63,22 @@ pub struct Puff {
     max: f32,
     start: f32,
     end: f32,
+    /// Downward acceleration (sparks, chunks).
+    grav: f32,
+    /// Height of the shape against its width (1 = round; the shock ring is flat).
+    squash: f32,
+    /// Seconds before it appears.
+    delay: f32,
+    /// Ground height: a falling puff stops there.
+    floor: f32,
+    /// Turn speed of a flying chunk.
+    spin: f32,
+}
+
+impl Puff {
+    fn new(vel: Vec3, max: f32, start: f32, end: f32) -> Puff {
+        Puff { vel, life: 0.0, max, start, end, grav: 0.0, squash: 1.0, delay: 0.0, floor: f32::MIN, spin: 0.0 }
+    }
 }
 
 #[derive(Component)]
@@ -132,7 +163,7 @@ pub fn projectile_visuals(
                     Mesh3d(assets.sphere.clone()),
                     MeshMaterial3d(assets.dust.clone()),
                     Transform::from_translation(pos).with_scale(Vec3::splat(0.1)),
-                    Puff { vel: Vec3::Y * 0.3, life: 0.0, max: 0.9, start: 0.1, end: 0.3 },
+                    Puff::new(Vec3::Y * 0.3, 0.9, 0.1, 0.3),
                     NotShadowCaster,
                     GameScene,
                 ));
@@ -195,7 +226,7 @@ pub fn spawn_fx(
                 Mesh3d(assets.sphere.clone()),
                 MeshMaterial3d(mat.clone()),
                 Transform::from_translation(at).with_scale(Vec3::splat(start)),
-                Puff { vel, life: 0.0, max, start, end },
+                Puff::new(vel, max, start, end),
                 NotShadowCaster,
                 GameScene,
             ));
@@ -226,6 +257,45 @@ pub fn spawn_fx(
                     let mat = if on_ground && k % 2 == 0 { &assets.dust } else { &assets.smoke };
                     puff(mat, pos + off, Vec3::new(a.cos() * 0.4, 1.2 + (k as f32 * 0.37) % 0.8, a.sin() * 0.4), 1.0 + s * 0.15 + (k as f32 * 0.21) % 0.6, s * 0.25, s * 0.6);
                 }
+                if level >= 2 {
+                    let ground = map.height(pos.x, pos.z);
+                    let big = s.clamp(0.5, 5.0);
+                    let hash = |n: u32| ((n.wrapping_mul(2654435761) ^ ((pos.x * 31.0 + pos.z * 17.0) as i32 as u32).wrapping_mul(40503)) >> 8 & 0xFFFF) as f32 / 65535.0;
+                    let mut spawn = |mesh: &Handle<Mesh>, mat: &Handle<StandardMaterial>, at: Vec3, p: Puff| {
+                        commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::from_translation(at).with_scale(Vec3::splat(p.start)), p, NotShadowCaster, GameScene));
+                    };
+                    // A hot core and a deep red fireball round it, rising.
+                    spawn(&assets.sphere, &assets.hot, pos, Puff::new(Vec3::Y * 0.5, 0.25 + big * 0.05, s * 0.2, s * 0.55));
+                    for k in 0..3 {
+                        let a = hash(k) * 6.28;
+                        let off = Vec3::new(a.cos(), 0.4 + hash(k + 9), a.sin()) * s * 0.28;
+                        spawn(&assets.sphere, &assets.ember, pos + off, Puff::new(Vec3::new(a.cos() * 0.5, 1.4, a.sin() * 0.5), 0.5 + big * 0.1 + hash(k + 3) * 0.3, s * 0.2, s * 0.65));
+                    }
+                    // Shock ring sweeping over the ground.
+                    if on_ground {
+                        spawn(&assets.ring, &assets.shock, Vec3::new(pos.x, ground + 0.08, pos.z), Puff { squash: 0.3, ..Puff::new(Vec3::ZERO, 0.45, s * 0.3, s * 2.4) });
+                    }
+                    // Sparks fly out and fall.
+                    for k in 0..(6 + (big * 4.0) as u32) {
+                        let a = hash(k + 20) * 6.28;
+                        let up = 2.5 + hash(k + 40) * 4.0 * big.sqrt();
+                        let out = (1.5 + hash(k + 60) * 4.0) * big.sqrt();
+                        spawn(&assets.sphere, &assets.hot, pos, Puff { grav: 9.0, floor: ground + 0.03, ..Puff::new(Vec3::new(a.cos() * out, up, a.sin() * out), 0.6 + hash(k + 80) * 0.9, 0.07, 0.04) });
+                    }
+                    // Chunks of the thing, thrown and tumbling.
+                    for k in 0..(2 + (big * 2.0) as u32) {
+                        let a = hash(k + 100) * 6.28;
+                        let up = 3.0 + hash(k + 120) * 3.5 * big.sqrt();
+                        let out = (1.0 + hash(k + 140) * 3.0) * big.sqrt();
+                        let size = 0.08 + 0.05 * big * hash(k + 160);
+                        spawn(&assets.chunk, &assets.rock, pos, Puff { grav: 9.0, floor: ground + size * 0.4, spin: 6.0 + hash(k + 180) * 8.0, ..Puff::new(Vec3::new(a.cos() * out, up, a.sin() * out), 3.0 + hash(k + 200) * 2.0, size, size) });
+                    }
+                    // A black column that lingers and rises, and soot settling round the spot.
+                    for k in 0..(2 + (big as u32)) {
+                        let a = hash(k + 220) * 6.28;
+                        spawn(&assets.sphere, &assets.soot, pos + Vec3::new(a.cos(), 0.5, a.sin()) * s * 0.2, Puff { delay: 0.1 + k as f32 * 0.25, ..Puff::new(Vec3::new(a.cos() * 0.15, 1.1, a.sin() * 0.15), 3.5 + hash(k + 240) * 2.0, s * 0.3, s * 0.9 + 0.5) });
+                    }
+                }
                 if s >= 2.0 && lights < 3 && level > 0 {
                     lights += 1;
                     commands.spawn((PointLight { color: Color::srgb(1.0, 0.7, 0.4), intensity: 400000.0 * s, range: s * 8.0, ..default() }, Transform::from_translation(pos + Vec3::Y * (1.0 + s * 0.3)), FlashLight(0.0, 0.25), GameScene));
@@ -239,16 +309,32 @@ pub fn spawn_fx(
 pub fn update_fx(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Puff, &mut Transform)>, mut lights: Query<(Entity, &mut FlashLight, &mut PointLight)>) {
     let dt = time.delta_secs();
     for (e, mut p, mut t) in &mut q {
+        if p.delay > 0.0 {
+            p.delay -= dt;
+            t.scale = Vec3::ZERO;
+            continue;
+        }
         p.life += dt;
         let k = p.life / p.max;
         if k >= 1.0 {
             commands.entity(e).despawn();
             continue;
         }
+        if p.grav > 0.0 {
+            p.vel.y -= p.grav * dt;
+        }
         t.translation += p.vel * dt;
-        // Grow, then collapse at the very end.
-        let size = (p.start + (p.end - p.start) * k.sqrt()) * (1.0 - k.powi(4));
-        t.scale = Vec3::splat(size.max(0.001));
+        if t.translation.y < p.floor {
+            t.translation.y = p.floor;
+            p.vel = Vec3::ZERO;
+            p.spin = 0.0;
+        }
+        if p.spin > 0.0 {
+            t.rotate_local(Quat::from_euler(EulerRot::XYZ, p.spin * dt, p.spin * 0.7 * dt, p.spin * 0.4 * dt));
+        }
+        // Grow, then collapse at the very end (flying chunks keep their size until they settle and go).
+        let size = if p.grav > 0.0 && p.floor > f32::MIN && p.end >= 0.06 { p.start * (1.0 - k.powi(6)) } else { (p.start + (p.end - p.start) * k.sqrt()) * (1.0 - k.powi(4)) };
+        t.scale = Vec3::new(size.max(0.001), (size * p.squash).max(0.001), size.max(0.001));
     }
     for (e, mut f, mut l) in &mut lights {
         f.0 += dt;

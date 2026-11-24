@@ -17,6 +17,11 @@ Graphics
 - Grass (High / Ultra): tufts of grass on grassy ground near where the camera looks (nothing is built while zoomed out).
 - Water (High): drifting wave ripples with sun glints, and foam lapping along every shore.
 - Trees and rocks (High): shading by height and facing, moss on rocks, trees differ in hue.
+- Buildings (High), more: walls and roofs are painted separately (plaster, brick and roof tones within reason), and
+  ruins come in six shapes (low and flat, one corner standing, gutted, half collapsed, ragged) with scattered rubble,
+  burnt beams and an ash patch.
+- Explosions (High effects): hot core and red fireball, a shock ring over the ground, sparks that fall, tumbling chunks,
+  and a lingering black smoke column.
 
 ## v0.15.2
 

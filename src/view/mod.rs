@@ -705,6 +705,8 @@ fn wreck_visuals(
         // High building detail: a ruin with its top broken off and holes burnt through, not a sunk wreck.
         let ruin = settings.building_detail >= 2 && d.is_structure() && d.model.mesh.is_some();
         let root = if ruin {
+            let rubble = spawn_rubble(&mut commands, &mut cache, d.size, w.id, &mut meshes, &mut materials);
+            commands.entity(e).add_children(&rubble);
             spawn_ruin(&mut commands, &mut cache, &defs, w.def, w.id, &mut meshes, &mut images, &mut materials)
         } else {
             spawn_model(&mut commands, &mut cache, &defs, w.def, 255, [0.3, 0.28, 0.26], false, Some(mat), &mut meshes, &mut images, &mut materials)
