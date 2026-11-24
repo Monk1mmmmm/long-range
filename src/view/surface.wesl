@@ -111,11 +111,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         }
     }
 
-    // Scorched ground: charcoal up to 90% opaque, the hollows of the texture first.
+    // Scorched ground: near-black char (linear colour: 0.004 is ~5% grey on screen), up to 97% opaque,
+    // the hollows of the texture first.
     let s = textureSampleLevel(scorch, scorch_sampler, uv, 0.0).r;
-    let burn = saturate(s * (1.5 - 0.5 * hc));
-    let charred = col * vec3<f32>(0.06, 0.055, 0.05) + vec3<f32>(0.018, 0.015, 0.012);
-    col = mix(col, charred, burn * 0.9);
+    let burn = saturate(s * (1.9 - 0.4 * hc));
+    let charred = col * vec3<f32>(0.025, 0.022, 0.02) + vec3<f32>(0.004, 0.0035, 0.003);
+    col = mix(col, charred, burn * 0.97);
 
     // Relief: tilt the normal along the slope of the blended height (surface gradient).
     let n = pbr_input.N;
