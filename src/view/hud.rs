@@ -727,7 +727,7 @@ impl Frame<'_> {
 
     /// Positions for a dragged row of buildings (at any angle), a dragged block of them (`grid`),
     /// or every free deposit in a dragged circle.
-    fn build_spots(&self, d: DefId, a: V2, b: V2, occ: &[u8], from: V2, grid: bool) -> Vec<V2> {
+    fn build_spots(&self, d: DefId, a: V2, b: V2, occ: &[u8], from: V2, grid: bool, spread: bool) -> Vec<V2> {
         let df = self.d(d);
         let a_s = snap(self.defs, self.map, d, a);
         if df.needs_deposit {
@@ -746,7 +746,9 @@ impl Frame<'_> {
             }
             return out;
         }
-        let step = df.footprint as f32 * CELL;
+        // Energy storages blow up violently: with the setting on they are laid out with a free cell between them.
+        let apart = spread && df.is_structure() && df.eco.store_energy > 0.0 && df.eco.energy <= 0.0 && df.eco.store_mass <= 0.0;
+        let step = (df.footprint as f32 + if apart { 1.0 } else { 0.0 }) * CELL;
         let mut out = vec![a_s];
         let delta = b - a;
         if grid {
@@ -1501,7 +1503,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                         let builders = fr.builders_of(view, d);
                         if !builders.is_empty() {
                             let from = builders.iter().fold(v2(0.0, 0.0), |a, u| a + u.pos) * (1.0 / builders.len() as f32);
-                            fr.order_build(&builders, d, &fr.build_spots(d, start, ground, &occ, from, ctrl), &occ, shift, out);
+                            fr.order_build(&builders, d, &fr.build_spots(d, start, ground, &occ, from, ctrl, p.settings.storage_gap), &occ, shift, out);
                         }
                     }
                     Mode::Assist => {
@@ -2221,7 +2223,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             let df = fr.d(d);
             let from = selected.first().map_or(ground, |u| u.pos);
             let spots = match view.drag_start {
-                Some(a) => fr.build_spots(d, a, ground, &occ, from, ctrl),
+                Some(a) => fr.build_spots(d, a, ground, &occ, from, ctrl, p.settings.storage_gap),
                 None if view.pathing == Some(2) => fr.fieldwork_path(d, &view.path),
                 None => vec![snap(defs, map, d, ground)],
             };
