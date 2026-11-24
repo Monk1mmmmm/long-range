@@ -6,7 +6,7 @@ default-run = "longrange"
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["3d"] }
-bevy_egui = { version = "0.43", default-features = false, features = ["render", "default_fonts"] }
+bevy_egui = { version = "0.43", default-features = false, features = ["render", "default_fonts", "manage_clipboard"] }
 # Not used directly: turns on the OpenGL backend in the renderer Bevy uses (Settings -> Graphics API).
 wgpu = { version = "30", default-features = false, features = ["gles"] }
 # Sound output (view/sound.rs): our own stream, so the device can be opened again after it fails. Same version Bevy used.
