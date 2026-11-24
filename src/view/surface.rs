@@ -34,6 +34,10 @@ pub struct SurfaceParams {
     pub road_soft: Vec4,
     /// Debug view (`LR_SURFACE_DEBUG`, see surface.wesl).
     pub debug: u32,
+    /// 1 = cliffs on steep slopes, broad colour variation and a wet shoreline (`Settings::terrain_detail`).
+    pub quality: u32,
+    /// Sea level (the shoreline darkens just above it).
+    pub water: f32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -143,7 +147,7 @@ fn params(map: &MapData) -> SurfaceParams {
         road_soft[i] = if kind(k).map_or(false, |k| k.hard) { 7.0 } else { 2.4 };
     }
     let debug = std::env::var("LR_SURFACE_DEBUG").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, debug }
+    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, debug, quality: 1, water: map.water }
 }
 
 fn sampler(repeat: bool, aniso: bool) -> ImageSampler {
@@ -242,8 +246,10 @@ fn surface_sync(
     mut mats: ResMut<Assets<SurfaceMaterial>>,
     mut cache: ResMut<TextureCache>,
     time: Res<Time>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let Some(map) = map else { return };
+    let quality = settings.as_ref().map_or(1, |s| s.terrain_detail as u32);
     if !bare.is_empty() {
         // A new scene (game start, or the editor respawned it): textures for this map.
         let v = SurfaceView::new(&map, &mut images, &mut mats, &mut cache);
@@ -256,6 +262,9 @@ fn surface_sync(
     let Some(mut v) = view else { return };
     let v = &mut *v;
     let mut touched = false;
+    if mats.get(&v.material).is_some_and(|m| m.extension.params.quality != quality) {
+        touched = true;
+    }
     if v.layers_dirty || v.roads_dirty {
         // Road kinds are texture slots too.
         let _ = images.insert(&v.albedo, albedo_image(&map, &mut cache));
@@ -283,6 +292,7 @@ fn surface_sync(
         // The material's bind group points at the old textures until the material changes too.
         if let Some(mut m) = mats.get_mut(&v.material) {
             m.extension.params = params(&map);
+            m.extension.params.quality = quality;
         }
     }
 }

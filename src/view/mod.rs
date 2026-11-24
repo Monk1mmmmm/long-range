@@ -19,6 +19,7 @@ pub mod intel;
 pub mod marks;
 pub mod models;
 pub mod perf;
+pub mod sky;
 pub mod sound;
 pub mod surface;
 pub mod terrain;
@@ -739,6 +740,7 @@ impl Plugin for ViewPlugin {
                 .run_if(in_game),
         );
         app.add_systems(Update, sound::play_ui);
+        app.add_systems(Update, sky::sky_sync.run_if(in_game));
         app.add_systems(bevy_egui::EguiPrimaryContextPass, hud::ui_system.run_if(in_game));
         app.init_resource::<cursor::CursorWant>().init_resource::<cursor::CursorImages>();
         app.add_systems(Startup, cursor::take_over_from_egui);

@@ -5,6 +5,13 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+Graphics
+- Maps have a sky (map.json `"sky"`, picked in the editor's Ground section): clear day, hazy, overcast, sunset, night,
+  cold sky. It is drawn as a skybox, tints the distance haze and sets the sun and ambient light. Every premade map got one.
+- Clouds: a drifting layer that only shows when the camera is far up and never covers icons.
+- New graphics settings: Sky, Haze, Clouds, and Terrain (bare rock on steep slopes, broad colour variation, wet shoreline).
+- Trees and rocks at the highest detail are much richer (pines 86, broadleaf 480, rocks up to 1300 triangles).
+
 ## v0.15.1
 
 Maps

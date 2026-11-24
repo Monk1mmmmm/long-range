@@ -55,11 +55,19 @@ pub struct Settings {
     pub language: String,
     /// Size of the whole interface (menus, HUD, editor) as a factor of the system's own scale (egui zoom, `apply_ui_scale`).
     pub ui_scale: f32,
+    /// Draw the map's sky behind the world (`view::sky`); off: a flat colour.
+    pub sky: bool,
+    /// Distance haze tinted with the sky's horizon.
+    pub haze: bool,
+    /// A layer of clouds that shows only when the camera is far up and never covers icons.
+    pub clouds: bool,
+    /// Terrain shading: bare rock on steep slopes, broad colour variation, wet shoreline (`surface.wesl`).
+    pub terrain_detail: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, save_replays: true, language: String::new(), ui_scale: 1.0 }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true }
     }
 }
 
@@ -681,6 +689,16 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
                 ui.selectable_value(&mut s.effects, k as u8, tr(l));
             }
         });
+        ui.end_row();
+        ui.label(tr!("settings.sky")).on_hover_text(tr!("settings.sky_tip"));
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut s.sky, tr!("settings.sky_box"));
+            ui.checkbox(&mut s.haze, tr!("settings.sky_haze"));
+            ui.checkbox(&mut s.clouds, tr!("settings.sky_clouds"));
+        });
+        ui.end_row();
+        ui.label(tr!("settings.terrain_detail")).on_hover_text(tr!("settings.terrain_detail_tip"));
+        ui.checkbox(&mut s.terrain_detail, tr!("settings.terrain_detail_on"));
         ui.end_row();
         ui.label(tr!("settings.projectile_size"));
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!("settings.suffix_px")));

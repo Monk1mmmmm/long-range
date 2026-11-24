@@ -183,6 +183,10 @@ pub fn biome_name(b: crate::surface::Biome) -> &'static str {
     data_text(&format!("terrain.biome_{}", slug(b.name())), b.name())
 }
 
+pub fn sky_name(s: &crate::view::sky::Sky) -> &'static str {
+    data_text(&format!("terrain.sky_{}", s.id), s.name)
+}
+
 pub fn ai_name(k: crate::ai::AiKind) -> &'static str {
     data_text(&format!("ai.{}", slug(k.name())), k.name())
 }
@@ -444,6 +448,9 @@ mod tests {
         }
         for b in crate::surface::BIOMES {
             data(format!("terrain.biome_{}", slug(b.name())), b.name());
+        }
+        for k in &crate::view::sky::SKIES {
+            data(format!("terrain.sky_{}", k.id), k.name);
         }
         for k in crate::ai::AI_KINDS {
             data(format!("ai.{}", slug(k.name())), k.name());

@@ -258,6 +258,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/intel.rs` | fog grid, terrain-shadowed radar coverage, contact memory (ghosts/blips) |
 | `src/view/models.rs` | GLB/box model loading, team-colour texture baking |
 | `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), land beyond the border (`apron_mesh`: the map mirrored on all sides, blurred, hazy, built once), dashed map edge (`map_edge_sync` re-widens it with the camera distance), water, deposits, sun, minimap pixels |
+| `src/view/sky.rs` | skies (`MapData.sky`, map.json `"sky"`; `SKIES`: clear, hazy, overcast, sunset, night, arctic): procedural cubemap skybox on the camera, haze colour, sun and ambient light, and the cloud layer (`Settings::clouds`, only visible with the camera above ~320 units, fades in to 700; 3D, so never over HUD icons); `sky_sync` runs in game and editor; `--skies out.png` previews them; unknown/empty id = clear day; `paint_ground` gives an unset map its biome's sky |
 | `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
 | `src/view/fx.rs` | projectile visuals and explosions (fewer puffs, no flash lights at the low effects level) |
 | `src/view/debris.rs` | debris pieces: jagged chunk meshes, falling/tumbling, shown by the effects level |

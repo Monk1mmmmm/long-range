@@ -451,14 +451,16 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(water_mat), Transform::IDENTITY, NotShadowCaster, NotShadowReceiver, GameScene));
     }
     spawn_deposits(commands, map, meshes, materials);
+    let sky = super::sky::find(&map.sky);
     commands.spawn((
-        DirectionalLight { illuminance: 13000.0, shadow_maps_enabled: true, ..default() },
-        Transform::from_xyz(0.0, 0.0, 0.0).looking_to(Vec3::new(-0.45, -0.8, -0.38), Vec3::Y),
+        sky.light(),
+        sky.sun_transform(),
         CascadeShadowConfigBuilder { num_cascades: 3, maximum_distance: 220.0, first_cascade_far_bound: 30.0, ..default() }.build(),
         Sun,
         GameScene,
     ));
-    commands.insert_resource(GlobalAmbientLight { color: Color::srgb(0.75, 0.82, 1.0), brightness: 260.0, ..default() });
+    commands.insert_resource(sky.ambient_light());
+    super::sky::spawn_clouds(commands, map, meshes, materials, images);
     fog_img
 }
 
