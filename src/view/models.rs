@@ -42,6 +42,11 @@ pub enum AnimKind {
     Upgrade,
     /// Factory platform: out and back when a finished unit leaves.
     Rolloff,
+    /// Land factory doors, one per side (+x, -x, +z, -z): the one on the side a unit leaves by rolls up and down.
+    GateE,
+    GateW,
+    GateS,
+    GateN,
     /// Engineering station: opens to the middle while working, plays on to the end when done.
     Doors,
     /// Engineers: unfold while building, fold back after. The first frame (folded) is the idle pose.
@@ -63,6 +68,10 @@ impl AnimKind {
         Some(match n {
             "upgrade" => AnimKind::Upgrade,
             "rolloff" => AnimKind::Rolloff,
+            "gate_e" => AnimKind::GateE,
+            "gate_w" => AnimKind::GateW,
+            "gate_s" => AnimKind::GateS,
+            "gate_n" => AnimKind::GateN,
             "doors" => AnimKind::Doors,
             "open" => AnimKind::Open,
             "work" => AnimKind::Work,

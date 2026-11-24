@@ -2055,6 +2055,20 @@ fn revive(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, 
     sid
 }
 
+/// The side of a factory at `pos` that land units leave by: the one facing the rally point (unit vector
+/// along an axis); `+z` without a rally point. The view opens the door on the same side.
+pub fn exit_side(pos: V2, rally: Option<V2>) -> V2 {
+    let Some(r) = rally else { return v2(0.0, 1.0) };
+    let (dx, dz) = (r.x - pos.x, r.y - pos.y);
+    if dx.abs() > dz.abs() {
+        v2(if dx > 0.0 { 1.0 } else { -1.0 }, 0.0)
+    } else if dz < 0.0 {
+        v2(0.0, -1.0)
+    } else {
+        v2(0.0, 1.0)
+    }
+}
+
 #[allow(clippy::type_complexity)]
 fn factories(
     mut q: Query<(&Unit, &Body, &mut Factory, &mut Builder, Has<Upgrading>), Without<UnderConstruction>>,
@@ -2072,14 +2086,17 @@ fn factories(
         // Sends a finished unit out of the factory to the rally point.
         let release = |p: &Cen, commands: &mut Commands| {
             let pd = defs.get(p.def);
-            let mut exit = body.pos + v2(0.0, df.footprint as f32 * CELL * 0.5 + 1.5);
+            // Land units leave by the side facing the rally point; aircraft stay as they were.
+            let side = if pd.is_air() { v2(0.0, 1.0) } else { exit_side(body.pos, rally0) };
+            let yaw = if side.x > 0.5 { 0.0 } else if side.x < -0.5 { PI } else if side.y > 0.0 { PI * 0.5 } else { PI * 1.5 };
+            let mut exit = body.pos + side * (df.footprint as f32 * CELL * 0.5 + 1.5);
             if !pd.is_air() && nav.at(&map, exit) != 0 {
                 let (cx, cy) = map.cell_of(exit);
                 if let Some((x, y)) = nearest_free(&nav.occ, map.dims(), cx, cy) {
                     exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                 }
             }
-            let mut rally = rally0.unwrap_or(exit + v2(0.0, 6.0));
+            let mut rally = rally0.unwrap_or(exit + side * 6.0);
             // The default rally point can fall on a building next to the factory (an
             // extractor): units then pushed against it forever and the AI never gave
             // them new orders. Move it to the nearest free cell like the exit.
@@ -2091,7 +2108,7 @@ fn factories(
             }
             let pos = if pd.is_air() { body.pos } else { exit };
             commands.entity(p.e).remove::<Hosted>().insert((
-                Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: PI * 0.5, vel: v2(0.0, 0.0) },
+                Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: if pd.is_air() { PI * 0.5 } else { yaw }, vel: v2(0.0, 0.0) },
                 Orders(vec![Order::Move(rally)]),
                 Mover { anchor: rally, path_goal: pos, ..default() },
             ));
