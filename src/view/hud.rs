@@ -1006,6 +1006,28 @@ fn build_tab_of(d: &UnitDef) -> usize {
     }
 }
 
+/// Engineer build menu tabs (keys in `hud_tabs`).
+const SITE_TABS: [&str; 7] = [tx!("hud_tabs.economy"), tx!("hud_tabs.factories"), tx!("hud_tabs.defence"), tx!("hud_tabs.aa"), tx!("hud_tabs.radar"), tx!("hud_tabs.fieldworks"), tx!("hud_tabs.others")];
+
+/// Which engineer tab a building belongs to.
+fn site_tab_of(d: &UnitDef) -> usize {
+    if d.is_fieldwork() {
+        5
+    } else if d.is_factory() {
+        1
+    } else if d.armed() && d.weapons.iter().all(|w| w.hits_air && !w.hits_land) {
+        3
+    } else if d.armed() {
+        2
+    } else if d.has_radar() {
+        4
+    } else if d.is_station() || d.is_garrison() {
+        6
+    } else {
+        0
+    }
+}
+
 fn key_letter(k: KeyCode) -> &'static str {
     match k {
         KeyCode::KeyZ => "Z",
@@ -3192,15 +3214,16 @@ pub fn ui_system(mut p: UiParams) -> Result {
         // A factory's list is split into tabs by kind of unit.
         let mut shown: Vec<(usize, DefId)> = ld.builds.iter().copied().enumerate().collect();
         let mut menu_y = py + 6.0;
-        if is_factory {
-            let used: Vec<usize> = (0..BUILD_TABS.len()).filter(|t| ld.builds.iter().any(|d| build_tab_of(fr.d(*d)) == *t)).collect();
+        if is_factory || builders {
+            let (tabs, tab_of): (&[&str], fn(&UnitDef) -> usize) = if is_factory { (&BUILD_TABS, build_tab_of) } else { (&SITE_TABS, site_tab_of) };
+            let used: Vec<usize> = (0..tabs.len()).filter(|t| ld.builds.iter().any(|d| tab_of(fr.d(*d)) == *t)).collect();
             if let Some(first) = used.first().copied() {
                 if !used.contains(&view.build_tab) {
                     view.build_tab = first;
                 }
                 let mut tx0 = bx0;
                 for t in &used {
-                    let label = crate::i18n::tr(BUILD_TABS[*t]);
+                    let label = crate::i18n::tr(tabs[*t]);
                     let w = label.chars().count() as f32 * 7.0 + 14.0;
                     let r = rect(tx0, py + 4.0, w, 20.0);
                     let hov = button(r, view.build_tab == *t);
@@ -3212,7 +3235,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 }
                 menu_y = py + 30.0;
                 let tab = view.build_tab;
-                shown.retain(|(_, d)| build_tab_of(fr.d(*d)) == tab);
+                shown.retain(|(_, d)| tab_of(fr.d(*d)) == tab);
             }
         }
         if builders {

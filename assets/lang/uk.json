@@ -297,6 +297,10 @@
     "aa": "ППО",
     "radar": "Радари",
     "engineers": "Інженери",
+    "economy": "Економіка",
+    "factories": "Фабрики",
+    "defence": "Оборона",
+    "fieldworks": "Польові споруди",
     "others": "Інше"
   },
   "hud_orders": {
