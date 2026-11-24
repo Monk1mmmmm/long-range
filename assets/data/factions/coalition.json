@@ -1587,95 +1587,17 @@
    ]
   },
   {
-   "id": "sparky",
-   "cargo": 4,
-   "name": "Sparky",
-   "desc": "Field engineer. Builds up to tier 2 and, alone, field works: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar.",
-   "tier": 2,
-   "hp": 540,
-   "armor": "Light",
-   "cost": {
-    "mass": 225,
-    "energy": 1000,
-    "time": 1000
-   },
-   "size": [
-    1.6,
-    1.5,
-    2
-   ],
-   "hit_box": [1.6, 1.22, 2.01],
-   "icon": {
-    "shape": "land",
-    "glyphs": [
-     "eng",
-     "plus"
-    ]
-   },
-   "model": {
-    "mesh": "models/sparky.glb",
-    "albedo": "models/sparky_albedo.png",
-    "team_mask": "models/sparky_team.png",
-    "scale": 1,
-    "brightness": 1.0
-   },
-   "portrait": "icons/units/sparky.png",
-   "built_by": "land",
-   "move": {
-    "kind": "land",
-    "speed": 3.6,
-    "reverse": 1.5,
-    "accel": 3.6,
-    "turn": 120
-   },
-   "vision": 20,
-   "radar": 30,
-   "eco": {
-    "upkeep": 15,
-    "store_mass": 30,
-    "store_energy": 200
-   },
-   "build": {
-    "rate": 10,
-    "range": 6,
-    "categories": [
-     "structure",
-     "field"
-    ],
-    "tier": 2
-   },
-   "weapons": [
-    {
-     "name": "Riot Gun",
-     "prefer": "infantry",
-     "damage": 15,
-     "range": 18,
-     "reload": 0.5,
-     "speed": 30,
-     "kind": "direct",
-     "spread": 1.0,
-     "turret": {
-      "yaw_speed": 180,
-      "pitch_speed": 180,
-      "yaw_bone": "Gun_Turret",
-      "pitch_bone": "Gun_Barrel",
-      "muzzle_bone": "Gun_Muzzle"
-     }
-    }
-   ]
-  },
-  {
    "id": "engineer2",
    "cargo": 4,
    "name": "Engineer Mk2",
-   "desc": "Builds tier 1-2 structures.",
+   "desc": "Combat engineer. Builds tier 1-2 structures and field fortifications: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar.",
    "tier": 2,
    "hp": 730,
    "armor": "Light",
    "cost": {
-    "mass": 160,
-    "energy": 840,
-    "time": 800
+    "mass": 190,
+    "energy": 1000,
+    "time": 900
    },
    "size": [
     1.05,
@@ -1706,17 +1628,37 @@
     "turn": 120
    },
    "vision": 20,
+   "radar": 30,
    "eco": {
-    "store_mass": 20
+    "upkeep": 15,
+    "store_mass": 20,
+    "store_energy": 200
    },
    "build": {
     "rate": 10,
     "range": 6,
     "categories": [
-     "structure"
+     "structure",
+     "fortification"
     ],
     "tier": 2
-   }
+   },
+   "weapons": [
+    {
+     "name": "Riot Gun",
+     "prefer": "infantry",
+     "damage": 15,
+     "range": 18,
+     "reload": 0.5,
+     "speed": 30,
+     "kind": "direct",
+     "spread": 1.0,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180
+     }
+    }
+   ]
   },
   {
    "id": "bohdana",
@@ -1889,7 +1831,7 @@
    "id": "engineer3",
    "cargo": 4,
    "name": "Engineer Mk3",
-   "desc": "Builds every structure.",
+   "desc": "Heavy combat engineer. Builds every structure and fortification. Armed like the Mk2, with twice the armor.",
    "tier": 3,
    "hp": 1500,
    "armor": "Light",
@@ -1927,17 +1869,37 @@
     "turn": 120
    },
    "vision": 26,
+   "radar": 30,
    "eco": {
-    "store_mass": 40
+    "upkeep": 15,
+    "store_mass": 40,
+    "store_energy": 200
    },
    "build": {
     "rate": 15,
     "range": 7,
     "categories": [
-     "structure"
+     "structure",
+     "fortification"
     ],
     "tier": 3
-   }
+   },
+   "weapons": [
+    {
+     "name": "Riot Gun",
+     "prefer": "infantry",
+     "damage": 15,
+     "range": 18,
+     "reload": 0.5,
+     "speed": 30,
+     "kind": "direct",
+     "spread": 1.0,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180
+     }
+    }
+   ]
   },
   {
    "id": "air_scout",
@@ -3897,7 +3859,7 @@
     "brightness": 1.0
    },
    "portrait": "icons/units/sandbags.png",
-   "built_by": "field",
+   "built_by": "fortification",
    "vision": 0
   },
   {
@@ -3938,7 +3900,7 @@
     "brightness": 1.0
    },
    "portrait": "icons/units/trench.png",
-   "built_by": "field",
+   "built_by": "fortification",
    "vision": 0
   },
   {
@@ -3977,7 +3939,7 @@
     "brightness": 1.0
    },
    "portrait": "icons/units/field_bunker.png",
-   "built_by": "field",
+   "built_by": "fortification",
    "vision": 20
   },
   {
@@ -4018,7 +3980,7 @@
     "brightness": 1.0
    },
    "portrait": "icons/units/watch_tower.png",
-   "built_by": "field",
+   "built_by": "fortification",
    "vision": 35
   }
  ]

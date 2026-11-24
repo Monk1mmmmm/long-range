@@ -31,12 +31,18 @@ RULES = {
     "cp_bleed": 0.5,                         # 1: control point games leave time to come back
 }
 
+# What the engineers were before they became combat engineers (the Relaxed game keeps them as they were).
+ENG_BACK = {
+    "engineer2": {"cost": {"mass": 160, "energy": 840, "time": 800}, "desc": "Builds tier 1-2 structures."},
+    "engineer3": {"cost": {"mass": 490, "energy": 3150, "time": 2100}, "desc": "Builds every structure."},
+}
 MOBILE_HP = 1.3      # mobile units live longer: more time to react before a group is lost
 COMMANDER_HP = 1.6   # losing the commander ends the game: make sniping it much harder
 RADAR_UPKEEP = 0.5   # scouting is cheaper to keep running
 HOLD = {"at_trooper": 0.0, "pike": 1.5, "bohdana": 3.0}  # set-up times (built-in 3 / 3 / 5)
-# No combat engineers: the units that build field works go, and so does everything only they build.
-FIELD_BUILD = "field"
+# No extra fortifications: what only fortification builders can build goes, and engineers lose the ability
+# (and the riot gun that came with it).
+FIELD_BUILD = "fortification"
 
 
 def rules():
@@ -62,9 +68,18 @@ def faction(f):
             u.pop("transport", None)
     if not f.get("playable"):
         return f
-    f["units"] = [u for u in f["units"]
-                  if FIELD_BUILD not in u.get("build", {}).get("categories", []) and u.get("built_by") != FIELD_BUILD]
+    f["units"] = [u for u in f["units"] if u.get("built_by") != FIELD_BUILD]
     for u in f["units"]:
+        cats = u.get("build", {}).get("categories", [])
+        if FIELD_BUILD in cats:
+            cats.remove(FIELD_BUILD)
+            # Combat engineers are plain engineers here: no gun, radar or extra price.
+            u.pop("weapons", None)
+            u.pop("radar", None)
+            u["eco"].pop("upkeep", None)
+            u["eco"].pop("store_energy", None)
+            u["cost"] = ENG_BACK[u["id"]]["cost"] if u["id"] in ENG_BACK else u["cost"]
+            u["desc"] = ENG_BACK[u["id"]]["desc"]
         u.pop("reactive", None)  # no reactive (dynamic) armor
         if u.get("move"):
             u["hp"] = round(u["hp"] * (COMMANDER_HP if u["id"] == f.get("commander") else MOBILE_HP))
