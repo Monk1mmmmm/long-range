@@ -5,11 +5,15 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.4
+
 - The Sparky field engineer is gone. Engineer Mk2 now does what it did: it builds sandbags, trenches, field bunkers and
   watch towers (the "Fortifications" category, `built_by: "fortification"`) and carries its riot gun and short-range
   radar. Price up a little (mass 160 -> 190, energy 840 -> 1000, time 800 -> 900). Engineer Mk3 builds fortifications
   too and has the same gun and radar with twice the hit points. The Relaxed preset keeps its plain engineers and still
   has no fortifications.
+- Fortifications are listed in the Defence tab of the engineer build menu, with the turrets (the separate tab is gone).
+- Bohdana has its own model and portrait.
 
 ## v0.15.3
 
