@@ -443,10 +443,19 @@ fn drive_anims(
                 }
                 AnimKind::Land => toward(s, moving, 1.0),
                 AnimKind::Water => toward(s, map.h(i.cur.0) < map.water_at(i.cur.0), 1.0),
-                AnimKind::Rolloff => {
-                    // Out, held while the finished unit leaves, then back.
+                AnimKind::Rolloff | AnimKind::GateE | AnimKind::GateW | AnimKind::GateS | AnimKind::GateN => {
+                    // Out, held while the finished unit leaves, then back. A land factory's door opens
+                    // only on the side the unit leaves by.
                     let building = factory.map_or(0, |f| if f.carrier != 0 { f.carrier } else { f.building });
-                    if s.mark != 0 && building != s.mark && s.seq < 0.0 {
+                    let side = crate::sim::systems::exit_side(i.cur.0, factory.and_then(|f| f.rally));
+                    let mine = match s.anim.kind {
+                        AnimKind::GateE => side.x > 0.5,
+                        AnimKind::GateW => side.x < -0.5,
+                        AnimKind::GateS => side.y > 0.5,
+                        AnimKind::GateN => side.y < -0.5,
+                        _ => true,
+                    };
+                    if s.mark != 0 && building != s.mark && s.seq < 0.0 && mine {
                         s.seq = 0.0;
                     }
                     s.mark = building;

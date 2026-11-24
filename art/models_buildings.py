@@ -94,6 +94,28 @@ def rollup_door(k, x, y, z, w, h, normal_y=-1):
     k.box((w + 0.3, 0.3, 0.22), (x, y + normal_y * 0.15, z + h + 0.18), "steel_d")  # roll box
 
 
+# Land factories leave units by the side facing the rally point: a roll-up door in every wall. Blender -y is the
+# game's +z, so "s" is the front; the game opens the door of the exit side only (animations gate_e/w/s/n).
+GATE_DIR = {"s": (0, -1), "n": (0, 1), "e": (1, 0), "w": (-1, 0)}
+
+
+def gates(k, doors, speed=1):
+    """doors: {side: [(x, y, w, h), ...]}, (x, y) the door's centre on the wall face. One part and one
+    animation per side that rolls its panels up."""
+    for side, lst in doors.items():
+        nx, ny = GATE_DIR[side]
+        x0, y0 = lst[0][0], lst[0][1]
+        part = k.part("Gate_" + side.upper(), (x0, y0, 0.0))
+        for x, y, w, h in lst:
+            k.box((w + 0.24 if nx == 0 else 0.05, 0.05 if nx == 0 else w + 0.24, h + 0.12), (x + nx * 0.02, y + ny * 0.02, (h + 0.12) / 2), "hazard")
+            k.box((w + 0.3 if nx == 0 else 0.3, 0.3 if nx == 0 else w + 0.3, 0.22), (x + nx * 0.15, y + ny * 0.15, h + 0.18), "steel_d")  # roll box
+        with k.into(part):
+            for x, y, w, h in lst:
+                k.box((w if nx == 0 else 0.06, 0.06 if nx == 0 else w, h), (x + nx * 0.04, y + ny * 0.04, h / 2), "metal_door")
+        up = (x0, y0, lst[0][3] * 0.9)
+        k.key("gate_" + side, part, [(1, None, None), (15, up, None), (40, up, None), (55, None, None)])
+
+
 def stack(k, x, y, r, h, z0=0.0, mat="steel", band=True):
     k.cyl(r, h, (x, y, z0), mat, seg=12, caps={1: "black"})
     k.cyl(r * 1.12, 0.12, (x, y, z0 + h - 0.12), "steel_d", seg=12)
@@ -262,9 +284,10 @@ def land_factory():
     k = Kit("land_factory")
     factory_apron(k, 7.6, 2.4, -2.7)
     shed(k, 5.0, 5.4, 2.5, 0.8, loc=(0.4, 1.0))
-    rollup_door(k, 0.4, -1.7, 0.0, 2.6, 1.9)
-    annex(k, -3.0, -0.3, 1.5, 2.2, 1.6, floors=2)
-    k.box((0.7, 0.04, 0.22), (-3.0, -1.43, 1.35), "team")  # sign
+    # a door in every wall (the office stands in the front corner, clear of the side doors)
+    gates(k, {"s": [(0.4, -1.7, 2.6, 1.9)], "n": [(0.4, 3.7, 2.6, 1.9)], "w": [(-2.1, 0.9, 2.2, 1.9)], "e": [(2.9, 0.9, 2.2, 1.9)]})
+    annex(k, -3.0, -2.0, 1.5, 2.2, 1.6, floors=2)
+    k.box((0.7, 0.04, 0.22), (-3.0, -3.13, 1.35), "team")  # sign
     for y in (0.0, 2.2):
         stack(k, 2.1, y, 0.14, 1.0, 3.0, "steel_d", band=False)
     k.box((1.0, 1.2, 0.5), (-2.9, 2.4, 0.25), "steel", faces={"top": "vent"})  # generator
@@ -280,14 +303,14 @@ def land_factory2():
     factory_apron(k, 7.8, 2.2, -2.85)
     shed(k, 3.0, 5.6, 2.8, 0.7, loc=(-0.6, 0.9))
     shed(k, 3.0, 5.6, 2.8, 0.7, loc=(2.4, 0.9), wall="corr")
-    rollup_door(k, -0.6, -1.95, 0.0, 2.2, 2.1)
-    rollup_door(k, 2.4, -1.95, 0.0, 2.2, 2.1)
-    annex(k, -3.15, 0.0, 1.5, 2.8, 2.4, floors=3)
-    stack(k, -3.1, 2.6, 0.22, 3.6)
+    gates(k, {"s": [(-0.6, -1.9, 2.2, 2.1), (2.4, -1.9, 2.2, 2.1)], "n": [(-0.6, 3.7, 2.2, 2.1), (2.4, 3.7, 2.2, 2.1)],
+              "w": [(-2.1, 1.9, 2.2, 2.1)], "e": [(3.9, 1.9, 2.2, 2.1)]})
+    annex(k, -3.15, -2.2, 1.5, 2.8, 2.4, floors=3)
+    stack(k, -2.6, 4.4, 0.22, 3.6)
     k.box((1.4, 1.0, 0.7), (-3.1, 3.0, 0.35), "corr_d", faces={"top": "vent"}) if False else None
     for x in (-0.6, 2.4):
         k.box((0.8, 0.8, 0.3), (x, 1.6, 3.1), "steel", faces={"top": "vent"})
-    upgrade_rig(k, -3.0, 3.2, 3.8)
+    upgrade_rig(k, -3.6, 4.4, 3.8)
     return k
 
 
@@ -298,7 +321,8 @@ def land_factory3():
     factory_apron(k, 7.9, 2.0, -2.95)
     for x, wall in ((-2.4, "corr_team"), (0.3, "corr"), (3.0, "corr_team")):
         shed(k, 2.6, 5.6, 3.2, 0.6, loc=(x, 1.0), wall=wall)
-        rollup_door(k, x, -1.85, 0.0, 2.0, 2.4)
+    gates(k, {"s": [(x, -1.8, 2.0, 2.4) for x in (-2.4, 0.3, 3.0)], "n": [(x, 3.8, 2.0, 2.4) for x in (-2.4, 0.3, 3.0)],
+              "w": [(-3.7, 1.0, 2.2, 2.4)], "e": [(4.3, 1.0, 2.2, 2.4)]})
     # gantry crane over the yard
     for x in (-3.8, 3.8):
         k.box((0.18, 0.18, 3.0), (x, -2.6, 1.5), "yellow")

@@ -34,6 +34,10 @@ KNOWN = {
     "land": "landing legs: first frame legs out; played forward while flying",
     "water": "on water",
     "rolloff": "factory platform: out and back when a finished unit leaves",
+    "gate_e": "land factory door, +x side",
+    "gate_w": "land factory door, -x side",
+    "gate_s": "land factory door, +z side (front)",
+    "gate_n": "land factory door, -z side",
 }
 TEAM_NAMES = {"team", "light", "dark", "metal"}
 
