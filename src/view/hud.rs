@@ -1009,12 +1009,13 @@ fn build_tab_of(d: &UnitDef) -> usize {
 }
 
 /// Engineer build menu tabs (keys in `hud_tabs`).
-const SITE_TABS: [&str; 7] = [tx!("hud_tabs.economy"), tx!("hud_tabs.factories"), tx!("hud_tabs.defence"), tx!("hud_tabs.aa"), tx!("hud_tabs.radar"), tx!("hud_tabs.fieldworks"), tx!("hud_tabs.others")];
+const SITE_TABS: [&str; 6] = [tx!("hud_tabs.economy"), tx!("hud_tabs.factories"), tx!("hud_tabs.defence"), tx!("hud_tabs.aa"), tx!("hud_tabs.radar"), tx!("hud_tabs.others")];
 
 /// Which engineer tab a building belongs to.
 fn site_tab_of(d: &UnitDef) -> usize {
     if d.is_fieldwork() {
-        5
+        // Fortifications sit with the turrets.
+        2
     } else if d.is_factory() {
         1
     } else if d.armed() && d.weapons.iter().all(|w| w.hits_air && !w.hits_land) {
@@ -1024,7 +1025,7 @@ fn site_tab_of(d: &UnitDef) -> usize {
     } else if d.has_radar() {
         4
     } else if d.is_station() || d.is_garrison() {
-        6
+        5
     } else {
         0
     }
