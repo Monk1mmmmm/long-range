@@ -300,6 +300,10 @@
     "aa": "AA",
     "radar": "Radar",
     "engineers": "Engineers",
+    "economy": "Economy",
+    "factories": "Factories",
+    "defence": "Defence",
+    "fieldworks": "Field works",
     "others": "Others"
   },
   "hud_orders": {
