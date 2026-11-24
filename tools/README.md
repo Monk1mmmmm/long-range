@@ -173,7 +173,7 @@ The rectangle is in degrees: on openstreetmap.org, *Export* shows the box of the
 | OSM water towers, towers/masts, power pylons | `water_tower`, `comm_tower`, `pylon` |
 | highest hilltop away from the bases | neutral comm tower + three hostile bunkers |
 | OSM highways (`highway=*` up to service roads and tracks; tunnels left out) | roads: asphalt, gravel or dirt track by `surface`, drawn wider than true scale (`ROAD_WIDTH`); trees and rocks keep off them, buildings keep a cell off the main roads (tertiary and up) and off every other street except service roads and tracks |
-| OSM river named by `--river` (`waterway=river`), road and railway bridges over it, culverts | water: the land is tilted along the river so it runs level (a river has one level), the bed is dug under it, and every real bridge or culvert stays a land crossing |
+| OSM river named by `--river` (`waterway=river`), road and railway bridges over it, culverts | water: the land is tilted along the river so it runs level (a river has one level), the bed is dug under it, and every real bridge or culvert stays a land crossing ; `--river-roads`: every road over it crosses it, `--river-ford-every D`: fords so crossings are at most D apart along it |
 | OSM lakes, ponds, reservoirs (`natural=water` that is not a river, `landuse=reservoir/basin`) | lakes, each at its own water level (`lakes` + `lakes.png`): the height the terrain has across it; the bed is dug up to 1.8 under it, the ground around kept above it. `--lake-min 60` is the smallest one kept (square world units), `--no-lakes` leaves them dry |
 | OSM fields/meadows, forests, farmyards and construction, industry/commerce, built-up blocks, sand, water, rock + steep slopes | ground texture layers (`layerN.png`): meadow, forest floor, dirt, gravel, paving, sand, mud, stone over grass |
 
@@ -224,6 +224,12 @@ Example (Jablonec nad Nisou and Rychnov u Jablonce, the `jablonec` map):
 Sudzha and the villages round it, a duel (the `sudzha_duel` map, made with the Overture source):
 
     .venv/bin/python tools/osm_map.py sudzha_duel --source overture --center 51.1917,35.280 --km 8 --cells 512 --players 2 --title "Sudzha" --village 0.6 --max-props 1800 --seed 1 --infill 51.196,35.20,51.24,35.36 --infill 51.17,35.20,51.196,35.262 --infill-step 6.5 --infill-gap 12 --river "Суджа" --river-width 3,4
+
+Mostyska with the Sichna (OSM: «Січня», a stream) running through it (the `mostyska` map). The stream is thin; most of
+its bridges are not mapped as such in Overture, so `--river-roads` makes every road over it a crossing and
+`--river-ford-every 140` adds fords where crossings are further apart along it (17 crossings on 1700 units):
+
+    .venv/bin/python tools/osm_map.py mostyska --source overture --bbox 49.754956,23.087311,49.833239,23.212999 --cells 512 --players 4 --title "Mostyska" --river "Січня" --river-width 2.5,3.5 --river-roads --river-ford-every 140 --village 0.6 --max-props 2500 --seed 1
 
 Liberec and Jablonec with the Lužická Nisa (the `liberec` map):
 

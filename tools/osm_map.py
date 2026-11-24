@@ -6,6 +6,7 @@
     options: [--cells 384] [--players 4] [--relief 0.85] [--starts "x,z;x,z;..."] [--seed 1]
              [--title "Shown name"] [--max-props 700] [--village 0.45]
              [--river "River name" --river-width 5,7]
+             [--river-roads] [--river-ford-every 140]
              [--source overpass|overture] [--sea] [--drop-bridges S,W,N,E] [--drop-names REGEX]
 
 The rectangle is given in degrees (copy it from openstreetmap.org: Export shows the box of the view,
@@ -435,6 +436,8 @@ def main():
     ap.add_argument("--max-props", type=int, default=600, help="buildings (pylons and the outpost come on top)")
     ap.add_argument("--river", default="", help="OSM name of a river to make water: the land is tilted along it so it runs level")
     ap.add_argument("--river-width", default="5,7", help="width of the river in world units, upstream,downstream")
+    ap.add_argument("--river-roads", action="store_true", help="every road over the river crosses it, not only those mapped as bridges")
+    ap.add_argument("--river-ford-every", type=float, default=0.0, help="add fords so crossings are at most this many world units apart along the river")
     ap.add_argument("--points", type=int, default=-1, help="control points (default: by the number of players; 0: none, the game places its own)")
     ap.add_argument("--no-lakes", action="store_true", help="leave lakes and ponds dry (mud), as before the game had lakes")
     ap.add_argument("--lake-min", type=float, default=60.0, help="smallest lake kept, in square world units")
@@ -489,7 +492,7 @@ def main():
     ras = Raster(world)
     sea_polys = []
     buildings, points, roads, lake_polys = [], [], [], []
-    river_ways, bridge_ways = [], []
+    river_ways, bridge_ways, road_ways = [], [], []
     for el in els:
         t = el.get("tags", {})
         if el["_part"] in ("rivers", "railbridges"):
@@ -513,6 +516,10 @@ def main():
             hw = t["highway"].replace("_link", "")
             if t.get("bridge", "no") != "no":
                 bridge_ways.append((BRIDGE_WIDTH.get(hw, 5.0), [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
+            elif a.river_roads and hw in ROAD_WIDTH:
+                # --river-roads: every road over the river crosses it (a stream's small bridges and culverts are
+                # often not mapped as such).
+                road_ways.append((max(4.0, ROAD_WIDTH[hw] + 1.0), [geo.to_world(p["lat"], p["lon"]) for p in el["geometry"]]))
             unpaved = t.get("surface") in ("unpaved", "dirt", "earth", "ground", "grass", "mud", "sand", "compacted", "fine_gravel", "gravel")
             kind = "dirt_road" if hw == "track" or unpaved else "asphalt"
             if t.get("surface") in ("gravel", "fine_gravel", "compacted") and hw != "track":
@@ -742,7 +749,7 @@ def main():
             cov = np.concatenate([resample(c, 1.0) for c in covered if len(c) >= 2])
             dc, _ = nearest(R[:, 0], R[:, 1], cov)
             land_s = np.maximum(land_s, (dc < 1.5).astype(float))
-        for bw, pts in bridge_ways:
+        for bw, pts in bridge_ways + road_ways:
             for p, q in zip(pts, pts[1:]):
                 bx0, bx1, bz0, bz1 = min(p[0], q[0]), max(p[0], q[0]), min(p[1], q[1]), max(p[1], q[1])
                 for r0, r1 in zip(line, line[1:]):
@@ -753,6 +760,20 @@ def main():
                         continue
                     bridges.append((c_[0], c_[1], bw))
         arc = np.arange(L) * 2.0
+        if a.river_ford_every > 0:
+            # Fords: where the crossings are further apart along the river than --river-ford-every (or from either end
+            # of the river), land is added evenly in between.
+            at = sorted(float(arc[int(np.argmin((R[:, 0] - cx) ** 2 + (R[:, 1] - cz) ** 2))]) for cx, cz, _ in bridges)
+            marks = [-a.river_ford_every * 0.5] + at + [arc[-1] + a.river_ford_every * 0.5]
+            fords = 0
+            for s0, s1 in zip(marks, marks[1:]):
+                k_ = int((s1 - s0) // a.river_ford_every)
+                for j in range(1, k_ + 1):
+                    sp = s0 + (s1 - s0) * j / (k_ + 1)
+                    i_ = int(np.clip(round(sp / 2.0), 0, L - 1))
+                    bridges.append((float(R[i_, 0]), float(R[i_, 1]), 5.0))
+                    fords += 1
+            print(f"  {fords} fords added (crossings at most {a.river_ford_every:.0f} apart along the river)")
         for cx, cz, bw in bridges:
             ic = int(np.argmin((R[:, 0] - cx) ** 2 + (R[:, 1] - cz) ** 2))
             land_s = np.maximum(land_s, np.clip((bw / 2 + 1.0 - np.abs(arc - arc[ic])) / 1.0, 0, 1))
