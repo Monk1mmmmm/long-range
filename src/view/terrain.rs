@@ -119,7 +119,7 @@ pub fn terrain_color(map: &MapData, tint: &super::surface::Tint, x: f32, z: f32)
 }
 
 fn chunk_mesh(map: &MapData, cx: usize, cy: usize) -> Mesh {
-    let (x1, y1) = ((cx + CHUNK).min(map.n), (cy + CHUNK).min(map.n));
+    let (x1, y1) = ((cx + CHUNK).min(map.nx), (cy + CHUNK).min(map.ny));
     let (w, h) = (x1 - cx + 1, y1 - cy + 1);
     let mut pos = Vec::with_capacity(w * h);
     let mut nrm = Vec::with_capacity(w * h);
@@ -157,38 +157,41 @@ fn chunk_mesh(map: &MapData, cx: usize, cy: usize) -> Mesh {
 /// level that fits its distance from the edge.
 struct BlurLevels {
     n: usize,
+    ny: usize,
     levels: Vec<Vec<[f32; 4]>>,
 }
 
 impl BlurLevels {
     fn new(map: &MapData, count: usize) -> Self {
-        let n = map.n;
-        let w = n + 1;
+        let (n, ny) = map.dims();
+        let (w, wz) = (n + 1, ny + 1);
         let tint = super::surface::Tint::new(map);
-        let base: Vec<[f32; 4]> = (0..w * w)
+        let base: Vec<[f32; 4]> = (0..w * wz)
             .map(|i| {
                 let c = terrain_color(map, &tint, (i % w) as f32 * CELL, (i / w) as f32 * CELL);
                 [map.heights[i], c[0], c[1], c[2]]
             })
             .collect();
         // Mirrored at the ends, like the land outside (folded again for radii wider than the map).
-        let fold = |j: i64| -> usize {
+        let fold = |j: i64, w: usize| -> usize {
             let p = (w as i64 - 1).max(1) * 2;
             let j = j.rem_euclid(p);
             (if j >= w as i64 { p - j } else { j }) as usize
         };
         // One box blur of radius `r` along rows or columns, with running sums.
         let pass = |v: &mut Vec<[f32; 4]>, r: usize, along_x: bool| {
-            let mut sums = vec![[0f32; 4]; w + 2 * r + 1];
-            for line in 0..w {
+            // `len` vertices along the blur, `lines` of them.
+            let (len, lines) = if along_x { (w, wz) } else { (wz, w) };
+            let mut sums = vec![[0f32; 4]; len + 2 * r + 1];
+            for line in 0..lines {
                 let at = |i: usize| if along_x { line * w + i } else { i * w + line };
-                for k in 0..w + 2 * r {
-                    let s = v[at(fold(k as i64 - r as i64))];
+                for k in 0..len + 2 * r {
+                    let s = v[at(fold(k as i64 - r as i64, len))];
                     let p = sums[k];
                     sums[k + 1] = [p[0] + s[0], p[1] + s[1], p[2] + s[2], p[3] + s[3]];
                 }
                 let inv = 1.0 / (2 * r + 1) as f32;
-                for i in 0..w {
+                for i in 0..len {
                     let (a, b) = (sums[i], sums[i + 2 * r + 1]);
                     v[at(i)] = [(b[0] - a[0]) * inv, (b[1] - a[1]) * inv, (b[2] - a[2]) * inv, (b[3] - a[3]) * inv];
                 }
@@ -205,13 +208,13 @@ impl BlurLevels {
             }
             levels.push(v);
         }
-        BlurLevels { n, levels }
+        BlurLevels { n, ny, levels }
     }
     /// Bilinear sample of level `l` at a world position inside the map.
     fn sample(&self, l: usize, x: f32, z: f32) -> [f32; 4] {
         let (w, v) = (self.n + 1, &self.levels[l.min(self.levels.len() - 1)]);
         let fx = (x / CELL).clamp(0.0, self.n as f32 - 0.001);
-        let fz = (z / CELL).clamp(0.0, self.n as f32 - 0.001);
+        let fz = (z / CELL).clamp(0.0, self.ny as f32 - 0.001);
         let (ix, iz) = (fx as usize, fz as usize);
         let (tx, tz) = (fx - ix as f32, fz - iz as f32);
         let i = iz * w + ix;
@@ -252,8 +255,9 @@ const APRON_BLUR: f32 = 0.1;
 /// sharp at the edge and blurred more the further out it lies, a little darker and hazier with
 /// distance, sinking into the sea at the far end. Its inner rim is the map border vertex for vertex.
 fn apron_mesh(map: &MapData) -> Mesh {
-    let (n, world) = (map.n, map.world());
-    let reach = world.max(160.0);
+    let (n, ny) = map.dims();
+    let (world, world_z) = (map.world_x(), map.world_z());
+    let reach = world.max(world_z).max(160.0);
     // Rows outwards: one cell apart at the edge, wider in step with the blur further out.
     let mut dist = vec![0.0f32];
     while *dist.last().unwrap() < reach {
@@ -269,7 +273,7 @@ fn apron_mesh(map: &MapData) -> Mesh {
     };
     // Height and colour at a point `d` outside the map.
     let sample = |x: f32, z: f32, d: f32| -> [f32; 4] {
-        let mut s = blur.blurred(d * APRON_BLUR, mirror(x, world), mirror(z, world));
+        let mut s = blur.blurred(d * APRON_BLUR, mirror(x, world), mirror(z, world_z));
         let t = smooth((d - reach * 0.55) / (reach * 0.45));
         s[0] += (sea - s[0]) * t;
         s
@@ -317,13 +321,15 @@ fn apron_mesh(map: &MapData) -> Mesh {
     };
     // Four sides: one column per border vertex, rows going outwards.
     for (ox, oz) in [(0.0f32, -1.0f32), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)] {
-        let mut ids = Vec::with_capacity((n + 1) * rows);
-        for i in 0..=n {
+        // Border vertices along this side: along x on the near and far side, along z on the others.
+        let along = if oz != 0.0 { n } else { ny };
+        let mut ids = Vec::with_capacity((along + 1) * rows);
+        for i in 0..=along {
             let f = i as f32 * CELL;
             let edge = match (ox as i32, oz as i32) {
                 (0, -1) => v2(f, 0.0),
                 (1, 0) => v2(world, f),
-                (0, 1) => v2(f, world),
+                (0, 1) => v2(f, world_z),
                 _ => v2(0.0, f),
             };
             for &d in &dist {
@@ -338,7 +344,7 @@ fn apron_mesh(map: &MapData) -> Mesh {
         let mut ids = Vec::with_capacity(rows * rows);
         for &a in &dist {
             for &b in &dist {
-                ids.push(vertex(cx * world + sx * b, cz * world + sz * a, (a * a + b * b).sqrt()));
+                ids.push(vertex(cx * world + sx * b, cz * world_z + sz * a, (a * a + b * b).sqrt()));
             }
         }
         quads(&ids, rows, &mut idx);
@@ -362,10 +368,9 @@ fn apron_mesh(map: &MapData) -> Mesh {
 /// Spawns terrain, water, deposits and lighting for `map`. `with_fog` adds the fog-of-war layer.
 /// Returns the fog-of-war texture.
 pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, images: &mut Assets<Image>, with_fog: bool) -> Handle<Image> {
-    let world = map.world();
-    let n = map.n as u32;
+    let (world, world_z) = (map.world_x(), map.world_z());
     let fog_img = images.add(Image::new_fill(
-        Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+        Extent3d { width: map.nx as u32, height: map.ny as u32, depth_or_array_layers: 1 },
         TextureDimension::D2,
         // Alpha: darkness of the overlay. Colour: brightness of trees and rocks (see `flora`).
         &[255, 255, 255, 0],
@@ -380,12 +385,12 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         unlit: true,
         depth_bias: 8.0,
         // The terrain UVs tile every 12 units; stretch them over the whole map for the fog.
-        uv_transform: bevy::math::Affine2::from_scale(Vec2::splat(12.0 / world)),
+        uv_transform: bevy::math::Affine2::from_scale(Vec2::new(12.0 / world, 12.0 / world_z)),
         ..default()
     });
     commands.insert_resource(FogTexture(fog_img.clone()));
-    for cy in (0..map.n).step_by(CHUNK) {
-        for cx in (0..map.n).step_by(CHUNK) {
+    for cy in (0..map.ny).step_by(CHUNK) {
+        for cx in (0..map.nx).step_by(CHUNK) {
             let mesh = meshes.add(chunk_mesh(map, cx, cy));
             // The ground material (textures for this map) is added by `surface::surface_sync`.
             commands.spawn((Mesh3d(mesh.clone()), Transform::IDENTITY, TerrainChunk { cx, cy }, GameScene));
@@ -416,9 +421,9 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     ));
     // Further out: a dark sea floor (unlit, so it shows no lighting or shadow seams) under the water.
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(world * 12.0, world * 12.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(world.max(world_z) * 12.0, world.max(world_z) * 12.0))),
         MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.03, 0.07, 0.10), unlit: true, ..default() })),
-        Transform::from_xyz(world * 0.5, map.water - 6.0, world * 0.5),
+        Transform::from_xyz(world * 0.5, map.water - 6.0, world_z * 0.5),
         NotShadowCaster,
         NotShadowReceiver,
         GameScene,
@@ -433,9 +438,9 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         ..default()
     });
     commands.spawn((
-        Mesh3d(meshes.add(water_mesh(world * 12.0))),
+        Mesh3d(meshes.add(water_mesh(world.max(world_z) * 12.0))),
         MeshMaterial3d(water_mat.clone()),
-        Transform::from_xyz(world * 0.5, map.water, world * 0.5),
+        Transform::from_xyz(world * 0.5, map.water, world_z * 0.5),
         NotShadowCaster,
         NotShadowReceiver,
         WaterPlane,
@@ -479,12 +484,12 @@ fn water_mesh(size: f32) -> Mesh {
 /// joined into strips. Cells the ground has since risen above stay in; the terrain hides them.
 /// Drawn before the fog overlays like the sea (the extra vertex of `water_mesh`).
 fn lake_mesh(map: &MapData) -> Option<Mesh> {
-    let n = map.n;
-    if map.lakes.is_empty() || map.lake_of.len() != n * n {
+    let (n, ny) = map.dims();
+    if map.lakes.is_empty() || map.lake_of.len() != n * ny {
         return None;
     }
     let (mut pos, mut uvs, mut idx) = (vec![], vec![], vec![]);
-    for y in 0..n {
+    for y in 0..ny {
         let mut x = 0;
         while x < n {
             let k = map.lake_of[y * n + x];
@@ -508,7 +513,7 @@ fn lake_mesh(map: &MapData) -> Option<Mesh> {
     if pos.is_empty() {
         return None;
     }
-    pos.push([map.world() * 0.5, -100_000.0, map.world() * 0.5]);
+    pos.push([map.world_x() * 0.5, -100_000.0, map.world_z() * 0.5]);
     uvs.push([0.0, 0.0]);
     let count = pos.len();
     Some(
@@ -528,20 +533,21 @@ pub struct MapEdge {
 }
 
 fn edge_mesh(map: &MapData, width: f32) -> Mesh {
-    let world = map.world();
+    let (world, world_z) = (map.world_x(), map.world_z());
     let (dash, gap) = ((width * 14.0).max(5.0), (width * 9.0).max(3.0));
     let half = width * 0.5;
     let lift = 0.12 + width * 0.4;
     let (mut pos, mut idx) = (vec![], vec![]);
     // Corners in turn; each side runs from one to the next, `inward` points into the map.
-    let corners = [v2(0.0, 0.0), v2(world, 0.0), v2(world, world), v2(0.0, world)];
+    let corners = [v2(0.0, 0.0), v2(world, 0.0), v2(world, world_z), v2(0.0, world_z)];
     for s in 0..4 {
         let (a, b) = (corners[s], corners[(s + 1) % 4]);
-        let dir = (b - a) * (1.0 / world);
+        let len = a.dist(b).max(1e-3);
+        let dir = (b - a) * (1.0 / len);
         let inward = v2(-dir.y, dir.x);
         let mut t = 0.0;
-        while t < world {
-            let end = (t + dash).min(world);
+        while t < len {
+            let end = (t + dash).min(len);
             let pieces = ((end - t) / CELL).ceil().max(1.0) as usize;
             let first = pos.len() as u32;
             for i in 0..=pieces {
@@ -584,10 +590,10 @@ fn edge_width(dist: f32) -> f32 {
 pub fn map_edge_sync(map: Option<Res<MapData>>, camera: Query<&GlobalTransform, With<MainCamera>>, mut edges: Query<(&mut MapEdge, &Mesh3d)>, mut meshes: ResMut<Assets<Mesh>>) {
     let (Some(map), Ok(cam)) = (map, camera.single()) else { return };
     let c = cam.translation();
-    let world = map.world();
+    let (world, world_z) = (map.world_x(), map.world_z());
     // Nearest border point.
-    let (x, z) = (c.x.clamp(0.0, world), c.z.clamp(0.0, world));
-    let b = if (x.min(world - x)) < (z.min(world - z)) { v2(if x < world - x { 0.0 } else { world }, z) } else { v2(x, if z < world - z { 0.0 } else { world }) };
+    let (x, z) = (c.x.clamp(0.0, world), c.z.clamp(0.0, world_z));
+    let b = if (x.min(world - x)) < (z.min(world_z - z)) { v2(if x < world - x { 0.0 } else { world }, z) } else { v2(x, if z < world_z - z { 0.0 } else { world_z }) };
     let dist = c.distance(b.at(map.surface(b)));
     let w = edge_width(dist);
     for (mut e, mesh) in &mut edges {
@@ -625,13 +631,20 @@ fn picture_color(map: &MapData, tint: &super::surface::Tint, x: f32, z: f32) -> 
 /// deposits (white), `side` x `side` RGBA pixels. Start positions are drawn on top by the lobby.
 pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<u8> {
     let side = side.max(8);
-    let w = map.world().max(1.0);
+    let w = map.world_max().max(1.0);
     let k = w / side as f32;
+    // A map that is not square is centred in the square picture (`MapData::pic_uv`).
+    let off = (map.size() - v2(w, w)) * 0.5;
     let mut px = vec![0f32; side * side * 3];
     let tint = super::surface::Tint::new(map);
     for y in 0..side {
         for x in 0..side {
-            let (wx, wz) = ((x as f32 + 0.5) * k, (y as f32 + 0.5) * k);
+            let (wx, wz) = ((x as f32 + 0.5) * k + off.x, (y as f32 + 0.5) * k + off.y);
+            if !map.on_map(v2(wx, wz)) {
+                let i = (y * side + x) * 3;
+                px[i..i + 3].copy_from_slice(&[0.05, 0.06, 0.07]);
+                continue;
+            }
             let mut c = picture_color(map, &tint, wx, wz);
             let h = map.height(wx, wz);
             let water = map.water_xz(wx, wz);
@@ -652,7 +665,7 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
     let class: Vec<Option<crate::data::FeatureClass>> = map.feature_kinds.iter().map(|id| defs.feature_id(id).map(|i| defs.rules.features[i as usize].class)).collect();
     let per = (CELL * CELL * 2.0 / (k * k)).min(1.0) * 0.5;
     for f in &map.features {
-        let (x, y) = ((f.pos.x / k) as usize, (f.pos.y / k) as usize);
+        let (x, y) = (((f.pos.x - off.x) / k) as usize, ((f.pos.y - off.y) / k) as usize);
         if x >= side || y >= side {
             continue;
         }
@@ -674,7 +687,7 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
         out.push(255);
     }
     for d in &map.deposits {
-        let (x, y) = ((d.x / k) as i32, (d.y / k) as i32);
+        let (x, y) = (((d.x - off.x) / k) as i32, ((d.y - off.y) / k) as i32);
         for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
             let (px, py) = (x + dx, y + dy);
             if px >= 0 && py >= 0 && (px as usize) < side && (py as usize) < side {
@@ -688,10 +701,10 @@ pub fn map_preview(map: &MapData, defs: &crate::data::Defs, side: usize) -> Vec<
 
 /// Small colour image of the map for the minimap (one pixel per cell, RGBA).
 pub fn minimap_pixels(map: &MapData) -> Vec<u8> {
-    let n = map.n;
-    let mut out = Vec::with_capacity(n * n * 4);
+    let (n, ny) = map.dims();
+    let mut out = Vec::with_capacity(n * ny * 4);
     let tint = super::surface::Tint::new(map);
-    for y in 0..n {
+    for y in 0..ny {
         for x in 0..n {
             let (wx, wz) = ((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
             let mut c = picture_color(map, &tint, wx, wz);

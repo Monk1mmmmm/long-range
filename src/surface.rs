@@ -108,22 +108,22 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
 impl MapData {
     /// Number of bytes of one layer mask (one per cell).
     pub fn mask_len(&self) -> usize {
-        self.n * self.n
+        self.cells()
     }
     /// Mask value (0-255) of layer `layer` (1..) at cell (x, y).
     pub fn mask(&self, layer: usize, x: usize, y: usize) -> u8 {
         if layer == 0 {
             return 255;
         }
-        self.masks.get((layer - 1) * self.mask_len() + y.min(self.n - 1) * self.n + x.min(self.n - 1)).copied().unwrap_or(0)
+        self.masks.get((layer - 1) * self.mask_len() + y.min(self.ny.saturating_sub(1)) * self.nx + x.min(self.nx.saturating_sub(1))).copied().unwrap_or(0)
     }
     /// Bilinear mask value (0..1) at a world position (texel centres are the cell centres).
     pub fn mask_at(&self, layer: usize, p: V2) -> f32 {
         if layer == 0 {
             return 1.0;
         }
-        let fx = (p.x / CELL - 0.5).clamp(0.0, self.n as f32 - 1.0);
-        let fy = (p.y / CELL - 0.5).clamp(0.0, self.n as f32 - 1.0);
+        let fx = (p.x / CELL - 0.5).clamp(0.0, self.nx as f32 - 1.0);
+        let fy = (p.y / CELL - 0.5).clamp(0.0, self.ny as f32 - 1.0);
         let (x, y) = (fx.floor() as usize, fy.floor() as usize);
         let (tx, ty) = (fx - x as f32, fy - y as f32);
         let g = |x: usize, y: usize| self.mask(layer, x, y) as f32 / 255.0;
@@ -180,14 +180,14 @@ impl MapData {
     /// up to `amount`, less towards the rim. On layer 0 (which covers everything anyway) it takes
     /// every layer above away instead. Returns whether a cell changed.
     pub fn paint_mask(&mut self, layer: usize, c: V2, radius: f32, amount: f32, target: f32) -> bool {
-        let n = self.n;
-        if n == 0 || layer >= self.layers.len() {
+        let (n, ny) = self.dims();
+        if n == 0 || ny == 0 || layer >= self.layers.len() {
             return false;
         }
         self.fit_masks();
         let r = radius.max(CELL * 0.5);
         let (x0, x1) = (((c.x - r) / CELL).floor().max(0.0) as usize, (((c.x + r) / CELL).ceil() as usize).min(n - 1));
-        let (y0, y1) = (((c.y - r) / CELL).floor().max(0.0) as usize, (((c.y + r) / CELL).ceil() as usize).min(n - 1));
+        let (y0, y1) = (((c.y - r) / CELL).floor().max(0.0) as usize, (((c.y + r) / CELL).ceil() as usize).min(ny - 1));
         let planes: Vec<usize> = if layer == 0 { (1..self.layers.len()).collect() } else { vec![layer] };
         let target = if layer == 0 { 0.0 } else { target.clamp(0.0, 1.0) } * 255.0;
         let mut changed = false;
@@ -199,7 +199,7 @@ impl MapData {
                 }
                 let fall = smooth(1.0, 0.35, d) * amount.clamp(0.0, 1.0);
                 for l in &planes {
-                    let m = &mut self.masks[(l - 1) * n * n + y * n + x];
+                    let m = &mut self.masks[(l - 1) * n * ny + y * n + x];
                     let v = *m as f32;
                     // At least one step per stroke, so slow brushes still get there.
                     let step = (target - v) * fall;
@@ -217,8 +217,8 @@ impl MapData {
 
     /// Paints the ground from the heights for a biome: replaces all layers and masks (roads stay).
     pub fn paint_ground(&mut self, biome: Biome) {
-        let n = self.n;
-        if n == 0 {
+        let (n, ny) = self.dims();
+        if n == 0 || ny == 0 {
             return;
         }
         let seed = self.seed;
@@ -277,8 +277,8 @@ impl MapData {
             ],
         };
         self.layers = rules.iter().map(|(k, _)| Layer { kind: (*k).into(), scale: 0.0 }).collect();
-        self.masks = vec![0; (rules.len() - 1) * n * n];
-        for y in 0..n {
+        self.masks = vec![0; (rules.len() - 1) * n * ny];
+        for y in 0..ny {
             for x in 0..n {
                 let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                 let h = self.h(p);
@@ -286,7 +286,7 @@ impl MapData {
                 let f = ((h - water) / top).clamp(0.0, 1.0);
                 for (i, (_, rule)) in rules.iter().enumerate().skip(1) {
                     let v = rule(self, h, slope, f, p, seed).clamp(0.0, 1.0);
-                    self.masks[(i - 1) * n * n + y * n + x] = (v * 255.0).round() as u8;
+                    self.masks[(i - 1) * n * ny + y * n + x] = (v * 255.0).round() as u8;
                 }
             }
         }
@@ -303,11 +303,13 @@ impl MapData {
         out
     }
 
-    /// The roads as a raster of `per_unit` texels per world unit, one channel per road kind
-    /// (`road_kinds`): 1 inside, 0.5 on the edge, 0 beyond `ROAD_RAMP / 2` outside.
-    pub fn road_raster(&self, per_unit: f32) -> (usize, Vec<[u8; 4]>) {
-        let side = ((self.world() * per_unit).round() as usize).max(1);
-        let mut out = vec![[0u8; 4]; side * side];
+    /// The roads as a raster of `per_unit` texels per world unit (texels across and deep, then
+    /// the texels row by row), one channel per road kind (`road_kinds`): 1 inside, 0.5 on the
+    /// edge, 0 beyond `ROAD_RAMP / 2` outside.
+    pub fn road_raster(&self, per_unit: f32) -> ((usize, usize), Vec<[u8; 4]>) {
+        let side = ((self.world_x() * per_unit).round() as usize).max(1);
+        let side_y = ((self.world_z() * per_unit).round() as usize).max(1);
+        let mut out = vec![[0u8; 4]; side * side_y];
         let kinds = self.road_kinds();
         let texel = 1.0 / per_unit;
         for r in &self.roads {
@@ -321,7 +323,7 @@ impl MapData {
                 let x0 = ((a.x.min(b.x) - reach) * per_unit).floor().max(0.0) as usize;
                 let x1 = (((a.x.max(b.x) + reach) * per_unit).ceil() as usize).min(side - 1);
                 let y0 = ((a.y.min(b.y) - reach) * per_unit).floor().max(0.0) as usize;
-                let y1 = (((a.y.max(b.y) + reach) * per_unit).ceil() as usize).min(side - 1);
+                let y1 = (((a.y.max(b.y) + reach) * per_unit).ceil() as usize).min(side_y - 1);
                 for y in y0..=y1 {
                     for x in x0..=x1 {
                         let p = v2((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
@@ -334,7 +336,7 @@ impl MapData {
                 }
             }
         }
-        (side, out)
+        ((side, side_y), out)
     }
 
     /// Distance from `p` to the nearest road's edge (negative on the road); `f32::MAX` without roads.
@@ -350,10 +352,10 @@ impl MapData {
         best
     }
 
-    /// Cells (n x n, row by row) whose centre lies within `margin` of a road's edge or on it.
+    /// Cells (row by row) whose centre lies within `margin` of a road's edge or on it.
     pub fn road_cells(&self, margin: f32) -> Vec<bool> {
-        let n = self.n;
-        let mut out = vec![false; n * n];
+        let (n, ny) = self.dims();
+        let mut out = vec![false; n * ny];
         for r in &self.roads {
             let reach = r.width * 0.5 + margin;
             for s in r.points.windows(2) {
@@ -363,7 +365,7 @@ impl MapData {
                 let x0 = ((a.x.min(b.x) - reach) / CELL).floor().max(0.0) as usize;
                 let x1 = (((a.x.max(b.x) + reach) / CELL).ceil() as usize).min(n.saturating_sub(1));
                 let y0 = ((a.y.min(b.y) - reach) / CELL).floor().max(0.0) as usize;
-                let y1 = (((a.y.max(b.y) + reach) / CELL).ceil() as usize).min(n.saturating_sub(1));
+                let y1 = (((a.y.max(b.y) + reach) / CELL).ceil() as usize).min(ny.saturating_sub(1));
                 for y in y0..=y1 {
                     for x in x0..=x1 {
                         let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);

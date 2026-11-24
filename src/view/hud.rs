@@ -1043,7 +1043,7 @@ fn local_occ(map: &MapData, defs: &Defs, infos: &Infos, game: &Game, team: u8, m
             for y in y0..y0 + f {
                 for x in x0..x0 + f {
                     if map.inside(x, y) {
-                        occ[y as usize * map.n + x as usize] = if defs.get(def).is_fieldwork() { crate::map::OCC_WORK } else { 2 };
+                        occ[map.idx(x, y)] = if defs.get(def).is_fieldwork() { crate::map::OCC_WORK } else { 2 };
                     }
                 }
             }
@@ -1277,7 +1277,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         || ctx.is_pointer_over_egui();
 
     // ---------------------------------------------------------------- camera
-    let world = map.world();
+    let world = map.world_max();
     let set_matrices = |view: &mut ViewState| {
         let d = view.cam_dist;
         let t = ((d - 50.0) / 260.0).clamp(0.0, 1.0);
@@ -1383,7 +1383,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
     } else {
         p.wheel.clear();
     }
-    view.cam_target = v2(view.cam_target.x.clamp(0.0, world), view.cam_target.y.clamp(0.0, world));
+    view.cam_target = v2(view.cam_target.x.clamp(0.0, map.world_x()), view.cam_target.y.clamp(0.0, map.world_z()));
     let target3 = set_matrices(view);
     if let Ok((mut t, mut proj)) = p.camera.single_mut() {
         *t = Transform::from_translation(view.cam_pos).looking_at(target3, Vec3::Y);
@@ -2728,20 +2728,22 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
 
     // --- minimap
-    let mini = p.assets.minimap.get_or_insert_with(|| ctx.load_texture("minimap", egui::ColorImage::from_rgba_unmultiplied([map.n, map.n], &minimap_pixels(map)), egui::TextureOptions::LINEAR)).clone();
+    let mini = p.assets.minimap.get_or_insert_with(|| ctx.load_texture("minimap", egui::ColorImage::from_rgba_unmultiplied([map.nx, map.ny], &minimap_pixels(map)), egui::TextureOptions::LINEAR)).clone();
     hud.rect_filled(mm.expand(2.0), 0.0, rgba(0, 0, 0, 240));
-    hud.image(mini.id(), mm, UV, Color32::WHITE);
+    // A map that is not square fills the minimap along its longer side and is centred along the other.
+    let ma = egui::Rect::from_center_size(mm.center(), egui::vec2(MM * map.world_x() / world, MM * map.world_z() / world));
+    hud.image(mini.id(), ma, UV, Color32::WHITE);
     // Fog of war on the minimap: a coarse vertex-coloured grid. (A texture that was re-uploaded
     // every few ticks made the whole minimap flicker.)
     if !reveal {
         const G: usize = 48;
-        let n = map.n;
+        let (n, ny) = map.dims();
         let mut mesh = egui::Mesh::default();
         for gy in 0..=G {
             for gx in 0..=G {
-                let (cx, cy) = ((gx * (n - 1) / G).min(n - 1), (gy * (n - 1) / G).min(n - 1));
+                let (cx, cy) = ((gx * (n - 1) / G).min(n - 1), (gy * (ny - 1) / G).min(ny - 1));
                 let a = p.fog.alpha[cy * n + cx];
-                mesh.colored_vertex(Pos2::new(mm.min.x + gx as f32 / G as f32 * MM, mm.min.y + gy as f32 / G as f32 * MM), rgba(0, 0, 0, a));
+                mesh.colored_vertex(Pos2::new(ma.min.x + gx as f32 / G as f32 * ma.width(), ma.min.y + gy as f32 / G as f32 * ma.height()), rgba(0, 0, 0, a));
             }
         }
         for gy in 0..G {
@@ -2754,7 +2756,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         }
         hud.add(egui::Shape::mesh(mesh));
     }
-    let to_mm = |pt: V2| Pos2::new(mm.min.x + pt.x / world * MM, mm.min.y + pt.y / world * MM);
+    let to_mm = |pt: V2| Pos2::new(ma.min.x + pt.x / world * MM, ma.min.y + pt.y / world * MM);
     for s in &seen {
         let (_, c) = super::owner_color(defs, game, s.owner);
         let c = if s.contact == Contact::Visible { rgb(c) } else { rgb(c).gamma_multiply(0.6 * s.fade.max(0.3)) };
@@ -2788,7 +2790,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         hud.line_segment([corners[k], corners[(k + 1) % 4]], Stroke::new(1.0, Color32::WHITE));
     }
     if mm.contains(mouse) && !view.menu_open {
-        let wp = v2((mouse.x - mm.min.x) / MM * world, (mouse.y - mm.min.y) / MM * world);
+        let wp = map.clamp(v2((mouse.x - ma.min.x) / MM * world, (mouse.y - ma.min.y) / MM * world));
         if p.mouse.pressed(MouseButton::Left) && view.box_start.is_none() && view.pathing.is_none() && view.drag_start.is_none() {
             view.cam_target = wp;
         }

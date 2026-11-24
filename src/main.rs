@@ -159,9 +159,8 @@ impl HostLobby {
             None => longrange::data::load_map(&self.maps[self.map_choice - SIZES.len()])?,
         };
         self.preview = view::terrain::map_preview(&map, defs, PREVIEW);
-        let w = map.world().max(1.0);
-        self.starts = map.starts.iter().map(|s| (s.x / w, s.y / w)).collect();
-        self.points = map.control_points().iter().map(|s| (s.x / w, s.y / w)).collect();
+        self.starts = map.starts.iter().map(|s| map.pic_uv(*s)).collect();
+        self.points = map.control_points().iter().map(|s| map.pic_uv(*s)).collect();
         self.tex = None;
         self.map = Some((key, map));
         self.dirty = true;
@@ -299,7 +298,7 @@ struct ClientLobby {
 
 /// Two maps are the same map (a saved copy may differ from the original by rounding).
 fn same_map(a: &MapData, b: &MapData) -> bool {
-    a.n == b.n
+    a.dims() == b.dims()
         && a.heights.len() == b.heights.len()
         && a.heights.iter().zip(&b.heights).all(|(x, y)| (x - y).abs() < 0.01)
         && a.starts == b.starts
@@ -997,7 +996,7 @@ fn replay_update(world: &mut World, r: &mut ReplayRun, acc: &mut f32, toggle: bo
     }
     if let Some(p) = vision {
         // Another player's view: their fog, radar and what they remember (from now on).
-        let n = world.resource::<MapData>().n;
+        let n = world.resource::<MapData>().dims();
         {
             let mut v = world.resource_mut::<ViewState>();
             v.me = p;
@@ -2666,7 +2665,7 @@ fn selftest() {
             let mut map = MapData::generate(if n > 4 { 256 } else { 192 }, 12345 + seed, n);
             // LR_MOAT=1 digs water around the second start: nobody reaches the other by land.
             if std::env::var("LR_MOAT").is_ok() {
-                let (c, water, side) = (map.starts[1], map.water, map.n + 1);
+                let (c, water, side) = (map.starts[1], map.water, map.vx());
                 for k in 0..map.heights.len() {
                     let d = v2((k % side) as f32 * CELL, (k / side) as f32 * CELL).dist(c);
                     if d > 46.0 && d < 56.0 {
@@ -2680,7 +2679,7 @@ fn selftest() {
             (map, n)
         }
     };
-    println!("map: {} ({} cells), {} trees and rocks, {} props", map.name, map.n, map.features.len(), map.props.len());
+    println!("map: {} ({}x{} cells), {} trees and rocks, {} props", map.name, map.nx, map.ny, map.features.len(), map.props.len());
     let faction = defs.playable_factions()[0] as u8;
     // LR_AI=zones,overseer,simple,... picks the AI of every player in turn (default: one of each type).
     let kinds: Vec<AiKind> = std::env::var("LR_AI").ok().map(|s| s.split(',').filter_map(AiKind::parse).collect()).filter(|v: &Vec<AiKind>| !v.is_empty()).unwrap_or(AI_KINDS.to_vec());
@@ -2963,9 +2962,9 @@ fn combattest() {
     for ridge in [false, true] {
         let mut app = headless(defs.clone());
         let mut map = MapData::generate(128, 4242, 2);
-        let n = map.n;
+        let side = map.vx();
         for (i, h) in map.heights.iter_mut().enumerate() {
-            let x = (i % (n + 1)) as f32 * CELL;
+            let x = (i % side) as f32 * CELL;
             *h = if ridge && (x - 125.0).abs() < 6.0 { 22.0 } else { 2.0 };
         }
         map.rebuild_blocked();
@@ -3571,7 +3570,7 @@ fn apc_tests(defs: &Defs) {
         map.lake_of.clear();
         map.feature_kinds = vec![];
         map.features = vec![];
-        let side = map.n + 1;
+        let side = map.vx();
         for (i, h) in map.heights.iter_mut().enumerate() {
             let x = (i % side) as f32 * CELL;
             *h = match bed {
@@ -5159,7 +5158,7 @@ fn nettest() {
         let (tag, data) = client.frames.recv_timeout(Duration::from_secs(5)).expect("frame").expect("open");
         if tag == TAG_MSG {
             if let Ok(S2C::Start { map, you, .. }) = bincode::deserialize::<S2C>(&data) {
-                println!("client got Start: map {} cells ({} bytes), you={you}", map.n, data.len());
+                println!("client got Start: map {}x{} cells ({} bytes), you={you}", map.nx, map.ny, data.len());
                 start = Some(map);
             }
         } else {

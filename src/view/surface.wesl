@@ -10,8 +10,8 @@ import bevy_pbr::render::{
 };
 
 struct SurfaceParams {
-    // Side of the map in world units (masks, roads and scorch cover it once).
-    world: f32,
+    // Size of the map in world units, x and z (masks, roads and scorch cover it once).
+    world: vec2<f32>,
     layers: u32,
     roads: u32,
     // Relief from the height channel, in world units per full height step.

@@ -14,7 +14,9 @@ pub const FOG_RADAR: u8 = 80;
 /// CPU copy of the fog texture: alpha per map cell.
 #[derive(Resource)]
 pub struct FogGrid {
+    /// Cells across; `alpha` is one byte per map cell, row by row.
     pub n: usize,
+    pub ny: usize,
     pub alpha: Vec<u8>,
     /// Cached radar coverage per radar unit: (position it was computed for, radius, covered cells).
     radar: HashMap<u32, (V2, f32, Vec<u32>)>,
@@ -25,13 +27,13 @@ pub struct FogGrid {
 }
 
 impl FogGrid {
-    pub fn new(n: usize) -> FogGrid {
-        FogGrid { n, alpha: vec![0; n * n], radar: HashMap::new(), sight: HashMap::new(), cone: HashMap::new() }
+    pub fn new((n, ny): crate::map::Dims) -> FogGrid {
+        FogGrid { n, ny, alpha: vec![0; n * ny], radar: HashMap::new(), sight: HashMap::new(), cone: HashMap::new() }
     }
     /// Is this spot currently in direct sight?
     pub fn visible(&self, p: V2) -> bool {
         let (x, y) = ((p.x / CELL) as i32, (p.y / CELL) as i32);
-        if x < 0 || y < 0 || x >= self.n as i32 || y >= self.n as i32 {
+        if x < 0 || y < 0 || x >= self.n as i32 || y >= self.ny as i32 {
             return false;
         }
         self.alpha[y as usize * self.n + x as usize] < 40
@@ -80,12 +82,12 @@ pub fn reveal(game: &Game, me: u8) -> bool {
 /// viewer looks out of (it does not block). `terrain`: hills block it.
 #[allow(clippy::too_many_arguments)]
 fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, block: &SightBlock, terrain: bool, from: u32) -> Vec<u32> {
-    let n = map.n as i32;
+    let (n, ny) = (map.nx as i32, map.ny as i32);
     let (cx, cy, rc) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32, (radius / CELL) as i32);
     let mut out = vec![];
     // Sample every second cell and fill 2x2 blocks: plenty for a fog overlay.
     let mut y = (cy - rc).max(0) & !1;
-    while y <= (cy + rc).min(n - 1) {
+    while y <= (cy + rc).min(ny - 1) {
         let mut x = (cx - rc).max(0) & !1;
         while x <= (cx + rc).min(n - 1) {
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
@@ -94,7 +96,7 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, bloc
             let at = block.building((y * n + x) as usize);
             if dist <= radius && (dist < near || map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain, [from, at])) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    if x + dx < n && y + dy < n {
+                    if x + dx < n && y + dy < ny {
                         out.push(((y + dy) * n + x + dx) as u32);
                     }
                 }
@@ -109,7 +111,7 @@ fn covered_cells(map: &MapData, eye: Vec3, pos: V2, radius: f32, near: f32, bloc
 /// The cells inside a binocular cone (direction `yaw`, full width `angle` radians) that `eye` can see.
 #[allow(clippy::too_many_arguments)]
 fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius: f32, block: &SightBlock, terrain: bool, from: u32) -> Vec<u32> {
-    let n = map.n as i32;
+    let (n, ny) = (map.nx as i32, map.ny as i32);
     let dir = V2::from_angle(yaw);
     let cos_half = (angle * 0.5).cos();
     let mut out = vec![];
@@ -118,7 +120,7 @@ fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius:
     let rc = (radius / CELL) as i32;
     let (cx, cy) = ((pos.x / CELL) as i32, (pos.y / CELL) as i32);
     let mut y = (cy - rc).max(0) & !1;
-    while y <= (cy + rc).min(n - 1) {
+    while y <= (cy + rc).min(ny - 1) {
         let mut x = (cx - rc).max(0) & !1;
         while x <= (cx + rc).min(n - 1) {
             let c = v2((x as f32 + 1.0) * CELL, (y as f32 + 1.0) * CELL);
@@ -127,7 +129,7 @@ fn covered_cone(map: &MapData, eye: Vec3, pos: V2, yaw: f32, angle: f32, radius:
             let at = block.building((y * n + x) as usize);
             if dist <= radius && dist > 0.0 && off.dot(dir) >= cos_half * dist && map.sight_line(eye, c.at(map.h(c) + 1.5), block, terrain, [from, at]) {
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    if x + dx < n && y + dy < n {
+                    if x + dx < n && y + dy < ny {
                         out.push(((y + dy) * n + x + dx) as u32);
                     }
                 }
@@ -161,7 +163,7 @@ pub fn update_intel(
     let team = game.team_of(view.me);
     let bit = 1u16 << team;
     let reveal = reveal(&game, view.me);
-    let n = map.n;
+    let n = map.nx;
 
     // --- fog grid
     let fog = &mut *fog;

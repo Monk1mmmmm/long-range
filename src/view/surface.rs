@@ -25,7 +25,8 @@ const ROAD_PER_UNIT: f32 = 1.0;
 
 #[derive(Clone, Copy, Default, ShaderType, Debug)]
 pub struct SurfaceParams {
-    pub world: f32,
+    /// Size of the map in world units (x, z).
+    pub world: Vec2,
     pub layers: u32,
     pub roads: u32,
     pub bump: f32,
@@ -83,7 +84,8 @@ pub struct SurfaceView {
     scorch: Handle<Image>,
     /// Scorch map on the CPU (`side` x `side`, 0 = untouched).
     burn: Vec<u8>,
-    side: usize,
+    /// Scorch texels across and deep.
+    side: (usize, usize),
     burn_dirty: bool,
     burn_wait: f32,
     /// Layer kinds or scales changed: rebuild the layer textures.
@@ -99,10 +101,10 @@ impl SurfaceView {
         // Strong enough that one blast leaves a solid charred core.
         let strength = (0.55 + size * 0.3).min(1.0);
         let k = BURN_PER_UNIT;
-        let side = self.side as i32;
+        let (side, side_y) = (self.side.0 as i32, self.side.1 as i32);
         let (x0, x1) = (((p.x - r) * k).floor() as i32, ((p.x + r) * k).ceil() as i32);
         let (y0, y1) = (((p.y - r) * k).floor() as i32, ((p.y + r) * k).ceil() as i32);
-        for y in y0.max(0)..=y1.min(side - 1) {
+        for y in y0.max(0)..=y1.min(side_y - 1) {
             for x in x0.max(0)..=x1.min(side - 1) {
                 let q = Vec2::new((x as f32 + 0.5) / k, (y as f32 + 0.5) / k);
                 let d = q.distance(p) / r;
@@ -114,7 +116,7 @@ impl SurfaceView {
                 // Solid core, fading only near the rim.
                 let f = ((1.0 - d) * jag * 1.8).clamp(0.0, 1.0);
                 let f = f * f * (3.0 - 2.0 * f) * strength;
-                let c = &mut self.burn[y as usize * self.side + x as usize];
+                let c = &mut self.burn[y as usize * self.side.0 + x as usize];
                 // Accumulates towards full char.
                 *c = (*c as f32 + (255.0 - *c as f32).max(0.0) * f) as u8;
             }
@@ -141,7 +143,7 @@ fn params(map: &MapData) -> SurfaceParams {
         road_soft[i] = if kind(k).map_or(false, |k| k.hard) { 7.0 } else { 2.4 };
     }
     let debug = std::env::var("LR_SURFACE_DEBUG").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    SurfaceParams { world: map.world().max(1.0), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, debug }
+    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, debug }
 }
 
 fn sampler(repeat: bool, aniso: bool) -> ImageSampler {
@@ -183,38 +185,39 @@ fn albedo_image(map: &MapData, cache: &mut TextureCache) -> Image {
 
 /// Layer masks 1..8 as a two-layer RGBA array (layer 0 holds masks 1-4, layer 1 masks 5-8).
 fn mask_image(map: &MapData) -> Image {
-    let n = map.n.max(1);
-    let mut data = vec![0u8; n * n * 8];
+    let (n, ny) = (map.nx.max(1), map.ny.max(1));
+    let cells = n * ny;
+    let mut data = vec![0u8; cells * 8];
     for l in 1..map.layers.len().min(MAX_LAYERS) {
         let (plane, ch) = ((l - 1) / 4, (l - 1) % 4);
-        let src = &map.masks[((l - 1) * n * n).min(map.masks.len())..(l * n * n).min(map.masks.len())];
+        let src = &map.masks[((l - 1) * cells).min(map.masks.len())..(l * cells).min(map.masks.len())];
         for (i, v) in src.iter().enumerate() {
-            data[plane * n * n * 4 + i * 4 + ch] = *v;
+            data[plane * cells * 4 + i * 4 + ch] = *v;
         }
     }
-    let mut img = Image::new(Extent3d { width: n as u32, height: n as u32, depth_or_array_layers: 2 }, TextureDimension::D2, data, TextureFormat::Rgba8Unorm, RenderAssetUsages::RENDER_WORLD);
+    let mut img = Image::new(Extent3d { width: n as u32, height: ny as u32, depth_or_array_layers: 2 }, TextureDimension::D2, data, TextureFormat::Rgba8Unorm, RenderAssetUsages::RENDER_WORLD);
     img.texture_view_descriptor = array_view();
     img.sampler = sampler(false, false);
     img
 }
 
 fn road_image(map: &MapData) -> Image {
-    let (side, px) = map.road_raster(ROAD_PER_UNIT);
-    let mut img = Image::new(Extent3d { width: side as u32, height: side as u32, depth_or_array_layers: 1 }, TextureDimension::D2, px.concat(), TextureFormat::Rgba8Unorm, RenderAssetUsages::RENDER_WORLD);
+    let ((side, side_y), px) = map.road_raster(ROAD_PER_UNIT);
+    let mut img = Image::new(Extent3d { width: side as u32, height: side_y as u32, depth_or_array_layers: 1 }, TextureDimension::D2, px.concat(), TextureFormat::Rgba8Unorm, RenderAssetUsages::RENDER_WORLD);
     img.sampler = sampler(false, false);
     img
 }
 
-fn scorch_image(side: usize, burn: &[u8]) -> Image {
-    let mut img = Image::new(Extent3d { width: side as u32, height: side as u32, depth_or_array_layers: 1 }, TextureDimension::D2, burn.to_vec(), TextureFormat::R8Unorm, RenderAssetUsages::RENDER_WORLD);
+fn scorch_image(side: (usize, usize), burn: &[u8]) -> Image {
+    let mut img = Image::new(Extent3d { width: side.0 as u32, height: side.1 as u32, depth_or_array_layers: 1 }, TextureDimension::D2, burn.to_vec(), TextureFormat::R8Unorm, RenderAssetUsages::RENDER_WORLD);
     img.sampler = sampler(false, false);
     img
 }
 
 impl SurfaceView {
     fn new(map: &MapData, images: &mut Assets<Image>, mats: &mut Assets<SurfaceMaterial>, cache: &mut TextureCache) -> SurfaceView {
-        let side = ((map.world() * BURN_PER_UNIT).round() as usize).max(1);
-        let burn = vec![0u8; side * side];
+        let side = (((map.world_x() * BURN_PER_UNIT).round() as usize).max(1), ((map.world_z() * BURN_PER_UNIT).round() as usize).max(1));
+        let burn = vec![0u8; side.0 * side.1];
         let albedo = images.add(albedo_image(map, cache));
         let masks = images.add(mask_image(map));
         let roads = images.add(road_image(map));
@@ -291,7 +294,8 @@ fn surface_sync(
 pub struct Tint {
     colors: Vec<[f32; 3]>,
     road_colors: Vec<[f32; 3]>,
-    road_side: usize,
+    /// Texels across and deep of `roads` (0 without roads).
+    road_side: (usize, usize),
     roads: Vec<[u8; 4]>,
 }
 
@@ -301,7 +305,7 @@ fn kind_color(id: &str) -> [f32; 3] {
 
 impl Tint {
     pub fn new(map: &MapData) -> Tint {
-        let (side, roads) = if map.roads.is_empty() { (0, vec![]) } else { map.road_raster(0.5) };
+        let (side, roads) = if map.roads.is_empty() { ((0, 0), vec![]) } else { map.road_raster(0.5) };
         Tint { colors: slots(map).0.iter().map(|(k, _)| kind_color(k)).collect(), road_colors: map.road_kinds().iter().map(|k| kind_color(k)).collect(), road_side: side, roads }
     }
     pub fn color(&self, map: &MapData, x: f32, z: f32) -> [f32; 3] {
@@ -314,10 +318,12 @@ impl Tint {
                 c = std::array::from_fn(|j| c[j] + (lc[j] - c[j]) * t);
             }
         }
-        if self.road_side > 0 {
-            let k = self.road_side as f32 / map.world().max(1.0);
-            let (rx, ry) = (((x * k) as usize).min(self.road_side - 1), ((z * k) as usize).min(self.road_side - 1));
-            let r = self.roads[ry * self.road_side + rx];
+        let (side, side_y) = self.road_side;
+        if side > 0 && side_y > 0 {
+            // Texels per world unit, as `road_raster` was asked for.
+            let k = side as f32 / map.world_x().max(1.0);
+            let (rx, ry) = (((x.max(0.0) * k) as usize).min(side - 1), ((z.max(0.0) * k) as usize).min(side_y - 1));
+            let r = self.roads[ry * side + rx];
             for (i, rc) in self.road_colors.iter().enumerate() {
                 let t = ((r[i] as f32 / 255.0 - 0.5) * 4.0 + 0.5).clamp(0.0, 1.0);
                 c = std::array::from_fn(|j| c[j] + (rc[j] - c[j]) * t);
@@ -669,11 +675,11 @@ mod tests {
             assert!(g.masks.iter().any(|v| *v > 128), "{b:?} paints its layers");
             if let Some(o) = &out {
                 let px = super::super::terrain::minimap_pixels(&g);
-                image::RgbaImage::from_raw(g.n as u32, g.n as u32, px).unwrap().save(std::path::Path::new(o).join(format!("{b:?}.png"))).unwrap();
+                image::RgbaImage::from_raw(g.nx as u32, g.ny as u32, px).unwrap().save(std::path::Path::new(o).join(format!("{b:?}.png"))).unwrap();
             }
         }
         let (side, raster) = m.road_raster(1.0);
-        assert_eq!(side, m.world() as usize);
+        assert_eq!(side, (m.world_x() as usize, m.world_z() as usize));
         assert!(raster.iter().any(|p| p[0] == 255));
     }
 }

@@ -43,7 +43,7 @@ cargo run --release -- --bench [MIN]   # benchmark: AIs play every slot, the gam
 cargo run -- --icons out.png      # every strategic icon, order icon and cursor in one picture (look at it after icon changes)
 cargo run -- --ground out.png     # every ground texture in one picture, plus table vs measured average colours
 cargo run -- --editor             # map editor (also the main menu's "Map editor": the game starts itself with --editor)
-cargo run -- --editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky)
+cargo run -- --editor --generate NAME CELLS[xDEPTH] SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky; 256x160 = not square, 2 players)
 cargo run -- --editor --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
 cargo run -- --editor --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
@@ -134,6 +134,15 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - World units = SupCom units (a tank is ~0.7 wide, ranges 15-300). Y is up. Model forward is -Z.
   Unit yaw `a` means facing `(cos a, sin a)` in the XZ plane; `view::yaw_quat` converts to a rotation.
 - Build/navigation grid cell = 2 world units (`map::CELL`). Structure footprints are in cells.
+- **Maps may be rectangular**: `MapData.nx` cells across (x) by `ny` deep (z); the heightmap has (nx+1) x (ny+1)
+  vertices and every per-cell grid (`blocked`, `masks`, `lake_of`, nav `occ`, fog, sight blockers) is `nx` wide, row by
+  row. Never assume a square: use `world_x()` / `world_z()` / `size()`, `dims()` (`map::Dims`, what `find_path` /
+  `nearest_free` / `line_clear` take), `idx(cx, cy)`, `cells()`, `vx()` (vertices per row), `inside`, `on_map`, `clamp`;
+  `extent()` (side of a square of the same area) for "a share of the map" distances, `world_max()` for camera limits.
+  map.json keeps `n` (width) and adds `ny` only when it differs. Square pictures (lobby, browser, thumbnails) centre a
+  rectangle in them (`MapData::pic_uv`, `terrain::map_preview`); the minimap letterboxes it. `MapData::generate_rect`
+  makes 2-player maps only (half a turn is the one rotation that maps a rectangle onto itself), and `scatter_features` /
+  the editor's towns use no symmetry on a rectangle with more starts. Square maps simulate exactly as before.
 - Simulation: 10 ticks/s in schedule `SimTick`, run on EVERY machine (`netplay.rs`, called from
   `main.rs::session_update`). Only commands cross the network: the host bundles each tick's commands (its own,
   the AI's, the clients') into a `Turn`; clients show a prediction `lead` ticks ahead, apply their own commands

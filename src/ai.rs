@@ -325,7 +325,7 @@ pub fn ai_system(
         all.sort_by_key(|x| x.0.id);
         let team = p.team;
         let start = p.start;
-        let world = map.world();
+        let world = map.extent();
         let to_center = (map.center() - start).norm();
         let commander = defs.factions[p.faction as usize].commander;
         let is_pump = |d: &UnitDef| d.needs_deposit;

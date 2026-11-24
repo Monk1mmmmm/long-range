@@ -107,9 +107,9 @@ impl FloraView {
     /// Marks the chunks within `r` of `p`.
     pub fn mark_area(&mut self, map: &MapData, p: V2, r: f32) {
         let size = FLORA_CHUNK as f32 * CELL;
-        let last = map.n.saturating_sub(1) / FLORA_CHUNK;
+        let (last, last_y) = (map.nx.saturating_sub(1) / FLORA_CHUNK, map.ny.saturating_sub(1) / FLORA_CHUNK);
         let (x0, x1) = (((p.x - r) / size).floor().max(0.0) as usize, (((p.x + r) / size).floor().max(0.0) as usize).min(last));
-        let (y0, y1) = (((p.y - r) / size).floor().max(0.0) as usize, (((p.y + r) / size).floor().max(0.0) as usize).min(last));
+        let (y0, y1) = (((p.y - r) / size).floor().max(0.0) as usize, (((p.y + r) / size).floor().max(0.0) as usize).min(last_y));
         for y in y0..=y1 {
             for x in x0..=x1 {
                 self.mark((x * FLORA_CHUNK, y * FLORA_CHUNK));
@@ -121,14 +121,14 @@ impl FloraView {
 /// Corner cell of the chunk a position lies in.
 pub fn chunk_of(map: &MapData, p: V2) -> (usize, usize) {
     let (cx, cy) = map.cell_of(p);
-    let last = map.n.saturating_sub(1) as i32;
-    ((cx.clamp(0, last) as usize / FLORA_CHUNK) * FLORA_CHUNK, (cy.clamp(0, last) as usize / FLORA_CHUNK) * FLORA_CHUNK)
+    let (last, last_y) = (map.nx.saturating_sub(1) as i32, map.ny.saturating_sub(1) as i32);
+    ((cx.clamp(0, last) as usize / FLORA_CHUNK) * FLORA_CHUNK, (cy.clamp(0, last_y) as usize / FLORA_CHUNK) * FLORA_CHUNK)
 }
 
 /// The shown features of every chunk: chunk (x, y) is at index `y * side + x`. Returns (side, lists).
 fn buckets(map: &MapData, view: &FloraView) -> (usize, Vec<Vec<u32>>) {
-    let side = map.n.div_ceil(FLORA_CHUNK).max(1);
-    let mut out = vec![vec![]; side * side];
+    let side = map.nx.div_ceil(FLORA_CHUNK).max(1);
+    let mut out = vec![vec![]; side * map.ny.div_ceil(FLORA_CHUNK).max(1)];
     for (i, f) in map.features.iter().enumerate() {
         if view.shown.get(i).copied().unwrap_or(true) {
             let (cx, cy) = chunk_of(map, f.pos);
@@ -343,8 +343,7 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
 /// Centre of the chunk starting at cell (cx, cy), on the ground: its mesh's origin.
 fn chunk_origin(map: &MapData, cx: usize, cy: usize) -> Vec3 {
     let half = FLORA_CHUNK as f32 * CELL * 0.5;
-    let world = map.world();
-    let c = v2((cx as f32 * CELL + half).min(world), (cy as f32 * CELL + half).min(world));
+    let c = v2((cx as f32 * CELL + half).min(map.world_x()), (cy as f32 * CELL + half).min(map.world_z()));
     c.at(map.h(c))
 }
 
@@ -352,7 +351,7 @@ fn chunk_origin(map: &MapData, cx: usize, cy: usize) -> Vec3 {
 /// chunk's centre, or `None` if there are none.
 fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], origin: Vec3, far: bool) -> Option<Mesh> {
     let models = if far { &view.far_models } else { &view.models };
-    let world = map.world().max(1.0);
+    let world = map.size();
     let (mut pos, mut nrm, mut col, mut uv) = (vec![], vec![], vec![], vec![]);
     for &i in list {
         let Some(f) = map.features.get(i as usize) else { continue };
@@ -362,7 +361,7 @@ fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[
         let rot = Quat::from_rotation_y(f.yaw);
         let at = f.pos.at(map.h(f.pos)) - origin;
         let tint = 0.86 + 0.26 * hash(i as u64, 12);
-        let t = [f.pos.x / world, f.pos.y / world];
+        let t = [f.pos.x / world.x.max(1.0), f.pos.y / world.y.max(1.0)];
         for v in 0..model.pos.len() {
             pos.push((at + rot * (model.pos[v] * f.scale)).to_array());
             nrm.push((rot * model.nrm[v]).to_array());

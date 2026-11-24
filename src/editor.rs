@@ -1,7 +1,7 @@
 //! Long Range map editor, part of the game program (`longrange --editor`, or "Map editor" in the main menu).
 //!
 //!   longrange --editor                                         interactive editor
-//!   longrange --editor --generate NAME CELLS SEED [PLAYERS] [BIOME]   write a generated map with settlements, trees and rocks to assets/maps/NAME
+//!   longrange --editor --generate NAME CELLS[xDEPTH] SEED [PLAYERS] [BIOME]   write a generated map with settlements, trees and rocks to assets/maps/NAME
 //!                                   (BIOME: temperate, desert, arctic, rocky; default from the seed)
 //!   longrange --editor --points NAME                  place control points on the saved map NAME (as a game would by itself)
 //!   longrange --editor --scatter NAME [SEED] [AMOUNT]  add trees and rocks to the saved map NAME (AMOUNT 1 = normal)
@@ -64,6 +64,8 @@ struct Editor {
     cam_dist: f32,
     name: String,
     new_cells: usize,
+    /// Depth in cells of a new map; 0 = square.
+    new_depth: usize,
     players: usize,
     seed: u64,
     start_index: usize,
@@ -93,6 +95,8 @@ fn biome_arg(s: &str) -> Option<Biome> {
 }
 
 const SIZES: [usize; 4] = [128, 192, 256, 384];
+/// Depths a new map can have besides its width (`SIZES`); maps that are not square are allowed.
+const DEPTHS: [usize; 6] = [64, 96, 128, 192, 256, 384];
 
 /// Scatters civilian settlements (and a hostile outpost in the middle) with 4-fold symmetry.
 fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
@@ -100,11 +104,12 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     for _ in 0..6 {
         rng.next();
     }
-    let w = map.world();
+    let (w, wz) = (map.world_x(), map.world_z());
     let c = map.center();
-    let n = map.n;
+    let n = map.nx;
     let mut occ = map.blocked.clone();
-    let kk = map.starts.len().max(1);
+    // A rectangle keeps only the half-turn symmetry of two starts.
+    let kk = if map.square() || map.starts.len() <= 2 { map.starts.len().max(1) } else { 1 };
     let step = std::f32::consts::TAU / kk as f32;
     let rot = |p: V2, k: usize| {
         let q = p - c;
@@ -159,14 +164,14 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
         "corner_house2", "corner_house3", "corner_house4", "apartment", "apartment2", "residential_tower", "church", "grocery", "water_tower", "pylon",
     ];
     let industry = ["warehouse", "refinery", "fuel_tank", "containers", "containers2", "farm", "plant", "admin_building", "science_lab", "pylon", "comm_tower"];
-    let towns = 2 + n / 160;
+    let towns = 2 + (map.nx + map.ny) / 2 / 160;
     let mut made = 0;
     let mut towns_at: Vec<V2> = vec![];
     let first_road = map.roads.len();
     let mut tries = 0;
     while made < towns && tries < 400 {
         tries += 1;
-        let center = v2(rng.range(40.0, w - 40.0), rng.range(40.0, w - 40.0));
+        let center = v2(rng.range(40.0, w - 40.0), rng.range(40.0, wz - 40.0));
         let (cx, cy) = map.cell_of(center);
         if map.blocked[cy as usize * n + cx as usize] != 0 || map.starts.iter().any(|s| s.dist(center) < 70.0) {
             continue;
@@ -252,7 +257,7 @@ fn clear_under_props(map: &mut MapData, defs: &Defs) {
 /// could not be stood on).
 fn auto_points(map: &mut MapData, defs: &Defs) -> Vec<V2> {
     map.rebuild_blocked();
-    let n = map.n;
+    let n = map.nx;
     for p in &map.props {
         let Some(d) = defs.id(&p.def) else { continue };
         let f = defs.get(d).footprint;
@@ -317,8 +322,7 @@ fn paint_features(map: &mut MapData, defs: &Defs, rng: &mut Rng, paint: Paint, s
         let def = &defs.rules.features[kind];
         let scale = rng.range(0.8, 1.2);
         let fr = def.radius() * scale;
-        let w = map.world();
-        if p.x < 1.0 || p.y < 1.0 || p.x > w - 1.0 || p.y > w - 1.0 || map.h(p) < map.water_at(p) + 0.2 {
+        if p.x < 1.0 || p.y < 1.0 || p.x > map.world_x() - 1.0 || p.y > map.world_z() - 1.0 || map.h(p) < map.water_at(p) + 0.2 {
             continue;
         }
         if near.iter().any(|(q, qr)| q.dist(p) < (qr + fr) * 0.85 * spacing) {
@@ -430,12 +434,24 @@ fn editor_ui(
         ui.separator();
         ui.horizontal(|ui| {
             ui.label(tr!("map_editor.new"));
-            egui::ComboBox::from_id_salt("size").selected_text(format!("{} cells", ed.new_cells)).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("size").selected_text(tr!("map_editor.new_size", ed.new_cells, ed.new_cells as f32 * CELL)).show_ui(ui, |ui| {
                 for s in SIZES {
                     ui.selectable_value(&mut ed.new_cells, s, tr!("map_editor.new_size", s, s as f32 * CELL));
                 }
             });
+            ui.label("x");
+            // Depth: 0 = as wide as the map (square).
+            let depth = |d: usize| if d == 0 { tr!("map_editor.square").to_string() } else { tr!("map_editor.new_size", d, d as f32 * CELL) };
+            egui::ComboBox::from_id_salt("depth").selected_text(depth(ed.new_depth)).show_ui(ui, |ui| {
+                for s in std::iter::once(0).chain(DEPTHS) {
+                    ui.selectable_value(&mut ed.new_depth, s, depth(s));
+                }
+            });
         });
+        let (new_x, new_y) = (ed.new_cells, if ed.new_depth == 0 { ed.new_cells } else { ed.new_depth });
+        if new_x != new_y && ed.players != 2 {
+            ui.label(egui::RichText::new(tr!("map_editor.rect_two")).weak());
+        }
         ui.add(egui::Slider::new(&mut ed.players, 2..=crate::sim::MAX_PLAYERS).text(tr!("map_editor.players")));
         ui.horizontal(|ui| {
             ui.label(tr!("map_editor.seed"));
@@ -443,16 +459,17 @@ fn editor_ui(
         });
         ui.horizontal(|ui| {
             if ui.button(tr!("map_editor.generate")).clicked() {
-                *map = MapData::generate(ed.new_cells, ed.seed, ed.players);
+                *map = MapData::generate_rect(new_x, new_y, ed.seed, if new_x == new_y { ed.players } else { 2 });
                 map.paint_ground(ed.biome);
                 map.scatter_features(&defs.rules.features, ed.seed, 1.0);
                 ed.cam_target = map.center();
                 full_rebuild = true;
             }
             if ui.button(tr!("map_editor.flat")).clicked() {
-                let n = ed.new_cells;
-                let w = n as f32 * CELL;
-                *map = MapData { name: ed.name.clone(), n, heights: vec![3.0; (n + 1) * (n + 1)], water: 0.0, starts: (0..ed.players).map(|k| v2(w * 0.5, w * 0.5) + V2::from_angle(k as f32 / ed.players as f32 * 6.2832 - 2.356) * (w * 0.38)).collect(), ..Default::default() };
+                let (w, wz) = (new_x as f32 * CELL, new_y as f32 * CELL);
+                // Starts on a circle (an ellipse on a rectangular map) round the centre.
+                let starts = (0..ed.players).map(|k| V2::from_angle(k as f32 / ed.players as f32 * 6.2832 - 2.356)).map(|d| v2(w * (0.5 + d.x * 0.38), wz * (0.5 + d.y * 0.38))).collect();
+                *map = MapData { name: ed.name.clone(), nx: new_x, ny: new_y, heights: vec![3.0; (new_x + 1) * (new_y + 1)], water: 0.0, starts, ..Default::default() };
                 map.paint_ground(ed.biome);
                 ed.cam_target = map.center();
                 full_rebuild = true;
@@ -598,7 +615,7 @@ fn editor_ui(
             ui.add(egui::Slider::new(&mut ed.prop_yaw, 0.0..=6.28).text(tr!("map_editor.facing")));
         }
         ui.separator();
-        ui.label(tr!("map_editor.map_stats", map.n, map.deposits.len(), map.starts.len(), map.points.len(), map.props.len(), map.features.len()));
+        ui.label(tr!("map_editor.map_stats", format!("{}x{}", map.nx, map.ny), map.deposits.len(), map.starts.len(), map.points.len(), map.props.len(), map.features.len()));
         ui.label(egui::RichText::new(tr!("map_editor.controls_hint")).weak());
         if !ed.status.is_empty() {
             ui.label(&ed.status);
@@ -606,7 +623,7 @@ fn editor_ui(
     });
 
     // --- camera
-    let world = map.world();
+    let world = map.world_max();
     let pan = ed.cam_dist * 0.9 * dt;
     if !ctx.egui_wants_keyboard_input() {
         if keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::KeyA) {
@@ -627,7 +644,7 @@ fn editor_ui(
     if scroll != 0.0 && !over_ui {
         ed.cam_dist = (ed.cam_dist * if scroll > 0.0 { 0.85 } else { 1.0 / 0.85 }).clamp(10.0, world * 1.5);
     }
-    ed.cam_target = v2(ed.cam_target.x.clamp(0.0, world), ed.cam_target.y.clamp(0.0, world));
+    ed.cam_target = v2(ed.cam_target.x.clamp(0.0, map.world_x()), ed.cam_target.y.clamp(0.0, map.world_z()));
     let pitch = 62f32.to_radians();
     let target = ed.cam_target.at(map.surface(ed.cam_target));
     let cam_pos = target + Vec3::new(0.0, ed.cam_dist * pitch.sin(), ed.cam_dist * pitch.cos());
@@ -748,10 +765,10 @@ fn editor_ui(
             if buttons.just_pressed(MouseButton::Left) {
                 ed.flatten_height = Some(map.h(p));
             }
-            let n = map.n;
+            let n = map.nx;
             let (r, k) = (ed.radius, ed.strength * dt);
             let (x0, x1) = ((((p.x - r) / CELL).floor().max(0.0)) as usize, (((p.x + r) / CELL).ceil() as usize).min(n));
-            let (y0, y1) = ((((p.y - r) / CELL).floor().max(0.0)) as usize, (((p.y + r) / CELL).ceil() as usize).min(n));
+            let (y0, y1) = ((((p.y - r) / CELL).floor().max(0.0)) as usize, (((p.y + r) / CELL).ceil() as usize).min(map.ny));
             let snapshot = map.heights.clone();
             for y in y0..=y1 {
                 for x in x0..=x1 {
@@ -988,10 +1005,21 @@ pub fn run() {
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--generate") {
         let name = args.get(i + 1).cloned().unwrap_or_else(|| "generated".into());
-        let cells: usize = args.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(256);
+        // CELLS, or WIDTHxDEPTH for a map that is not square (two players only).
+        let size = args.get(i + 2).map(|s| s.to_lowercase()).unwrap_or_default();
+        let (cells, depth) = match size.split_once('x') {
+            Some((a, b)) => (a.parse().unwrap_or(256), b.parse().unwrap_or(256)),
+            None => {
+                let n = size.parse().unwrap_or(256);
+                (n, n)
+            }
+        };
         let seed: u64 = args.get(i + 3).and_then(|s| s.parse().ok()).unwrap_or(1);
         let players: usize = args.get(i + 4).and_then(|s| s.parse().ok()).unwrap_or(4);
-        let mut map = MapData::generate(cells, seed, players);
+        if cells != depth && players != 2 {
+            eprintln!("a map that is not square is generated for 2 players");
+        }
+        let mut map = MapData::generate_rect(cells, depth, seed, if cells == depth { players } else { 2 });
         map.name = name.clone();
         if let Some(b) = args.get(i + 5).and_then(|s| biome_arg(s)) {
             map.paint_ground(b);
@@ -1000,7 +1028,7 @@ pub fn run() {
         add_settlements(&mut map, &defs, seed);
         let dir = asset_root().join("maps").join(&name);
         match map.save(&dir) {
-            Ok(()) => println!("wrote {} ({} cells, {} deposits, {} objects, {} trees and rocks)", dir.display(), map.n, map.deposits.len(), map.props.len(), map.features.len()),
+            Ok(()) => println!("wrote {} ({}x{} cells, {} deposits, {} objects, {} trees and rocks)", dir.display(), map.nx, map.ny, map.deposits.len(), map.props.len(), map.features.len()),
             Err(e) => eprintln!("failed: {e}"),
         }
         return;
@@ -1083,6 +1111,7 @@ pub fn run() {
             cam_dist: 140.0,
             name: "my_map".into(),
             new_cells: 192,
+            new_depth: 0,
             players: 4,
             seed: 1,
             start_index: 0,

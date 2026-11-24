@@ -465,17 +465,17 @@ impl Brain {
     /// from all of them gets empty zones so that it is scouted and travelled through.
     fn init(&mut self, cx: &Ctx, me: u8) {
         let (map, game, defs) = (cx.map, cx.game, cx.defs);
-        let n = map.n;
+        let n = map.nx;
         let p = &game.players[me as usize];
         self.data_hash = defs.hash;
         self.info = defs.units.iter().map(|d| info(defs, d, defs.factions.iter().any(|f| f.commander == Some(d.idx)))).collect();
         let cell_pos = |x: i32, y: i32| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
         let free_at = |q: V2| -> V2 {
             let (x, y) = map.cell_of(map.clamp(q));
-            nearest_free(&map.blocked, n, x, y).map_or(q, |(x, y)| cell_pos(x, y))
+            nearest_free(&map.blocked, map.dims(), x, y).map_or(q, |(x, y)| cell_pos(x, y))
         };
         // Ground connected by land gets one number (M27's pathing groups, M28's plateaus).
-        let mut comp = vec![0u16; n * n];
+        let mut comp = vec![0u16; map.cells()];
         let mut next = 0u16;
         let mut flood = |comp: &mut Vec<u16>, q: V2| -> u16 {
             let (sx, sy) = map.cell_of(q);
@@ -504,7 +504,7 @@ impl Brain {
         };
         let home_comp = flood(&mut comp, free_at(p.start));
         // Amphibious vehicles also drive through shallow water.
-        let mut acomp = vec![0u16; n * n];
+        let mut acomp = vec![0u16; map.cells()];
         let mut anext = 0u16;
         let mut aflood = |acomp: &mut Vec<u16>, q: V2| -> u16 {
             let (sx, sy) = map.cell_of(q);
@@ -567,9 +567,9 @@ impl Brain {
         }
         let step = 44.0;
         let mut y = step * 0.5;
-        while y < map.world() {
+        while y < map.world_z() {
             let mut x = step * 0.5;
-            while x < map.world() {
+            while x < map.world_x() {
                 let q = v2(x, y);
                 let (cx_, cy_) = map.cell_of(q);
                 if map.inside(cx_, cy_) && map.blocked[cy_ as usize * n + cx_ as usize] == 0 && zs.iter().all(|z| z.pos.dist(q) > 40.0) {
@@ -821,7 +821,7 @@ impl Brain {
         let z = self.zones[zi].pos;
         let q = map.clamp(z + (start - z).norm() * 6.0 + self.fwd * if zi == self.home { 16.0 } else { 0.0 });
         let (x, y) = map.cell_of(q);
-        (zi, nearest_free(&map.blocked, map.n, x, y).map_or(q, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL)))
+        (zi, nearest_free(&map.blocked, map.dims(), x, y).map_or(q, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL)))
     }
 
     fn defence(&self, z: &Zone) -> f32 {
@@ -934,7 +934,7 @@ impl Brain {
             Strategy::Kill
         } else if secs > 180 && self.enemy_peak > 1.6 * army + 200.0 {
             Strategy::Turtle
-        } else if secs < 360 && near < cx.map.world() * 0.6 && self.wave < 2 {
+        } else if secs < 360 && near < cx.map.extent() * 0.6 && self.wave < 2 {
             Strategy::Rush
         } else if secs > 360 && air_fac && enemy_aa < strike * 0.5 + 250.0 && self.enemy_air_peak < 300.0 && p.income_m > 12.0 {
             Strategy::Air
@@ -1291,7 +1291,7 @@ fn eco(b: &mut Brain, rng: &mut Rng, pf: &Profile, reclaim: bool, me: u8, cx: &C
                 let Some(fd) = defs.rules.features.get(f.def as usize) else { return };
                 let useful = (want_mass && fd.mass >= 5.0) || (want_energy && fd.energy >= 5.0);
                 let d = f.pos.dist(m.pos);
-                if useful && f.pos.dist(start) < map.world() * 0.35 && pile.map_or(true, |q| d < q.0) {
+                if useful && f.pos.dist(start) < map.extent() * 0.35 && pile.map_or(true, |q| d < q.0) {
                     pile = Some((d, f.pos));
                 }
             });
@@ -1482,10 +1482,9 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     let (defs, map, game, census) = (cx.defs, cx.map, cx.game, cx.census);
     let p = &game.players[me as usize];
     let (team, tick, start) = (p.team, game.tick, p.start);
-    let n = map.n;
     let free_at = |q: V2| -> V2 {
         let (x, y) = map.cell_of(map.clamp(q));
-        nearest_free(&map.blocked, n, x, y).map_or(q, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL))
+        nearest_free(&map.blocked, map.dims(), x, y).map_or(q, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL))
     };
     let mut orders: BTreeMap<u32, Order> = BTreeMap::new();
     let mut then: Vec<(u32, Order)> = vec![];
@@ -1762,7 +1761,7 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
         };
         let crosses_water = |a: V2, q: V2| (1..40).any(|k| {
             let (x, y) = map.cell_of(a + (q - a) * (k as f32 / 40.0));
-            map.inside(x, y) && map.blocked[y as usize * n + x as usize] == OCC_DEEP
+            map.inside(x, y) && map.blocked[map.idx(x, y)] == OCC_DEEP
         });
         let force: f32 = troops.iter().map(|m| threat(m)).sum();
         let mut best: Option<(f32, usize, V2, Vec<usize>)> = None;

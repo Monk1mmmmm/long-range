@@ -539,7 +539,7 @@ impl Nav {
         for y in y0..y0 + foot {
             for x in x0..x0 + foot {
                 if map.inside(x, y) {
-                    self.occ[y as usize * map.n + x as usize] = value;
+                    self.occ[map.idx(x, y)] = value;
                 }
             }
         }
@@ -551,7 +551,7 @@ impl Nav {
     pub fn at(&self, map: &MapData, p: V2) -> u8 {
         let (cx, cy) = map.cell_of(p);
         if map.inside(cx, cy) {
-            self.occ[cy as usize * map.n + cx as usize]
+            self.occ[map.idx(cx, cy)]
         } else {
             1
         }
@@ -590,7 +590,7 @@ pub fn can_place(defs: &Defs, map: &MapData, occ: &[u8], d: DefId, p: V2) -> boo
     let (mut lo, mut hi) = (f32::MAX, f32::MIN);
     for y in y0..y0 + f {
         for x in x0..x0 + f {
-            if !map.inside(x, y) || occ[y as usize * map.n + x as usize] != 0 {
+            if !map.inside(x, y) || occ[map.idx(x, y)] != 0 {
                 return false;
             }
         }
@@ -938,7 +938,7 @@ pub struct FeatureState {
 pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, buildings: impl Iterator<Item = (u32, DefId, V2)>, defs: &Defs, map: &MapData) -> crate::map::SightBlock<'a> {
     use std::borrow::Cow;
     let mut h: Cow<'a, [f32]> = Cow::Borrowed(&[]);
-    if defs.rules.sight_blocked_by_reclaimables && features.sight.len() == map.n * map.n {
+    if defs.rules.sight_blocked_by_reclaimables && features.sight.len() == map.cells() {
         h = Cow::Borrowed(&features.sight[..]);
         if !wrecks.0.is_empty() {
             let mut v = features.sight.clone();
@@ -950,7 +950,7 @@ pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, buildings: im
                 let wh = Wreck::shape(defs, w.3, w.4).1;
                 let (cx, cy) = map.cell_of(w.1);
                 if map.inside(cx, cy) {
-                    let c = cy as usize * map.n + cx as usize;
+                    let c = map.idx(cx, cy);
                     v[c] = v[c].max(wh);
                 }
             }
@@ -965,9 +965,9 @@ pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, buildings: im
                 continue;
             }
             if id.is_empty() {
-                id = vec![0u32; map.n * map.n];
+                id = vec![0u32; map.cells()];
                 if h.is_empty() {
-                    h = Cow::Owned(vec![0.0; map.n * map.n]);
+                    h = Cow::Owned(vec![0.0; map.cells()]);
                 }
             }
             let hv = h.to_mut();
@@ -975,7 +975,7 @@ pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, buildings: im
             for y in y0..y0 + d.footprint {
                 for x in x0..x0 + d.footprint {
                     if map.inside(x, y) {
-                        let c = y as usize * map.n + x as usize;
+                        let c = map.idx(x, y);
                         hv[c] = hv[c].max(d.height());
                         id[c] = uid;
                     }
@@ -1001,15 +1001,18 @@ pub struct Features {
     /// Per map cell: height of the tallest standing feature (blocks sight, see `sight_block`).
     pub sight: Vec<f32>,
     grid: Vec<Vec<u32>>,
+    /// Grid cells across and deep.
     gn: usize,
+    gny: usize,
 }
 
 impl Features {
     pub fn new(map: &MapData, defs: &Defs) -> Features {
         let kinds: Vec<u16> = map.feature_kinds.iter().map(|k| defs.feature_id(k).unwrap_or(u16::MAX)).collect();
-        let gn = (map.world() / FEATURE_GRID).ceil().max(1.0) as usize;
-        let mut f = Features { gn, grid: vec![vec![]; gn * gn], sight: vec![0.0; map.n * map.n], ..default() };
-        let last = map.n.saturating_sub(1) as i32;
+        let gn = (map.world_x() / FEATURE_GRID).ceil().max(1.0) as usize;
+        let gny = (map.world_z() / FEATURE_GRID).ceil().max(1.0) as usize;
+        let mut f = Features { gn, gny, grid: vec![vec![]; gn * gny], sight: vec![0.0; map.cells()], ..default() };
+        let (last, last_y) = (map.nx.saturating_sub(1) as i32, map.ny.saturating_sub(1) as i32);
         for (i, m) in map.features.iter().enumerate() {
             let def = kinds.get(m.kind as usize).copied().unwrap_or(u16::MAX);
             let fd = defs.rules.features.get(def as usize);
@@ -1017,7 +1020,7 @@ impl Features {
             let radius = fd.map_or(0.0, |d| d.radius() * m.scale);
             let hp = fd.map_or(1.0, |d| (d.max_hp() * m.scale).max(1.0));
             let (cx, cy) = map.cell_of(m.pos);
-            let cell = (cy.clamp(0, last) as usize * map.n + cx.clamp(0, last) as usize) as u32;
+            let cell = (cy.clamp(0, last_y) as usize * map.nx + cx.clamp(0, last) as usize) as u32;
             f.list.push(FeatureState { def, pos: m.pos, left: if def == u16::MAX { 0.0 } else { 1.0 }, height, radius, hp, cell });
             let c = f.cell(m.pos);
             f.grid[c].push(i as u32);
@@ -1044,7 +1047,7 @@ impl Features {
     }
     fn cell(&self, p: V2) -> usize {
         let x = ((p.x / FEATURE_GRID).floor().max(0.0) as usize).min(self.gn - 1);
-        let y = ((p.y / FEATURE_GRID).floor().max(0.0) as usize).min(self.gn - 1);
+        let y = ((p.y / FEATURE_GRID).floor().max(0.0) as usize).min(self.gny - 1);
         y * self.gn + x
     }
     pub fn alive(&self, idx: usize) -> bool {
@@ -1084,7 +1087,7 @@ impl Features {
         }
         let g = FEATURE_GRID;
         let (x0, x1) = (((p.x - r) / g).floor().max(0.0) as usize, (((p.x + r) / g).floor().max(0.0) as usize).min(self.gn - 1));
-        let (y0, y1) = (((p.y - r) / g).floor().max(0.0) as usize, (((p.y + r) / g).floor().max(0.0) as usize).min(self.gn - 1));
+        let (y0, y1) = (((p.y - r) / g).floor().max(0.0) as usize, (((p.y + r) / g).floor().max(0.0) as usize).min(self.gny - 1));
         for y in y0..=y1 {
             for x in x0..=x1 {
                 for &i in &self.grid[y * self.gn + x] {
@@ -1188,7 +1191,7 @@ impl Ground {
             self.hash ^= ground_mix(key, h);
         }
         map.heights[idx] = h;
-        let (x, y) = (idx % (map.n + 1), idx / (map.n + 1));
+        let (x, y) = (idx % map.vx(), idx / map.vx());
         map.raise_top(&mut self.top, x, y, h);
         map.reblock_around(x, y);
         let p = v2(x as f32 * CELL, y as f32 * CELL);
@@ -1236,8 +1239,8 @@ impl Ground {
 /// True for vertices that must keep their height: the map border (it joins the land beyond the
 /// map) and the corners of cells a building stands on.
 fn ground_locked(map: &MapData, occ: &[u8], x: usize, y: usize) -> bool {
-    let n = map.n;
-    if x == 0 || y == 0 || x >= n || y >= n {
+    let n = map.nx;
+    if x == 0 || y == 0 || x >= n || y >= map.ny {
         return true;
     }
     for (cx, cy) in [(x - 1, y - 1), (x, y - 1), (x - 1, y), (x, y)] {
@@ -1250,15 +1253,15 @@ fn ground_locked(map: &MapData, occ: &[u8], x: usize, y: usize) -> bool {
 
 /// The vertices inside a circle, as (index, distance from the centre), in index order.
 fn ground_circle(map: &MapData, occ: &[u8], pos: V2, radius: f32) -> Vec<(usize, f32)> {
-    let n = map.n as i32;
+    let (n, ny) = (map.nx as i32, map.ny as i32);
     let (x0, x1) = (((pos.x - radius) / CELL).floor() as i32, ((pos.x + radius) / CELL).ceil() as i32);
     let (y0, y1) = (((pos.y - radius) / CELL).floor() as i32, ((pos.y + radius) / CELL).ceil() as i32);
     let mut out = vec![];
-    for y in y0.max(0)..=y1.min(n) {
+    for y in y0.max(0)..=y1.min(ny) {
         for x in x0.max(0)..=x1.min(n) {
             let d = v2(x as f32 * CELL, y as f32 * CELL).dist(pos);
             if d <= radius && !ground_locked(map, occ, x as usize, y as usize) {
-                out.push((y as usize * (map.n + 1) + x as usize, d));
+                out.push((y as usize * map.vx() + x as usize, d));
             }
         }
     }
@@ -1275,7 +1278,7 @@ pub fn dig_crater(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, r
     const CRATER_STEP: f32 = 1.4;
     // At least one vertex has to lie inside, whatever the size of the blast.
     let radius = radius.max(CELL * 1.3);
-    let side = map.n + 1;
+    let side = map.vx();
     for (i, d) in ground_circle(map, occ, pos, radius) {
         let t = d / radius;
         let k = (1.0 - t * t) * (1.0 - t * t);
@@ -1300,7 +1303,7 @@ pub fn dig_crater(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, r
 /// stays above the water and leaves the corners of other buildings' cells alone.
 pub fn dig_trench(map: &mut MapData, ground: &mut Ground, occ: &[u8], pos: V2, depth: f32) {
     const STEP: f32 = 1.4;
-    let side = map.n + 1;
+    let side = map.vx();
     let (cx, cy) = map.cell_of(pos);
     if !map.inside(cx, cy) {
         return;

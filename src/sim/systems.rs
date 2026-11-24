@@ -619,9 +619,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     for v in viewers.iter_mut() {
         v.reach2 = v.vis2.max(v.bin2).max(v.radar2[0]).max(v.radar2[1]).max(v.radar2[2]);
     }
-    let side = ((map.n as f32 * CELL / VIEW_CELL).ceil() as i32 + 1).max(1);
-    let cell = |p: V2| (((p.x / VIEW_CELL).floor() as i32).clamp(0, side - 1), ((p.y / VIEW_CELL).floor() as i32).clamp(0, side - 1));
-    let mut grid: Vec<Vec<u32>> = vec![vec![]; (side * side) as usize];
+    let side = ((map.world_x() / VIEW_CELL).ceil() as i32 + 1).max(1);
+    let side_y = ((map.world_z() / VIEW_CELL).ceil() as i32 + 1).max(1);
+    let cell = |p: V2| (((p.x / VIEW_CELL).floor() as i32).clamp(0, side - 1), ((p.y / VIEW_CELL).floor() as i32).clamp(0, side_y - 1));
+    let mut grid: Vec<Vec<u32>> = vec![vec![]; (side * side_y) as usize];
     let mut far: Vec<u32> = vec![];
     for (k, v) in viewers.iter().enumerate() {
         if v.reach2 <= VIEW_NEAR * VIEW_NEAR {
@@ -660,7 +661,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         // Units that take time to spot: `seen` is "in view" here, `near` those that see it at once.
         let slow = d.spot_time > 0.0 || d.spot_time_moving > 0.0;
         let (cx, cy) = cell(c.pos);
-        let rows = (cy - span).max(0)..=(cy + span).min(side - 1);
+        let rows = (cy - span).max(0)..=(cy + span).min(side_y - 1);
         let nearby = rows.flat_map(|y| ((cx - span).max(0)..=(cx + span).min(side - 1)).map(move |x| (y * side + x) as usize));
         for k in nearby.flat_map(|i| grid[i].iter()).chain(far.iter()) {
             let v = &viewers[*k as usize];
@@ -1552,7 +1553,7 @@ fn think(
                 let mut c = c;
                 if !df.is_air() && nav.at(&map, c) != 0 {
                     let (cx, cy) = map.cell_of(c);
-                    if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                    if let Some((x, y)) = nearest_free(&nav.occ, map.dims(), cx, cy) {
                         c = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                     }
                 }
@@ -1804,7 +1805,7 @@ fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
         return p;
     }
     let (cx, cy) = map.cell_of(p);
-    nearest_free(&nav.occ, map.n, cx, cy).map_or(p, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL))
+    nearest_free(&nav.occ, map.dims(), cx, cy).map_or(p, |(x, y)| v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL))
 }
 
 /// Infantry cover: where to stand so that a tree, rock or wreck is between the unit and the
@@ -2074,7 +2075,7 @@ fn factories(
             let mut exit = body.pos + v2(0.0, df.footprint as f32 * CELL * 0.5 + 1.5);
             if !pd.is_air() && nav.at(&map, exit) != 0 {
                 let (cx, cy) = map.cell_of(exit);
-                if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                if let Some((x, y)) = nearest_free(&nav.occ, map.dims(), cx, cy) {
                     exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                 }
             }
@@ -2084,7 +2085,7 @@ fn factories(
             // them new orders. Move it to the nearest free cell like the exit.
             if rally0.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
                 let (cx, cy) = map.cell_of(rally);
-                if let Some((x, y)) = nearest_free(&nav.occ, map.n, cx, cy) {
+                if let Some((x, y)) = nearest_free(&nav.occ, map.dims(), cx, cy) {
                     rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                 }
             }
@@ -2313,8 +2314,8 @@ fn locomotion(
     map: Res<MapData>,
     mut nav: ResMut<Nav>,
 ) {
-    let world = map.world();
-    let n = map.n as i32;
+    let (world, world_z) = (map.world_x(), map.world_z());
+    let n = map.nx as i32;
     let needs_path = |df: &crate::data::UnitDef, m: &Mover| -> Option<V2> {
         let g = m.goal?;
         (df.mv.kind == MoveKind::Land && m.hold <= 0.0 && (m.path.is_empty() || m.path_goal.dist(g) > 3.0)).then_some(g)
@@ -2336,7 +2337,7 @@ fn locomotion(
     let occ = &nav.occ;
     let found = par_map(&wanted, 1, |&(_, from, to, amph)| {
         thread_local!(static SCRATCH: std::cell::RefCell<PathScratch> = Default::default());
-        SCRATCH.with(|sc| find_path(occ, map.n, from, to, amph, &mut sc.borrow_mut()))
+        SCRATCH.with(|sc| find_path(occ, map.dims(), from, to, amph, &mut sc.borrow_mut()))
     });
     let mut paths: Vec<(u32, Vec<V2>)> = wanted.iter().map(|w| w.0).zip(found).collect();
     paths.reverse();
@@ -2389,7 +2390,7 @@ fn locomotion(
                 } else {
                     desired = body.yaw + 1.0;
                 }
-                if body.pos.x < 3.0 || body.pos.y < 3.0 || body.pos.x > world - 3.0 || body.pos.y > world - 3.0 {
+                if body.pos.x < 3.0 || body.pos.y < 3.0 || body.pos.x > world - 3.0 || body.pos.y > world_z - 3.0 {
                     desired = (map.center() - body.pos).angle();
                     m.extend = 0.0;
                 }
@@ -2436,7 +2437,7 @@ fn locomotion(
                 let occ = &nav.occ;
                 let blocked = |p: V2| -> bool {
                     let (cx, cy) = ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
-                    cx < 0 || cy < 0 || cx >= n || cy >= n || !crate::map::passable_for(occ[(cy * n + cx) as usize], mv.amphibious)
+                    !map.inside(cx, cy) || !crate::map::passable_for(occ[(cy * n + cx) as usize], mv.amphibious)
                 };
                 while m.path.len() > 1 && body.pos.dist(*m.path.last().unwrap()) < 1.0 {
                     m.path.pop();
@@ -2515,7 +2516,7 @@ fn locomotion(
                 body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
             }
         }
-        body.pos = v2(body.pos.x.clamp(0.5, world - 0.5), body.pos.y.clamp(0.5, world - 0.5));
+        body.pos = v2(body.pos.x.clamp(0.5, world - 0.5), body.pos.y.clamp(0.5, world_z - 0.5));
         body.vel = (body.pos - old) * (1.0 / DT);
     }
     debug_assert!(paths.is_empty(), "locomotion planned paths it did not use");
@@ -3316,9 +3317,8 @@ fn projectiles(
         // Cover: trees, rocks and wrecks the shot flies through on the way soak up part of it.
         soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
         soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, &map, &defs, &census, &mut effects);
-        let w = map.world();
         let Some((at, victim)) = hit else {
-            if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > w + 20.0 || b.z > w + 20.0 {
+            if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > map.world_x() + 20.0 || b.z > map.world_z() + 20.0 {
                 if p.radius > 0.0 && p.life <= 0.0 {
                     fx.push(b, FX_BLAST, p.radius);
                 }

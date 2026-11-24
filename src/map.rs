@@ -219,6 +219,8 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
 
 /// Size of one build/navigation grid cell in world units.
 pub const CELL: f32 = 2.0;
+/// Cells across (x) and deep (z) of a map's per-cell grids, which are stored row by row.
+pub type Dims = (usize, usize);
 /// Owner codes for map props.
 pub const PROP_NEUTRAL: u8 = 0;
 pub const PROP_HOSTILE: u8 = 1;
@@ -282,8 +284,12 @@ pub const START_CLEAR_PROPS: f32 = 40.0;
 #[derive(Clone, Serialize, Deserialize, Default, Resource)]
 pub struct MapData {
     pub name: String,
-    /// Side length in cells; the heightmap has (n+1)^2 vertices.
-    pub n: usize,
+    /// Width in cells (along x). Maps may be rectangular: the heightmap has (nx+1) x (ny+1)
+    /// vertices, row by row (one row per z), and every per-cell grid is `nx` wide and `ny` deep.
+    #[serde(alias = "n")]
+    pub nx: usize,
+    /// Depth in cells (along z).
+    pub ny: usize,
     pub heights: Vec<f32>,
     /// The sea: the water level of every cell that belongs to no lake.
     pub water: f32,
@@ -316,7 +322,7 @@ pub struct MapData {
     /// over the ones below by its mask. Maps saved without layers are painted at load.
     #[serde(default)]
     pub layers: Vec<crate::surface::Layer>,
-    /// Masks of layers 1.., one byte per cell, layer after layer (`(layers.len() - 1) * n * n`).
+    /// Masks of layers 1.., one byte per cell, layer after layer (`(layers.len() - 1) * nx * ny`).
     #[serde(default)]
     pub masks: Vec<u8>,
     /// Roads: purely visual lines on the ground.
@@ -346,7 +352,11 @@ impl SightBlock<'_> {
 #[derive(Serialize, Deserialize)]
 struct MapFile {
     name: String,
+    /// Width in cells (x).
     n: usize,
+    /// Depth in cells (z); left out on a square map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ny: Option<usize>,
     water: f32,
     min_height: f32,
     max_height: f32,
@@ -382,29 +392,76 @@ struct MapFile {
 pub const MAX_LAKES: usize = 255;
 
 impl MapData {
-    pub fn world(&self) -> f32 {
-        self.n as f32 * CELL
+    /// Width of the map in world units (along x).
+    pub fn world_x(&self) -> f32 {
+        self.nx as f32 * CELL
+    }
+    /// Depth of the map in world units (along z).
+    pub fn world_z(&self) -> f32 {
+        self.ny as f32 * CELL
+    }
+    /// Size of the map in world units (x, z).
+    pub fn size(&self) -> V2 {
+        v2(self.world_x(), self.world_z())
+    }
+    /// The longer side in world units.
+    pub fn world_max(&self) -> f32 {
+        self.world_x().max(self.world_z())
+    }
+    /// Side of a square map of the same area, in world units: a typical distance across the map
+    /// (equal to the side on a square map).
+    pub fn extent(&self) -> f32 {
+        if self.nx == self.ny { self.world_x() } else { (self.world_x() * self.world_z()).sqrt() }
+    }
+    pub fn square(&self) -> bool {
+        self.nx == self.ny
+    }
+    /// Cells across and deep: the size of every per-cell grid (row by row, `nx` per row).
+    pub fn dims(&self) -> Dims {
+        (self.nx, self.ny)
+    }
+    /// Number of cells.
+    pub fn cells(&self) -> usize {
+        self.nx * self.ny
+    }
+    /// Number of heightmap vertices per row.
+    pub fn vx(&self) -> usize {
+        self.nx + 1
     }
     pub fn center(&self) -> V2 {
-        v2(self.world() * 0.5, self.world() * 0.5)
+        v2(self.world_x() * 0.5, self.world_z() * 0.5)
     }
     pub fn cell_of(&self, p: V2) -> (i32, i32) {
         ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32)
     }
     pub fn inside(&self, cx: i32, cy: i32) -> bool {
-        cx >= 0 && cy >= 0 && (cx as usize) < self.n && (cy as usize) < self.n
+        cx >= 0 && cy >= 0 && (cx as usize) < self.nx && (cy as usize) < self.ny
+    }
+    /// Index of an inside cell in the per-cell grids.
+    pub fn idx(&self, cx: i32, cy: i32) -> usize {
+        cy as usize * self.nx + cx as usize
     }
     pub fn clamp(&self, p: V2) -> V2 {
-        let w = self.world() - 0.5;
-        v2(p.x.clamp(0.5, w), p.y.clamp(0.5, w))
+        v2(p.x.clamp(0.5, self.world_x() - 0.5), p.y.clamp(0.5, self.world_z() - 0.5))
+    }
+    /// Where a world position lies in a square picture of the map (lobby, game browser), 0..1 both
+    /// ways: the longer side fills the picture, the shorter one is centred in it.
+    pub fn pic_uv(&self, p: V2) -> (f32, f32) {
+        let w = self.world_max().max(1.0);
+        let off = (self.size() - v2(w, w)) * 0.5;
+        ((p.x - off.x) / w, (p.y - off.y) / w)
+    }
+    /// Is a world position on the map?
+    pub fn on_map(&self, p: V2) -> bool {
+        p.x >= 0.0 && p.y >= 0.0 && p.x <= self.world_x() && p.y <= self.world_z()
     }
     pub fn vertex(&self, x: usize, y: usize) -> f32 {
-        self.heights[y.min(self.n) * (self.n + 1) + x.min(self.n)]
+        self.heights[y.min(self.ny) * (self.nx + 1) + x.min(self.nx)]
     }
     /// Bilinear terrain height at a world position.
     pub fn height(&self, x: f32, z: f32) -> f32 {
-        let fx = (x / CELL).clamp(0.0, self.n as f32 - 0.001);
-        let fz = (z / CELL).clamp(0.0, self.n as f32 - 0.001);
+        let fx = (x / CELL).clamp(0.0, self.nx as f32 - 0.001);
+        let fz = (z / CELL).clamp(0.0, self.ny as f32 - 0.001);
         let (ix, iz) = (fx as usize, fz as usize);
         let (tx, tz) = (fx - ix as f32, fz - iz as f32);
         let a = self.vertex(ix, iz);
@@ -421,8 +478,7 @@ impl MapData {
         if self.lake_of.is_empty() {
             return self.water;
         }
-        let m = self.n.saturating_sub(1);
-        match self.lake_of.get(cy.min(m) * self.n + cx.min(m)) {
+        match self.lake_of.get(cy.min(self.ny.saturating_sub(1)) * self.nx + cx.min(self.nx.saturating_sub(1))) {
             Some(&k) if k > 0 => self.lakes.get(k as usize - 1).map_or(self.water, |l| l.max(self.water)),
             _ => self.water,
         }
@@ -439,12 +495,12 @@ impl MapData {
     }
     /// Highest water level of the (up to four) cells around a vertex.
     pub fn water_vertex(&self, x: usize, y: usize) -> f32 {
-        if self.lake_of.is_empty() || self.n == 0 {
+        if self.lake_of.is_empty() || self.nx == 0 || self.ny == 0 {
             return self.water;
         }
         let mut w = self.water;
-        for cy in y.saturating_sub(1)..=y.min(self.n - 1) {
-            for cx in x.saturating_sub(1)..=x.min(self.n - 1) {
+        for cy in y.saturating_sub(1)..=y.min(self.ny - 1) {
+            for cx in x.saturating_sub(1)..=x.min(self.nx - 1) {
                 w = w.max(self.water_cell(cx, cy));
             }
         }
@@ -452,13 +508,13 @@ impl MapData {
     }
     /// Highest water level within `r` cells of a position (for looks: shores, ground painting).
     pub fn water_near(&self, p: V2, r: usize) -> f32 {
-        if self.lake_of.is_empty() || self.n == 0 {
+        if self.lake_of.is_empty() || self.nx == 0 || self.ny == 0 {
             return self.water;
         }
         let (cx, cy) = ((p.x / CELL).max(0.0) as usize, (p.y / CELL).max(0.0) as usize);
         let mut w = self.water;
-        for y in cy.saturating_sub(r)..=(cy + r).min(self.n - 1) {
-            for x in cx.saturating_sub(r)..=(cx + r).min(self.n - 1) {
+        for y in cy.saturating_sub(r)..=(cy + r).min(self.ny - 1) {
+            for x in cx.saturating_sub(r)..=(cx + r).min(self.nx - 1) {
                 w = w.max(self.water_cell(x, y));
             }
         }
@@ -476,12 +532,12 @@ impl MapData {
 
     /// The connected cells around `start` (8 neighbours) for which `take` holds.
     fn connected(&self, start: (usize, usize), take: impl Fn(usize, usize) -> bool) -> Vec<usize> {
-        let n = self.n;
-        let mut seen = vec![false; n * n];
+        let (n, ny) = self.dims();
+        let mut seen = vec![false; n * ny];
         let mut out = vec![];
         let mut stack = vec![start];
         while let Some((x, y)) = stack.pop() {
-            if x >= n || y >= n || seen[y * n + x] || !take(x, y) {
+            if x >= n || y >= ny || seen[y * n + x] || !take(x, y) {
                 continue;
             }
             seen[y * n + x] = true;
@@ -499,14 +555,14 @@ impl MapData {
     /// Fills the hollow at `p` with water up to `level`: every connected cell with ground below
     /// the level joins the lake (a lake already at `p` is replaced). Returns the number of cells.
     pub fn flood_lake(&mut self, p: V2, level: f32) -> Result<usize, String> {
-        let n = self.n;
-        if n == 0 {
+        let (n, ny) = self.dims();
+        if n == 0 || ny == 0 {
             return Err("no map".into());
         }
         if level <= self.water {
             return Err("a lake must lie above the map's water level".into());
         }
-        let start = (((p.x / CELL).max(0.0) as usize).min(n - 1), ((p.y / CELL).max(0.0) as usize).min(n - 1));
+        let start = (((p.x / CELL).max(0.0) as usize).min(n - 1), ((p.y / CELL).max(0.0) as usize).min(ny - 1));
         if self.cell_low(start.0, start.1) >= level {
             return Err("the ground here is above that level".into());
         }
@@ -515,7 +571,7 @@ impl MapData {
             return Err(format!("a map holds at most {MAX_LAKES} lakes"));
         }
         let cells = self.connected(start, |x, y| self.cell_low(x, y) < level);
-        self.lake_of.resize(n * n, 0);
+        self.lake_of.resize(n * ny, 0);
         self.lakes.push(level);
         let k = self.lakes.len() as u8;
         for c in &cells {
@@ -528,11 +584,11 @@ impl MapData {
 
     /// Drains the lake at `p`. False if there is none.
     pub fn remove_lake(&mut self, p: V2) -> bool {
-        let n = self.n;
-        if n == 0 || self.lake_of.len() != n * n {
+        let (n, ny) = self.dims();
+        if n == 0 || ny == 0 || self.lake_of.len() != n * ny {
             return false;
         }
-        let start = (((p.x / CELL).max(0.0) as usize).min(n - 1), ((p.y / CELL).max(0.0) as usize).min(n - 1));
+        let start = (((p.x / CELL).max(0.0) as usize).min(n - 1), ((p.y / CELL).max(0.0) as usize).min(ny - 1));
         let k = self.lake_of[start.1 * n + start.0];
         if k == 0 {
             return false;
@@ -602,9 +658,9 @@ impl MapData {
     }
 
     pub fn rebuild_blocked(&mut self) {
-        let n = self.n;
-        self.blocked = vec![0; n * n];
-        for y in 0..n {
+        let (n, ny) = self.dims();
+        self.blocked = vec![0; n * ny];
+        for y in 0..ny {
             for x in 0..n {
                 self.blocked[y * n + x] = self.cell_blocked(x, y);
             }
@@ -613,11 +669,11 @@ impl MapData {
 
     /// Updates the passability of the (up to four) cells around vertex (x, y) after its height changed.
     pub fn reblock_around(&mut self, x: usize, y: usize) {
-        let n = self.n;
-        if n == 0 || self.blocked.len() != n * n {
+        let (n, ny) = self.dims();
+        if n == 0 || ny == 0 || self.blocked.len() != n * ny {
             return;
         }
-        for cy in y.saturating_sub(1)..=y.min(n - 1) {
+        for cy in y.saturating_sub(1)..=y.min(ny - 1) {
             for cx in x.saturating_sub(1)..=x.min(n - 1) {
                 self.blocked[cy * n + cx] = self.cell_blocked(cx, cy);
             }
@@ -640,27 +696,28 @@ impl MapData {
 
     /// Highest vertex of every block of `TOP_BLOCK` x `TOP_BLOCK` cells (row by row), for `los_top`.
     pub fn top_grid(&self) -> Vec<f32> {
-        let b = self.top_side();
-        let mut top = vec![f32::NEG_INFINITY; b * b];
-        for y in 0..=self.n {
-            for x in 0..=self.n {
+        let (bx, by) = self.top_side();
+        let mut top = vec![f32::NEG_INFINITY; bx * by];
+        for y in 0..=self.ny {
+            for x in 0..=self.nx {
                 self.raise_top(&mut top, x, y, self.vertex(x, y));
             }
         }
         top
     }
-    fn top_side(&self) -> usize {
-        self.n.div_ceil(TOP_BLOCK).max(1)
+    /// Blocks of `top_grid` across and deep.
+    fn top_side(&self) -> (usize, usize) {
+        (self.nx.div_ceil(TOP_BLOCK).max(1), self.ny.div_ceil(TOP_BLOCK).max(1))
     }
     /// Vertex (x, y) at height `h`: raises the blocks of the cells it is a corner of (never lowers).
     pub fn raise_top(&self, top: &mut [f32], x: usize, y: usize, h: f32) {
-        let b = self.top_side();
-        if top.len() != b * b {
+        let (b, by) = self.top_side();
+        if top.len() != b * by {
             return;
         }
-        let last = self.n.saturating_sub(1);
-        for cy in [y.saturating_sub(1), y.min(last)] {
-            for cx in [x.saturating_sub(1), x.min(last)] {
+        let (lx, ly) = (self.nx.saturating_sub(1), self.ny.saturating_sub(1));
+        for cy in [y.saturating_sub(1), y.min(ly)] {
+            for cx in [x.saturating_sub(1), x.min(lx)] {
                 let t = &mut top[(cy / TOP_BLOCK) * b + cx / TOP_BLOCK];
                 if h > *t {
                     *t = h;
@@ -672,18 +729,18 @@ impl MapData {
     /// but a sample point above its block's highest vertex needs no terrain height. An empty or
     /// wrong-sized `top` checks every sample.
     pub fn los_top(&self, a: Vec3, b: Vec3, top: &[f32]) -> bool {
-        let side = self.top_side();
-        if top.len() != side * side {
+        let (side, side_y) = self.top_side();
+        if top.len() != side * side_y {
             return self.los(a, b);
         }
         let d = b - a;
         let len = Vec2::new(d.x, d.z).length();
         let steps = (len / CELL).ceil().max(1.0) as i32;
-        let lim = self.n as f32 - 0.001;
+        let (lim_x, lim_z) = (self.nx as f32 - 0.001, self.ny as f32 - 0.001);
         let at = |i: i32| a + d * (i as f32 / steps as f32);
         // The block of the cell `height` samples at p (same clamping); bilinear heights never exceed
         // the cell's corners.
-        let block = |p: Vec3| ((p.z / CELL).clamp(0.0, lim) as usize / TOP_BLOCK) * side + (p.x / CELL).clamp(0.0, lim) as usize / TOP_BLOCK;
+        let block = |p: Vec3| ((p.z / CELL).clamp(0.0, lim_z) as usize / TOP_BLOCK) * side + (p.x / CELL).clamp(0.0, lim_x) as usize / TOP_BLOCK;
         // Cells per step along x and z, for guessing how many samples stay in a block.
         let (sx, sz) = (d.x / steps as f32 / CELL, d.z / steps as f32 / CELL);
         let span = TOP_BLOCK as f32;
@@ -732,14 +789,14 @@ impl MapData {
         let d = b - a;
         let len = Vec2::new(d.x, d.z).length();
         let steps = (len / CELL).ceil().max(1.0) as i32;
-        let n = self.n as i32;
+        let n = self.nx as i32;
         let ends = [((a.x / CELL).floor() as i32, (a.z / CELL).floor() as i32), ((b.x / CELL).floor() as i32, (b.z / CELL).floor() as i32)];
         for i in 1..steps {
             let p = a + d * (i as f32 / steps as f32);
             let ground = self.height(p.x, p.z);
             let (cx, cy) = ((p.x / CELL).floor() as i32, (p.z / CELL).floor() as i32);
             let mut extra = 0.0;
-            if cx >= 0 && cy >= 0 && cx < n && cy < n && !ends.contains(&(cx, cy)) {
+            if self.inside(cx, cy) && !ends.contains(&(cx, cy)) {
                 let c = (cy * n + cx) as usize;
                 extra = block.h.get(c).copied().unwrap_or(0.0);
                 if extra > 0.0 {
@@ -763,7 +820,7 @@ impl MapData {
         if dir == Vec3::ZERO {
             return None;
         }
-        let w = self.world();
+        let (w, wz) = (self.world_x(), self.world_z());
         let ground = |p: Vec3| self.height(p.x, p.z).max(self.water_xz(p.x, p.z));
         let mut t = 0.0;
         let mut prev = origin;
@@ -776,7 +833,7 @@ impl MapData {
             let step = ((prev.y - ground(prev)) * 0.4).clamp(0.5, 40.0);
             t += step;
             let p = origin + dir * t;
-            let inside = p.x >= 0.0 && p.z >= 0.0 && p.x <= w && p.z <= w;
+            let inside = p.x >= 0.0 && p.z >= 0.0 && p.x <= w && p.z <= wz;
             if inside && p.y <= ground(p) {
                 let (mut lo, mut hi) = (prev, p);
                 for _ in 0..16 {
@@ -797,21 +854,28 @@ impl MapData {
         }
         if dir.y < -1e-4 {
             let p = origin + dir * (origin.y / -dir.y);
-            return Some(Vec3::new(p.x.clamp(0.0, w), 0.0, p.z.clamp(0.0, w)));
+            return Some(Vec3::new(p.x.clamp(0.0, w), 0.0, p.z.clamp(0.0, wz)));
         }
         None
     }
 
-    /// Procedural map for 2-10 players with rotational symmetry (every start is equal).
+    /// Procedural square map for 2-10 players with rotational symmetry (every start is equal).
     pub fn generate(n: usize, seed: u64, players: usize) -> MapData {
-        let kk = players.clamp(2, 10);
+        MapData::generate_rect(n, n, seed, players)
+    }
+
+    /// `generate` on a map `nx` cells wide and `ny` deep. Only half a turn maps a rectangle onto
+    /// itself, so a map that is not square is made for two players whatever `players` says.
+    pub fn generate_rect(nx: usize, ny: usize, seed: u64, players: usize) -> MapData {
+        let n = nx;
+        let kk = if nx == ny { players.clamp(2, 10) } else { 2 };
         let step = std::f32::consts::TAU / kk as f32;
         let mut rng = Rng(seed.wrapping_mul(0x2545F4914F6CDD1D) | 1);
         for _ in 0..8 {
             rng.next();
         }
-        let w = n as f32 * CELL;
-        let c = v2(w * 0.5, w * 0.5);
+        let (w, wz) = (nx as f32 * CELL, ny as f32 * CELL);
+        let c = v2(w * 0.5, wz * 0.5);
         let rot = |p: V2, k: usize| -> V2 {
             let q = p - c;
             // `fm` trigonometry: a seed must give the same map on every platform.
@@ -828,16 +892,16 @@ impl MapData {
             ((acc / kk as f32 - 0.5) * 1.2 * (kk as f32).sqrt() + 0.5).clamp(0.0, 1.0)
         };
         // Two and four players sit in the corners, other counts on a circle.
-        let start0 = if kk == 2 || kk == 4 { v2(w * 0.14, w * 0.14) } else { c + V2::from_angle(-2.356) * (w * 0.38) };
+        let start0 = if kk == 2 || kk == 4 { v2(w * 0.14, wz * 0.14) } else { c + V2::from_angle(-2.356) * (w * 0.38) };
         let starts: Vec<V2> = (0..kk).map(|k| rot(start0, k)).collect();
         let seg_dist = |p: V2, a: V2, b: V2| -> f32 {
             let ab = b - a;
             let t = ((p - a).dot(ab) / ab.len2().max(1e-6)).clamp(0.0, 1.0);
             p.dist(a + ab * t)
         };
-        let mut heights = vec![0.0f32; (n + 1) * (n + 1)];
-        for y in 0..=n {
-            for x in 0..=n {
+        let mut heights = vec![0.0f32; (nx + 1) * (ny + 1)];
+        for y in 0..=ny {
+            for x in 0..=nx {
                 let p = v2(x as f32 * CELL, y as f32 * CELL);
                 let elev = sym(p, 1.0 / 110.0, seed);
                 let ridge = sym(p, 1.0 / 55.0, seed ^ 0x77AA);
@@ -859,11 +923,11 @@ impl MapData {
                 let flat_w = smooth(40.0, 22.0, base_d);
                 h = h + (3.0 - h) * flat_w;
                 // Map border falls away slightly so the edge reads as an edge.
-                let edge = (p.x.min(p.y).min(w - p.x).min(w - p.y) / 10.0).clamp(0.0, 1.0);
+                let edge = (p.x.min(p.y).min(w - p.x).min(wz - p.y) / 10.0).clamp(0.0, 1.0);
                 heights[y * (n + 1) + x] = h * (0.6 + 0.4 * edge);
             }
         }
-        let mut m = MapData { name: format!("Random {seed}"), n, heights, water: 0.0, deposits: vec![], starts, seed, ..Default::default() };
+        let mut m = MapData { name: format!("Random {seed}"), nx, ny, heights, water: 0.0, deposits: vec![], starts, seed, ..Default::default() };
         m.rebuild_blocked();
         m.points = m.auto_points();
         // Dirt tracks along the open lanes, rotated like everything else (visual only).
@@ -885,11 +949,11 @@ impl MapData {
             q.push(start0 + v2(dx, dy));
         }
         // Roughly the same total number of deposits whatever the player count.
-        let want = ((7 + n / 48) * 4 / kk).max(3);
+        let want = ((7 + (nx + ny) / 2 / 48) * 4 / kk).max(3);
         let mut tries = 0;
         while q.len() < 4 + want && tries < 6000 {
             tries += 1;
-            let p = v2(rng.range(10.0, w - 10.0), rng.range(10.0, w - 10.0));
+            let p = v2(rng.range(10.0, w - 10.0), rng.range(10.0, wz - 10.0));
             // Keep only points in the first player's sector; the rotations fill the rest.
             let rel = wrap((p - c).angle() - (start0 - c).angle());
             if rel.abs() > step * 0.5 {
@@ -943,19 +1007,21 @@ impl MapData {
         use crate::data::FeatureClass;
         let pick_list = |class: FeatureClass| -> Vec<(usize, f32)> { kinds.iter().enumerate().filter(|(_, k)| k.class == class && k.weight > 0.0).map(|(i, k)| (i, k.weight)).collect() };
         let (trees, rocks) = (pick_list(FeatureClass::Tree), pick_list(FeatureClass::Rock));
-        if self.n == 0 || (trees.is_empty() && rocks.is_empty()) {
+        if self.cells() == 0 || (trees.is_empty() && rocks.is_empty()) {
             return;
         }
-        if self.blocked.len() != self.n * self.n {
+        if self.blocked.len() != self.cells() {
             self.rebuild_blocked();
         }
         let mut rng = Rng(seed.wrapping_mul(0x9E3779B97F4A7C15) ^ 0x7EE5 | 1);
         for _ in 0..8 {
             rng.next();
         }
-        let w = self.world();
+        let (w, wz) = (self.world_x(), self.world_z());
         let c = self.center();
-        let kk = self.starts.len().max(1);
+        // Turning by a quarter or less maps only a square onto itself; a rectangle keeps the
+        // symmetry of two starts (half a turn) and is scattered without any for more.
+        let kk = if self.square() || self.starts.len() <= 2 { self.starts.len().max(1) } else { 1 };
         let step = std::f32::consts::TAU / kk as f32;
         let start0 = self.starts.first().copied().unwrap_or(c);
         // `fm` trigonometry: the self-test map must come out the same on every platform.
@@ -966,9 +1032,9 @@ impl MapData {
         };
         // Spatial hash of everything placed so far, 4 units per cell.
         const G: f32 = 4.0;
-        let gn = (w / G).ceil() as usize + 1;
-        let mut grid: Vec<Vec<(V2, f32)>> = vec![vec![]; gn * gn];
-        let gcell = |p: V2| ((p.x / G).floor().clamp(0.0, gn as f32 - 1.0) as usize, (p.y / G).floor().clamp(0.0, gn as f32 - 1.0) as usize);
+        let (gn, gny) = ((w / G).ceil() as usize + 1, (wz / G).ceil() as usize + 1);
+        let mut grid: Vec<Vec<(V2, f32)>> = vec![vec![]; gn * gny];
+        let gcell = |p: V2| ((p.x / G).floor().clamp(0.0, gn as f32 - 1.0) as usize, (p.y / G).floor().clamp(0.0, gny as f32 - 1.0) as usize);
         for f in &self.features {
             let r = self.feature_kinds.get(f.kind as usize).and_then(|id| kinds.iter().find(|k| k.id == *id)).map_or(1.0, |k| k.radius() * f.scale);
             let (x, y) = gcell(f.pos);
@@ -976,7 +1042,7 @@ impl MapData {
         }
         let fits = |grid: &Vec<Vec<(V2, f32)>>, p: V2, r: f32| -> bool {
             let (x, y) = gcell(p);
-            for gy in y.saturating_sub(2)..(y + 3).min(gn) {
+            for gy in y.saturating_sub(2)..(y + 3).min(gny) {
                 for gx in x.saturating_sub(2)..(x + 3).min(gn) {
                     if grid[gy * gn + gx].iter().any(|(q, qr)| q.dist(p) < (r + qr) * 0.85) {
                         return false;
@@ -989,11 +1055,11 @@ impl MapData {
         // Roads stay clear (cells within a crown's reach of the edge).
         let on_road = self.road_cells(1.2);
         let ok_spot = |m: &MapData, p: V2, r: f32| -> bool {
-            if p.x < 3.0 || p.y < 3.0 || p.x > w - 3.0 || p.y > w - 3.0 {
+            if p.x < 3.0 || p.y < 3.0 || p.x > w - 3.0 || p.y > wz - 3.0 {
                 return false;
             }
             let (cx, cy) = m.cell_of(p);
-            if !m.inside(cx, cy) || m.blocked[cy as usize * m.n + cx as usize] != 0 || on_road[cy as usize * m.n + cx as usize] || m.h(p) < m.water_at(p) + 0.4 {
+            if !m.inside(cx, cy) || m.blocked[m.idx(cx, cy)] != 0 || on_road[m.idx(cx, cy)] || m.h(p) < m.water_at(p) + 0.4 {
                 return false;
             }
             !m.starts.iter().any(|s| s.dist(p) < 26.0) && !m.deposits.iter().any(|d| d.dist(p) < 3.5 + r) && !foots.iter().any(|(q, fr)| q.dist(p) < fr + r)
@@ -1009,7 +1075,7 @@ impl MapData {
             }
             list[list.len() - 1].0
         };
-        let area = w * w;
+        let area = w * wz;
         // (class list, attempts, noise scale, seed salt, threshold low/high, base chance)
         let passes: [(&[(usize, f32)], f32, f32, u64, f32, f32, f32); 2] = [(&trees, area / 4.0 * amount, 1.0 / 70.0, 0xF0E5, 0.54, 0.62, 0.01), (&rocks, area / 160.0 * amount, 1.0 / 40.0, 0x50C5, 0.58, 0.70, 0.04)];
         for (list, attempts, freq, salt, lo, hi, base) in passes {
@@ -1019,7 +1085,7 @@ impl MapData {
             // Points outside the first player's sector are skipped, so 1/kk of the attempts land
             // there, and each one that is kept is placed kk times.
             for _ in 0..attempts as usize {
-                let p = v2(rng.range(3.0, w - 3.0), rng.range(3.0, w - 3.0));
+                let p = v2(rng.range(3.0, w - 3.0), rng.range(3.0, wz - 3.0));
                 if kk > 1 && wrap((p - c).angle() - (start0 - c).angle()).abs() > step * 0.5 {
                     // Outside the first player's sector: its rotations cover that ground.
                     continue;
@@ -1054,13 +1120,13 @@ impl MapData {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let mn = self.heights.iter().cloned().fold(f32::MAX, f32::min);
         let mx = self.heights.iter().cloned().fold(f32::MIN, f32::max).max(mn + 0.01);
-        let side = (self.n + 1) as u32;
         let px: Vec<u16> = self.heights.iter().map(|h| (((h - mn) / (mx - mn)) * 65535.0).round() as u16).collect();
-        let img = image::ImageBuffer::<image::Luma<u16>, Vec<u16>>::from_raw(side, side, px).ok_or("bad heightmap size")?;
+        let img = image::ImageBuffer::<image::Luma<u16>, Vec<u16>>::from_raw(self.nx as u32 + 1, self.ny as u32 + 1, px).ok_or("bad heightmap size")?;
         img.save(dir.join("height.png")).map_err(|e| e.to_string())?;
         let f = MapFile {
             name: self.name.clone(),
-            n: self.n,
+            n: self.nx,
+            ny: (self.ny != self.nx).then_some(self.ny),
             water: self.water,
             min_height: mn,
             max_height: mx,
@@ -1077,10 +1143,10 @@ impl MapData {
             lakes: self.lakes.clone(),
         };
         let file = dir.join("lakes.png");
-        if self.lakes.is_empty() || self.lake_of.len() != self.n * self.n {
+        if self.lakes.is_empty() || self.lake_of.len() != self.cells() {
             let _ = std::fs::remove_file(&file);
         } else {
-            let img = image::GrayImage::from_raw(self.n as u32, self.n as u32, self.lake_of.clone()).ok_or("bad lake map size")?;
+            let img = image::GrayImage::from_raw(self.nx as u32, self.ny as u32, self.lake_of.clone()).ok_or("bad lake map size")?;
             img.save(&file).map_err(|e| e.to_string())?;
         }
         let len = self.mask_len();
@@ -1088,7 +1154,7 @@ impl MapData {
             let file = dir.join(format!("layer{i}.png"));
             match self.masks.get((i - 1) * len..i * len) {
                 Some(px) if i < self.layers.len() => {
-                    let img = image::GrayImage::from_raw(self.n as u32, self.n as u32, px.to_vec()).ok_or("bad mask size")?;
+                    let img = image::GrayImage::from_raw(self.nx as u32, self.ny as u32, px.to_vec()).ok_or("bad mask size")?;
                     img.save(&file).map_err(|e| e.to_string())?;
                 }
                 // A layer that is gone leaves no stale mask behind.
@@ -1105,12 +1171,15 @@ impl MapData {
         let text = std::fs::read_to_string(dir.join("map.json")).map_err(|e| format!("{}: {e}", dir.display()))?;
         let f: MapFile = serde_json::from_str(&text).map_err(|e| format!("map.json: {e}"))?;
         let img = image::open(dir.join("height.png")).map_err(|e| format!("height.png: {e}"))?.into_luma16();
-        let side = f.n as u32 + 1;
-        if img.width() != side || img.height() != side {
-            return Err(format!("height.png must be {side}x{side} pixels for a map of {} cells", f.n));
+        let (nx, ny) = (f.n, f.ny.unwrap_or(f.n));
+        if nx == 0 || ny == 0 {
+            return Err("map.json: a map needs at least one cell".into());
+        }
+        if img.width() as usize != nx + 1 || img.height() as usize != ny + 1 {
+            return Err(format!("height.png must be {}x{} pixels for a map of {nx}x{ny} cells", nx + 1, ny + 1));
         }
         let heights = img.as_raw().iter().map(|v| f.min_height + (*v as f32 / 65535.0) * (f.max_height - f.min_height)).collect();
-        let mut m = MapData { name: f.name, n: f.n, heights, water: f.water, deposits: f.deposits, starts: f.starts, variants: f.variants, attached: f.attached, points: f.points, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
+        let mut m = MapData { name: f.name, nx, ny, heights, water: f.water, deposits: f.deposits, starts: f.starts, variants: f.variants, attached: f.attached, points: f.points, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
         for line in &f.roads {
             m.roads.push(crate::surface::parse_road(line)?);
         }
@@ -1121,8 +1190,8 @@ impl MapData {
             let mut px = vec![0u8; len];
             if let Ok(img) = image::open(dir.join(format!("layer{i}.png"))) {
                 let img = img.into_luma8();
-                if img.width() as usize != m.n || img.height() as usize != m.n {
-                    return Err(format!("layer{i}.png must be {0}x{0} pixels", m.n));
+                if img.width() as usize != m.nx || img.height() as usize != m.ny {
+                    return Err(format!("layer{i}.png must be {}x{} pixels", m.nx, m.ny));
                 }
                 px.copy_from_slice(img.as_raw());
             }
@@ -1133,8 +1202,8 @@ impl MapData {
                 return Err(format!("map.json: bad lakes (at most {MAX_LAKES} levels)"));
             }
             let img = image::open(dir.join("lakes.png")).map_err(|e| format!("lakes.png: {e}"))?.into_luma8();
-            if img.width() as usize != m.n || img.height() as usize != m.n {
-                return Err(format!("lakes.png must be {0}x{0} pixels", m.n));
+            if img.width() as usize != m.nx || img.height() as usize != m.ny {
+                return Err(format!("lakes.png must be {}x{} pixels", m.nx, m.ny));
             }
             m.lakes = f.lakes;
             m.lake_of = img.into_raw();
@@ -1181,7 +1250,7 @@ impl MapData {
         let mut out: Vec<V2> = vec![];
         for p in want {
             let (cx, cy) = self.cell_of(self.clamp(p));
-            let Some((x, y)) = nearest_free(&self.blocked, self.n, cx, cy) else { continue };
+            let Some((x, y)) = nearest_free(&self.blocked, self.dims(), cx, cy) else { continue };
             let p = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
             if out.iter().all(|o| o.dist(p) > 24.0) && starts.iter().all(|s| s.dist(p) > 28.0) {
                 out.push(p);
@@ -1332,19 +1401,23 @@ pub fn passable_for(occ: u8, amphibious: bool) -> bool {
     passable(occ) || (amphibious && occ == OCC_DEEP)
 }
 
-fn free(occ: &[u8], n: i32, x: i32, y: i32, amph: bool) -> bool {
-    x >= 0 && y >= 0 && x < n && y < n && passable_for(occ[(y * n + x) as usize], amph)
+fn free(occ: &[u8], (n, ny): (i32, i32), x: i32, y: i32, amph: bool) -> bool {
+    x >= 0 && y >= 0 && x < n && y < ny && passable_for(occ[(y * n + x) as usize], amph)
+}
+
+fn idims((n, ny): Dims) -> (i32, i32) {
+    (n as i32, ny as i32)
 }
 
 /// True if a straight walk from a to b stays on free cells.
-pub fn line_clear(occ: &[u8], n: usize, a: V2, b: V2, amph: bool) -> bool {
+pub fn line_clear(occ: &[u8], n: Dims, a: V2, b: V2, amph: bool) -> bool {
     let d = b - a;
     let steps = (d.len() / (CELL * 0.4)).ceil().max(1.0) as i32;
     let side = d.norm().perp() * 0.5;
     for i in 0..=steps {
         let p = a + d * (i as f32 / steps as f32);
         for q in [p + side, p - side] {
-            if !free(occ, n as i32, (q.x / CELL).floor() as i32, (q.y / CELL).floor() as i32, amph) {
+            if !free(occ, idims(n), (q.x / CELL).floor() as i32, (q.y / CELL).floor() as i32, amph) {
                 return false;
             }
         }
@@ -1353,13 +1426,13 @@ pub fn line_clear(occ: &[u8], n: usize, a: V2, b: V2, amph: bool) -> bool {
 }
 
 /// Nearest free cell to (cx, cy), searching outward in rings.
-pub fn nearest_free(occ: &[u8], n: usize, cx: i32, cy: i32) -> Option<(i32, i32)> {
+pub fn nearest_free(occ: &[u8], n: Dims, cx: i32, cy: i32) -> Option<(i32, i32)> {
     nearest_free_for(occ, n, cx, cy, false)
 }
 
 /// Nearest cell to (cx, cy) a land unit can stand on (amphibious ones also under water).
-pub fn nearest_free_for(occ: &[u8], n: usize, cx: i32, cy: i32, amph: bool) -> Option<(i32, i32)> {
-    let ni = n as i32;
+pub fn nearest_free_for(occ: &[u8], n: Dims, cx: i32, cy: i32, amph: bool) -> Option<(i32, i32)> {
+    let ni = idims(n);
     if free(occ, ni, cx, cy, amph) {
         return Some((cx, cy));
     }
@@ -1388,27 +1461,29 @@ pub fn nearest_free_for(occ: &[u8], n: usize, cx: i32, cy: i32, amph: bool) -> O
 /// A* over the occupancy grid. Returns waypoints in reverse order (pop from the back),
 /// ending at `to` or the nearest reachable point. `amph`: the unit also drives under water
 /// (`OCC_DEEP` cells).
-pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, amph: bool, sc: &mut PathScratch) -> Vec<V2> {
-    let ni = n as i32;
+pub fn find_path(occ: &[u8], n: Dims, from: V2, to: V2, amph: bool, sc: &mut PathScratch) -> Vec<V2> {
+    let dn = idims(n);
+    let (ni, nj) = dn;
     let cell = |p: V2| ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
     let (sx, sy) = cell(from);
     let (tx0, ty0) = cell(to);
-    let Some((tx, ty)) = nearest_free_for(occ, n, tx0.clamp(0, ni - 1), ty0.clamp(0, ni - 1), amph) else {
+    let Some((tx, ty)) = nearest_free_for(occ, n, tx0.clamp(0, ni - 1), ty0.clamp(0, nj - 1), amph) else {
         return vec![to];
     };
     let goal_pos = if (tx, ty) == (tx0, ty0) { to } else { v2((tx as f32 + 0.5) * CELL, (ty as f32 + 0.5) * CELL) };
     if line_clear(occ, n, from, goal_pos, amph) {
         return vec![goal_pos];
     }
-    if sc.g.len() != n * n {
-        sc.g = vec![0.0; n * n];
-        sc.from = vec![0; n * n];
-        sc.stamp = vec![0; n * n];
+    let cells = n.0 * n.1;
+    if sc.g.len() != cells {
+        sc.g = vec![0.0; cells];
+        sc.from = vec![0; cells];
+        sc.stamp = vec![0; cells];
         sc.gen = 0;
     }
     sc.gen += 1;
     let gen = sc.gen;
-    let (sx, sy) = (sx.clamp(0, ni - 1), sy.clamp(0, ni - 1));
+    let (sx, sy) = (sx.clamp(0, ni - 1), sy.clamp(0, nj - 1));
     let start = (sy * ni + sx) as u32;
     let goal = (ty * ni + tx) as u32;
     let h = |i: u32| -> f32 {
@@ -1444,10 +1519,10 @@ pub fn find_path(occ: &[u8], n: usize, from: V2, to: V2, amph: bool, sc: &mut Pa
         let (x, y) = (i as i32 % ni, i as i32 / ni);
         for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
             let (nx, ny) = (x + dx, y + dy);
-            if !free(occ, ni, nx, ny, amph) {
+            if !free(occ, dn, nx, ny, amph) {
                 continue;
             }
-            if dx != 0 && dy != 0 && (!free(occ, ni, x + dx, y, amph) || !free(occ, ni, x, y + dy, amph)) {
+            if dx != 0 && dy != 0 && (!free(occ, dn, x + dx, y, amph) || !free(occ, dn, x, y + dy, amph)) {
                 continue;
             }
             let j = (ny * ni + nx) as usize;
@@ -1496,7 +1571,7 @@ mod tests {
     /// Variants take their own starts, deposits and slot props; `adapt` drops the deposits of empty slots.
     #[test]
     fn variants_and_adaptive_deposits() {
-        let mut m = MapData { n: 48, starts: vec![v2(10.0, 10.0), v2(80.0, 10.0), v2(10.0, 80.0), v2(80.0, 80.0)], ..Default::default() };
+        let mut m = MapData { nx: 48, ny: 48, starts: vec![v2(10.0, 10.0), v2(80.0, 10.0), v2(10.0, 80.0), v2(80.0, 80.0)], ..Default::default() };
         m.deposits = vec![v2(12.0, 12.0), v2(82.0, 12.0), v2(12.0, 82.0), v2(50.0, 50.0), v2(60.0, 60.0)];
         m.attached = vec![
             Attach { pos: m.deposits[0], start: Some(0), variant: None },
@@ -1524,11 +1599,12 @@ mod tests {
         assert!(g.attached.is_empty());
     }
 
-    /// A flat map at height 10 with a bowl (bottom 6) around (40, 40); the sea is at 0.
+    /// A flat map at height 10 with a bowl (bottom 6) around (40, 40); the sea is at 0. Not
+    /// square, so rows and columns cannot be mixed up unnoticed.
     fn bowl() -> MapData {
-        let n = 48;
-        let mut m = MapData { n, heights: vec![10.0; (n + 1) * (n + 1)], water: 0.0, ..Default::default() };
-        for y in 0..=n {
+        let (n, ny) = (48, 44);
+        let mut m = MapData { nx: n, ny, heights: vec![10.0; (n + 1) * (ny + 1)], water: 0.0, ..Default::default() };
+        for y in 0..=ny {
             for x in 0..=n {
                 let d = v2(x as f32 * CELL, y as f32 * CELL).dist(v2(40.0, 40.0));
                 m.heights[y * (n + 1) + x] = 6.0 + (d / 5.0).min(4.0);
@@ -1553,12 +1629,12 @@ mod tests {
         assert_eq!(m.surface(v2(80.0, 80.0)), 10.0);
         // Water stops land units but not amphibious ones (they float), the far ground stops nobody.
         let (cx, cy) = m.cell_of(c);
-        assert_eq!(m.blocked[cy as usize * m.n + cx as usize], OCC_DEEP);
+        assert_eq!(m.blocked[m.idx(cx, cy)], OCC_DEEP);
         let mut deep = m.clone();
         deep.heights.iter_mut().for_each(|h| *h -= 3.0);
         deep.rebuild_blocked();
-        assert_eq!(deep.blocked[cy as usize * m.n + cx as usize], OCC_DEEP, "5 under the lake: amphibious units float over it");
-        assert_eq!(m.blocked[40 * m.n + 40], 0);
+        assert_eq!(deep.blocked[m.idx(cx, cy)], OCC_DEEP, "5 under the lake: amphibious units float over it");
+        assert_eq!(m.blocked[40 * m.nx + 40], 0);
         // The pointer ray stops at the lake's surface.
         let hit = m.raycast(Vec3::new(40.0, 50.0, 40.0), Vec3::NEG_Y).unwrap();
         assert!((hit.y - 8.0).abs() < 0.01, "{hit}");
@@ -1567,7 +1643,29 @@ mod tests {
         assert_eq!(m.lakes, vec![9.0]);
         assert!(m.remove_lake(c));
         assert!(m.lakes.is_empty() && m.lake_of.is_empty());
-        assert_eq!(m.blocked[cy as usize * m.n + cx as usize], 0);
+        assert_eq!(m.blocked[m.idx(cx, cy)], 0);
+    }
+
+    /// On a map wider than deep the far corner is reachable and nothing is read past the rows.
+    #[test]
+    fn rectangular_paths() {
+        let (n, ny) = (60, 20);
+        let mut m = MapData { nx: n, ny, heights: vec![5.0; (n + 1) * (ny + 1)], water: 0.0, ..Default::default() };
+        // A wall across x = 60 with a gap at the far edge (z 36..40).
+        for y in 0..=16 {
+            m.heights[y * (n + 1) + 30] = 40.0;
+        }
+        m.rebuild_blocked();
+        assert_eq!(m.blocked.len(), n * ny);
+        assert_eq!(m.center(), v2(60.0, 20.0));
+        assert!(!m.inside(10, 25) && m.inside(55, 15));
+        let to = v2(110.0, 5.0);
+        let path = find_path(&m.blocked, m.dims(), v2(5.0, 5.0), to, false, &mut PathScratch::default());
+        assert!(path[0].dist(to) < 0.01, "{path:?}");
+        assert!(path.iter().any(|p| p.y > 30.0), "goes round the wall through the gap: {path:?}");
+        assert!((m.h(v2(119.0, 39.0)) - 5.0).abs() < 0.01);
+        let hit = m.raycast(Vec3::new(100.0, 50.0, 30.0), Vec3::NEG_Y).unwrap();
+        assert!((hit.y - 5.0).abs() < 0.01 && (hit.z - 30.0).abs() < 0.01, "{hit}");
     }
 
     #[test]
@@ -1581,6 +1679,9 @@ mod tests {
         assert_eq!(back.lakes, m.lakes);
         assert_eq!(back.lake_of, m.lake_of);
         assert_eq!(back.blocked, m.blocked);
+        assert_eq!((back.nx, back.ny), (48, 44));
+        assert_eq!(back.heights.len(), m.heights.len());
+        assert!(back.heights.iter().zip(&m.heights).all(|(a, b)| (a - b).abs() < 0.01));
         m.clear_lakes();
         m.save(&dir).unwrap();
         assert!(!dir.join("lakes.png").exists());

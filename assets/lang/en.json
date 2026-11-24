@@ -1320,6 +1320,8 @@
     "loaded": "loaded {}",
     "new": "New:",
     "new_size": "{} cells ({} units)",
+    "square": "square",
+    "rect_two": "Maps that are not square are generated for 2 players (Flat takes any number)",
     "players": "players",
     "seed": "Seed",
     "generate": "Generate",

@@ -251,7 +251,7 @@ pub fn start_view(world: &mut World, me: u8, with_fog: bool) {
     world.insert_resource(LocalCommands::default());
     world.insert_resource(marks::Marks::default());
     world.insert_resource(intel::IntelMemory::default());
-    world.insert_resource(intel::FogGrid::new(map.n));
+    world.insert_resource(intel::FogGrid::new(map.dims()));
     world.insert_resource(hud::HudAssets::default());
     world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
         world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
