@@ -148,7 +148,13 @@ pub struct UnitMats {
 #[derive(Resource, Default)]
 pub struct ModelCache {
     models: HashMap<DefId, Model>,
-    mats: HashMap<(DefId, u8), UnitMats>,
+    mats: HashMap<(DefId, u8, u8), UnitMats>,
+    /// `Settings::building_detail`, set every frame by `view::model_detail_sync`.
+    pub detail: u8,
+    /// Seed of the building about to be spawned (its unit id): at high detail it picks the variant.
+    pub variant: u32,
+    ruins: HashMap<(DefId, u8), Vec<Option<Handle<Mesh>>>>,
+    ruin_mats: HashMap<DefId, Handle<StandardMaterial>>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
     wreck: HashMap<DefId, Handle<StandardMaterial>>,
     /// Dark copies of unit materials (remembered buildings destroyed out of sight).
@@ -301,6 +307,154 @@ fn to_image(img: &image::RgbaImage, srgb: bool) -> Image {
     )
 }
 
+/// Same image with a full mipmap chain and anisotropic filtering: far buildings no longer shimmer
+/// and close ones stay sharp at a slant (`Settings::building_detail` high).
+pub(super) fn to_image_mips(img: &image::RgbaImage, srgb: bool) -> Image {
+    use bevy::image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+    let (mut w, mut h) = img.dimensions();
+    let mut data = img.as_raw().clone();
+    let mut cur = img.as_raw().clone();
+    let mut levels = 1;
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let mut next = vec![0u8; (nw * nh * 4) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                for c in 0..4 {
+                    let mut sum = 0u32;
+                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        let (sx, sy) = ((x * 2 + dx).min(w - 1), (y * 2 + dy).min(h - 1));
+                        sum += cur[((sy * w + sx) * 4 + c) as usize] as u32;
+                    }
+                    next[((y * nw + x) * 4 + c) as usize] = (sum / 4) as u8;
+                }
+            }
+        }
+        data.extend_from_slice(&next);
+        cur = next;
+        (w, h) = (nw, nh);
+        levels += 1;
+    }
+    let mut im = to_image(img, srgb);
+    im.data = Some(data);
+    im.texture_descriptor.mip_level_count = levels;
+    im.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        mipmap_filter: ImageFilterMode::Linear,
+        anisotropy_clamp: 8,
+        ..default()
+    });
+    im
+}
+
+fn lattice(x: i32, y: i32, seed: u32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x9E3779B1) ^ (y as u32).wrapping_mul(0x85EBCA6B) ^ seed.wrapping_mul(0xC2B2AE35);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B3C6D);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297A2D39);
+    h ^= h >> 15;
+    (h & 0xFFFF) as f32 / 65535.0
+}
+
+/// Smooth value noise, 0..1.
+fn vnoise(x: f32, y: f32, seed: u32) -> f32 {
+    let (xf, yf) = (x.floor(), y.floor());
+    let (fx, fy) = (x - xf, y - yf);
+    let (fx, fy) = (fx * fx * (3.0 - 2.0 * fx), fy * fy * (3.0 - 2.0 * fy));
+    let (xi, yi) = (xf as i32, yf as i32);
+    let (a, b, c, d) = (lattice(xi, yi, seed), lattice(xi + 1, yi, seed), lattice(xi, yi + 1, seed), lattice(xi + 1, yi + 1, seed));
+    let top = a + (b - a) * fx;
+    top + ((c + (d - c) * fx) - top) * fy
+}
+
+/// How many looks of one building type there are at high detail.
+const BUILDING_VARIANTS: u32 = 4;
+
+/// A broken, burnt-out copy of a part: the top is knocked down to a ragged edge, a few holes are
+/// blown through the walls, and soot (vertex colours) darkens the edges of the holes and the top.
+fn ruin_mesh(src: &Mesh, seed: u32) -> Option<Mesh> {
+    use bevy::mesh::VertexAttributeValues as V;
+    let mut pos = match src.attribute(Mesh::ATTRIBUTE_POSITION)? {
+        V::Float32x3(v) => v.clone(),
+        _ => return None,
+    };
+    let nrm = match src.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(V::Float32x3(v)) => v.clone(),
+        _ => vec![[0.0, 1.0, 0.0]; pos.len()],
+    };
+    let uv = match src.attribute(Mesh::ATTRIBUTE_UV_0) {
+        Some(V::Float32x2(v)) => v.clone(),
+        _ => vec![[0.0, 0.0]; pos.len()],
+    };
+    let idx: Vec<u32> = match src.indices()? {
+        Indices::U32(i) => i.clone(),
+        Indices::U16(i) => i.iter().map(|&x| x as u32).collect(),
+    };
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for p in &pos {
+        lo = lo.min(Vec3::from_array(*p));
+        hi = hi.max(Vec3::from_array(*p));
+    }
+    let ext = hi - lo;
+    if ext.y < 0.05 || ext.x < 0.05 || ext.z < 0.05 {
+        return None;
+    }
+    let big = ext.max_element();
+    // Holes.
+    let holes: Vec<(Vec3, f32)> = (0..3 + seed % 3)
+        .map(|k| {
+            let r = |n: u32| lattice(k as i32, n as i32, seed ^ 0x51);
+            (lo + Vec3::new(ext.x * (0.1 + 0.8 * r(1)), ext.y * (0.12 + 0.55 * r(2)), ext.z * (0.1 + 0.8 * r(3))), big * (0.1 + 0.14 * r(4)))
+        })
+        .collect();
+    let mut cuts = vec![0.0f32; pos.len()];
+    for (i, p) in pos.iter_mut().enumerate() {
+        let (u, v) = ((p[0] - lo.x) / ext.x * 4.0, (p[2] - lo.z) / ext.z * 4.0);
+        let cut = lo.y + ext.y * (0.4 + 0.45 * vnoise(u, v, seed));
+        cuts[i] = cut;
+        if p[1] > cut {
+            p[1] = cut + (p[1] - cut) * 0.1;
+        }
+    }
+    let col: Vec<[f32; 4]> = pos
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let q = Vec3::from_array(*p);
+            let mut soot = 0.8 + 0.2 * vnoise(q.x * 3.0 / big * 4.0, q.z * 3.0 / big * 4.0 + q.y * 2.0, seed ^ 7);
+            for (c, r) in &holes {
+                let d = q.distance(*c);
+                if d < r * 1.8 {
+                    soot = soot.min(0.12 + 0.88 * (d / (r * 1.8)).powi(2));
+                }
+            }
+            let top = ((q.y - lo.y) / (cuts[i] - lo.y).max(0.01)).clamp(0.0, 1.0);
+            soot *= 1.0 - 0.6 * ((top - 0.7) / 0.3).clamp(0.0, 1.0);
+            // Ash at the foot.
+            soot *= 0.7 + 0.3 * ((q.y - lo.y) / (ext.y * 0.3)).clamp(0.0, 1.0);
+            let s = soot.max(0.1);
+            [s, s * 0.95, s * 0.9, 1.0]
+        })
+        .collect();
+    let mut keep: Vec<u32> = Vec::with_capacity(idx.len());
+    for t in idx.chunks_exact(3) {
+        let c = (Vec3::from_array(pos[t[0] as usize]) + Vec3::from_array(pos[t[1] as usize]) + Vec3::from_array(pos[t[2] as usize])) / 3.0;
+        if !holes.iter().any(|(h, r)| c.distance(*h) < *r) {
+            keep.extend_from_slice(t);
+        }
+    }
+    Some(
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, nrm)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
+            .with_inserted_indices(Indices::U32(keep)),
+    )
+}
+
 impl ModelCache {
     pub fn init(&mut self, materials: &mut Assets<StandardMaterial>) {
         let ghost = |c: Color| StandardMaterial { base_color: c, alpha_mode: AlphaMode::Blend, unlit: true, ..default() };
@@ -357,7 +511,10 @@ impl ModelCache {
 
     /// Textured materials of a unit type in an owner colour (index into `palette`).
     pub fn unit_mats(&mut self, defs: &Defs, def: DefId, color: u8, rgb: [f32; 3], images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> UnitMats {
-        if let Some(m) = self.mats.get(&(def, color)) {
+        let high = self.detail >= 2;
+        // Neutral map buildings differ one from the next (colour, wear); our own keep the team's look.
+        let var = if high && defs.get(def).has_category("civilian") { 1 + (self.variant.wrapping_mul(2654435761) >> 16) % BUILDING_VARIANTS } else { 0 } as u8;
+        if let Some(m) = self.mats.get(&(def, color, var)) {
             return m.clone();
         }
         let md = &defs.get(def).model;
@@ -370,6 +527,17 @@ impl ModelCache {
                 // The mod's albedo maps are dark (`brightness` 2.1 lifts them); paint the team areas.
                 let b = md.brightness;
                 let mut c = [px[0] as f32 / 255.0 * b, px[1] as f32 / 255.0 * b, px[2] as f32 / 255.0 * b];
+                if var > 0 {
+                    // This variant's paint and wear: a tint, blotchy weathering and rain streaks.
+                    let sd = var as u32 * 7919 + def as u32 * 104729;
+                    let tint = [0.86 + 0.28 * lattice(1, 0, sd), 0.86 + 0.28 * lattice(2, 0, sd), 0.86 + 0.28 * lattice(3, 0, sd)];
+                    let blot = vnoise(x as f32 / 22.0, y as f32 / 22.0, sd);
+                    let streak = vnoise(x as f32 / 5.0, y as f32 / 70.0, sd ^ 77);
+                    let wear = (0.84 + 0.26 * blot) * (1.0 - 0.22 * streak * streak) * (0.94 + 0.12 * lattice(x as i32, y as i32, sd));
+                    for j in 0..3 {
+                        c[j] *= tint[j] * wear;
+                    }
+                }
                 if let Some(m) = &mask {
                     let k = m.get_pixel(x, y)[0] as f32 / 255.0;
                     if k > 0.0 {
@@ -384,9 +552,9 @@ impl ModelCache {
                 }
                 px[3] = 255;
             }
-            tex = Some(images.add(to_image(&albedo, true)));
+            tex = Some(images.add(if high { to_image_mips(&albedo, true) } else { to_image(&albedo, true) }));
         }
-        let normal = md.normal.as_deref().and_then(read_rgba).map(|n| images.add(to_image(&n, false)));
+        let normal = md.normal.as_deref().and_then(read_rgba).map(|n| images.add(if high { to_image_mips(&n, false) } else { to_image(&n, false) }));
         let base = StandardMaterial {
             base_color: if tex.is_some() { Color::WHITE } else { Color::srgb(rgb[0], rgb[1], rgb[2]) },
             base_color_texture: tex.clone(),
@@ -403,7 +571,7 @@ impl ModelCache {
             ..default()
         };
         let m = UnitMats { normal: materials.add(base), building: materials.add(building) };
-        self.mats.insert((def, color), m.clone());
+        self.mats.insert((def, color, var), m.clone());
         m
     }
 
@@ -436,6 +604,25 @@ impl ModelCache {
         h
     }
 
+    /// The wreck material of a destroyed building at high detail: the burnt texture, seen from both sides
+    /// (the holes show the inside), darkened further by the ruin mesh's vertex colours.
+    pub fn ruin_mat(&mut self, defs: &Defs, def: DefId, images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
+        if let Some(m) = self.ruin_mats.get(&def) {
+            return m.clone();
+        }
+        let tex = defs.get(def).model.albedo.as_deref().and_then(read_rgba).map(|a| images.add(to_image_mips(&a, true)));
+        let m = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.62, 0.56, 0.52),
+            base_color_texture: tex,
+            perceptual_roughness: 0.97,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        });
+        self.ruin_mats.insert(def, m.clone());
+        m
+    }
+
     pub fn wreck_mat(&mut self, defs: &Defs, def: DefId, images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
         if let Some(m) = self.wreck.get(&def) {
             return m.clone();
@@ -445,6 +632,37 @@ impl ModelCache {
         self.wreck.insert(def, m.clone());
         m
     }
+}
+
+/// The ruin of a destroyed building (`Settings::building_detail` high): its model with the top broken
+/// off and holes burnt through, one of three shapes picked by `seed`.
+pub fn spawn_ruin(commands: &mut Commands, cache: &mut ModelCache, defs: &Defs, def: DefId, seed: u32, meshes: &mut Assets<Mesh>, images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Entity {
+    let model = cache.model(defs, def, meshes).clone();
+    let mat = cache.ruin_mat(defs, def, images, materials);
+    let key = (def, (seed % 3) as u8);
+    if !cache.ruins.contains_key(&key) {
+        let made: Vec<Option<Mesh>> = model
+            .parts
+            .iter()
+            .enumerate()
+            .map(|(pi, p)| p.mesh.as_ref().and_then(|h| meshes.get(h)).and_then(|m| ruin_mesh(m, (seed % 3) * 977 + pi as u32 * 13 + 1)))
+            .collect();
+        let handles = made.into_iter().map(|m| m.map(|m| meshes.add(m))).collect();
+        cache.ruins.insert(key, handles);
+    }
+    let ruined = &cache.ruins[&key];
+    let root = commands.spawn((ModelRoot { def, building: false }, Transform::from_scale(Vec3::splat(model.scale)), Visibility::Inherited)).id();
+    let mut ents: Vec<Entity> = Vec::with_capacity(model.parts.len());
+    for (pi, part) in model.parts.iter().enumerate() {
+        let mut e = commands.spawn((part.local, Visibility::Inherited));
+        if let Some(mesh) = ruined[pi].as_ref().or(part.mesh.as_ref()) {
+            e.insert((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone())));
+        }
+        let id = e.id();
+        commands.entity(part.parent.map_or(root, |p| ents[p])).add_child(id);
+        ents.push(id);
+    }
+    root
 }
 
 /// Marks a model part that follows a weapon's yaw or pitch.
@@ -574,7 +792,13 @@ pub fn spawn_model_dim(
     let model = cache.model(defs, def, meshes).clone();
     let mats = cache.unit_mats(defs, def, color, rgb, images, materials);
     let d = defs.get(def);
-    let root = commands.spawn((ModelRoot { def, building }, Transform::from_scale(Vec3::splat(model.scale)), Visibility::Inherited)).id();
+    let jitter = if cache.detail >= 2 && d.has_category("civilian") {
+        let k = cache.variant;
+        Vec3::new(0.97 + 0.06 * lattice(1, 1, k), 0.94 + 0.12 * lattice(2, 1, k), 0.97 + 0.06 * lattice(3, 1, k))
+    } else {
+        Vec3::ONE
+    };
+    let root = commands.spawn((ModelRoot { def, building }, Transform::from_scale(Vec3::splat(model.scale) * jitter), Visibility::Inherited)).id();
     let live = override_mat.is_none();
     let mut ents: Vec<Entity> = Vec::with_capacity(model.parts.len());
     for (pi, part) in model.parts.iter().enumerate() {

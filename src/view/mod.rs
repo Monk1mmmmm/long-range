@@ -12,6 +12,7 @@ pub mod bench;
 pub mod cursor;
 pub mod debris;
 pub mod flora;
+pub mod grass;
 pub mod fx;
 pub mod hud;
 pub mod icons;
@@ -23,6 +24,7 @@ pub mod sky;
 pub mod sound;
 pub mod surface;
 pub mod terrain;
+pub mod water;
 
 use models::*;
 use perf::vmark;
@@ -330,6 +332,7 @@ fn unit_visuals(
         }
         budget -= 1;
         let (ci, rgb) = owner_color(&defs, &game, u.owner);
+        cache.variant = u.id;
         let root = spawn_model(&mut commands, &mut cache, &defs, u.def, ci, rgb, uc, None, &mut meshes, &mut images, &mut materials);
         let s = (b.pos, b.y, b.yaw);
         commands
@@ -346,6 +349,7 @@ fn unit_visuals(
                 if r.def != u.def || r.building != uc {
                     commands.entity(c).despawn();
                     let (ci, rgb) = owner_color(&defs, &game, u.owner);
+                    cache.variant = u.id;
                     let root = spawn_model(&mut commands, &mut cache, &defs, u.def, ci, rgb, uc, None, &mut meshes, &mut images, &mut materials);
                     commands.entity(e).add_child(root);
                     match Animator::new(cache.model(&defs, u.def, &mut meshes)) {
@@ -665,6 +669,7 @@ fn ghost_visuals(
         let def = g.def.unwrap();
         let d = defs.get(def);
         let (ci, rgb) = owner_color(&defs, &game, g.owner);
+        cache.variant = g.id;
         let root = spawn_model_dim(&mut commands, &mut cache, &defs, def, ci, rgb, g.built.is_some(), None, dim(g), &mut meshes, &mut images, &mut materials);
         let scale = match g.built {
             Some(p) if d.is_structure() => Vec3::new(1.0, 0.25 + 0.75 * p.clamp(0.0, 1.0), 1.0),
@@ -687,6 +692,7 @@ fn wreck_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    settings: Res<crate::settings::Settings>,
 ) {
     // (Pieces of debris are drawn by `debris::debris_visuals`.)
     for (e, w) in fresh.iter().filter(|(_, w)| w.piece <= 0.0).take(10) {
@@ -696,14 +702,27 @@ fn wreck_visuals(
         } else {
             cache.flat_mat(&crate::data::ColorSpec::Rgb([0.2, 0.18, 0.17]), 255, [0.2; 3], &mut materials)
         };
-        let root = spawn_model(&mut commands, &mut cache, &defs, w.def, 255, [0.3, 0.28, 0.26], false, Some(mat), &mut meshes, &mut images, &mut materials);
+        // High building detail: a ruin with its top broken off and holes burnt through, not a sunk wreck.
+        let ruin = settings.building_detail >= 2 && d.is_structure() && d.model.mesh.is_some();
+        let root = if ruin {
+            spawn_ruin(&mut commands, &mut cache, &defs, w.def, w.id, &mut meshes, &mut images, &mut materials)
+        } else {
+            spawn_model(&mut commands, &mut cache, &defs, w.def, 255, [0.3, 0.28, 0.26], false, Some(mat), &mut meshes, &mut images, &mut materials)
+        };
         // Collapsed and slightly askew.
-        let squash = if d.is_structure() { 0.35 } else { 0.8 };
+        let squash = if ruin { 1.0 } else if d.is_structure() { 0.35 } else { 0.8 };
         let rot = Quat::from_rotation_arc(Vec3::Y, map.normal(w.pos.x, w.pos.y)) * yaw_quat(w.yaw) * Quat::from_rotation_z(((w.id % 7) as f32 - 3.0) * 0.04);
         commands
             .entity(e)
             .insert((WreckVisual, Transform::from_translation(w.pos.at(w.y)).with_rotation(rot).with_scale(Vec3::new(1.0, squash, 1.0)), Visibility::Visible))
             .add_child(root);
+    }
+}
+
+/// Tells the model cache which building detail is set (`Settings::building_detail`).
+fn model_detail_sync(settings: Res<crate::settings::Settings>, mut cache: ResMut<ModelCache>) {
+    if cache.detail != settings.building_detail {
+        cache.detail = settings.building_detail;
     }
 }
 
@@ -741,7 +760,7 @@ impl Plugin for ViewPlugin {
             // `perf::vmark::<I>` between the systems times them while a `perf::FrameProfile` exists
             // (LR_PROFILE=1, --bench). Inner tuples need their own chain().
             (
-                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
+                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, water::water_sync, model_detail_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
                 (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
                 (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, vmark::<16>).chain(),
             )

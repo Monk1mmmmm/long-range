@@ -65,11 +65,18 @@ pub struct Settings {
     pub clouds: bool,
     /// Terrain shading: bare rock on steep slopes, broad colour variation, wet shoreline (`surface.wesl`).
     pub terrain_detail: bool,
+    /// Buildings (`view::models`): 0 low, 1 medium (as the data says), 2 high: per-building variety (colour, wear), mipmapped
+    /// anisotropic textures and ruins that are broken and burnt out instead of sunk.
+    pub building_detail: u8,
+    /// Grass tufts on grass ground near the camera (`view::grass`): 0 off, 1 high, 2 ultra (denser, reaches further).
+    pub grass_detail: u8,
+    /// Water (`view::terrain`): 0 low, 1 medium (flat tint), 2 high: moving waves, glints and foam along the shore.
+    pub water_detail: u8,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, storage_gap: true, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, storage_gap: true, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true, building_detail: 1, grass_detail: 0, water_detail: 1 }
     }
 }
 
@@ -586,6 +593,38 @@ pub fn restart() {
 /// Names of the tree and rock detail levels (`Settings::flora_detail`).
 pub const FLORA_DETAIL: [&str; 3] = [tx!("settings.detail_low"), tx!("settings.medium"), tx!("settings.high")];
 
+/// Names of the levels of `Settings::grass_detail`.
+pub const GRASS_DETAIL: [&str; 3] = [tx!("settings.off"), tx!("settings.high"), tx!("settings.ultra")];
+
+/// Names of the graphics presets (`apply_preset`).
+pub const PRESETS: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
+
+/// Sets every detail option of a graphics preset (0 low .. 3 ultra). Window, graphics API and
+/// anti-aliasing stay as they are.
+pub fn apply_preset(s: &mut Settings, level: usize) {
+    let l = level.min(3);
+    s.shadows = [0, 1, 2, 2][l];
+    s.flora_detail = [0, 1, 2, 2][l];
+    s.effects = [0, 1, 2, 2][l];
+    s.terrain_detail = l > 0;
+    s.sky = true;
+    s.haze = l > 0;
+    s.clouds = l > 0;
+    s.ghost_models = l > 0;
+    s.building_detail = [0, 1, 2, 2][l];
+    s.water_detail = [0, 1, 2, 2][l];
+    s.grass_detail = [0, 0, 1, 2][l];
+}
+
+/// The preset whose options the settings match, if any.
+pub fn preset_of(s: &Settings) -> Option<usize> {
+    (0..4).find(|&l| {
+        let mut t = s.clone();
+        apply_preset(&mut t, l);
+        t == *s
+    })
+}
+
 /// Names of the effect levels (`Settings::effects`).
 pub const EFFECTS: [&str; 3] = [tx!("settings.effects_low"), tx!("settings.medium"), tx!("settings.high")];
 
@@ -681,6 +720,16 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.label(tr!("settings.fullscreen"));
         ui.checkbox(&mut s.fullscreen, "(F11)");
         ui.end_row();
+        ui.label(tr!("settings.preset")).on_hover_text(tr!("settings.preset_tip"));
+        let cur = preset_of(s);
+        egui::ComboBox::from_id_salt("preset").selected_text(cur.map_or(tr!("settings.custom"), |k| tr(PRESETS[k]))).show_ui(ui, |ui| {
+            for (k, l) in PRESETS.iter().enumerate() {
+                if ui.selectable_label(cur == Some(k), tr(l)).clicked() {
+                    apply_preset(s, k);
+                }
+            }
+        });
+        ui.end_row();
         ui.label(tr!("common.trees_and_rocks"));
         egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(2) as usize])).show_ui(ui, |ui| {
             for (k, l) in FLORA_DETAIL.iter().enumerate() {
@@ -704,6 +753,27 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         ui.end_row();
         ui.label(tr!("settings.terrain_detail")).on_hover_text(tr!("settings.terrain_detail_tip"));
         ui.checkbox(&mut s.terrain_detail, tr!("settings.terrain_detail_on"));
+        ui.end_row();
+        ui.label(tr!("settings.building_detail")).on_hover_text(tr!("settings.building_detail_tip"));
+        egui::ComboBox::from_id_salt("buildings").selected_text(tr(FLORA_DETAIL[s.building_detail.min(2) as usize])).show_ui(ui, |ui| {
+            for (k, l) in FLORA_DETAIL.iter().enumerate() {
+                ui.selectable_value(&mut s.building_detail, k as u8, tr(l));
+            }
+        });
+        ui.end_row();
+        ui.label(tr!("settings.grass_detail")).on_hover_text(tr!("settings.grass_detail_tip"));
+        egui::ComboBox::from_id_salt("grass").selected_text(tr(GRASS_DETAIL[s.grass_detail.min(2) as usize])).show_ui(ui, |ui| {
+            for (k, l) in GRASS_DETAIL.iter().enumerate() {
+                ui.selectable_value(&mut s.grass_detail, k as u8, tr(l));
+            }
+        });
+        ui.end_row();
+        ui.label(tr!("settings.water_detail")).on_hover_text(tr!("settings.water_detail_tip"));
+        egui::ComboBox::from_id_salt("water").selected_text(tr(FLORA_DETAIL[s.water_detail.min(2) as usize])).show_ui(ui, |ui| {
+            for (k, l) in FLORA_DETAIL.iter().enumerate() {
+                ui.selectable_value(&mut s.water_detail, k as u8, tr(l));
+            }
+        });
         ui.end_row();
         ui.label(tr!("settings.projectile_size"));
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!("settings.suffix_px")));

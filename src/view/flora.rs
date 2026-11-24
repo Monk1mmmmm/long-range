@@ -151,6 +151,28 @@ fn scale3(c: [f32; 3], k: f32) -> [f32; 3] {
 }
 
 impl Model {
+    /// High detail: shade the model by where it is. Foliage is darker deep inside and near the ground
+    /// (ambient occlusion), rocks darker at their foot with moss on their upward faces.
+    fn weather(&mut self, shape: FeatureShape, size: f32, seed: u64) {
+        for v in 0..self.pos.len() {
+            let (p, n) = (self.pos[v], self.nrm[v]);
+            let k = match shape {
+                FeatureShape::Rock => {
+                    let foot = 0.65 + 0.35 * ((p.y / (0.5 * size)).clamp(0.0, 1.0));
+                    let moss = ((n.y - 0.55) / 0.45).clamp(0.0, 1.0) * (0.35 + 0.45 * hash(seed, 21));
+                    let c = self.col[v];
+                    let m = [0.18, 0.27, 0.09];
+                    self.col[v] = [(c[0] + (m[0] - c[0]) * moss) * foot, (c[1] + (m[1] - c[1]) * moss) * foot, (c[2] + (m[2] - c[2]) * moss) * foot];
+                    continue;
+                }
+                FeatureShape::Bush => 0.7 + 0.3 * (p.y / (0.6 * size)).clamp(0.0, 1.0),
+                _ => 0.62 + 0.38 * ((p.y - 0.2 * size) / (2.6 * size)).clamp(0.0, 1.0),
+            };
+            // Faces turned down are in shade.
+            let k = k * (0.85 + 0.15 * (n.y * 0.5 + 0.5));
+            self.col[v] = scale3(self.col[v], k);
+        }
+    }
     /// One flat-shaded triangle, wound to face away from `inside`.
     fn tri(&mut self, a: Vec3, b: Vec3, c: Vec3, inside: Vec3, col: [f32; 3]) {
         let mut n = (b - a).cross(c - a);
@@ -352,6 +374,9 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
             }
         }
     }
+    if detail >= 2 {
+        m.weather(d.shape, s, seed);
+    }
     m
 }
 
@@ -376,12 +401,15 @@ fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[
         let rot = Quat::from_rotation_y(f.yaw);
         let at = f.pos.at(map.h(f.pos)) - origin;
         let tint = 0.86 + 0.26 * hash(i as u64, 12);
+        // High detail: trees differ in hue too (some yellower, some bluer).
+        let hue = if view.detail >= 2 { 0.2 * (hash(i as u64, 13) - 0.5) } else { 0.0 };
+        let tint3 = [tint * (1.0 + hue), tint, tint * (1.0 - hue)];
         let t = [f.pos.x / world.x.max(1.0), f.pos.y / world.y.max(1.0)];
         for v in 0..model.pos.len() {
             pos.push((at + rot * (model.pos[v] * f.scale)).to_array());
             nrm.push((rot * model.nrm[v]).to_array());
             let c = model.col[v];
-            col.push([c[0] * tint, c[1] * tint, c[2] * tint, 1.0]);
+            col.push([c[0] * tint3[0], c[1] * tint3[1], c[2] * tint3[2], 1.0]);
             uv.push(t);
         }
     }

@@ -430,15 +430,20 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     ));
     // Water covers the map and the sea around it; it takes no shadows (cascade borders showed up
     // as rectangles on it).
-    let water_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
-        alpha_mode: AlphaMode::Blend,
-        perceptual_roughness: 0.12,
-        reflectance: 0.6,
-        ..default()
-    });
+    let high_water = crate::settings::Settings::load().water_detail >= 2;
+    let water_mat = if high_water {
+        materials.add(super::water::material(images))
+    } else {
+        materials.add(StandardMaterial {
+            base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
+            alpha_mode: AlphaMode::Blend,
+            perceptual_roughness: 0.12,
+            reflectance: 0.6,
+            ..default()
+        })
+    };
     commands.spawn((
-        Mesh3d(meshes.add(water_mesh(world.max(world_z) * 12.0))),
+        Mesh3d(meshes.add(water_mesh(world.max(world_z) * 12.0, world * 0.5, world_z * 0.5))),
         MeshMaterial3d(water_mat.clone()),
         Transform::from_xyz(world * 0.5, map.water, world_z * 0.5),
         NotShadowCaster,
@@ -448,7 +453,13 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     ));
     // Lakes above the sea have their own surface.
     if let Some(mesh) = lake_mesh(map) {
-        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(water_mat), Transform::IDENTITY, NotShadowCaster, NotShadowReceiver, GameScene));
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(water_mat.clone()), Transform::IDENTITY, NotShadowCaster, NotShadowReceiver, GameScene));
+    }
+    if high_water {
+        let foam = super::water::spawn_foam(commands, map, meshes, materials, images);
+        commands.insert_resource(super::water::WaterFx { sea: water_mat, foam });
+    } else {
+        commands.remove_resource::<super::water::WaterFx>();
     }
     spawn_deposits(commands, map, meshes, materials);
     let sky = super::sky::find(&map.sky);
@@ -471,10 +482,12 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
 /// nearer the camera were drawn after the water and the far ones before it, which showed as
 /// squares of darker and lighter water. An extra vertex far below, used by no triangle, moves the
 /// water's centre behind everything else, so it is always drawn first and the fog lies evenly on it.
-fn water_mesh(size: f32) -> Mesh {
+fn water_mesh(size: f32, cx: f32, cz: f32) -> Mesh {
     let h = size * 0.5;
     let positions = vec![[-h, 0.0, -h], [h, 0.0, -h], [h, 0.0, h], [-h, 0.0, h], [0.0, -100_000.0, 0.0]];
-    let uvs = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.5, 0.5]];
+    // World-based, so the wave texture of high water tiles at a fixed size.
+    let t = super::water::TILE;
+    let uvs: Vec<[f32; 2]> = positions.iter().map(|p| [(p[0] + cx) / t, (p[2] + cz) / t]).collect();
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; 5])
@@ -507,7 +520,7 @@ fn lake_mesh(map: &MapData) -> Option<Mesh> {
             let first = pos.len() as u32;
             for (px, pz) in [(a, z), (b, z), (b, z + CELL), (a, z + CELL)] {
                 pos.push([px, level, pz]);
-                uvs.push([px / 12.0, pz / 12.0]);
+                uvs.push([px / super::water::TILE, pz / super::water::TILE]);
             }
             idx.extend_from_slice(&[first, first + 3, first + 2, first, first + 2, first + 1]);
         }

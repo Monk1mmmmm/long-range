@@ -5,6 +5,19 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.3
+
+Graphics
+- New "Graphics preset" dropdown (Low, Medium, High, Ultra; shows Custom when you change one option). It sets shadows,
+  trees and rocks, effects, terrain, sky, buildings, grass and water together.
+- New settings Buildings, Grass and Water. The new looks below only apply at High, so the defaults look as before.
+- Buildings (High): every neutral building of a type differs in colour, wear and height; textures have mipmaps and
+  anisotropic filtering (sharp up close, no shimmer far away). Destroyed buildings leave broken, burnt-out ruins with the
+  top knocked off, holes through the walls and soot, instead of a sunk brown wreck.
+- Grass (High / Ultra): tufts of grass on grassy ground near where the camera looks (nothing is built while zoomed out).
+- Water (High): drifting wave ripples with sun glints, and foam lapping along every shore.
+- Trees and rocks (High): shading by height and facing, moss on rocks, trees differ in hue.
+
 ## v0.15.2
 
 Rules
