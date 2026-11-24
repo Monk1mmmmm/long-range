@@ -2294,9 +2294,13 @@ fn build_progress(
     for (p, pl) in game.players.iter_mut().enumerate() {
         pl.energy -= pl.upkeep * power[p] * DT;
         pl.spend_e += pl.upkeep * power[p];
-        if ratio[p] < 1.0 || power[p] < 1.0 {
-            // Show what was asked for, so the deficit is visible.
+        // Show what was asked for, so a deficit is visible. Each resource only where it is the
+        // bottleneck: with energy to spare and mass short, construction slows and the energy
+        // really spent is less than asked, so the stored energy does not fall by the demand.
+        if ratio[p] < 1.0 {
             pl.spend_m = dm[p];
+        }
+        if power[p] < 1.0 {
             pl.spend_e = de[p] + pl.upkeep;
         }
         pl.power = power[p];
