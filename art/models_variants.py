@@ -24,18 +24,31 @@ def bastion():
 
 @model
 def flak_carrier():
-    """T2 Hailstorm: the Dragoon with a twin flak gun and a fire-control radar."""
+    """T2 Hailstorm: the Dragoon with a turret-top fire-control radar, side ammo drums, armoured gun mantlets and
+    two long finned flak barrels with muzzle brakes."""
     k = Variant("flak_carrier", "dragoon", 0.175)
     k.on("Turret", "Hailstorm_Radar")
-    k.box((0.1, 0.1, 0.35), (0, 0.38, 1.55), "steel_d")
-    k.box((0.55, 0.05, 0.28), (0, 0.42, 1.78), "white", faces={"back": "steel_d"})
+    # radar mast on the turret's rear deck, dish facing forward, a small whip antenna beside it
+    k.box((0.34, 0.34, 0.1), (0, 0.42, 0.97), "steel", faces={"top": "vent"}, bevel=0.02)
+    k.box((0.09, 0.09, 0.42), (0, 0.42, 1.2), "steel_d")
+    k.box((0.7, 0.05, 0.34), (0, 0.38, 1.5), "white", faces={"back": "steel_d"}, bevel=0.01)
+    k.box((0.12, 0.08, 0.08), (0, 0.4, 1.5), "black")
+    k.cyl(0.012, 0.5, (0.26, 0.5, 0.95), "black", axis="z", seg=6)
     for s in (-1, 1):
-        k.box((0.14, 0.4, 0.3), (s * 0.5, 0.05, 0.95), "team", faces={"top": "steel"})  # ammo boxes
+        # ammunition drums on the turret flanks, with team-coloured end plates
+        k.cyl(0.19, 0.5, (s * 0.52, 0.25, 0.78), "steel", axis="y", seg=12, caps={0: "steel_d", 1: "steel_d"})
+        k.box((0.06, 0.46, 0.06), (s * 0.52, 0.5, 0.97), "team")
+        k.box((0.16, 0.5, 0.34), (s * 0.4, 0.1, 0.7), "steel_d", bevel=0.02)
     k.on("Turret_Barrel", "Hailstorm_Guns")
+    # armoured cradle across both guns
+    k.box((0.62, 0.34, 0.34), (0, -0.3, 0.72), "steel", faces={"top": "team"}, bevel=0.03)
     for s in (-1, 1):
-        k.box((0.12, 0.35, 0.14), (s * 0.15, -0.3, 0.7), "steel")
-        k.cyl(0.035, 1.0, (s * 0.15, -0.45, 0.72), "gun", axis="-y", seg=8)
-        k.cyl(0.05, 0.14, (s * 0.15, -1.38, 0.72), "gun", axis="-y", seg=8)
+        x = s * 0.2
+        k.box((0.14, 0.3, 0.24), (x, -0.5, 0.72), "steel_d", bevel=0.02)  # mantlet
+        k.cyl(0.062, 0.62, (x, -0.62, 0.72), "steel", axis="-y", seg=10)  # cooling sleeve
+        k.cyl(0.036, 1.55, (x, -0.55, 0.72), "gun", axis="-y", seg=8)  # barrel
+        k.cyl(0.058, 0.12, (x, -1.36, 0.72), "steel_d", axis="-y", seg=8)  # fume extractor
+        k.cyl(0.062, 0.2, (x, -2.0, 0.72), "gun", axis="-y", seg=8, r2=0.05)  # muzzle brake
     return k
 
 

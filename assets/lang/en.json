@@ -459,7 +459,7 @@
     },
     "flak_carrier": {
       "name": "Hailstorm",
-      "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells at aircraft out to 100; cannot shoot at the ground."
+      "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells out to 100 at aircraft, ground units and infantry. Fast-slewing guns."
     },
     "mobile_sam": {
       "name": "Skylance",

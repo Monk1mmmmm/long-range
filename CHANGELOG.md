@@ -5,6 +5,10 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+- Hailstorm («Град»): new model (radar mast, ammo drums, armoured mantlets, finned barrels with muzzle brakes) and a
+  new 3/4 portrait. It now also shoots at ground units and infantry, hits a little harder (14 -> 16 per shell) and its
+  guns slew faster (120 -> 180 deg/s, the SAM Trooper's turn 150) with no aim delay (the SAM Trooper's is 0.6 s).
+
 ## v0.15.1
 
 Maps

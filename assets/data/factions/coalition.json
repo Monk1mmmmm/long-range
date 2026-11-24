@@ -1068,7 +1068,7 @@
     "anti_air"
    ],
    "name": "Hailstorm",
-   "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells at aircraft out to 100; cannot shoot at the ground.",
+   "desc": "Mobile flak on the Dragoon chassis. Bursts of airburst shells out to 100 at aircraft, ground units and infantry. Fast-slewing guns.",
    "tier": 2,
    "hp": 380,
    "armor": "LightTank",
@@ -1109,7 +1109,7 @@
    "weapons": [
     {
      "name": "Twin Flak Cannon",
-     "damage": 14,
+     "damage": 16,
      "range": 100,
      "reload": 1.5,
      "speed": 120,
@@ -1120,14 +1120,15 @@
      "salvo_delay": 0.1,
      "spread": 0.8,
      "turret": {
-      "yaw_speed": 120,
-      "pitch_speed": 120,
+      "yaw_speed": 180,
+      "pitch_speed": 180,
       "yaw_bone": "Turret",
       "pitch_bone": "Turret_Barrel",
       "muzzle_bone": "Turret_Muzzle"
      },
      "targets": [
-      "air"
+      "air",
+      "land"
      ]
     }
    ]
