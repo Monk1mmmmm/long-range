@@ -29,7 +29,7 @@ import bp
 
 # asset name -> mod unit folder
 UNITS = {
-    "buggy": "units/UEX0101", "trooper": "units/UEX0102", "crony": "units/UEX0105", "bohdana": "units/UEX0106",
+    "buggy": "units/UEX0101", "trooper": "units/UEX0102", "crony": "units/UEX0105",
     "robin": "units/UEX0107", "dragoon": "units/UEX0108", "mbfag": "units/UEX0109", "overtaker": "units/UEX0110",
     "pike": "units/UEX0111", "radar_car": "units/ULX0103", "delivery_boy": "units/UXA0101",
     "solar": "units/UBX0107", "windmill": "units/UBX0108", "heavy_battery": "units/UBX0109",

@@ -327,3 +327,66 @@ def scavenger():
     k.nohit.add(arm)
     k.key("open", arm, [(1, None, (0, 0, 0)), (16, None, (30, 0, 0))])
     return k
+
+
+@model
+def bohdana():
+    """T3 Bohdana: tracked self-propelled 155 mm howitzer. Rear turret with a long barrel (muzzle brake, bore
+    evacuator, recoil sleeve), team-coloured armour plates, two rear spades that fold down (`unpack`)."""
+    k = Kit("bohdana")
+    w, l = 1.5, 2.3
+    tw, th = 0.38, 0.58
+    for s in (-1, 1):
+        tracks(k, s * (w / 2 - tw / 2), tw, -l / 2, l / 2, th, n=6, skirt=False)
+        # armoured skirt over the road wheels, team coloured stripe
+        k.box((0.05, l * 0.72, 0.3), (s * (w / 2 + 0.01), 0.05, 0.42), "steel", faces={"right" if s > 0 else "left": "team"}, bevel=0.02)
+    # hull: low, wide, sloped glacis at the front, flat engine deck at the back
+    y0, y1 = -l / 2, l / 2
+    prof = [(y0 + 0.05, 0.4), (y0 + 0.65, 0.8), (y1 - 0.05, 0.8), (y1, 0.74), (y1, 0.4)]
+    k.prism(prof, "x", -(w / 2 - tw), w / 2 - tw, "steel", side_mats=["team", "steel", "steel", "steel_d", "steel_d"])
+    for s in (-1, 1):  # fenders
+        k.box((tw + 0.04, l - 0.5, 0.06), (s * (w / 2 - tw / 2), 0.1, th + 0.04), "steel", faces={"top": "steel_d"}, bevel=0.01)
+    k.box((0.5, 0.42, 0.04), (0, -0.66, 0.84), "glass", rot=(-22, 0, 0))  # driver's vision block
+    k.box((0.34, 0.34, 0.12), (-0.26, -0.48, 0.86), "steel_d", faces={"top": "vent"})  # driver hatch
+    k.box((0.9, 0.5, 0.06), (0, 0.9, 0.83), "steel_d", faces={"top": "vent"})  # engine louvres
+    for x in (-0.55, 0.55):
+        lamps(k, (x,), -l / 2 - 0.0, 0.52)
+    with k.nohit_():
+        k.cyl(0.04, 0.3, (0.6, 1.1, 0.95), "black", seg=6)  # exhaust
+        k.box((0.02, 0.02, 0.9), (-0.7, 0.95, 1.4), "black")  # whip antenna
+
+    # turret: faceted box ring on the rear deck, pivot over the ring
+    tz, ty = 0.8, 0.28
+    t = k.part("Turret", (0, ty, tz))
+    with k.into(t):
+        k.cyl(0.62, 0.1, (0, ty, tz), "steel_d", seg=16)
+        prof = [(ty - 0.62, tz + 0.1), (ty - 0.5, tz + 0.44), (ty + 0.5, tz + 0.46), (ty + 0.78, tz + 0.36), (ty + 0.8, tz + 0.1)]
+        k.prism(prof, "x", -0.62, 0.62, "steel", side_mats=["team", "steel", "team", "steel", "steel_d"], bevel=0.02)
+        for s in (-1, 1):  # angled cheek plates
+            k.box((0.06, 1.0, 0.36), (s * 0.64, ty + 0.12, tz + 0.32), "steel", faces={"right" if s > 0 else "left": "team"}, rot=(0, 0, s * 8))
+        k.box((0.36, 0.36, 0.1), (0.3, ty + 0.4, tz + 0.5), "steel_d", faces={"top": "vent"})  # commander hatch
+        k.cyl(0.13, 0.1, (-0.3, ty + 0.3, tz + 0.48), "steel_d", seg=10)  # loader hatch
+        k.box((0.5, 0.06, 0.34), (0, ty + 0.82, tz + 0.28), "steel_d", faces={"back": "vent"})  # ammo bustle door
+        k.box((1.0, 0.12, 0.42), (0, ty - 0.62, tz + 0.3), "steel", faces={"front": "team"}, bevel=0.02)  # mantlet block
+    # barrel: recoil sleeve, long tube, bore evacuator, muzzle brake
+    gy, gz = ty - 0.66, tz + 0.34
+    b = k.part("Turret_Barrel", (0, gy, gz), t)
+    with k.into(b):
+        k.cyl(0.17, 0.62, (0, gy + 0.1, gz), "steel_d", axis="-y", seg=12, caps={0: "gun", 1: "gun"})  # recoil sleeve
+        k.cyl(0.085, 2.45, (0, gy - 0.4, gz), "gun", axis="-y", seg=12)
+        k.cyl(0.125, 0.4, (0, gy - 1.45, gz), "steel_d", axis="-y", seg=12)  # bore evacuator
+        k.cyl(0.115, 0.34, (0, gy - 2.7, gz), "steel_d", axis="-y", seg=10, caps={0: "black", 1: "black"})  # muzzle brake
+        k.box((0.3, 0.06, 0.05), (0, gy - 2.7, gz), "black")
+        k.box((0.05, 0.06, 0.3), (0, gy - 2.7, gz), "black")
+    k.part("Turret_Muzzle", (0, gy - 2.9, gz), b)
+
+    # spades: raised while driving, fold down onto the ground when the gun is set up
+    for s, nm in ((-1, "Stablizer_Left"), (1, "Stablizer_Right")):
+        hx, hy, hz = s * 0.5, y1 + 0.02, 0.62
+        sp = k.part(nm, (hx, hy, hz))
+        k.nohit.add(sp)
+        with k.into(sp):
+            k.box((0.1, 0.1, 0.5), (hx, hy + 0.04, hz - 0.2), "steel_d", rot=(-18, 0, 0))
+            k.box((0.5, 0.06, 0.42), (hx, hy + 0.18, hz - 0.55), "steel", faces={"back": "hazard"}, rot=(-18, 0, 0))
+        k.key("unpack", sp, [(1, None, (0, 0, 0)), (30, None, (-48, 0, 0))])
+    return k
