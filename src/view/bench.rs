@@ -46,6 +46,13 @@ fn scenarios() -> Vec<Scenario> {
         s("effects high, game running", 90.0, true, |s| s.effects = 2),
         s("model LOD off", 90.0, false, |s| s.model_lod = false),
         s("remembered building models off", 90.0, false, |s| s.ghost_models = false),
+        s("sky, haze and clouds off", 380.0, false, |s| {
+            s.sky = false;
+    s.terrain_detail = false;
+            s.haze = false;
+            s.clouds = false;
+        }),
+        s("overview: clouds on", 380.0, false, |s| s.clouds = true),
         s("neutral building icons off", 90.0, false, |s| s.neutral_icons = false),
         s("everything lowest", 90.0, false, lowest),
         s("everything highest", 90.0, false, highest),
@@ -65,6 +72,9 @@ fn lowest(s: &mut Settings) {
     s.effects = 0;
     s.model_lod = true;
     s.ghost_models = false;
+    s.sky = false;
+    s.haze = false;
+    s.clouds = false;
 }
 
 fn highest(s: &mut Settings) {
@@ -74,6 +84,10 @@ fn highest(s: &mut Settings) {
     s.effects = 2;
     s.model_lod = false;
     s.ghost_models = true;
+    s.sky = true;
+    s.terrain_detail = true;
+    s.haze = true;
+    s.clouds = true;
 }
 
 #[derive(PartialEq, Clone, Copy)]

@@ -22,6 +22,10 @@ struct SurfaceParams {
     road_soft: vec4<f32>,
     // LR_SURFACE_DEBUG: 0 normal; 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 colour, 6 vertex tint (unlit).
     debug: u32,
+    // 1: cliffs, broad colour variation, wet shoreline.
+    quality: u32,
+    // Sea level.
+    water: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> params: SurfaceParams;
@@ -109,6 +113,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             col = mix(col, l.rgb, w);
             hc = mix(hc, l.a * 0.6 + 0.2, w);
         }
+    }
+
+    if params.quality > 0u {
+        // Broad variation of the colour, so large fields of one texture are not flat.
+        let ms = 0.011;
+        let big = textureSampleGrad(albedo, albedo_sampler, p * ms + vec2<f32>(0.53, 0.11), 0u, dx * ms, dy * ms).a;
+        col = col * (0.84 + 0.32 * big);
+        // Steep slopes show bare rock whatever is painted there.
+        let slope = 1.0 - saturate(pbr_input.N.y);
+        let cw = smoothstep(0.28, 0.58, slope);
+        let rock = mix(vec3<f32>(0.40, 0.38, 0.35), col * 0.7, 0.3) * (0.62 + 0.75 * hc);
+        col = mix(col, rock, cw * 0.85);
+        // Ground just above the sea is wet: darker and shinier.
+        let wet = 1.0 - smoothstep(params.water, params.water + 0.9, in.world_position.y);
+        col = col * mix(1.0, 0.62, wet);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.4, wet);
     }
 
     // Scorched ground: near-black char (linear colour: 0.004 is ~5% grey on screen), up to 97% opaque,

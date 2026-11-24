@@ -328,6 +328,9 @@ pub struct MapData {
     /// Roads: purely visual lines on the ground.
     #[serde(default)]
     pub roads: Vec<crate::surface::Road>,
+    /// The sky behind the map (`view::sky::SKIES` id); empty = the clear day. Purely visual.
+    #[serde(default)]
+    pub sky: String,
     /// Terrain passability per cell (1 = blocked). Derived, see `rebuild_blocked`.
     #[serde(skip)]
     pub blocked: Vec<u8>,
@@ -382,6 +385,9 @@ struct MapFile {
     /// One line per road: "kind width x z x z ...".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     roads: Vec<String>,
+    /// The sky (`view::sky::SKIES` id); left out when the map has none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    sky: String,
     /// Water levels of lakes above `water`; `lakes.png` (8-bit, one pixel per cell) holds each
     /// cell's lake: 0 = none, k = `lakes[k - 1]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1140,6 +1146,7 @@ impl MapData {
             features: self.features.iter().map(|f| format!("{} {:.2} {:.2} {:.2} {:.2}", self.feature_kinds.get(f.kind as usize).map_or("?", |k| k.as_str()), f.pos.x, f.pos.y, f.yaw, f.scale)).collect(),
             layers: self.layers.clone(),
             roads: self.roads.iter().map(crate::surface::road_line).collect(),
+            sky: self.sky.clone(),
             lakes: self.lakes.clone(),
         };
         let file = dir.join("lakes.png");
@@ -1179,7 +1186,7 @@ impl MapData {
             return Err(format!("height.png must be {}x{} pixels for a map of {nx}x{ny} cells", nx + 1, ny + 1));
         }
         let heights = img.as_raw().iter().map(|v| f.min_height + (*v as f32 / 65535.0) * (f.max_height - f.min_height)).collect();
-        let mut m = MapData { name: f.name, nx, ny, heights, water: f.water, deposits: f.deposits, starts: f.starts, variants: f.variants, attached: f.attached, points: f.points, props: f.props, seed: f.seed, layers: f.layers, ..Default::default() };
+        let mut m = MapData { name: f.name, nx, ny, heights, water: f.water, deposits: f.deposits, starts: f.starts, variants: f.variants, attached: f.attached, points: f.points, props: f.props, seed: f.seed, layers: f.layers, sky: f.sky, ..Default::default() };
         for line in &f.roads {
             m.roads.push(crate::surface::parse_road(line)?);
         }

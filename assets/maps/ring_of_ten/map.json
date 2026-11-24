@@ -1,5 +1,6 @@
 {
   "name": "ring_of_ten",
+  "sky": "night",
   "n": 384,
   "water": 0.0,
   "min_height": -3.169463,

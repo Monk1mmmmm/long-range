@@ -261,7 +261,9 @@ impl Model {
         let s = (seed % 997) as f32 * 3.7;
         let shape = |d: Vec3| -> Vec3 {
             let k = 1.0 + lump * (noise(d.x * 1.7 + d.y * 0.9 + s, d.z * 1.7 - d.y * 1.3 + s, seed) - 0.5) * 2.0;
-            center + d * radii * k
+            // High subdivision gets a second, finer layer of crags.
+            let fine = if sub >= 2 { 0.4 * lump * (noise(d.x * 5.1 + s, d.z * 5.1 - d.y * 4.3 + s, seed ^ 3) - 0.5) * 2.0 } else { 0.0 };
+            center + d * radii * (k + fine)
         };
         for [a, b, c] in tris {
             let mid = (a + b + c).normalize();
@@ -275,7 +277,7 @@ impl Model {
 
 /// The model of one variant of a feature type, in its own units (origin on the ground), at a
 /// detail level (0 low, 1 medium, 2 high). Triangles per model, low / medium / high: pine 16 / 26 /
-/// 39, broadleaf 14 / 28 / 112, shrub 8 / 20 / 40, rock 20 / 20-80 / 80-320.
+/// 86, broadleaf 14 / 28 / 480, shrub 8 / 20 / 240, rock 20 / 20-80 / 320-1300.
 fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
     let s = d.size;
     let j = |k: u64| 0.9 + 0.2 * hash(seed, k);
@@ -298,10 +300,15 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
                     m.cone(1.85 * s, 3.1 * s * j(6), 0.36 * s * j(7), 6, turn + 1.0, scale3(c, 1.16));
                 }
                 _ => {
-                    m.prism(-0.3, 0.7 * s, 0.09 * s, 6, d.trunk);
-                    m.cone(0.45 * s, 1.75 * s * j(2), 0.75 * s * j(3), 9, turn, c);
-                    m.cone(1.15 * s, 2.45 * s * j(4), 0.56 * s * j(5), 9, turn + 0.35, scale3(c, 1.08));
-                    m.cone(1.85 * s, 3.1 * s * j(6), 0.36 * s * j(7), 9, turn + 0.7, scale3(c, 1.16));
+                    // Five tiers of boughs, each a 14-sided skirt, narrowing to the top.
+                    m.prism(-0.3, 0.8 * s, 0.1 * s, 8, d.trunk);
+                    for t in 0..5 {
+                        let f = t as f32 / 4.0;
+                        let y0 = (0.4 + 1.45 * f) * s;
+                        let h = (1.3 - 0.25 * f) * s * j(2 + t);
+                        let r = (0.82 - 0.5 * f) * s * j(8 + t);
+                        m.cone(y0, y0 + h, r, 14, turn + 0.3 * t as f32, scale3(c, 1.0 + 0.04 * t as f32));
+                    }
                 }
             }
         }
@@ -312,9 +319,11 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
                 0 => m.blob(Vec3::new(0.0, 2.0 * s, 0.0), Vec3::new(1.0, 0.85, 1.0) * s * j(2), 0.2, -1, seed, c, 0.1),
                 1 => m.blob(Vec3::new(0.0, 2.0 * s, 0.0), Vec3::new(1.0, 0.85, 1.0) * s * j(2), 0.28, 0, seed, c, 0.1),
                 _ => {
-                    m.blob(Vec3::new(0.0, 1.95 * s, 0.0), Vec3::new(0.95, 0.8, 0.95) * s * j(2), 0.22, 1, seed, c, 0.08);
+                    // A crown of one big lumpy ball and two smaller lobes.
+                    m.blob(Vec3::new(0.0, 1.95 * s, 0.0), Vec3::new(0.95, 0.8, 0.95) * s * j(2), 0.2, 2, seed, c, 0.08);
                     let a = hash(seed, 3) * std::f32::consts::TAU;
-                    m.blob(Vec3::new(0.4 * a.cos(), 2.35, 0.4 * a.sin()) * s, Vec3::splat(0.6 * s * j(4)), 0.2, 0, seed ^ 5, scale3(c, 1.1), 0.08);
+                    m.blob(Vec3::new(0.45 * a.cos(), 2.35, 0.45 * a.sin()) * s, Vec3::splat(0.6 * s * j(4)), 0.2, 1, seed ^ 5, scale3(c, 1.1), 0.08);
+                    m.blob(Vec3::new(-0.4 * a.sin(), 1.7, 0.4 * a.cos()) * s, Vec3::splat(0.5 * s * j(5)), 0.2, 1, seed ^ 11, scale3(c, 0.94), 0.08);
                 }
             }
         }
@@ -322,9 +331,10 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
             0 => m.blob(Vec3::new(0.0, 0.3 * s, 0.0), Vec3::new(0.65, 0.5, 0.65) * s * j(2), 0.2, -1, seed, c, 0.12),
             1 => m.blob(Vec3::new(0.0, 0.3 * s, 0.0), Vec3::new(0.65, 0.5, 0.65) * s * j(2), 0.3, 0, seed, c, 0.12),
             _ => {
-                m.blob(Vec3::new(0.0, 0.3 * s, 0.0), Vec3::new(0.62, 0.48, 0.62) * s * j(2), 0.25, 0, seed, c, 0.1);
+                m.blob(Vec3::new(0.0, 0.3 * s, 0.0), Vec3::new(0.62, 0.48, 0.62) * s * j(2), 0.22, 1, seed, c, 0.1);
                 let a = hash(seed, 3) * std::f32::consts::TAU;
-                m.blob(Vec3::new(0.35 * a.cos(), 0.25, 0.35 * a.sin()) * s, Vec3::splat(0.38 * s), 0.2, 0, seed ^ 7, scale3(c, 1.08), 0.1);
+                m.blob(Vec3::new(0.38 * a.cos(), 0.22, 0.38 * a.sin()) * s, Vec3::splat(0.38 * s), 0.2, 1, seed ^ 7, scale3(c, 1.08), 0.1);
+                m.blob(Vec3::new(-0.3 * a.sin(), 0.2, 0.3 * a.cos()) * s, Vec3::splat(0.3 * s), 0.2, 1, seed ^ 9, scale3(c, 0.93), 0.1);
             }
         },
         FeatureShape::Rock => {
@@ -332,9 +342,14 @@ fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
             let sub = match detail {
                 0 => 0,
                 1 => big as i32,
-                _ => 1 + big as i32,
+                _ => 2 + big as i32,
             };
             m.blob(Vec3::new(0.0, r.y * 0.3, 0.0), r, 0.3, sub, seed, c, 0.12);
+            if detail >= 2 {
+                // A smaller boulder leaning against it.
+                let a = hash(seed, 5) * std::f32::consts::TAU;
+                m.blob(Vec3::new(0.55 * r.x * a.cos(), r.y * 0.15, 0.55 * r.z * a.sin()), r * 0.45, 0.3, 1, seed ^ 13, scale3(c, 0.92), 0.12);
+            }
         }
     }
     m

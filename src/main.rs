@@ -5678,6 +5678,9 @@ fn main() {
         }
         return;
     }
+    if let Some(k) = args.iter().position(|a| a == "--skies") {
+        return longrange::view::sky::preview_sheet(args.get(k + 1).map_or("skies.png", |s| s.as_str()));
+    }
     if let Some(k) = args.iter().position(|a| a == "--icons") {
         return icon_sheet(args.get(k + 1).map_or("icons.png", |s| s.as_str()));
     }

@@ -221,6 +221,9 @@ impl MapData {
         if n == 0 || ny == 0 {
             return;
         }
+        if self.sky.is_empty() {
+            self.sky = crate::view::sky::for_biome(biome).to_string();
+        }
         let seed = self.seed;
         let (lo, hi) = self.heights.iter().fold((f32::MAX, f32::MIN), |(a, b), h| (a.min(*h), b.max(*h)));
         let water = self.water;

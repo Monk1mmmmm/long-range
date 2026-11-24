@@ -901,6 +901,17 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
             masks_changed = true;
         }
     });
+    ui.horizontal(|ui| {
+        ui.label(tr!("map_editor.sky"));
+        let cur = crate::view::sky::find(&map.sky);
+        egui::ComboBox::from_id_salt("sky").selected_text(crate::i18n::sky_name(cur)).show_ui(ui, |ui| {
+            for s in &crate::view::sky::SKIES {
+                if ui.selectable_label(cur.id == s.id, crate::i18n::sky_name(s)).clicked() {
+                    map.sky = s.id.to_string();
+                }
+            }
+        });
+    });
     // Layers, top first, as in an image editor.
     let count = map.layers.len();
     let mut action: Option<(usize, u8)> = None;
@@ -1137,7 +1148,7 @@ pub fn run() {
         .add_systems(Startup, setup)
         .insert_resource(crate::settings::Settings::load())
         .add_systems(EguiPrimaryContextPass, (crate::settings::apply_ui_scale, editor_ui))
-        .add_systems(Update, crate::view::terrain::map_edge_sync);
+        .add_systems(Update, (crate::view::terrain::map_edge_sync, crate::view::sky::sky_sync));
     crate::settings::tolerate_render_errors(&mut app);
     crate::settings::add_window_icon(&mut app);
     crate::settings::gl_window_display(&mut app);
