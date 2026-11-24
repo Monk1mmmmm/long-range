@@ -88,7 +88,7 @@ fn cp_capture_secs() -> f32 {
     20.0
 }
 fn cp_start_points() -> f32 {
-    10000.0
+    8000.0
 }
 fn cp_bleed() -> f32 {
     1.0

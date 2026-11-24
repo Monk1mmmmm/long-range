@@ -144,7 +144,7 @@ pub const RULE_TERRAIN: &[Field] = &[
 pub const RULE_POINTS: &[Field] = &[
     num("cp_radius", tx!("preset_rules.points_cp_radius"), 12.0, 500.0, tx!("preset_rules.points_cp_radius_tip")),
     num("cp_capture_secs", tx!("preset_rules.points_cp_capture_secs"), 20.0, 3600.0, tx!("preset_rules.points_cp_capture_secs_tip")),
-    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 10000.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
+    num("cp_start_points", tx!("preset_rules.points_cp_start_points"), 8000.0, BIG, tx!("preset_rules.points_cp_start_points_tip")),
     num("cp_bleed", tx!("preset_rules.points_cp_bleed"), 1.0, 1000.0, tx!("preset_rules.points_cp_bleed_tip")),
 ];
 

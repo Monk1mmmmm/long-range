@@ -5,6 +5,11 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.2
+
+Rules
+- Control points mode: the default starting points per team are now 8000 (were 10000); the lobby field and presets still override it.
+
 ## v0.15.1
 
 Maps

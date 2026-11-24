@@ -630,7 +630,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Control points** (`Game.mode == MODE_POINTS`): their positions come from the map (`MapData.points`, map.json
   `points`, placed with the editor's "Control point" tool like starts; `MapData::generate` and the premade maps have them);
   a map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points
-  left per team, start `Game.cp_start`: typed in the lobby, else `rules.cp_start_points`, default 1200). A team holding fewer points than its strongest opponent loses
+  left per team, start `Game.cp_start`: typed in the lobby, else `rules.cp_start_points`, default 8000). A team holding fewer points than its strongest opponent loses
   `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
 - **Model LOD** (setting `model_lod`, default on): unit and ghost models are hidden wherever the HUD draws the
   strategic icon instead (`view::as_icon`: icon zoom, or under `SPECK_PX` on screen; `view::model_lod`). Neutral
