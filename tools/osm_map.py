@@ -65,7 +65,7 @@ Z = 13
 ROAD_WIDTH = {"motorway": 7.0, "trunk": 6.0, "primary": 5.0, "secondary": 4.5, "tertiary": 4.0, "unclassified": 3.5,
               "residential": 3.5, "living_street": 3.0, "service": 2.5, "track": 2.5}
 MAIN_ROADS = {"motorway", "trunk", "primary", "secondary", "tertiary"}
-# Side streets in towns (with --village): narrower, or the oversized buildings find no room between them.
+# Side streets in towns (with --village or --town-streets): narrower, or the oversized buildings find no room between them.
 TOWN_STREET = 2.2
 # Bridges over the river (--river) by what they carry: width of the land bridge in world units.
 # Footbridges are not in the road query, so they make no crossing.
@@ -439,6 +439,7 @@ def main():
     ap.add_argument("--no-lakes", action="store_true", help="leave lakes and ponds dry (mud), as before the game had lakes")
     ap.add_argument("--lake-min", type=float, default=60.0, help="smallest lake kept, in square world units")
     ap.add_argument("--village", type=float, default=1.0, help="share of the real buildings kept outside the towns (towns keep all that fit)")
+    ap.add_argument("--town-streets", action="store_true", help="narrow side streets in towns and cut the residential ones where buildings stand, as --village below 1 does, without thinning the villages")
     ap.add_argument("--cp-town", type=float, default=0.6, help="share of the control points placed in the towns (the densest places), the rest around them")
     ap.add_argument("--cp-area", default="", help="S,W,N,E in degrees: control points only inside this rectangle (e.g. the city of a map that also shows its surroundings)")
     ap.add_argument("--infill", action="append", default=[], metavar="S,W,N,E",
@@ -608,12 +609,13 @@ def main():
         v = dens_big[min(max(int(z * Raster.RES), 0), ras.size - 1), min(max(int(x * Raster.RES), 0), ras.size - 1)]
         return min(max((v - 0.07) / 0.08, 0.0), 1.0)
 
+    town_streets = a.village < 1.0 or a.town_streets
     if a.village < 1.0:
         bpx = ras.arr("building")
         print(f"town: {(dens_big[bpx] > 0.11).mean() * 100:.0f}% of the built area, {(dens_big > 0.11).mean() * 100:.0f}% of the map")
     road_lines = []
     for kind, width, main_road, pts in roads:
-        if main_road in (1, 3) and a.village < 1.0:
+        if main_road in (1, 3) and town_streets:
             # Towns: side streets narrower, and the residential ones give way to the buildings
             # (the real street grid does not fit between buildings 2-3x the real size).
             t_ = town_at(*pts[len(pts) // 2])
