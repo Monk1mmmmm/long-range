@@ -41,7 +41,15 @@ fn step(world: &mut World, cmds: Vec<(u8, Command)>, fx_high: &mut u32) {
 pub struct HostSim {
     scheduled: BTreeMap<u32, Vec<(u8, u32, Command)>>,
     hashes: VecDeque<(u32, u64)>,
+    /// Full states sent to repair a diverged client: (connection, our tick when sent).
+    repaired: Vec<(u32, u32)>,
 }
+
+/// After sending a diverged client the full state, its fingerprints are not answered with another
+/// one for this many ticks: those it computed before the state arrived are still wrong, and over a
+/// slow link every further full state (hundreds of KB on a big map) queued up behind the last,
+/// delaying the turns until the connection gave out.
+const REPAIR_GAP: u32 = 100;
 
 impl HostSim {
     pub fn new(world: &mut World) -> HostSim {
@@ -80,6 +88,20 @@ impl HostSim {
             }
         }
         S2C::Turn { tick, cmds }
+    }
+
+    /// A client's fingerprint for `tick` differs from ours: whether to send it the full state now
+    /// (`now` = our current tick). Not again until it has had time to arrive and be used.
+    pub fn repair_due(&mut self, conn: u32, tick: u32, now: u32) -> bool {
+        if let Some(r) = self.repaired.iter_mut().find(|r| r.0 == conn) {
+            if tick <= r.1 + REPAIR_GAP {
+                return false;
+            }
+            r.1 = now;
+        } else {
+            self.repaired.push((conn, now));
+        }
+        true
     }
 
     /// False when a client's fingerprint for `tick` differs from ours.

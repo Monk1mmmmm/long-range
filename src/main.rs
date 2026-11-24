@@ -81,6 +81,8 @@ struct HostLobby {
     counts: Vec<usize>,
     /// Ground of random maps: 0 = picked by the seed, k = `surface::BIOMES[k - 1]`.
     biome: usize,
+    /// The map picture each connection was sent last (its hash), so it is sent only when it changes.
+    sent_preview: Vec<(u32, u64)>,
 }
 
 /// What a lobby's map depends on: (choice, players, seed, data hash, biome).
@@ -247,6 +249,7 @@ impl HostLobby {
             extra: self.options_text(defs),
             preview: self.preview.clone(),
             preview_side: PREVIEW as u16,
+            preview_same: false,
             starts: self.starts.clone(),
             points: if self.mode == MODE_POINTS { self.points.clone() } else { vec![] },
             observers: self.observers.iter().map(|o| o.name.clone()).collect(),
@@ -841,6 +844,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         maps,
         players: 4,
         dirty: true,
+        sent_preview: vec![],
         lan_ip: local_ip(),
         mode: MODE_ANNIHILATION,
         cp_start: 0,
@@ -1131,7 +1135,8 @@ fn session_frame(world: &mut World) {
                         }
                         HostEvent::Msg(id, C2S::Hash { tick, hash }) => {
                             if let Some((_, p)) = remote.iter().find(|r| r.0 == id) {
-                                if !sim.matches(tick, hash) {
+                                let now = world.resource::<Game>().tick;
+                                if !sim.matches(tick, hash) && sim.repair_due(id, tick, now) {
                                     // That machine computed something else: hand it our state.
                                     warn!("player {p} diverged at tick {tick}; sending the full state");
                                     if let Ok(data) = bincode::serialize(&make_snapshot(world)) {
@@ -1330,7 +1335,7 @@ fn session_frame(world: &mut World) {
                             Err(_) => break,
                         }
                     }
-                    if *heard > HOST_SILENT_SECS || client.broken {
+                    if *heard > HOST_SILENT_SECS || client.broken() {
                         lost = true;
                     }
                     if lost {
@@ -2177,8 +2182,22 @@ fn menu_ui(world: &mut World) {
                     if l.dirty {
                         l.dirty = false;
                         let conns: Vec<u32> = l.slots.iter().map(|s| s.conn).chain(l.observers.iter().map(|o| o.conn)).filter(|c| *c != 0).collect();
+                        let sum = {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            l.preview.hash(&mut h);
+                            h.finish()
+                        };
                         for c in conns {
-                            l.host.send_msg(c, &S2C::Lobby(l.info(c, world.resource::<Defs>())));
+                            let mut info = l.info(c, world.resource::<Defs>());
+                            if l.sent_preview.contains(&(c, sum)) {
+                                info.preview = vec![];
+                                info.preview_same = true;
+                            } else {
+                                l.sent_preview.retain(|s| s.0 != c);
+                                l.sent_preview.push((c, sum));
+                            }
+                            l.host.send_msg(c, &S2C::Lobby(info));
                         }
                         l.host.advertise(l.ad(world.resource::<Defs>()));
                     }
@@ -2199,7 +2218,12 @@ fn menu_ui(world: &mut World) {
                     loop {
                         match l.client.frames.try_recv() {
                             Ok(Some((TAG_MSG, data))) => match bincode::deserialize::<S2C>(&data) {
-                                Ok(S2C::Lobby(i)) => l.info = Some(i),
+                                Ok(S2C::Lobby(mut i)) => {
+                                    if i.preview_same {
+                                        i.preview = l.info.as_mut().map(|o| std::mem::take(&mut o.preview)).unwrap_or_default();
+                                    }
+                                    l.info = Some(i);
+                                }
                                 Ok(S2C::Start { map, you, data }) => {
                                     // The host plays with other game data than ours: use the host's for this game.
                                     let mut keep_pack = None;

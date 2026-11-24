@@ -189,6 +189,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   sends `S2C::Peers` (human players + addresses) at the start and whenever someone leaves; the lowest-numbered
   remaining human becomes host from its last confirmed state (AIs restart, the old host's player resigns), the others
   reconnect with `C2S::Rejoin` and get the full state; the game waits up to `REJOIN_WAIT_SECS` for them.
+- Network writes (`net.rs`): frames go out in `CHUNK` (16 KB) pieces with a per-piece limit of `STALL_SECS` (30), so a
+  multi-MB `S2C::Start` over a slow VPN (Radmin) does not time out - a whole-frame 5 s limit dropped players at game start,
+  and on Windows a timed-out send leaves the socket unusable. Client writes go through a writer thread (`Client::broken()`),
+  the host repairs a diverged client at most once per `netplay::REPAIR_GAP` ticks, and `LobbyInfo.preview_same` leaves out
+  an unchanged map picture.
 - Units refer to each other by network id (`u32`), never by `Entity`.
 - ECS layout: one entity per unit with `Unit`, `Body`, `Health`, `Orders`, `Intel` plus optional `Weapons`,
   `Builder`, `Factory`, `Mover`, marker/state components `UnderConstruction`, `Upgrading`,

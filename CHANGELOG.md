@@ -18,6 +18,16 @@ Graphics
 - Clouds: a drifting layer that only shows when the camera is far up and never covers icons.
 - New graphics settings: Sky, Haze, Clouds, and Terrain (bare rock on steep slopes, broad colour variation, wet shoreline).
 - Trees and rocks at the highest detail are much richer (pines 86, broadleaf 480, rocks up to 1300 triangles).
+Multiplayer
+- Games over slow links (Radmin VPN and the like) no longer drop a player as the game starts: the map and starting
+  state of a big map are megabytes, and a write that took longer than 5 s broke the connection (on Windows a timed-out
+  send leaves the socket unusable). Frames now go out in 16 KB pieces, and only a link that makes no progress for 30 s
+  counts as dead.
+- A client's messages are written by a background thread: a busy link no longer freezes the game for up to 3 s per
+  message.
+- A client whose state diverged gets the host's full state once, not again with every fingerprint it sent before that
+  state arrived (each one queued hundreds of KB behind the last).
+- The lobby sends the map picture (256 KB) only when it changes, not with every change of a slot or an option.
 
 ## v0.15.1
 

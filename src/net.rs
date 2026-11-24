@@ -23,8 +23,18 @@ const AD_STALE_SECS: f32 = 4.0;
 /// Frame tags.
 pub const TAG_MSG: u8 = 0;
 pub const TAG_SNAP: u8 = 1;
-/// Frames waiting to be written to one client before it is given up on.
-const QUEUE: usize = 600;
+/// Frames waiting to be written to one client before it is given up on (turns come ten a
+/// second: two minutes behind).
+const QUEUE: usize = 1200;
+/// Messages a client may have waiting to be written before its connection counts as broken.
+const CLIENT_QUEUE: usize = 4000;
+/// Frames are written in pieces of this size, and a piece that cannot be handed to the network for
+/// `STALL_SECS` means the link is dead. A limit on a whole write broke games over slow links
+/// (Radmin VPN): the map and starting state of a big map are megabytes, which took longer than the
+/// old 5 s, and on Windows a timed-out send leaves the socket unusable, so the player was dropped
+/// as the game started.
+const CHUNK: usize = 16 * 1024;
+const STALL_SECS: u64 = 30;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct SlotInfo {
@@ -49,6 +59,9 @@ pub struct LobbyInfo {
     /// Picture of the map (RGBA, `preview_side` squared) and its start positions (0..1 across).
     pub preview: Vec<u8>,
     pub preview_side: u16,
+    /// The picture is the one this client was sent last and is left out (`preview` empty): over a
+    /// slow link, 256 KB with every lobby change clogged the connection.
+    pub preview_same: bool,
     pub starts: Vec<(f32, f32)>,
     /// Control points (0..1 across); empty unless the mode is control points.
     pub points: Vec<(f32, f32)>,
@@ -186,7 +199,10 @@ fn write_frame(s: &mut TcpStream, tag: u8, data: &[u8]) -> std::io::Result<()> {
     head[..4].copy_from_slice(&(data.len() as u32).to_le_bytes());
     head[4] = tag;
     s.write_all(&head)?;
-    s.write_all(data)
+    for piece in data.chunks(CHUNK) {
+        s.write_all(piece)?;
+    }
+    Ok(())
 }
 
 fn read_frame(s: &mut TcpStream) -> std::io::Result<(u8, Vec<u8>)> {
@@ -252,7 +268,7 @@ impl Host {
                             conns.lock().unwrap().push(Conn { id, ip: from.ip(), tx });
                             // Writer.
                             if let Ok(mut ws) = stream.try_clone() {
-                                ws.set_write_timeout(Some(Duration::from_secs(5))).ok();
+                                ws.set_write_timeout(Some(Duration::from_secs(STALL_SECS))).ok();
                                 std::thread::spawn(move || {
                                     while let Ok(f) = rx.recv() {
                                         if write_frame(&mut ws, f.0, &f.1).is_err() {
@@ -371,10 +387,12 @@ impl Drop for Host {
 pub struct Client {
     pub frames: Receiver<Option<(u8, Vec<u8>)>>,
     stream: TcpStream,
+    /// Messages for the writer thread, so a slow link never holds up the game's frame loop.
+    out: SyncSender<Vec<u8>>,
     /// The host's address.
     pub addr: SocketAddr,
-    /// A write failed or timed out (the host is gone or stuck): the connection is unusable.
-    pub broken: bool,
+    /// A write failed or stalled (the host is gone or stuck): the connection is unusable.
+    broken: Arc<AtomicBool>,
 }
 
 impl Client {
@@ -414,8 +432,24 @@ impl Client {
     fn open(sa: SocketAddr, timeout: Duration) -> Result<Client, String> {
         let stream = TcpStream::connect_timeout(&sa, timeout).map_err(|e| format!("connect failed: {e}"))?;
         stream.set_nodelay(true).ok();
-        // A host that stopped reading must not freeze this game's frame loop.
-        stream.set_write_timeout(Some(Duration::from_secs(3))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(STALL_SECS))).ok();
+        let broken = Arc::new(AtomicBool::new(false));
+        // Writer: the game's frame loop only queues (a host that stopped reading, or a busy
+        // link, used to freeze it for the write timeout).
+        let (out, orx) = sync_channel::<Vec<u8>>(CLIENT_QUEUE);
+        {
+            let mut ws = stream.try_clone().map_err(|e| e.to_string())?;
+            let broken = broken.clone();
+            std::thread::spawn(move || {
+                while let Ok(data) = orx.recv() {
+                    if write_frame(&mut ws, TAG_MSG, &data).is_err() {
+                        broken.store(true, Ordering::Relaxed);
+                        ws.shutdown(std::net::Shutdown::Both).ok();
+                        return;
+                    }
+                }
+            });
+        }
         let (tx, rx): (Sender<Option<(u8, Vec<u8>)>>, _) = channel();
         let mut rs = stream.try_clone().map_err(|e| e.to_string())?;
         std::thread::spawn(move || {
@@ -426,18 +460,23 @@ impl Client {
             }
             tx.send(None).ok();
         });
-        Ok(Client { frames: rx, stream, addr: sa, broken: false })
+        Ok(Client { frames: rx, stream, out, addr: sa, broken })
     }
 
     pub fn send(&mut self, m: &C2S) {
-        if self.broken {
+        if self.broken() {
             return;
         }
         if let Ok(data) = bincode::serialize(m) {
-            if write_frame(&mut self.stream, TAG_MSG, &data).is_err() {
-                self.broken = true;
+            if self.out.try_send(data).is_err() {
+                self.broken.store(true, Ordering::Relaxed);
             }
         }
+    }
+
+    /// A write failed or stalled, or too much is waiting to be written: the connection is unusable.
+    pub fn broken(&self) -> bool {
+        self.broken.load(Ordering::Relaxed)
     }
 }
 
