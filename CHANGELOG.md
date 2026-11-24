@@ -5,9 +5,21 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.1
+
 Maps
-- The lobby lists an adaptive map once, as its variant with the most starts (Jablonec 8 players, Liberec 8, Frankivsk 10, Frankivsk mini 6), not once per player count. With fewer players, leave slots empty: the deposits of empty starts are still dropped.
-- Jablonec has about twice the buildings (1170 instead of 600 plus landmarks), taken from Overture Maps building data for the same area; terrain, roads, deposits and starts are unchanged (`tools/graft_buildings.py`).
+- New map: Mostyska (Lviv oblast), made from Overture Maps data and terrain tiles for the area 49.755-49.833 N,
+  23.087-23.213 E. The Sichna runs through the town as a thin river (2.5-3.5 units wide) with 17 crossings: every road
+  over it keeps its bridge, and fords are added where crossings would be more than 140 units apart, so no stretch of
+  the river is a long wall. 4 players, ~2000 buildings, lakes and ponds, 9 control points (6 in the towns).
+- Maps no longer have to be square: a map is any number of cells wide and deep (map.json `n` and `ny`). The map
+  editor's "New" row has a depth next to the width ("square" by default); generated maps that are not square are for
+  2 players, Flat takes any number. The lobby and game browser pictures and the minimap show such a map centred.
+  `--editor --generate NAME 256x160 SEED 2` makes one from the command line. Square maps play exactly as before.
+
+Tools
+- `tools/osm_map.py`: `--river-roads` (every road over the river is a crossing, not only those mapped as bridges) and
+  `--river-ford-every D` (fords so crossings are at most D apart along the river).
 
 ## v0.15.0
 
