@@ -2657,11 +2657,13 @@ impl Lane<'_> {
     fn aim(&self, w: &WeaponDef, origin: Vec3, c: &Cen) -> Option<f32> {
         let spread = w.spread.to_radians();
         let obst = self.obstacles(w, origin, c.pos + c.vel * (c.pos.dist(flat(origin)) / w.speed.max(1.0)), c.id);
-        let dip = spread * 0.6 * 0.5;
-        for (lift, dip, side) in [(0.0, dip, spread * 0.5), (0.2, dip, spread * 0.5), (0.4, dip, spread * 0.5), (0.4, 0.0, 0.0)] {
+        // `Rng::bell` throws up to +-1 x spread in yaw and +-0.6 x spread in pitch: allow for 80%
+        // of that (nearly every shot), with no last resort that ignores the spread.
+        let (dip, side) = (spread * 0.6 * 0.8, spread * 0.8);
+        for lift in [0.0, 0.2, 0.4] {
             let lift = lift * c.hit_h;
             let sol = solve(w, origin, c.center() + Vec3::Y * lift, c.vel, self.g);
-            if self.clears(origin, &sol, c.hit_w.min(c.hit_l), dip, side, &obst) {
+            if self.clears(origin, &sol, c.hit_w.min(c.hit_l) * 0.5, dip, side, &obst) {
                 return Some(lift);
             }
         }
@@ -2901,7 +2903,11 @@ fn weapons(
                 if st.burst_cd <= 0.0 {
                     st.burst -= 1;
                     st.burst_cd += w.salvo_delay;
-                    if !st.blocked {
+                    // Look again: the unit may have moved since the lane was last checked.
+                    let clear = !st.blocked && target.filter(|_| direct && gpoint.is_none()).map_or(true, |c| lane.aim(w, origin, c).is_some());
+                    if !clear {
+                        st.blocked = true;
+                    } else {
                         fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
                     }
                 }
