@@ -2025,7 +2025,9 @@ fn garrisons(census: Res<Census>, effects: Res<Effects>, defs: Res<Defs>, game: 
     }
     for c in &census.list {
         let d = defs.get(c.def);
-        if !d.is_garrison() || c.hp <= 0.0 || c.owner == HOSTILE {
+        // A site still being built has no riders yet: it stays its builder's, or the builders
+        // (who only work on their own team's sites) would be shut out of it and it would hang.
+        if !d.is_garrison() || !c.done || c.hp <= 0.0 || c.owner == HOSTILE {
             continue;
         }
         let want = inside.get(&c.id).copied().unwrap_or(NEUTRAL);
