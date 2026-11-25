@@ -5,6 +5,18 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.5
+
+Graphics
+- Map themes (High): each premade map has a building theme (`assets/data/themes.json`, `"theme"` in map.json): wall and
+  roof paints that suit the place (Adriatic terracotta and ochre, Central European pastels, village whitewash, industrial
+  greys, Soviet) and the set of house models it uses. Walls are repainted instead of just tinted, so no more white boxes.
+- Buildings (Ultra): houses get overhanging eaves and a sill under every window.
+- Nine new building models made for the themes (`art/models_themed.py`): Adriatic stone house and town house; plaster house
+  and stepped-gable townhouse; log house and whitewashed thatched house; Stalin-era block and a five-storey panel block;
+  a flat-roofed block-and-brick house. Maps use them at High building detail through their theme (Sudzha is now Soviet).
+- The map editor has a Buildings (theme) dropdown next to the sky.
+
 ## v0.15.4
 
 - The Sparky field engineer is gone. Engineer Mk2 now does what it did: it builds sandbags, trenches, field bunkers and
@@ -30,14 +42,6 @@ Graphics
 - Buildings (High), more: walls and roofs are painted separately (plaster, brick and roof tones within reason), and
   ruins come in six shapes (low and flat, one corner standing, gutted, half collapsed, ragged) with scattered rubble,
   burnt beams and an ash patch.
-- Map themes (High): each premade map has a building theme (`assets/data/themes.json`, `"theme"` in map.json): wall and
-  roof paints that suit the place (Adriatic terracotta and ochre, Central European pastels, village whitewash, industrial
-  greys, Soviet) and the set of house models it uses. Walls are repainted instead of just tinted, so no more white boxes.
-- Buildings (Ultra): houses get overhanging eaves and a sill under every window.
-- Nine new building models made for the themes (`art/models_themed.py`): Adriatic stone house and town house; plaster house
-  and stepped-gable townhouse; log house and whitewashed thatched house; Stalin-era block and a five-storey panel block;
-  a flat-roofed block-and-brick house. Maps use them at High building detail through their theme (Sudzha is now Soviet).
-- The map editor has a Buildings (theme) dropdown next to the sky.
 - Explosions (High effects): hot core and red fireball, a shock ring over the ground, sparks that fall, tumbling chunks,
   and a lingering black smoke column.
 
