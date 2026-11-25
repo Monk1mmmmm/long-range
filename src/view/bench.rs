@@ -44,6 +44,9 @@ fn scenarios() -> Vec<Scenario> {
         s("effects high", 90.0, false, |s| s.effects = 2),
         s("effects low, game running", 90.0, true, |s| s.effects = 0),
         s("effects high, game running", 90.0, true, |s| s.effects = 2),
+        s("water low", 90.0, false, |s| s.water_detail = 0),
+        s("water high", 90.0, false, |s| s.water_detail = 2),
+        s("water ultra (reflections)", 90.0, false, |s| s.water_detail = 3),
         s("model LOD off", 90.0, false, |s| s.model_lod = false),
         s("remembered building models off", 90.0, false, |s| s.ghost_models = false),
         s("sky, haze and clouds off", 380.0, false, |s| {

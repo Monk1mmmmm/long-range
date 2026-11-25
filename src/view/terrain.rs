@@ -429,38 +429,22 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
         GameScene,
     ));
     // Water covers the map and the sea around it; it takes no shadows (cascade borders showed up
-    // as rectangles on it).
-    let high_water = crate::settings::Settings::load().water_detail >= 2;
-    let water_mat = if high_water {
-        materials.add(super::water::material(images))
-    } else {
-        materials.add(StandardMaterial {
-            base_color: Color::srgba(0.07, 0.22, 0.32, 0.82),
-            alpha_mode: AlphaMode::Blend,
-            perceptual_roughness: 0.12,
-            reflectance: 0.6,
-            ..default()
-        })
-    };
-    commands.spawn((
-        Mesh3d(meshes.add(water_mesh(world.max(world_z) * 12.0, world * 0.5, world_z * 0.5))),
-        MeshMaterial3d(water_mat.clone()),
-        Transform::from_xyz(world * 0.5, map.water, world_z * 0.5),
-        NotShadowCaster,
-        NotShadowReceiver,
-        WaterPlane,
-        GameScene,
-    ));
-    // Lakes above the sea have their own surface.
-    if let Some(mesh) = lake_mesh(map) {
-        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(water_mat.clone()), Transform::IDENTITY, NotShadowCaster, NotShadowReceiver, GameScene));
-    }
-    if high_water {
-        let foam = super::water::spawn_foam(commands, map, meshes, materials, images);
-        commands.insert_resource(super::water::WaterFx { sea: water_mat, foam });
-    } else {
-        commands.remove_resource::<super::water::WaterFx>();
-    }
+    // as rectangles on it). Its material (`water::WaterMaterial`) is made by a queued command, which
+    // has the world's material store.
+    let sea_mesh = meshes.add(water_mesh(world.max(world_z) * 12.0, world * 0.5, world_z * 0.5));
+    let lake = lake_mesh(map).map(|m| meshes.add(m));
+    let water_level = map.water;
+    let (water, mut fx) = super::water::material(map, images);
+    commands.queue(move |w: &mut World| {
+        let mat = w.resource_mut::<Assets<super::water::WaterMaterial>>().add(water);
+        fx.mat = mat.clone();
+        w.insert_resource(fx);
+        w.spawn((Mesh3d(sea_mesh), MeshMaterial3d(mat.clone()), Transform::from_xyz(world * 0.5, water_level, world_z * 0.5), NotShadowCaster, NotShadowReceiver, WaterPlane, GameScene));
+        // Lakes above the sea have their own surface.
+        if let Some(lake) = lake {
+            w.spawn((Mesh3d(lake), MeshMaterial3d(mat), Transform::IDENTITY, NotShadowCaster, NotShadowReceiver, GameScene));
+        }
+    });
     spawn_deposits(commands, map, meshes, materials);
     let sky = super::sky::find(&map.sky);
     commands.spawn((

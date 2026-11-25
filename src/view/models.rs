@@ -138,6 +138,34 @@ impl Anim {
     }
 }
 
+/// Roughness (green) and metalness (blue) per texel of an albedo map as stored (ultra building detail):
+/// window glass (blue-tinted texels: the art kit's blue-grey panes and canopies, the mod's pale panes)
+/// is smooth and mirror-like, a vehicle's bare grey steel is semi-polished metal, everything else keeps
+/// the plain material's 0.55 / 0.25. Lit (warm) windows are left as they are.
+/// `surfaces` (`roof_mask`, empty = no limit): where it marks roofs, there is no glass. Glass texels have
+/// metalness `GLASS_METAL` (255), and only they.
+fn gloss_map(albedo: &image::RgbaImage, vehicle: bool, surfaces: &[u8]) -> image::RgbaImage {
+    let mut out = image::RgbaImage::new(albedo.width(), albedo.height());
+    for (i, (px, o)) in albedo.pixels().zip(out.pixels_mut()).enumerate() {
+        let c = [px[0] as f32 / 255.0, px[1] as f32 / 255.0, px[2] as f32 / 255.0];
+        let (l, sat) = (luminance(c), saturation(c));
+        let glass = c[2] > c[0] + 0.065 && c[2] >= c[1] - 0.01 && (0.08..0.97).contains(&l) && (0.06..0.7).contains(&sat) && surfaces.get(i).copied() != Some(255);
+        let steel = vehicle && sat < 0.16 && (0.22..0.85).contains(&l);
+        let (rough, metal) = if glass {
+            (0.05, GLASS_METAL as f32 / 255.0)
+        } else if steel {
+            (0.32, 0.6)
+        } else {
+            (0.55, 0.25)
+        };
+        *o = image::Rgba([0, (rough * 255.0) as u8, (metal * 255.0) as u8, 255]);
+    }
+    out
+}
+
+/// Metalness byte of glass in `gloss_map` (full: a mirror tinted by the pane's colour).
+const GLASS_METAL: u8 = 255;
+
 /// Material variants of one unit type for one owner colour.
 #[derive(Clone)]
 pub struct UnitMats {
@@ -164,6 +192,11 @@ pub struct ModelCache {
     detailed: HashMap<DefId, Vec<Option<Handle<Mesh>>>>,
     rubble: Option<(Handle<Mesh>, Handle<Mesh>, Vec<Handle<StandardMaterial>>)>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
+    /// Glossy close-up versions of plain materials and the way back (`pair`, `set_close`).
+    shiny: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
+    plain: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
+    /// The camera is close enough for glass and metal to show reflections.
+    pub close: bool,
     wreck: HashMap<(DefId, bool), Handle<StandardMaterial>>,
     /// Dark copies of unit materials (remembered buildings destroyed out of sight).
     dim: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
@@ -853,14 +886,27 @@ impl ModelCache {
         let var = if high && defs.get(def).has_category("civilian") { 1 + (self.variant.wrapping_mul(2654435761) >> 16) % BUILDING_VARIANTS } else { 0 } as u8;
         let low = self.is_low(defs, def);
         let var = if low { var | 0x80 } else { var };
+        // Ultra: glass and metal are glossy and reflect the sky (`sky::env_light`).
+        let shine = self.detail >= 3;
+        let var = if shine { var | 0x40 } else { var };
         if let Some(m) = self.mats.get(&(def, color, var)) {
             return m.clone();
         }
         let md = &defs.get(def).model;
         let mut tex = None;
+        let mut gloss = None;
+        let mut plain_tex = None;
         let (_, albedo_p, mask_p) = md.paths(low);
         if let Some(mut albedo) = albedo_p.map(|s| s.as_str()).and_then(read_rgba) {
             let mask = mask_p.map(|s| s.as_str()).and_then(read_rgba).filter(|m| m.dimensions() == albedo.dimensions());
+            // From the texture as drawn, before brightness, paints and wear.
+            if shine {
+                let d = defs.get(def);
+                let vehicle = !d.is_structure() && !d.is_infantry();
+                // Buildings: only texels on walls can be windows (slate roofs are blue-grey too).
+                let surfaces = if d.is_structure() { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
+                gloss = Some(gloss_map(&albedo, vehicle, &surfaces));
+            }
             let width = albedo.width();
             let themed = defs.get(def).has_category("themed");
             let roofs = if var > 0 && !themed { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
@@ -932,6 +978,19 @@ impl ModelCache {
                 }
                 px[3] = 255;
             }
+            // Glass is a tinted mirror: metal reflections take the base colour, and dark panes would
+            // reflect next to nothing, so they are lightened towards a pale grey-blue.
+            if let Some(g) = &gloss {
+                // The plain (far) material keeps the panes as they are.
+                plain_tex = Some(images.add(if high { to_image_mips(&albedo, true) } else { to_image(&albedo, true) }));
+                for (px, m) in albedo.pixels_mut().zip(g.pixels()) {
+                    if m[2] == GLASS_METAL {
+                        for (j, t) in [190.0f32, 204.0, 220.0].iter().enumerate() {
+                            px[j] = (px[j] as f32 * 0.35 + t * 0.65) as u8;
+                        }
+                    }
+                }
+            }
             tex = Some(images.add(if high { to_image_mips(&albedo, true) } else { to_image(&albedo, true) }));
         }
         let normal = md.normal.as_deref().filter(|_| !low).and_then(read_rgba).map(|n| images.add(if high { to_image_mips(&n, false) } else { to_image(&n, false) }));
@@ -939,8 +998,10 @@ impl ModelCache {
             base_color: if tex.is_some() { Color::WHITE } else { Color::srgb(rgb[0], rgb[1], rgb[2]) },
             base_color_texture: tex.clone(),
             normal_map_texture: normal,
-            perceptual_roughness: 0.55,
-            metallic: 0.25,
+            // With a gloss map its texels carry the values (scaled by these).
+            perceptual_roughness: if gloss.is_some() { 1.0 } else { 0.55 },
+            metallic: if gloss.is_some() { 1.0 } else { 0.25 },
+            metallic_roughness_texture: gloss.map(|g| images.add(to_image_mips(&g, false))),
             ..default()
         };
         let building = StandardMaterial {
@@ -950,9 +1011,21 @@ impl ModelCache {
             perceptual_roughness: 0.8,
             ..default()
         };
-        let m = UnitMats { normal: materials.add(base), building: materials.add(building) };
+        // The glossy version is only shown close up (`gloss_sync`); the plain one is the material as
+        // below ultra.
+        let plain_gloss = base.metallic_roughness_texture.is_some();
+        let plain = StandardMaterial { perceptual_roughness: 0.55, metallic: 0.25, metallic_roughness_texture: None, base_color_texture: plain_tex.or(base.base_color_texture.clone()), ..base.clone() };
+        let normal = if plain_gloss { self.pair(materials.add(plain), materials.add(base)) } else { materials.add(base) };
+        let m = UnitMats { normal, building: materials.add(building) };
         self.mats.insert((def, color, var), m.clone());
         m
+    }
+
+    /// Registers a plain material and its glossy close-up version; returns the one to show now.
+    fn pair(&mut self, plain: Handle<StandardMaterial>, shiny: Handle<StandardMaterial>) -> Handle<StandardMaterial> {
+        self.shiny.insert(plain.id(), shiny.clone());
+        self.plain.insert(shiny.id(), plain.clone());
+        if self.close { shiny } else { plain }
     }
 
     pub fn flat_mat(&mut self, spec: &ColorSpec, color: u8, rgb: [f32; 3], materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
@@ -965,8 +1038,39 @@ impl ModelCache {
                 _ => [0.5, 0.52, 0.56],
             },
         };
-        let key = (((c[0] * 255.0) as u32) << 16 | ((c[1] * 255.0) as u32) << 8 | (c[2] * 255.0) as u32, color);
-        self.flat.entry(key).or_insert_with(|| materials.add(StandardMaterial { base_color: Color::srgb(c[0], c[1], c[2]), perceptual_roughness: 0.75, ..default() })).clone()
+        // Ultra: parts painted "metal" are polished steel close up (`gloss_sync`).
+        let metal = self.detail >= 3 && matches!(spec, ColorSpec::Name(n) if n == "metal");
+        let key = (((c[0] * 255.0) as u32) << 16 | ((c[1] * 255.0) as u32) << 8 | (c[2] * 255.0) as u32 | (metal as u32) << 24, color);
+        if let Some(h) = self.flat.get(&key) {
+            return if self.close { self.shiny.get(&h.id()).unwrap_or(h).clone() } else { h.clone() };
+        }
+        let mat = StandardMaterial { base_color: Color::srgb(c[0], c[1], c[2]), perceptual_roughness: 0.75, ..default() };
+        let plain = materials.add(mat.clone());
+        self.flat.insert(key, plain.clone());
+        if metal {
+            self.pair(plain, materials.add(StandardMaterial { perceptual_roughness: 0.3, metallic: 0.8, ..mat }))
+        } else {
+            plain
+        }
+    }
+
+    /// Shows the glossy materials (glass, bare metal: ultra building detail) on every model while
+    /// the camera is close (`close`), the plain ones otherwise. Returns false if nothing changed.
+    pub fn set_close(&mut self, close: bool, parts: &mut Query<&mut MeshMaterial3d<StandardMaterial>>) -> bool {
+        if self.close == close {
+            return false;
+        }
+        self.close = close;
+        let map = if close { &self.shiny } else { &self.plain };
+        if map.is_empty() {
+            return true;
+        }
+        for mut m in parts.iter_mut() {
+            if let Some(h) = map.get(&m.0.id()) {
+                m.0 = h.clone();
+            }
+        }
+        true
     }
 
     /// A darkened copy of `mat` (opaque: see-through parts of one model would sort badly).

@@ -6,7 +6,7 @@
 use super::terrain::{GameScene, MainCamera, Sun};
 use crate::map::MapData;
 use bevy::asset::RenderAssetUsages;
-use bevy::light::{NotShadowCaster, NotShadowReceiver, Skybox};
+use bevy::light::{EnvironmentMapLight, NotShadowCaster, NotShadowReceiver, Skybox};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureViewDescriptor, TextureViewDimension};
@@ -183,6 +183,106 @@ pub fn preview_sheet(path: &str) {
 
 pub const FACE: usize = 256;
 
+/// Direction of texel (`u`, `v` in -1..1) of cube face `f` (the layout of `cube_image`).
+fn face_dir(f: usize, u: f32, v: f32) -> Vec3 {
+    match f {
+        0 => Vec3::new(1.0, -v, -u),
+        1 => Vec3::new(-1.0, -v, u),
+        2 => Vec3::new(u, 1.0, v),
+        3 => Vec3::new(u, -1.0, -v),
+        4 => Vec3::new(u, -v, 1.0),
+        _ => Vec3::new(-u, -v, -1.0),
+    }
+    .normalize()
+}
+
+/// The face and texel coordinates (0..1) direction `d` falls on (inverse of `face_dir`).
+fn dir_face(d: Vec3) -> (usize, f32, f32) {
+    let a = d.abs();
+    let (f, u, v) = if a.x >= a.y && a.x >= a.z {
+        if d.x > 0.0 { (0, -d.z / a.x, -d.y / a.x) } else { (1, d.z / a.x, -d.y / a.x) }
+    } else if a.y >= a.z {
+        if d.y > 0.0 { (2, d.x / a.y, d.z / a.y) } else { (3, d.x / a.y, -d.z / a.y) }
+    } else if d.z > 0.0 {
+        (4, d.x / a.z, -d.y / a.z)
+    } else {
+        (5, -d.x / a.z, -d.y / a.z)
+    };
+    (f, (u + 1.0) * 0.5, (v + 1.0) * 0.5)
+}
+
+/// Side of the environment map's sharpest level.
+const ENV_FACE: usize = 64;
+
+/// The sky as an environment map for reflections on glass and metal (ultra building detail): a
+/// specular cubemap whose mip levels are the sky blurred over wider and wider cones (Bevy picks the
+/// level by roughness), prefiltered here once per sky, and a black diffuse map, so the lighting of
+/// rough surfaces stays as the sun and ambient light make it.
+pub fn env_light(s: &Sky, images: &mut Assets<Image>) -> EnvironmentMapLight {
+    let n = ENV_FACE;
+    let base: Vec<Vec3> = (0..6 * n * n)
+        .map(|i| {
+            let (f, y, x) = (i / (n * n), (i / n) % n, i % n);
+            let d = face_dir(f, (x as f32 + 0.5) / n as f32 * 2.0 - 1.0, (y as f32 + 0.5) / n as f32 * 2.0 - 1.0);
+            // Below the horizon the skybox is dark "ground"; a window seen from above should
+            // mirror hazy land instead: the horizon, dimmed further down.
+            let c = if d.y >= 0.0 { shade(s, d) } else { shade(s, Vec3::new(d.x, 0.0, d.z).normalize_or(Vec3::X)) * (0.78 - 0.33 * smoothstep(0.0, -0.6, d.y)) };
+            c.min(Vec3::splat(1.0))
+        })
+        .collect();
+    let look = |d: Vec3| -> Vec3 {
+        let (f, u, v) = dir_face(d);
+        let (x, y) = (((u * n as f32) as usize).min(n - 1), ((v * n as f32) as usize).min(n - 1));
+        base[f * n * n + y * n + x]
+    };
+    let levels = n.trailing_zeros() as usize + 1;
+    // Layer-major: every level of face 0, then of face 1...
+    let mut data = Vec::new();
+    for f in 0..6 {
+        for k in 0..levels {
+            let m = (n >> k).max(1);
+            let rough = k as f32 / (levels - 1) as f32;
+            // Half-angle of the blur cone: about the width of the GGX lobe at this roughness.
+            let cone = (rough * rough * 1.25).min(1.4);
+            for y in 0..m {
+                for x in 0..m {
+                    let d = face_dir(f, (x as f32 + 0.5) / m as f32 * 2.0 - 1.0, (y as f32 + 0.5) / m as f32 * 2.0 - 1.0);
+                    let c = if k == 0 {
+                        look(d)
+                    } else {
+                        let (t, b) = d.any_orthonormal_pair();
+                        let (mut sum, mut wsum) = (Vec3::ZERO, 0.0);
+                        const SAMPLES: usize = 40;
+                        for i in 0..SAMPLES {
+                            // Golden-angle spiral over the cone, weighted towards its axis.
+                            let r = ((i as f32 + 0.5) / SAMPLES as f32).sqrt();
+                            let a = i as f32 * 2.399_963;
+                            let ang = r * cone;
+                            let dir = (d * ang.cos() + (t * a.cos() + b * a.sin()) * ang.sin()).normalize();
+                            let w = 1.0 - 0.7 * r * r;
+                            sum += look(dir) * w;
+                            wsum += w;
+                        }
+                        sum / wsum
+                    };
+                    for j in 0..3 {
+                        data.push((c[j].clamp(0.0, 1.0) * 255.0).round() as u8);
+                    }
+                    data.push(255);
+                }
+            }
+        }
+    }
+    // `Image::new` checks the data against level 0 only; the mip levels go in afterwards.
+    let mut spec = Image::new(Extent3d { width: n as u32, height: n as u32, depth_or_array_layers: 6 }, TextureDimension::D2, vec![0; 6 * n * n * 4], TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
+    spec.data = Some(data);
+    spec.texture_descriptor.mip_level_count = levels as u32;
+    spec.texture_view_descriptor = Some(TextureViewDescriptor { dimension: Some(TextureViewDimension::Cube), ..default() });
+    let mut diffuse = Image::new(Extent3d { width: 1, height: 1, depth_or_array_layers: 6 }, TextureDimension::D2, vec![0, 0, 0, 255].repeat(6), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
+    diffuse.texture_view_descriptor = Some(TextureViewDescriptor { dimension: Some(TextureViewDimension::Cube), ..default() });
+    EnvironmentMapLight { diffuse_map: images.add(diffuse), specular_map: images.add(spec), intensity: 1000.0, ..default() }
+}
+
 /// The six faces of `s` as a cubemap image.
 pub fn cube_image(s: &Sky) -> Image {
     let mut data = Vec::with_capacity(6 * FACE * FACE * 4);
@@ -298,7 +398,7 @@ pub fn spawn_clouds(commands: &mut Commands, map: &MapData, meshes: &mut Assets<
 /// What `sky_sync` has put on the camera.
 #[derive(Default)]
 pub struct Applied {
-    key: Option<(String, bool, bool)>,
+    key: Option<(String, bool, bool, bool)>,
 }
 
 /// Puts the map's sky on the camera (skybox, haze colour, clear colour), the lights of the sky on the
@@ -321,13 +421,24 @@ pub fn sky_sync(
     let Some(map) = map else { return };
     let (show_sky, show_haze, show_clouds) = settings.as_ref().map_or((true, true, true), |s| (s.sky, s.haze, s.clouds));
     let sky = find(&map.sky);
-    let key = (sky.id.to_string(), show_sky, show_haze);
+    // Ultra building detail: glass and metal reflect the sky (`env_light`).
+    let shine = settings.as_ref().is_some_and(|s| s.building_detail >= 3);
+    let key = (sky.id.to_string(), show_sky, show_haze, shine);
     let horizon = sky.horizon_color();
     if applied.key.as_ref() != Some(&key) {
         applied.key = Some(key);
         clear.0 = horizon;
         let image = show_sky.then(|| images.add(cube_image(sky)));
+        let env = shine.then(|| env_light(sky, &mut images));
         for (e, _, fog) in &mut cams {
+            match &env {
+                Some(l) => {
+                    commands.entity(e).insert(l.clone());
+                }
+                None => {
+                    commands.entity(e).remove::<EnvironmentMapLight>();
+                }
+            }
             match &image {
                 Some(h) => {
                     commands.entity(e).insert(Skybox { image: Some(h.clone()), brightness: 1000.0, rotation: Quat::IDENTITY });

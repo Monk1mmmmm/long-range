@@ -721,6 +721,19 @@ fn wreck_visuals(
     }
 }
 
+/// Camera distances (`ViewState::cam_dist`) below which glass and bare metal show their reflections
+/// (ultra building detail), and above which they stop again: only a close look shows them.
+const GLOSS_NEAR: f32 = 38.0;
+const GLOSS_FAR: f32 = 46.0;
+
+/// Swaps glass and metal between their glossy and plain materials as the camera comes close or goes.
+fn gloss_sync(settings: Res<crate::settings::Settings>, view: Res<ViewState>, mut cache: ResMut<ModelCache>, mut parts: Query<&mut MeshMaterial3d<StandardMaterial>>) {
+    let close = settings.building_detail >= 3 && if cache.close { view.cam_dist < GLOSS_FAR } else { view.cam_dist < GLOSS_NEAR };
+    if cache.close != close {
+        cache.set_close(close, &mut parts);
+    }
+}
+
 /// Tells the model cache which building detail is set (`Settings::building_detail`).
 fn model_detail_sync(settings: Res<crate::settings::Settings>, map: Option<Res<MapData>>, mut cache: ResMut<ModelCache>) {
     if cache.detail != settings.building_detail {
@@ -788,13 +801,14 @@ impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LocalCommands>().init_resource::<marks::Marks>().init_resource::<sound::UiSounds>();
         app.add_plugins(surface::SurfacePlugin);
+        app.add_plugins(water::WaterPlugin);
         app.add_systems(Startup, sound::load);
         app.add_systems(
             Update,
             // `perf::vmark::<I>` between the systems times them while a `perf::FrameProfile` exists
             // (LR_PROFILE=1, --bench). Inner tuples need their own chain().
             (
-                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, water::water_sync, model_detail_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
+                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, model_detail_sync, gloss_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
                 (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
                 (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, blur_sync, vmark::<16>).chain(),
             )

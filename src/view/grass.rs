@@ -129,7 +129,7 @@ pub fn grass_sync(
     settings: Res<Settings>,
     map: Res<MapData>,
     view: Option<Res<FloraView>>,
-    cams: Query<&GlobalTransform, With<Camera3d>>,
+    cams: Query<&GlobalTransform, With<super::terrain::MainCamera>>,
     chunks: Query<(Entity, &GrassChunk)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,

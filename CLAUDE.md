@@ -71,8 +71,8 @@ each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control po
 what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_INFCAP=1` (the lobby option "infantry capture buildings"), `LR_EVERY=300`
 (report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
 distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
-unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist`
-(screenshot of a running game after `secs` of game time, then quit). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
+unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist[,shore|x:z]`
+(screenshot of a running game after `secs` of game time, then quit; `shore` looks at a steep shore near the map centre, `x:z` at that point). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
 windowed game a `profile:` line goes to the log every 30 s: fps, frame / main / render CPU / GPU ms, the costliest view
 systems and sim systems, `view::perf::FrameProfile`), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 
@@ -263,7 +263,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/intel.rs` | fog grid, terrain-shadowed radar coverage, contact memory (ghosts/blips) |
 | `src/view/models.rs` | GLB/box model loading, team-colour texture baking |
 | `src/view/terrain.rs` | terrain chunks (rebuilt by `terrain_sync` where the ground changed), land beyond the border (`apron_mesh`: the map mirrored on all sides, blurred, hazy, built once), dashed map edge (`map_edge_sync` re-widens it with the camera distance), water, deposits, sun, minimap pixels |
-| `src/view/sky.rs` | skies (`MapData.sky`, map.json `"sky"`; `SKIES`: clear, hazy, overcast, sunset, night, arctic): procedural cubemap skybox on the camera, haze colour, sun and ambient light, and the cloud layer (`Settings::clouds`, only visible with the camera above ~320 units, fades in to 700; 3D, so never over HUD icons); `sky_sync` runs in game and editor; `--skies out.png` previews them; unknown/empty id = clear day; `paint_ground` gives an unset map its biome's sky |
+| `src/view/water.rs`, `water.wesl` | the water material (`WaterMaterial`, sea and lakes): shore field (`shore_field`: depth + signed distance to the waterline on a quarter-cell grid, 64 beyond the border, rebuilt at most once a second when `Ground.hash` or the editor's map changes) for the smooth shoreline, shallows and lapping foam at every level; wave normals at high; ultra (`water_detail` 3): planar reflection camera (`reflection_sync`, half window size, mirrored at the water level the camera looks at, clipped at the surface by `MirrorProjection` - Bevy's `near_clip_plane` leaves no depth range when looking down at water); gizmos sit on their own render layer so they are not mirrored |
+| `src/view/sky.rs` | skies (`MapData.sky`, map.json `"sky"`; `SKIES`: clear, hazy, overcast, sunset, night, arctic): procedural cubemap skybox on the camera, haze colour, sun and ambient light, and the cloud layer (`Settings::clouds`, only visible with the camera above ~320 units, fades in to 700; 3D, so never over HUD icons); `sky_sync` runs in game and editor; at ultra building detail also a specular-only `EnvironmentMapLight` (`env_light`: CPU-prefiltered mips, black diffuse map, the lower half a dimmed horizon) for glass and metal; `--skies out.png` previews them; unknown/empty id = clear day; `paint_ground` gives an unset map its biome's sky |
 | `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
 | `src/view/fx.rs` | projectile visuals and explosions (fewer puffs, no flash lights at the low effects level) |
 | `src/view/debris.rs` | debris pieces: jagged chunk meshes, falling/tumbling, shown by the effects level |
@@ -575,6 +576,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   view restarts. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
   selected layer, right removes it, on layer 0 it clears all layers above; Road tool: left adds points, right finishes
   or deletes the road under the pointer). `--generate` towns get paving/gravel around the buildings and asphalt roads.
+- **Glass and metal reflections** (ultra building detail, requested close up only): `models::gloss_map` (from the stored albedo: blue-tinted texels not on roofs = glass, a vehicle's grey = steel) gives a glossy material with a metallic-roughness map and lightened panes; `gloss_sync` swaps every model between it and the plain one when `cam_dist` crosses `GLOSS_NEAR`/`GLOSS_FAR` (38/46; `ModelCache::pair`, `set_close`). Flat "metal" parts likewise.
 - **Water levels**: `MapData.water` is the sea; lakes above it are `MapData.lakes` (levels, at most 255) +
   `lake_of` (one byte per cell: 0 = sea, k = `lakes[k - 1]`; map.json `lakes` + `lakes.png`). A lake covers the
   cells with ground below its level (`flood_lake`; the editor's Lake tool: left fills the hollow under the pointer

@@ -2614,9 +2614,20 @@ fn setup(mut commands: Commands) {
 
 /// Developer aid: `LR_SHOT=<file.png>,<game seconds>[,<unit id>[,<camera distance>]]` saves one
 /// screenshot of a running game and quits. With a unit id ("land_factory"), the local player's
-/// units of that type are selected first, so the selection panel is in the picture.
-fn dev_screenshot(mut commands: Commands, game: Option<Res<Game>>, view: Option<ResMut<ViewState>>, defs: Res<Defs>, units: Query<&Unit>, time: Res<Time>, mut state: Local<(u8, f32)>, mut exit: MessageWriter<AppExit>) {
+/// units of that type are selected first, so the selection panel is in the picture. A fifth field
+/// `shore` points the camera at a steep shore near the map centre (water checks), `x:z` at that point.
+#[allow(clippy::too_many_arguments)]
+fn dev_screenshot(mut commands: Commands, game: Option<Res<Game>>, view: Option<ResMut<ViewState>>, defs: Res<Defs>, units: Query<&Unit>, time: Res<Time>, map: Option<Res<MapData>>, mut state: Local<(u8, f32)>, mut exit: MessageWriter<AppExit>) {
     static SPEC: std::sync::OnceLock<Option<(String, f32, String, f32)>> = std::sync::OnceLock::new();
+    static SHORE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let shore = *SHORE.get_or_init(|| std::env::var("LR_SHOT").is_ok_and(|v| v.split(',').nth(4) == Some("shore")));
+    // Or `x:z`, a point to look at.
+    static AT: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+    let look = *AT.get_or_init(|| {
+        let v = std::env::var("LR_SHOT").ok()?;
+        let (x, z) = v.split(',').nth(4)?.split_once(':')?;
+        Some((x.parse().ok()?, z.parse().ok()?))
+    });
     let spec = SPEC.get_or_init(|| {
         let v = std::env::var("LR_SHOT").ok()?;
         let mut it = v.split(',');
@@ -2630,6 +2641,31 @@ fn dev_screenshot(mut commands: Commands, game: Option<Res<Game>>, view: Option<
             }
             if *dist > 0.0 {
                 view.cam_dist = *dist;
+            }
+            if let Some((x, z)) = look {
+                view.cam_target = longrange::map::v2(x, z);
+            }
+            if let (true, Some(map)) = (shore, &map) {
+                let (n, ny) = map.dims();
+                let c = map.center();
+                let wet = |x: usize, y: usize| map.vertex(x, y) < map.water_cell(x.min(n - 1), y.min(ny - 1));
+                // A shore away from the border with high ground right behind it, so reflections show.
+                let rise = |x: usize, y: usize| {
+                    let mut h = f32::MIN;
+                    for j in y.saturating_sub(4)..(y + 5).min(ny) {
+                        for i in x.saturating_sub(4)..(x + 5).min(n) {
+                            h = h.max(map.vertex(i, j));
+                        }
+                    }
+                    h - map.water_cell(x, y)
+                };
+                let best = (8..ny.saturating_sub(8)).flat_map(|y| (8..n.saturating_sub(8)).map(move |x| (x, y))).filter(|&(x, y)| wet(x, y) != wet(x + 1, y + 1)).max_by(|a, b| {
+                    let score = |p: (usize, usize)| rise(p.0, p.1).min(12.0) - (longrange::map::v2(p.0 as f32 * CELL, p.1 as f32 * CELL) - c).len() * 0.01;
+                    score(*a).total_cmp(&score(*b))
+                });
+                if let Some((x, y)) = best {
+                    view.cam_target = longrange::map::v2(x as f32 * CELL, y as f32 * CELL);
+                }
             }
             *state = (1, time.elapsed_secs());
         }

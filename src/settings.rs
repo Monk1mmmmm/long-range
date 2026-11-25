@@ -599,6 +599,9 @@ pub const FLORA_DETAIL: [&str; 3] = [tx!("settings.detail_low"), tx!("settings.m
 /// Names of the levels of `Settings::building_detail`.
 pub const BUILDING_DETAIL: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
 
+/// Names of the levels of `Settings::water_detail`.
+pub const WATER_DETAIL: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
+
 /// Names of the levels of `Settings::grass_detail`.
 pub const GRASS_DETAIL: [&str; 3] = [tx!("settings.off"), tx!("settings.high"), tx!("settings.ultra")];
 
@@ -618,7 +621,7 @@ pub fn apply_preset(s: &mut Settings, level: usize) {
     s.clouds = l > 0;
     s.ghost_models = l > 0;
     s.building_detail = [0, 1, 2, 3][l];
-    s.water_detail = [0, 1, 2, 2][l];
+    s.water_detail = [0, 1, 2, 3][l];
     s.grass_detail = [0, 0, 1, 2][l];
     s.distance_blur = [0.0, 0.0, 0.4, 0.7][l];
 }
@@ -776,8 +779,8 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         });
         ui.end_row();
         ui.label(tr!("settings.water_detail")).on_hover_text(tr!("settings.water_detail_tip"));
-        egui::ComboBox::from_id_salt("water").selected_text(tr(FLORA_DETAIL[s.water_detail.min(2) as usize])).show_ui(ui, |ui| {
-            for (k, l) in FLORA_DETAIL.iter().enumerate() {
+        egui::ComboBox::from_id_salt("water").selected_text(tr(WATER_DETAIL[s.water_detail.min(3) as usize])).show_ui(ui, |ui| {
+            for (k, l) in WATER_DETAIL.iter().enumerate() {
                 ui.selectable_value(&mut s.water_detail, k as u8, tr(l));
             }
         });
