@@ -5,6 +5,11 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.10
+
+Graphics
+- Buildings on slopes: the walls now continue down to the ground on the low side (the model is stretched down to the lowest ground under it) instead of a separate foundation block.
+
 ## v0.15.9
 
 Fixes
