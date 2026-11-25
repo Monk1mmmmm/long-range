@@ -322,7 +322,6 @@
     "economy": "Economy",
     "factories": "Factories",
     "defence": "Defence",
-    "fieldworks": "Field works",
     "others": "Others"
   },
   "hud_orders": {
@@ -515,13 +514,9 @@
       "name": "Robin",
       "desc": "Mobile anti-tank. One guided missile every 30 seconds; it kills most tanks."
     },
-    "sparky": {
-      "name": "Sparky",
-      "desc": "Field engineer. Builds up to tier 2 and, alone, field works: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar."
-    },
     "engineer2": {
       "name": "Engineer Mk2",
-      "desc": "Builds tier 1-2 structures."
+      "desc": "Combat engineer. Builds tier 1-2 structures and field fortifications: sandbags, trenches, bunkers and watch towers. Carries a riot gun and a short-range radar."
     },
     "bohdana": {
       "name": "Bohdana",
@@ -533,7 +528,7 @@
     },
     "engineer3": {
       "name": "Engineer Mk3",
-      "desc": "Builds every structure."
+      "desc": "Heavy combat engineer. Builds every structure and fortification. Armed like the Mk2, with twice the armor."
     },
     "air_scout": {
       "name": "Kestrel",

@@ -444,7 +444,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 - **Tiers**: `tier` on a unit, `build.tier` on a builder. Factories and pumps upgrade in place (`upgrade`).
   Assignment follows the mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
   gunship, solar); the mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/
-  radar car, T2 Overtaker/Dragoon/Robin/Sparky, T3 Bohdana (the Overtaker moved from T1 on request; the Crony moved to T1 on request). Change `tier` in JSON to move a unit.
+  radar car, T2 Overtaker/Dragoon/Robin, T3 Bohdana (the Overtaker moved from T1 on request; the Crony moved to T1 on request). Change `tier` in JSON to move a unit.
   Our own additions (not in the mod; they reuse the trooper model): T2 AT Trooper (guided missile) and
   SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (lattice masts), UC-02R/03R mobile radars
   (radar car mesh with a raised dish / a radome), T3 Swift airdrop transport plane (winged cargo plane with turboprops, a real `plane`: 2x Stork speed, 8 slots like the Stork; moved from T2 on request; see **Airdrops**). T3 Cyclone interceptor (stealth fighter model, stealth 2, own
@@ -696,7 +696,7 @@ exports through `tools/blend_export.py`. `Kit.key` makes the animations (`work` 
 `rolloff` hangar doors, `doors` crane jib, `land` Stork gear, `upgrade` scaffold rising from under the ground).
 `k.nohit_()` / `k.nohit` keep aprons, antennas, rotors and arms out of the printed hit box (the unit's `hit_box`;
 centred, so buildings are capped at their footprint). Files: `models_buildings.py` (factories, pumpjacks, power,
-storage, AA, eng station), `models_defence.py` (Faust SAM, radar towers, watch tower, sandbags, trench, field bunker), `models_vehicles.py` (APCs/IFVs, engineers, Sparky, scavenger), `models_air.py`,
+storage, AA, eng station), `models_defence.py` (Faust SAM, radar towers, watch tower, sandbags, trench, field bunker), `models_vehicles.py` (APCs/IFVs, engineers, scavenger), `models_air.py`,
 `models_civilian.py` (the former stock UEF civilian buildings: panel block, institute, town hall, palace of culture,
 office tower, farm, brick works; refinery, fuel tank, pylon, comm tower, water tower, bunker), `models_variants.py` (`variant.py`: a mod GLB imported unchanged plus new parts,
 its 512 texture set extended to 512x1024; exported with front +y so the mod's nodes stay as they were): Bastion

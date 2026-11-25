@@ -4527,19 +4527,19 @@ fn fieldwork_tests(defs: &Defs) {
     let run = |world: &mut World, n: u32| (0..n).for_each(|_| world.run_schedule(SimTick));
     let id_of = |name: &str| defs.id(name).expect("unit");
 
-    // 1. Only the field engineer builds them.
+    // 1. Only the combat engineers (Mk2, Mk3) build them.
     let works = ["sandbags", "trench", "field_bunker", "watch_tower"];
     let builders: Vec<&str> = defs.units.iter().filter(|u| works.iter().all(|w| u.builds.contains(&id_of(w)))).map(|u| u.id.as_str()).collect();
     let some: Vec<&str> = defs.units.iter().filter(|u| works.iter().any(|w| u.builds.contains(&id_of(w)))).map(|u| u.id.as_str()).collect();
     println!("== Field works: built by {builders:?}");
-    assert!(builders == ["sparky"] && some == builders, "who builds field works");
+    assert!(builders == ["engineer2", "engineer3"] && some == builders, "who builds field works");
 
-    // 2. A Sparky builds a line of trench; the ground goes down, stays passable, and stays down
+    // 2. An Engineer Mk2 builds a line of trench; the ground goes down, stays passable, and stays down
     // when the trench is destroyed.
     {
         let (mut app, map) = new_world();
         let world = app.world_mut();
-        let sparky = spawn(world, &map, "sparky", 0, v2(120.0, 101.0), 0.0);
+        let sparky = spawn(world, &map, "engineer2", 0, v2(120.0, 101.0), 0.0);
         let spots: Vec<V2> = (0..4).map(|k| v2(127.0 + k as f32 * 2.0, 101.0)).collect();
         for (k, p) in spots.iter().enumerate() {
             world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![sparky], orders: vec![Order::Build { def: id_of("trench"), pos: *p }], queue: k > 0 }));
