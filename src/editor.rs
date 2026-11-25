@@ -16,7 +16,7 @@ use crate::i18n::tr;
 use crate::map::*;
 use crate::view::models::{spawn_model, ModelCache};
 use crate::data::FeatureClass;
-use crate::view::flora::{flora_material, rebuild_flora, spawn_flora, FloraChunks, FloraView};
+use crate::view::flora::{rebuild_flora, spawn_flora, FloraChunks, FloraView};
 use crate::view::terrain::{spawn_scene, update_chunks, GameScene, GroundSnap, MainCamera, TerrainChunk, WaterPlane};
 use crate::view::yaw_quat;
 use crate::surface::{Biome, BIOMES, KINDS};
@@ -1010,7 +1010,7 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
 
 fn setup(mut commands: Commands, mut ed: ResMut<Editor>, mut materials: ResMut<Assets<StandardMaterial>>, mut cache: ResMut<ModelCache>, defs: Res<Defs>) {
     cache.init(&mut materials);
-    commands.insert_resource(FloraView::new(&defs, flora_material(&mut materials, None), vec![], crate::settings::Settings::load().flora_detail));
+    commands.insert_resource(FloraView::new(&defs, &mut materials, None, vec![], crate::settings::Settings::load().flora_detail));
     commands.spawn((Camera3d::default(), Msaa::Off, Transform::from_xyz(0.0, 50.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y), MainCamera));
     ed.dirty = true;
 }

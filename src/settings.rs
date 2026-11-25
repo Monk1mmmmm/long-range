@@ -33,7 +33,8 @@ pub struct Settings {
     pub model_lod: bool,
     /// Volume of shots and explosions, 0 (off) to 1.
     pub sfx_volume: f32,
-    /// Model detail of trees and rocks: 0 = low (also no shadows), 1 = medium, 2 = high.
+    /// Model detail of trees and rocks: 0 = low (also no shadows), 1 = medium, 2 = high, 3 = ultra (branching trees with
+    /// single leaves and needles, angular rocks; only near the camera).
     pub flora_detail: u8,
     /// Smallest on-screen size of a projectile in pixels; far away they become yellow squares this big.
     pub projectile_px: f32,
@@ -594,7 +595,7 @@ pub fn restart() {
 }
 
 /// Names of the tree and rock detail levels (`Settings::flora_detail`).
-pub const FLORA_DETAIL: [&str; 3] = [tx!("settings.detail_low"), tx!("settings.medium"), tx!("settings.high")];
+pub const FLORA_DETAIL: [&str; 4] = [tx!("settings.detail_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
 
 /// Names of the levels of `Settings::building_detail`.
 pub const BUILDING_DETAIL: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
@@ -610,7 +611,7 @@ pub const PRESETS: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.medium
 pub fn apply_preset(s: &mut Settings, level: usize) {
     let l = level.min(3);
     s.shadows = [0, 1, 2, 2][l];
-    s.flora_detail = [0, 1, 2, 2][l];
+    s.flora_detail = [0, 1, 2, 3][l];
     s.effects = [0, 1, 2, 2][l];
     s.terrain_detail = l > 0;
     s.sky = true;
@@ -738,7 +739,7 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         });
         ui.end_row();
         ui.label(tr!("common.trees_and_rocks"));
-        egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(2) as usize])).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("flora").selected_text(tr(FLORA_DETAIL[s.flora_detail.min(3) as usize])).show_ui(ui, |ui| {
             for (k, l) in FLORA_DETAIL.iter().enumerate() {
                 ui.selectable_value(&mut s.flora_detail, k as u8, tr(l));
             }

@@ -1,4 +1,5 @@
-//! Grass tufts on grassy ground (`Settings::grass_detail`: 1 high, 2 ultra; 0 draws none).
+//! Grass tufts on grassy ground (`Settings::grass_detail`: 1 high, 2 ultra; 0 draws none). Ultra: denser,
+//! blades that bend (three triangles each) and scattered wildflowers.
 //!
 //! Only the ground near where the camera looks has grass: the chunks (`CHUNK` cells) within
 //! `reach` of that point get a mesh of blade triangles when the camera is low enough, built a
@@ -51,6 +52,18 @@ fn grass_colour(map: &MapData, i: usize) -> Option<[f32; 3]> {
     KINDS.iter().find(|k| k.id == kind.as_str()).map(|k| k.color)
 }
 
+/// Whether the ground of a cell is meadow (the flowery kind).
+fn kind_meadow(map: &MapData, i: usize) -> bool {
+    let len = map.nx * map.ny;
+    let mut kind = map.layers.first().map(|l| l.kind.as_str());
+    for l in 1..map.layers.len() {
+        if map.masks.get((l - 1) * len + i).is_some_and(|&m| m >= 128) {
+            kind = Some(map.layers[l].kind.as_str());
+        }
+    }
+    kind == Some("meadow")
+}
+
 /// The mesh of the chunk at cell (cx, cy), relative to `origin`, or `None` without any grass.
 fn chunk_mesh(map: &MapData, road: &[bool], cx: usize, cy: usize, level: u8, origin: Vec3) -> Option<Mesh> {
     let per_cell = if level >= 2 { 7 } else { 3 };
@@ -100,11 +113,60 @@ fn chunk_mesh(map: &MapData, road: &[bool], cx: usize, cy: usize, level: u8, ori
                     let tip_p = base_p + lean + Vec3::Y * bh;
                     let shade = 0.85 + 0.3 * hash(s2, 11);
                     let rc = [root[0] * shade, root[1] * shade, root[2] * shade, 1.0];
-                    for (v, c) in [(base_p - side, rc), (base_p + side, rc), (tip_p, tip)] {
+                    let mut push = |v: Vec3, c: [f32; 4]| {
                         pos.push(v.to_array());
                         nrm.push(n);
                         col.push(c);
                         uv.push(uvp);
+                    };
+                    if level >= 2 {
+                        // Ultra: a blade that bends - a quad to the knee and a point above it, the
+                        // tip hanging over (the lean grows towards the end), colour fading up.
+                        let knee = base_p + lean * 0.22 + Vec3::Y * bh * 0.55;
+                        let mc = [(rc[0] + tip[0]) * 0.5, (rc[1] + tip[1]) * 0.5, (rc[2] + tip[2]) * 0.5, 1.0];
+                        let tip_p = tip_p + Vec3::Y * -bh * 0.08;
+                        for (v, c) in [(base_p - side, rc), (base_p + side, rc), (knee + side * 0.7, mc), (base_p - side, rc), (knee + side * 0.7, mc), (knee - side * 0.7, mc), (knee - side * 0.7, mc), (knee + side * 0.7, mc), (tip_p, tip)] {
+                            push(v, c);
+                        }
+                    } else {
+                        for (v, c) in [(base_p - side, rc), (base_p + side, rc), (tip_p, tip)] {
+                            push(v, c);
+                        }
+                    }
+                }
+            }
+            // Ultra: now and then a wildflower among the grass (meadows more than lawns).
+            if level >= 2 && hash(i as u64 * 7 + 5, 40) < if kind_meadow(map, i) { 0.22 } else { 0.07 } {
+                let fp = v2((x as f32 + hash(i as u64, 41)) * CELL, (y as f32 + hash(i as u64, 42)) * CELL);
+                if map.normal(fp.x, fp.y).y >= 0.9 && map.h(fp) >= map.water_at(fp) + 0.2 {
+                    let palette: [[f32; 3]; 5] = [[0.95, 0.95, 0.9], [0.95, 0.8, 0.2], [0.6, 0.4, 0.8], [0.9, 0.45, 0.55], [0.95, 0.95, 0.9]];
+                    let petal = palette[(hash(i as u64, 43) * 5.0) as usize % 5];
+                    let stem_h = 0.2 + 0.12 * hash(i as u64, 44);
+                    let b = Vec3::new(fp.x, map.h(fp), fp.y) - origin;
+                    let top = b + Vec3::Y * stem_h + Vec3::new(hash(i as u64, 45) - 0.5, 0.0, hash(i as u64, 46) - 0.5) * 0.08;
+                    let uvp = [fp.x / world.x.max(1.0), fp.y / world.y.max(1.0)];
+                    let green = [0.12, 0.3, 0.08, 1.0];
+                    let n = Vec3::Y.to_array();
+                    let mut push = |v: Vec3, c: [f32; 4]| {
+                        pos.push(v.to_array());
+                        nrm.push(n);
+                        col.push(c);
+                        uv.push(uvp);
+                    };
+                    let w = Vec3::new(0.012, 0.0, 0.0);
+                    for v in [b - w, b + w, top] {
+                        push(v, green);
+                    }
+                    // Five petals round the centre, tilted a little outwards and up.
+                    let a0 = hash(i as u64, 47) * std::f32::consts::TAU;
+                    let (pc, cc) = ([petal[0], petal[1], petal[2], 1.0], [0.9, 0.7, 0.1, 1.0]);
+                    for k in 0..5 {
+                        let (a1, a2) = (a0 + k as f32 / 5.0 * std::f32::consts::TAU, a0 + (k as f32 + 0.8) / 5.0 * std::f32::consts::TAU);
+                        let d1 = Vec3::new(a1.cos(), 0.0, a1.sin());
+                        let d2 = Vec3::new(a2.cos(), 0.0, a2.sin());
+                        push(top, cc);
+                        push(top + d1 * 0.07 + Vec3::Y * 0.025, pc);
+                        push(top + d2 * 0.07 + Vec3::Y * 0.025, pc);
                     }
                 }
             }

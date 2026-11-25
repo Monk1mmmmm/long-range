@@ -39,6 +39,7 @@ fn scenarios() -> Vec<Scenario> {
         s("trees and rocks low", 90.0, false, |s| s.flora_detail = 0),
         s("trees and rocks medium", 90.0, false, |s| s.flora_detail = 1),
         s("trees and rocks high", 90.0, false, |s| s.flora_detail = 2),
+        s("trees and rocks ultra", 90.0, false, |s| s.flora_detail = 3),
         s("effects low", 90.0, false, |s| s.effects = 0),
         s("effects medium", 90.0, false, |s| s.effects = 1),
         s("effects high", 90.0, false, |s| s.effects = 2),
