@@ -160,6 +160,11 @@ impl Settings {
             eprintln!("Cannot save the settings to {}: {e}", path.display());
         }
     }
+    /// True when the OpenGL backend was asked for. Bevy's depth-of-field pass cannot be translated to GLSL there
+    /// (`textureLoad` from a depth texture), so the distance blur stays off.
+    pub fn uses_gl(&self) -> bool {
+        matches!(self.effective_backend().as_str(), "gl" | "opengl")
+    }
     /// The backend that will actually be requested, after environment overrides and "auto".
     pub fn effective_backend(&self) -> String {
         let b = std::env::var("LR_BACKEND").unwrap_or_else(|_| self.backend.clone()).to_lowercase();
@@ -782,8 +787,10 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
             }
         });
         ui.end_row();
-        ui.label(tr!("settings.distance_blur")).on_hover_text(tr!("settings.distance_blur_tip"));
-        ui.add(egui::Slider::new(&mut s.distance_blur, 0.0..=1.0).step_by(0.05).custom_formatter(|v, _| if v <= 0.0 { tr!("settings.off").to_string() } else { format!("{:.0}%", v * 100.0) }));
+        let gl = s.uses_gl();
+        ui.label(tr!("settings.distance_blur")).on_hover_text(if gl { tr!("settings.distance_blur_gl") } else { tr!("settings.distance_blur_tip") });
+        ui.add_enabled(!gl, egui::Slider::new(&mut s.distance_blur, 0.0..=1.0).step_by(0.05).custom_formatter(|v, _| if v <= 0.0 || gl { tr!("settings.off").to_string() } else { format!("{:.0}%", v * 100.0) }))
+            .on_disabled_hover_text(tr!("settings.distance_blur_gl"));
         ui.end_row();
         ui.label(tr!("settings.projectile_size"));
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!("settings.suffix_px")));
