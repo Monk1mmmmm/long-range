@@ -5,6 +5,11 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.8
+
+Fixes
+- OpenGL: the game crashed at start-up at Ultra graphics ("Could not lock adapter context") after Bevy's unused ambient-occlusion shader failed to compile. The OpenGL renderer now asks for fewer storage textures per stage, so Bevy leaves that pass out. Pre-release for testing.
+
 ## v0.15.7
 
 Graphics
