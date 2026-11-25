@@ -5,6 +5,26 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.7
+
+Graphics
+- Water: the shoreline is a smooth curve at every water setting, with the water thinning out to nothing at the edge
+  instead of a hard, stepped line where it met the ground. Foam laps along every shore in a band that follows the coast,
+  with a thinner line running in behind it. Shallow water is lighter and clearer, deep water nearly opaque.
+- New water level Ultra (also in the Ultra preset): real reflections of the land, units, buildings and sky in the sea and
+  lakes, distorted by the waves. It renders the scene a second time at half resolution, so it costs GPU time.
+- Building detail Ultra: window glass and bare metal reflect the sky when the camera is close in (they look as before
+  from further out).
+- The benchmark (`--bench`) measures the water levels too.
+- Trees and rocks (Ultra, also in the Ultra preset): branching trees with single leaves and needle sprays, angular rocks;
+  grass (Ultra): bent blades and wildflowers. Every unit and building model also gets a simplified mesh shown from further away.
+
+Fixes
+- High tree and rock detail lost the graphics device on small GPUs (Vulkan): the detailed meshes are now streamed in
+  around the camera only.
+- Distance blur stays off under OpenGL, where its shader cannot be built (the 3D view went black).
+- Trees and rocks standing under water are removed when a map loads.
+
 ## v0.15.6
 
 Graphics
