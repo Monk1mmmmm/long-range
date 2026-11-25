@@ -557,6 +557,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   (bounds are recomputed when a mesh changes); the fog texture's RGB carries the fog brightness for them.
   LOD: at medium/high detail each chunk has a second, low-detail mesh; `VisibilityRange` crossfades to it at
   `flora::LOD_FADE` camera distance from the chunk centre (chunk meshes are built around that centre).
+  Only the low-detail meshes exist map-wide: the detailed ones are streamed in near the camera (`flora::stream_near`, within
+  `NEAR_RANGE`, a vertex budget `NEAR_VERTS`) and dropped when it leaves; all of them at once crashed small GPUs at high detail.
   Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.
 - **Ground textures** (`surface.rs`, purely visual, never in the sim or its hash): SupCom-style strata. `MapData.layers`
   (kind + tile size; at most 9), layer 0 covers the map, each further layer is drawn over the ones below by its mask

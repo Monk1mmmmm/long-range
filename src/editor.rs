@@ -874,6 +874,7 @@ fn editor_ui(
     if full_rebuild || ed.dirty {
         rebuild(&mut commands, ed, map, &defs, &old, &mut cache, &mut meshes, &mut materials, &mut images, &mut flora);
     } else {
+        flora.cam = camera.iter().next().map(|t| t.translation);
         rebuild_flora(&mut commands, map, &defs, &mut flora, &mut fchunks, &mut meshes);
     }
     Ok(())
