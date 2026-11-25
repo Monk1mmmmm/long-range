@@ -202,7 +202,7 @@
     "building_detail": "Buildings",
     "building_detail_tip": "High: the map's theme (wall and roof paints and which house models it uses), every building differs in colour and wear, sharper textures with mipmaps, and destroyed buildings leave broken, burnt-out ruins with holes instead of a sunk wreck. Ultra: houses also get overhanging eaves and window sills, and windows and bare metal reflect the sky.",
     "grass_detail": "Grass",
-    "grass_detail_tip": "Tufts of grass on grassy ground near the camera. High: normal density. Ultra: denser and further out. Costs frame rate on weak graphics cards.",
+    "grass_detail_tip": "Tufts of grass on grassy ground near the camera. High: normal density. Ultra: denser and further out, with bending blades and wildflowers. Costs frame rate on weak graphics cards.",
     "water_detail": "Water",
     "water_detail_tip": "Every level: a smooth shoreline with foam lapping along it. High: moving waves and sun glints. Ultra: real reflections of the land, units and sky (renders the scene a second time).",
     "neutral_buildings": "Neutral buildings",

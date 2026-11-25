@@ -15,14 +15,22 @@
 //! one at low detail, and Bevy's `VisibilityRange` crossfades (dithered) from the first to the
 //! second as the camera's distance to the chunk crosses `LOD_FADE`. Each chunk mesh is built
 //! around the chunk's centre (its `Transform`), which is where that distance is measured from.
+//! Only the low-detail meshes exist for the whole map; the detailed ones are streamed in around the
+//! camera (`stream_near`, `near_range`, nearest first, within `near_budget` vertices) and dropped when it
+//! leaves (`near_drop`). At high detail all of them at once came to gigabytes on a big forest map and
+//! lost the device (DeviceLost on a GT 730 / Vulkan). A chunk without a detailed mesh shows the
+//! low-detail one at every distance (its `VisibilityRange` is only there while the other exists).
 //!
 //! Vertex UVs hold the feature's map position, so the fog-of-war texture (whose colour channels
 //! carry the brightness, see `intel.rs`) darkens features in the fog like the terrain.
+mod ultra;
+
 use super::terrain::GameScene;
 use bevy::light::NotShadowCaster;
 use crate::data::{Defs, FeatureDef, FeatureShape};
 use crate::map::*;
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::VisibilityRange;
 use bevy::mesh::PrimitiveTopology;
 use bevy::prelude::*;
 
@@ -36,6 +44,33 @@ pub const FLORA_CHUNK: usize = 16;
 /// Camera distance to a chunk's centre (world units) over which its detailed mesh fades into the
 /// low-detail one. At the closest zoom chunks around the view centre are about 45-100 away.
 pub const LOD_FADE: std::ops::Range<f32> = 170.0..210.0;
+
+/// `LOD_FADE` at a detail level: ultra models are heavy, so they only show close to the camera.
+pub fn lod_fade(detail: u8) -> std::ops::Range<f32> {
+    if detail >= 3 { 110.0..140.0 } else { LOD_FADE }
+}
+
+/// A chunk gets its detailed mesh only while the camera is within this distance of its centre (a
+/// little beyond where the crossfade to the low-detail mesh ends); further away only the cheap
+/// low-detail mesh exists. At high detail the whole map's detailed meshes came to gigabytes of vertex
+/// data (frankivsk: 20 million triangles), which lost the device on small GPUs.
+fn near_range(detail: u8) -> f32 {
+    lod_fade(detail).end + 30.0
+}
+/// A detailed mesh is dropped again beyond this distance (hysteresis, so a camera hovering at the
+/// edge does not rebuild it over and over).
+fn near_drop(detail: u8) -> f32 {
+    near_range(detail) + 50.0
+}
+/// Most vertices all detailed chunk meshes together may hold (48 bytes each, about 190 MB).
+fn near_budget(detail: u8) -> usize {
+    if detail >= 3 { 10_000_000 } else { 4_000_000 }
+}
+/// Detailed chunks are streamed in every this many frames, at most `STREAM_PER_CALL` at a time.
+const STREAM_EVERY: u32 = 2;
+fn per_call(detail: u8) -> usize {
+    if detail >= 3 { 1 } else { 4 }
+}
 
 /// The mesh entity of the features in the chunk starting at cell (cx, cy).
 #[derive(Component)]
@@ -59,6 +94,8 @@ struct Model {
 #[derive(Resource, Default)]
 pub struct FloraView {
     pub material: Handle<StandardMaterial>,
+    /// The same, double-sided: ultra detail's leaves and needles are single sheets.
+    pub material_ds: Handle<StandardMaterial>,
     /// Per map feature: drawn or not.
     pub shown: Vec<bool>,
     /// `sim::Features::version` the view last looked at.
@@ -67,8 +104,15 @@ pub struct FloraView {
     pub dirty: Vec<(usize, usize)>,
     /// Every chunk needs a new mesh (the detail level changed).
     pub all_dirty: bool,
-    /// Model detail the meshes are built with (0 low, 1 medium, 2 high).
+    /// Model detail the meshes are built with (0 low, 1 medium, 2 high, 3 ultra).
     pub detail: u8,
+    /// Where the camera is (set by whoever draws: the game or the editor); the detailed meshes are
+    /// streamed in around it. `None`: only low-detail meshes are made.
+    pub cam: Option<Vec3>,
+    /// Chunks (corner cell) that have a detailed mesh, with its vertex count (only with LOD).
+    near_verts: std::collections::HashMap<(usize, usize), usize>,
+    /// Frame counter for `STREAM_EVERY`.
+    frame: u32,
     /// Models per feature type of `rules.features`.
     models: Vec<Vec<Model>>,
     /// The same at low detail, for distant chunks (empty when `detail` is already low).
@@ -80,10 +124,15 @@ fn build_models(defs: &Defs, detail: u8) -> Vec<Vec<Model>> {
 }
 
 impl FloraView {
-    pub fn new(defs: &Defs, material: Handle<StandardMaterial>, shown: Vec<bool>, detail: u8) -> FloraView {
-        let detail = detail.min(2);
+    pub fn new(defs: &Defs, materials: &mut Assets<StandardMaterial>, fog: Option<Handle<Image>>, shown: Vec<bool>, detail: u8) -> FloraView {
+        let material = flora_material(materials, fog);
+        let mut ds = materials.get(&material).cloned().unwrap_or_default();
+        ds.double_sided = true;
+        ds.cull_mode = None;
+        let material_ds = materials.add(ds);
+        let detail = detail.min(3);
         let far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
-        FloraView { material, shown, models: build_models(defs, detail), far_models, detail, ..default() }
+        FloraView { material, material_ds, shown, models: build_models(defs, detail), far_models, detail, ..default() }
     }
     /// Mesh levels a chunk has: `false` the detailed one, `true` the distant one.
     fn levels(&self) -> &'static [bool] {
@@ -91,7 +140,7 @@ impl FloraView {
     }
     /// Switches the model detail; every chunk is rebuilt by the next `rebuild_flora`.
     pub fn set_detail(&mut self, defs: &Defs, detail: u8) {
-        let detail = detail.min(2);
+        let detail = detail.min(3);
         if detail != self.detail {
             self.detail = detail;
             self.models = build_models(defs, detail);
@@ -218,6 +267,11 @@ impl Model {
     /// and out by noise.
     #[allow(clippy::too_many_arguments)]
     fn blob(&mut self, center: Vec3, radii: Vec3, lump: f32, sub: i32, seed: u64, col: [f32; 3], speckle: f32) {
+        self.blob_cut(center, radii, lump, sub, seed, col, speckle, &[]);
+    }
+    /// `blob` cut by planes (unit normal, distance from the centre in unit-sphere terms): angular rocks.
+    #[allow(clippy::too_many_arguments)]
+    fn blob_cut(&mut self, center: Vec3, radii: Vec3, lump: f32, sub: i32, seed: u64, col: [f32; 3], speckle: f32, planes: &[(Vec3, f32)]) {
         let t = (1.0 + 5f32.sqrt()) * 0.5;
         let v = [
             Vec3::new(-1.0, t, 0.0),
@@ -285,7 +339,8 @@ impl Model {
             let k = 1.0 + lump * (noise(d.x * 1.7 + d.y * 0.9 + s, d.z * 1.7 - d.y * 1.3 + s, seed) - 0.5) * 2.0;
             // High subdivision gets a second, finer layer of crags.
             let fine = if sub >= 2 { 0.4 * lump * (noise(d.x * 5.1 + s, d.z * 5.1 - d.y * 4.3 + s, seed ^ 3) - 0.5) * 2.0 } else { 0.0 };
-            center + d * radii * (k + fine)
+            let lim = planes.iter().filter_map(|(n, o)| (d.dot(*n) > 0.05).then(|| o / d.dot(*n))).fold(f32::MAX, f32::min);
+            center + d * radii * (k + fine).min(lim)
         };
         for [a, b, c] in tris {
             let mid = (a + b + c).normalize();
@@ -301,6 +356,9 @@ impl Model {
 /// detail level (0 low, 1 medium, 2 high). Triangles per model, low / medium / high: pine 16 / 26 /
 /// 86, broadleaf 14 / 28 / 480, shrub 8 / 20 / 240, rock 20 / 20-80 / 320-1300.
 fn build_model(d: &FeatureDef, seed: u64, detail: u8) -> Model {
+    if detail >= 3 {
+        return ultra::build(d, seed);
+    }
     let s = d.size;
     let j = |k: u64| 0.9 + 0.2 * hash(seed, k);
     let mut m = Model::default();
@@ -433,44 +491,71 @@ pub fn flora_material(materials: &mut Assets<StandardMaterial>, fog: Option<Hand
     materials.add(StandardMaterial { base_color: Color::WHITE, base_color_texture: fog, perceptual_roughness: 0.92, reflectance: 0.2, ..default() })
 }
 
-/// Spawns the mesh entities (one per level) of the chunk at cell (cx, cy), if it has features.
+/// The entity of one mesh of the chunk at cell (cx, cy). `range`: the crossfade between the two levels.
 #[allow(clippy::too_many_arguments)]
-fn spawn_chunk(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], meshes: &mut Assets<Mesh>, cx: usize, cy: usize) {
-    let origin = chunk_origin(map, cx, cy);
-    let lod = view.levels().len() > 1;
-    for &far in view.levels() {
-        let Some(m) = chunk_mesh(map, kinds, view, list, origin, far) else { return };
-        let mut e = commands.spawn((Mesh3d(meshes.add(m)), MeshMaterial3d(view.material.clone()), Transform::from_translation(origin), Visibility::Inherited, FloraChunk { cx, cy, far }, GameScene));
-        if view.detail == 0 {
-            e.insert(NotShadowCaster);
-        }
-        if lod {
-            e.insert(if far {
-                bevy::camera::visibility::VisibilityRange { start_margin: LOD_FADE, end_margin: f32::MAX..f32::MAX, use_aabb: false }
-            } else {
-                bevy::camera::visibility::VisibilityRange { start_margin: 0.0..0.0, end_margin: LOD_FADE, use_aabb: false }
-            });
-        }
+fn chunk_entity(commands: &mut Commands, meshes: &mut Assets<Mesh>, view: &FloraView, mesh: Mesh, origin: Vec3, cx: usize, cy: usize, far: bool, range: Option<VisibilityRange>) -> Entity {
+    let material = if !far && view.detail >= 3 { view.material_ds.clone() } else { view.material.clone() };
+    let mut e = commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material), Transform::from_translation(origin), Visibility::Inherited, FloraChunk { cx, cy, far }, GameScene));
+    if view.detail == 0 {
+        e.insert(NotShadowCaster);
     }
+    if let Some(r) = range {
+        e.insert(r);
+    }
+    e.id()
 }
 
-/// Spawns the chunk meshes of every chunk that has features.
-pub fn spawn_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: &FloraView, meshes: &mut Assets<Mesh>) {
+/// Shown from the camera's distance `LOD_FADE` on, instead of the detailed mesh.
+fn vis_far(detail: u8) -> VisibilityRange {
+    VisibilityRange { start_margin: lod_fade(detail), end_margin: f32::MAX..f32::MAX, use_aabb: false }
+}
+
+/// Shown up to the camera's distance `LOD_FADE`.
+fn vis_near(detail: u8) -> VisibilityRange {
+    VisibilityRange { start_margin: 0.0..0.0, end_margin: lod_fade(detail), use_aabb: false }
+}
+
+/// Spawns the mesh entities of the chunk at cell (cx, cy), if it has features: with LOD the
+/// low-detail one, and the detailed one only when `near` and the camera is close (within the vertex
+/// budget). Returns the vertices of the detailed mesh made (0: none).
+#[allow(clippy::too_many_arguments)]
+fn spawn_chunk(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], meshes: &mut Assets<Mesh>, cx: usize, cy: usize, near: bool) -> usize {
+    let origin = chunk_origin(map, cx, cy);
+    if view.levels().len() < 2 {
+        if let Some(m) = chunk_mesh(map, kinds, view, list, origin, false) {
+            chunk_entity(commands, meshes, view, m, origin, cx, cy, false, None);
+        }
+        return 0;
+    }
+    let Some(far_mesh) = chunk_mesh(map, kinds, view, list, origin, true) else { return 0 };
+    let close = near && view.cam.is_some_and(|c| c.distance(origin) < near_range(view.detail)) && view.near_verts.values().sum::<usize>() < near_budget(view.detail);
+    let near_mesh = if close { chunk_mesh(map, kinds, view, list, origin, false) } else { None };
+    let verts = near_mesh.as_ref().map_or(0, |m| m.count_vertices());
+    // Without a detailed mesh the low-detail one is shown at every distance.
+    chunk_entity(commands, meshes, view, far_mesh, origin, cx, cy, true, near_mesh.is_some().then(|| vis_far(view.detail)));
+    if let Some(m) = near_mesh {
+        chunk_entity(commands, meshes, view, m, origin, cx, cy, false, Some(vis_near(view.detail)));
+    }
+    verts
+}
+
+/// Spawns the chunk meshes of every chunk that has features: the detailed ones of a level of
+/// detail follow by `rebuild_flora` as the camera comes close.
+pub fn spawn_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, meshes: &mut Assets<Mesh>) {
     let kinds = kinds_of(map, defs);
     let (side, lists) = buckets(map, view);
+    view.near_verts.clear();
     for (k, list) in lists.iter().enumerate() {
-        spawn_chunk(commands, map, &kinds, view, list, meshes, (k % side) * FLORA_CHUNK, (k / side) * FLORA_CHUNK);
+        spawn_chunk(commands, map, &kinds, view, list, meshes, (k % side) * FLORA_CHUNK, (k / side) * FLORA_CHUNK, false);
     }
 }
 
 /// Rebuilds the meshes of the chunks in `view.dirty`, spawning chunk entities that did not
-/// exist; after a detail change (`all_dirty`) every chunk entity is made anew.
+/// exist; after a detail change (`all_dirty`) every chunk entity is made anew. Then streams the
+/// detailed meshes in and out around the camera (`view.cam`).
 pub fn rebuild_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>) {
     let all = std::mem::take(&mut view.all_dirty);
     let dirty = std::mem::take(&mut view.dirty);
-    if dirty.is_empty() && !all {
-        return;
-    }
     if all {
         // The number of levels and the shadows change with the detail: start over.
         for (e, ..) in chunks.iter() {
@@ -479,6 +564,13 @@ pub fn rebuild_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: 
         spawn_flora(commands, map, defs, view, meshes);
         return;
     }
+    if !dirty.is_empty() {
+        rebuild_dirty(commands, map, defs, view, chunks, meshes, &dirty);
+    }
+    stream_near(commands, map, defs, view, chunks, meshes);
+}
+
+fn rebuild_dirty(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>, dirty: &[(usize, usize)]) {
     let kinds = kinds_of(map, defs);
     let (side, lists) = buckets(map, view);
     let list_of = |cx: usize, cy: usize| lists.get((cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK).map_or(&[][..], |l| &l[..]);
@@ -508,11 +600,71 @@ pub fn rebuild_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: 
             }
         }
     }
-    for (cx, cy) in dirty {
+    for &(cx, cy) in dirty {
         if done.get((cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK).copied().unwrap_or(true) {
             continue;
         }
-        spawn_chunk(commands, map, &kinds, view, list_of(cx, cy), meshes, cx, cy);
+        let verts = spawn_chunk(commands, map, &kinds, view, list_of(cx, cy), meshes, cx, cy, true);
+        if verts > 0 {
+            view.near_verts.insert((cx, cy), verts);
+        }
+    }
+}
+
+/// Level of detail: makes the detailed mesh of chunks the camera has come close to (nearest first,
+/// a few at a time, within the vertex budget) and drops those it has left behind.
+fn stream_near(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>) {
+    let Some(cam) = view.cam else { return };
+    if view.levels().len() < 2 {
+        return;
+    }
+    view.frame = view.frame.wrapping_add(1);
+    if view.frame % STREAM_EVERY != 0 {
+        return;
+    }
+    let mut far_of = std::collections::HashMap::new();
+    let mut drop: Vec<(Entity, (usize, usize))> = vec![];
+    for (e, c, ..) in chunks.iter() {
+        let at = (c.cx, c.cy);
+        if c.far {
+            far_of.insert(at, e);
+        } else if chunk_origin(map, c.cx, c.cy).distance(cam) > near_drop(view.detail) {
+            drop.push((e, at));
+        }
+    }
+    for (e, at) in drop {
+        commands.entity(e).despawn();
+        view.near_verts.remove(&at);
+        if let Some(far) = far_of.get(&at) {
+            // The low-detail mesh is now all there is: show it from every distance.
+            commands.entity(*far).remove::<VisibilityRange>();
+        }
+    }
+    let mut want: Vec<(f32, (usize, usize), Entity)> = far_of
+        .iter()
+        .filter(|(at, _)| !view.near_verts.contains_key(*at))
+        .map(|(at, e)| (chunk_origin(map, at.0, at.1).distance(cam), *at, *e))
+        .filter(|w| w.0 < near_range(view.detail))
+        .collect();
+    want.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    if want.is_empty() {
+        return;
+    }
+    let kinds = kinds_of(map, defs);
+    let (side, lists) = buckets(map, view);
+    let mut total: usize = view.near_verts.values().sum();
+    for (_, at, far) in want.into_iter().take(per_call(view.detail)) {
+        if total >= near_budget(view.detail) {
+            break;
+        }
+        let list = lists.get((at.1 / FLORA_CHUNK) * side + at.0 / FLORA_CHUNK).map_or(&[][..], |l| &l[..]);
+        let origin = chunk_origin(map, at.0, at.1);
+        let Some(m) = chunk_mesh(map, &kinds, view, list, origin, false) else { continue };
+        let verts = m.count_vertices();
+        total += verts;
+        chunk_entity(commands, meshes, view, m, origin, at.0, at.1, false, Some(vis_near(view.detail)));
+        commands.entity(far).insert(vis_far(view.detail));
+        view.near_verts.insert(at, verts);
     }
 }
 
@@ -529,9 +681,11 @@ pub fn flora_sync(
     view: Option<ResMut<FloraView>>,
     mut chunks: FloraChunks,
     mut meshes: ResMut<Assets<Mesh>>,
+    cams: Query<&GlobalTransform, With<super::terrain::MainCamera>>,
 ) {
     let (Some(features), Some(mut view)) = (features, view) else { return };
     let view = &mut *view;
+    view.cam = cams.iter().next().map(|g| g.translation());
     view.set_detail(&defs, settings.flora_detail);
     if features.version != view.version {
         view.version = features.version;

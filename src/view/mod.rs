@@ -11,6 +11,7 @@ use std::f32::consts::FRAC_PI_2;
 pub mod bench;
 pub mod cursor;
 pub mod debris;
+pub mod decimate;
 pub mod flora;
 pub mod grass;
 pub mod fx;
@@ -273,9 +274,9 @@ pub fn start_view(world: &mut World, me: u8, with_fog: bool) {
                 let version = world.get_resource::<crate::sim::Features>().map_or(0, |f| f.version);
                 let defs = world.resource::<Defs>().clone();
                 let detail = world.get_resource::<crate::settings::Settings>().map_or(1, |s| s.flora_detail);
-                let mut flora = flora::FloraView::new(&defs, flora::flora_material(&mut materials, Some(fog)), shown, detail);
+                let mut flora = flora::FloraView::new(&defs, &mut materials, Some(fog), shown, detail);
                 flora.version = version;
-                flora::spawn_flora(&mut world.commands(), &map, &defs, &flora, &mut meshes);
+                flora::spawn_flora(&mut world.commands(), &map, &defs, &mut flora, &mut meshes);
                 world.insert_resource(flora);
             });
         });
@@ -809,7 +810,7 @@ impl Plugin for ViewPlugin {
             // `perf::vmark::<I>` between the systems times them while a `perf::FrameProfile` exists
             // (LR_PROFILE=1, --bench). Inner tuples need their own chain().
             (
-                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, model_detail_sync, gloss_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
+                (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, model_detail_sync, models::model_lod_swap, gloss_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
                 (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
                 (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, blur_sync, vmark::<16>).chain(),
             )

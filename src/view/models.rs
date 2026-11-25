@@ -190,6 +190,9 @@ pub struct ModelCache {
     theme_name: Option<String>,
     /// Ultra: part meshes with eaves and window sills added.
     detailed: HashMap<DefId, Vec<Option<Handle<Mesh>>>>,
+    /// Per part of a model (keyed like `models`): its simplified mesh for far away, if it gets much
+    /// smaller (`decimate::simplify`).
+    far: HashMap<(DefId, bool), Vec<Option<Handle<Mesh>>>>,
     rubble: Option<(Handle<Mesh>, Handle<Mesh>, Vec<Handle<StandardMaterial>>)>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
     /// Glossy close-up versions of plain materials and the way back (`pair`, `set_close`).
@@ -819,6 +822,19 @@ impl ModelCache {
         handles
     }
 
+    /// The simplified far-away mesh of every part of a model (`None` where the part is small or does not
+    /// get much smaller), made once per model.
+    fn far_meshes(&mut self, defs: &Defs, def: DefId, model: &Model, meshes: &mut Assets<Mesh>) -> Vec<Option<Handle<Mesh>>> {
+        let key = (def, self.is_low(defs, def));
+        if let Some(v) = self.far.get(&key) {
+            return v.clone();
+        }
+        let made: Vec<Option<Mesh>> = model.parts.iter().map(|p| p.mesh.as_ref().and_then(|h| meshes.get(h)).and_then(super::decimate::simplify)).collect();
+        let handles: Vec<Option<Handle<Mesh>>> = made.into_iter().map(|m| m.map(|m| meshes.add(m))).collect();
+        self.far.insert(key, handles.clone());
+        handles
+    }
+
     pub fn init(&mut self, materials: &mut Assets<StandardMaterial>) {
         let ghost = |c: Color| StandardMaterial { base_color: c, alpha_mode: AlphaMode::Blend, unlit: true, ..default() };
         self.ghost_ok = materials.add(ghost(Color::srgba(0.3, 1.0, 0.4, 0.45)));
@@ -1264,6 +1280,35 @@ pub struct SpinPart {
     pub rest: Transform,
 }
 
+/// A part with a simplified mesh for far away (`decimate`): `model_lod_swap` puts the right one in its `Mesh3d`.
+#[derive(Component)]
+pub struct LodMesh {
+    near: Handle<Mesh>,
+    far: Handle<Mesh>,
+    /// Camera distance from which the far mesh shows.
+    dist: f32,
+    is_far: bool,
+}
+
+/// The far mesh shows from this many unit radii of camera distance, within these limits (world units).
+const LOD_RADII: f32 = 30.0;
+const LOD_MIN: f32 = 60.0;
+const LOD_MAX: f32 = 260.0;
+
+/// Level of detail for models: parts beyond their distance show the simplified mesh, a little hysteresis
+/// keeps one at the edge from flickering between the two.
+pub fn model_lod_swap(cams: Query<&GlobalTransform, With<super::terrain::MainCamera>>, mut parts: Query<(&GlobalTransform, &mut Mesh3d, &mut LodMesh)>) {
+    let Some(cam) = cams.iter().next().map(|c| c.translation()) else { return };
+    for (t, mut mesh, mut lod) in &mut parts {
+        let d2 = t.translation().distance_squared(cam);
+        let far = if lod.is_far { d2 > (lod.dist * 0.93).powi(2) } else { d2 > (lod.dist * 1.07).powi(2) };
+        if far != lod.is_far {
+            lod.is_far = far;
+            mesh.0 = if far { lod.far.clone() } else { lod.near.clone() };
+        }
+    }
+}
+
 /// Root of the visual parts under a unit entity.
 #[derive(Component)]
 pub struct ModelRoot {
@@ -1317,6 +1362,9 @@ pub fn spawn_model_dim(
     let mats = cache.unit_mats(defs, look, color, rgb, &model.parts, meshes, images, materials);
     let d = defs.get(def);
     let detailed = cache.detailed_meshes(defs, look, &model, meshes);
+    let far = cache.far_meshes(defs, look, &model, meshes);
+    // From this camera distance on the parts show their simplified meshes.
+    let far_dist = (d.radius() * LOD_RADII).clamp(LOD_MIN, LOD_MAX);
     let jitter = if cache.detail >= 2 && d.has_category("civilian") {
         let k = cache.variant;
         Vec3::new(0.97 + 0.06 * lattice(1, 1, k), 0.94 + 0.12 * lattice(2, 1, k), 0.97 + 0.06 * lattice(3, 1, k))
@@ -1352,6 +1400,9 @@ pub fn spawn_model_dim(
             };
             let mat = if dim { cache.dim_mat(&mat, materials) } else { mat };
             e.insert((Mesh3d(mesh.clone()), MeshMaterial3d(mat)));
+            if let Some(Some(f)) = far.get(pi) {
+                e.insert(LodMesh { near: mesh.clone(), far: f.clone(), dist: far_dist, is_far: false });
+            }
         }
         for (wi, w) in d.weapons.iter().enumerate().filter(|_| live) {
             if let Some(t) = &w.turret {
@@ -1375,6 +1426,43 @@ pub fn spawn_model_dim(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every part mesh of every model simplifies into a valid mesh (indices in range, finite) and the far
+    /// meshes together are much smaller; prints the totals.
+    #[test]
+    fn far_meshes_are_valid() {
+        use bevy::mesh::{Indices, VertexAttributeValues};
+        let mut meshes = Assets::<Mesh>::default();
+        let dir = asset_root().join("models");
+        let (mut before, mut after, mut simplified, mut total) = (0usize, 0usize, 0usize, 0usize);
+        for f in std::fs::read_dir(&dir).unwrap() {
+            let p = f.unwrap().path();
+            if !p.extension().is_some_and(|e| e == "glb") {
+                continue;
+            }
+            let (parts, _) = load_glb(&p, &mut meshes, false, true).unwrap();
+            for part in &parts {
+                let Some(m) = part.mesh.as_ref().and_then(|h| meshes.get(h)) else { continue };
+                let tris = m.indices().map_or(0, |i| i.len() / 3);
+                total += 1;
+                before += tris;
+                match crate::view::decimate::simplify(m) {
+                    Some(s) => {
+                        let Some(VertexAttributeValues::Float32x3(pos)) = s.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!() };
+                        let Some(Indices::U32(idx)) = s.indices() else { panic!() };
+                        assert!(idx.iter().all(|&i| (i as usize) < pos.len()) && idx.len() % 3 == 0, "{}", p.display());
+                        assert!(pos.iter().all(|p| p.iter().all(|x| x.is_finite())), "{}", p.display());
+                        assert!(idx.len() / 3 < tris);
+                        simplified += 1;
+                        after += idx.len() / 3;
+                    }
+                    None => after += tris,
+                }
+            }
+        }
+        println!("parts {total}, simplified {simplified}; triangles {before} -> {after} ({:.0}%)", 100.0 * after as f32 / before.max(1) as f32);
+        assert!(after < before);
+    }
 
     /// Every converted model loads, and its animations have tracks for real parts with one key per time.
     #[test]

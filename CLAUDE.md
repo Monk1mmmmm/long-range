@@ -558,6 +558,14 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   (bounds are recomputed when a mesh changes); the fog texture's RGB carries the fog brightness for them.
   LOD: at medium/high detail each chunk has a second, low-detail mesh; `VisibilityRange` crossfades to it at
   `flora::LOD_FADE` camera distance from the chunk centre (chunk meshes are built around that centre).
+  Only the low-detail meshes exist map-wide: the detailed ones are streamed in near the camera (`flora::stream_near`, within
+  `NEAR_RANGE`, a vertex budget `NEAR_VERTS`) and dropped when it leaves; all of them at once crashed small GPUs at high detail.
+  Ultra (`flora_detail` 3, `view/flora/ultra.rs`): real branching trees made in code - a flared bent trunk, limbs that rise and droop,
+  twigs, ~700 single leaves per broadleaf (folded kites, soft crown normals, darker inside), conifers with whorls of drooping
+  boughs carrying needle sprays, leafy bushes, angular plane-cut rocks with pebbles. Heavy (thousands of triangles), so the
+  detailed ring is small (`lod_fade(3)` 110..140, 1 chunk per streaming step, 10M vertex budget) and drawn double-sided
+  (`FloraView::material_ds`). Ultra grass (`grass_detail` 2): bent three-triangle blades and scattered wildflowers.
+  `cargo test --lib ultra_models` checks them (`LR_OBJ_DIR=dir` also writes OBJ files).
   Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.
 - **Ground textures** (`surface.rs`, purely visual, never in the sim or its hash): SupCom-style strata. `MapData.layers`
   (kind + tile size; at most 9), layer 0 covers the map, each further layer is drawn over the ones below by its mask
@@ -640,6 +648,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   a map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points
   left per team, start `Game.cp_start`: typed in the lobby, else `rules.cp_start_points`, default 8000). A team holding fewer points than its strongest opponent loses
   `cp_bleed` per second per point of difference, equal holdings change nothing, a team at 0 is defeated. Rules `cp_*`.
+- **Far meshes** (`view/decimate.rs`, `models::LodMesh` / `model_lod_swap`): every model part (units and buildings alike) with at
+  least 60 triangles gets a simplified mesh made once per model by vertex clustering (12 cells along the part's longest side;
+  vertices merge only within a UV cell and a facing, so seams and hard edges stay and the same texture/material fits). Parts show
+  it beyond `clamp(30 x radius, 60, 260)` camera distance (7 % hysteresis); kept only when at most 70 % of the triangles remain.
+  The hand-made `mesh_low` models of the civilian buildings are still the building-detail setting's, not a distance LOD.
+  `cargo test --lib far_meshes_are_valid` prints the saving over all models.
 - **Model LOD** (setting `model_lod`, default on): unit and ghost models are hidden wherever the HUD draws the
   strategic icon instead (`view::as_icon`: icon zoom, or under `SPECK_PX` on screen; `view::model_lod`). Neutral
   buildings keep their models while `neutral_icons` is off. Wrecks have no icons and always keep theirs.
