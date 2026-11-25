@@ -5,6 +5,11 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.8
+
+Graphics
+- Buildings on slopes get a foundation block under them, so the low side no longer hangs in the air.
+
 ## v0.15.7
 
 Graphics

@@ -321,6 +321,7 @@ fn unit_visuals(
     roots: Query<&ModelRoot>,
     defs: Res<Defs>,
     game: Res<Game>,
+    map: Res<MapData>,
     mut cache: ResMut<ModelCache>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -340,6 +341,32 @@ fn unit_visuals(
             .entity(e)
             .insert((Interp { prev: s, cur: s, pos: b.pos, y: b.y, yaw: b.yaw }, Transform::from_translation(b.p3()).with_rotation(yaw_quat(b.yaw)), Visibility::Hidden))
             .add_child(root);
+        // On a slope the low side of a building would hang in the air: a foundation block fills the gap.
+        let d = defs.get(u.def);
+        if d.is_structure() && d.footprint > 0 && !d.is_fieldwork() && d.height() > 0.0 {
+            let f = d.footprint;
+            let (x0, y0) = foot_origin(b.pos, f);
+            let mut lo = f32::MAX;
+            for y in y0..=y0 + f {
+                for x in x0..=x0 + f {
+                    lo = lo.min(map.vertex(x.clamp(0, map.nx as i32) as usize, y.clamp(0, map.ny as i32) as usize));
+                }
+            }
+            let depth = b.y - lo + 0.15;
+            if depth > 0.2 {
+                let w = f as f32 * CELL;
+                let mat = materials.add(StandardMaterial { base_color: Color::srgb(0.46, 0.44, 0.40), perceptual_roughness: 0.95, ..default() });
+                let block = commands
+                    .spawn((
+                        Mesh3d(meshes.add(Cuboid::new(w, depth, w))),
+                        MeshMaterial3d(mat),
+                        Transform::from_xyz(0.0, 0.05 - depth * 0.5, 0.0),
+                        Visibility::Inherited,
+                    ))
+                    .id();
+                commands.entity(e).add_child(block);
+            }
+        }
         if let Some(a) = Animator::new(cache.model(&defs, u.def, &mut meshes)) {
             commands.entity(e).insert(a);
         }
