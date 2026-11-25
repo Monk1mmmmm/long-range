@@ -196,6 +196,8 @@
     "preset_low": "Low",
     "ultra": "Ultra",
     "custom": "Custom",
+    "distance_blur": "Distance blur",
+    "distance_blur_tip": "Blurs what lies far beyond the point the camera looks at (depth of field). 0 = off. Costs a little frame rate; not on very old graphics cards.",
     "building_detail": "Buildings",
     "building_detail_tip": "High: the map's theme (wall and roof paints and which house models it uses), every building differs in colour and wear, sharper textures with mipmaps, and destroyed buildings leave broken, burnt-out ruins with holes instead of a sunk wreck. Ultra: houses also get overhanging eaves and window sills.",
     "grass_detail": "Grass",
@@ -721,6 +723,98 @@
     "ind_flat_house": {
       "name": "Flat-Roofed House",
       "desc": "Residential building."
+    },
+    "church_orthodox": {
+      "name": "Orthodox Church",
+      "desc": "Public building."
+    },
+    "church_baroque": {
+      "name": "Baroque Church",
+      "desc": "Public building."
+    },
+    "church_gothic": {
+      "name": "Gothic Church",
+      "desc": "Public building."
+    },
+    "shop_adriatic": {
+      "name": "Stone Shop",
+      "desc": "Public building."
+    },
+    "shop_central": {
+      "name": "Corner Shop",
+      "desc": "Public building."
+    },
+    "shop_soviet": {
+      "name": "Gastronom",
+      "desc": "Public building."
+    },
+    "shop_village": {
+      "name": "Village Shop",
+      "desc": "Public building."
+    },
+    "adr_apartments": {
+      "name": "Seaside Apartments",
+      "desc": "Residential building."
+    },
+    "ce_tenement": {
+      "name": "Tenement House",
+      "desc": "Residential building."
+    },
+    "adr_apartment_block": {
+      "name": "Mediterranean Apartment Block",
+      "desc": "Residential building."
+    },
+    "ce_apartment_block": {
+      "name": "Corner Tenement Block",
+      "desc": "Residential building."
+    },
+    "mall": {
+      "name": "Shopping Mall",
+      "desc": "Public building."
+    },
+    "hospital": {
+      "name": "Hospital",
+      "desc": "Public building."
+    },
+    "train_station": {
+      "name": "Railway Station",
+      "desc": "Public building."
+    },
+    "school": {
+      "name": "School",
+      "desc": "Public building."
+    },
+    "hotel": {
+      "name": "Hotel",
+      "desc": "Public building."
+    },
+    "office_tower": {
+      "name": "Office Tower",
+      "desc": "Public building."
+    },
+    "theatre": {
+      "name": "Theatre",
+      "desc": "Public building."
+    },
+    "parking_garage": {
+      "name": "Parking Garage",
+      "desc": "Public building."
+    },
+    "market_hall": {
+      "name": "Market Hall",
+      "desc": "Public building."
+    },
+    "fire_station": {
+      "name": "Fire Station",
+      "desc": "Public building."
+    },
+    "police_station": {
+      "name": "Police Station",
+      "desc": "Public building."
+    },
+    "gas_station": {
+      "name": "Filling Station",
+      "desc": "Public building."
     },
     "khata": {
       "name": "Hut",

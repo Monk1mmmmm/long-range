@@ -3,7 +3,7 @@ plaster houses and gabled townhouses, village log and whitewashed houses, Soviet
 houses. Footprint 2 (4 x 4 units) unless noted; front is -y."""
 import math
 
-from kit import Kit, model
+from kit import Kit, model, LOW
 
 
 def gable(k, x, y, w, l, z, rise, roof, gable_mat, over=0.18, ridge="y"):
@@ -35,6 +35,7 @@ def chimney(k, x, y, z, h, mat="brick"):
 
 def front_windows(k, cx, yf, span, z0, storeys, sh, cols, win=(0.36, 0.5), shutter=None, trim="white", skip=(), lit=0.0, seed=1):
     """Windows in a grid on a -y face at y=yf, with optional shutters either side."""
+    shutter = None if LOW else shutter
     k.windows((cx, yf, z0 + storeys * sh / 2), (0, -1, 0), span, storeys * sh, storeys, cols, win=win, sill=sh * 0.3, frame=trim, skip=skip, lit=lit, seed=seed)
     if shutter:
         for r in range(storeys):
@@ -52,6 +53,8 @@ def side_windows(k, x_face, sx, span, z0, storeys, sh, cols, win=(0.36, 0.5), tr
 
 
 def balcony(k, x, y, z, w, d=0.4, mat="concrete"):
+    if LOW:
+        return
     k.box((w, d, 0.07), (x, y - d / 2, z), mat)
     k.box((w, 0.03, 0.04), (x, y - d, z + 0.34), "black")
     for i in range(int(w / 0.18) + 1):

@@ -147,10 +147,12 @@ pub struct UnitMats {
 
 #[derive(Resource, Default)]
 pub struct ModelCache {
-    models: HashMap<DefId, Model>,
+    models: HashMap<(DefId, bool), Model>,
     mats: HashMap<(DefId, u8, u8), UnitMats>,
     /// `Settings::building_detail`, set every frame by `view::model_detail_sync`.
     pub detail: u8,
+    /// Buildings with a low-poly version show it (building detail below high; set by `model_detail_sync`).
+    pub low_poly: bool,
     /// Seed of the building about to be spawned (its unit id): at high detail it picks the variant.
     pub variant: u32,
     ruins: HashMap<(DefId, u8), Vec<Option<Handle<Mesh>>>>,
@@ -162,7 +164,7 @@ pub struct ModelCache {
     detailed: HashMap<DefId, Vec<Option<Handle<Mesh>>>>,
     rubble: Option<(Handle<Mesh>, Handle<Mesh>, Vec<Handle<StandardMaterial>>)>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
-    wreck: HashMap<DefId, Handle<StandardMaterial>>,
+    wreck: HashMap<(DefId, bool), Handle<StandardMaterial>>,
     /// Dark copies of unit materials (remembered buildings destroyed out of sight).
     dim: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
     pub ghost_ok: Handle<StandardMaterial>,
@@ -791,13 +793,20 @@ impl ModelCache {
         self.ghost_queued = materials.add(ghost(Color::srgba(0.5, 0.8, 1.0, 0.3)));
     }
 
+    /// Whether this building shows its low-poly model.
+    pub fn is_low(&self, defs: &Defs, def: DefId) -> bool {
+        self.low_poly && defs.get(def).model.mesh_low.is_some()
+    }
+
     pub fn model(&mut self, defs: &Defs, def: DefId, meshes: &mut Assets<Mesh>) -> &Model {
-        if !self.models.contains_key(&def) {
+        let low = self.is_low(defs, def);
+        if !self.models.contains_key(&(def, low)) {
             let d = defs.get(def);
             let md: &ModelDef = &d.model;
             let mut model = Model { parts: vec![], scale: md.scale, anims: vec![] };
-            if let Some(mesh) = &md.mesh {
-                match load_glb(&asset_root().join(mesh), meshes, md.normal.is_some(), md.albedo.is_some()) {
+            let (mesh_p, albedo_p, _) = md.paths(low);
+            if let Some(mesh) = mesh_p {
+                match load_glb(&asset_root().join(mesh), meshes, md.normal.is_some() && !low, albedo_p.is_some()) {
                     Ok((parts, anims)) => {
                         model.parts = parts;
                         model.anims = anims;
@@ -832,9 +841,9 @@ impl ModelCache {
                     spin: None,
                 });
             }
-            self.models.insert(def, model);
+            self.models.insert((def, low), model);
         }
-        &self.models[&def]
+        &self.models[&(def, low)]
     }
 
     /// Textured materials of a unit type in an owner colour (index into `palette`).
@@ -842,13 +851,16 @@ impl ModelCache {
         let high = self.detail >= 2;
         // Neutral map buildings differ one from the next (colour, wear); our own keep the team's look.
         let var = if high && defs.get(def).has_category("civilian") { 1 + (self.variant.wrapping_mul(2654435761) >> 16) % BUILDING_VARIANTS } else { 0 } as u8;
+        let low = self.is_low(defs, def);
+        let var = if low { var | 0x80 } else { var };
         if let Some(m) = self.mats.get(&(def, color, var)) {
             return m.clone();
         }
         let md = &defs.get(def).model;
         let mut tex = None;
-        if let Some(mut albedo) = md.albedo.as_deref().and_then(read_rgba) {
-            let mask = md.team_mask.as_deref().and_then(read_rgba).filter(|m| m.dimensions() == albedo.dimensions());
+        let (_, albedo_p, mask_p) = md.paths(low);
+        if let Some(mut albedo) = albedo_p.map(|s| s.as_str()).and_then(read_rgba) {
+            let mask = mask_p.map(|s| s.as_str()).and_then(read_rgba).filter(|m| m.dimensions() == albedo.dimensions());
             let width = albedo.width();
             let themed = defs.get(def).has_category("themed");
             let roofs = if var > 0 && !themed { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
@@ -922,7 +934,7 @@ impl ModelCache {
             }
             tex = Some(images.add(if high { to_image_mips(&albedo, true) } else { to_image(&albedo, true) }));
         }
-        let normal = md.normal.as_deref().and_then(read_rgba).map(|n| images.add(if high { to_image_mips(&n, false) } else { to_image(&n, false) }));
+        let normal = md.normal.as_deref().filter(|_| !low).and_then(read_rgba).map(|n| images.add(if high { to_image_mips(&n, false) } else { to_image(&n, false) }));
         let base = StandardMaterial {
             base_color: if tex.is_some() { Color::WHITE } else { Color::srgb(rgb[0], rgb[1], rgb[2]) },
             base_color_texture: tex.clone(),
@@ -992,12 +1004,13 @@ impl ModelCache {
     }
 
     pub fn wreck_mat(&mut self, defs: &Defs, def: DefId, images: &mut Assets<Image>, materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
-        if let Some(m) = self.wreck.get(&def) {
+        let low = self.is_low(defs, def);
+        if let Some(m) = self.wreck.get(&(def, low)) {
             return m.clone();
         }
-        let tex = defs.get(def).model.albedo.as_deref().and_then(read_rgba).map(|a| images.add(to_image(&a, true)));
+        let tex = defs.get(def).model.paths(low).1.map(|s| s.as_str()).and_then(read_rgba).map(|a| images.add(to_image(&a, true)));
         let m = materials.add(StandardMaterial { base_color: Color::srgb(0.55, 0.45, 0.4), base_color_texture: tex, perceptual_roughness: 0.95, ..default() });
-        self.wreck.insert(def, m.clone());
+        self.wreck.insert((def, low), m.clone());
         m
     }
 }

@@ -73,11 +73,13 @@ pub struct Settings {
     pub grass_detail: u8,
     /// Water (`view::terrain`): 0 low, 1 medium (flat tint), 2 high: moving waves, glints and foam along the shore.
     pub water_detail: u8,
+    /// Blur of what lies far beyond the point the camera looks at (depth of field, `view::blur_sync`), 0 (off) to 1 (strong).
+    pub distance_blur: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, storage_gap: true, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true, building_detail: 1, grass_detail: 0, water_detail: 1 }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, storage_gap: true, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true, building_detail: 1, grass_detail: 0, water_detail: 1, distance_blur: 0.0 }
     }
 }
 
@@ -618,6 +620,7 @@ pub fn apply_preset(s: &mut Settings, level: usize) {
     s.building_detail = [0, 1, 2, 3][l];
     s.water_detail = [0, 1, 2, 2][l];
     s.grass_detail = [0, 0, 1, 2][l];
+    s.distance_blur = [0.0, 0.0, 0.4, 0.7][l];
 }
 
 /// The preset whose options the settings match, if any.
@@ -778,6 +781,9 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
                 ui.selectable_value(&mut s.water_detail, k as u8, tr(l));
             }
         });
+        ui.end_row();
+        ui.label(tr!("settings.distance_blur")).on_hover_text(tr!("settings.distance_blur_tip"));
+        ui.add(egui::Slider::new(&mut s.distance_blur, 0.0..=1.0).step_by(0.05).custom_formatter(|v, _| if v <= 0.0 { tr!("settings.off").to_string() } else { format!("{:.0}%", v * 100.0) }));
         ui.end_row();
         ui.label(tr!("settings.projectile_size"));
         ui.add(egui::Slider::new(&mut s.projectile_px, 2.0..=20.0).step_by(0.5).suffix(tr!("settings.suffix_px")));

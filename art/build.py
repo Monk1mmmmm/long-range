@@ -21,7 +21,7 @@ from mathutils import Vector  # noqa: E402
 import kit  # noqa: E402
 
 MODELS = {}
-for mod in ("models_buildings", "models_defence", "models_vehicles", "models_air", "models_civilian", "models_variants", "models_themed"):
+for mod in ("models_buildings", "models_defence", "models_vehicles", "models_air", "models_civilian", "models_variants", "models_themed", "models_urban"):
     try:
         m = __import__(mod)
     except ModuleNotFoundError as e:
@@ -54,7 +54,7 @@ def build(name, save_blend=False):
         os.makedirs(os.path.join(HERE, "blend"), exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, "blend", name + ".blend"))
     # export (tools/blend_export.py parses sys.argv after "--")
-    sys.argv = ["blender", "--", OUT, name, "--front", getattr(k, "front", "-y")]
+    sys.argv = ["blender", "--", OUT, k.name, "--front", getattr(k, "front", "-y")]
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         runpy.run_path(os.path.join(HERE, "..", "tools", "blend_export.py"), run_name="__main__")

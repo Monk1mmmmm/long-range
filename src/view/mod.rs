@@ -726,8 +726,37 @@ fn model_detail_sync(settings: Res<crate::settings::Settings>, map: Option<Res<M
     if cache.detail != settings.building_detail {
         cache.detail = settings.building_detail;
     }
+    let low = settings.building_detail < 2;
+    if cache.low_poly != low {
+        cache.low_poly = low;
+    }
     if let Some(map) = map {
         cache.set_theme(&map.theme);
+    }
+}
+
+/// Depth-of-field blur of what is far beyond the point looked at (`Settings::distance_blur`): the focus sits a
+/// little in front of the camera's target, so the far ground and the horizon soften while the action stays sharp.
+/// Off when the slider is 0 or the camera is far up (strategic zoom).
+fn blur_sync(mut commands: Commands, settings: Res<crate::settings::Settings>, view: Res<ViewState>, cams: Query<(Entity, Has<bevy::post_process::dof::DepthOfField>), With<MainCamera>>) {
+    use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
+    let s = settings.distance_blur.clamp(0.0, 1.0);
+    for (e, has) in &cams {
+        if s <= 0.0 || view.cam_dist > 500.0 {
+            if has {
+                commands.entity(e).remove::<DepthOfField>();
+            }
+            continue;
+        }
+        let focus = (view.cam_dist * 0.85).max(5.0);
+        commands.entity(e).insert(DepthOfField {
+            mode: DepthOfFieldMode::Gaussian,
+            focal_distance: focus,
+            // Blur grows with the slider; the f-number scales with the distance so the effect looks the same at any zoom.
+            aperture_f_stops: 1.25 / (s * focus),
+            max_depth: focus * 8.0,
+            ..default()
+        });
     }
 }
 
@@ -767,7 +796,7 @@ impl Plugin for ViewPlugin {
             (
                 (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, water::water_sync, model_detail_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, vmark::<6>).chain(),
                 (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
-                (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, vmark::<16>).chain(),
+                (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, blur_sync, vmark::<16>).chain(),
             )
                 .chain()
                 .run_if(in_game),

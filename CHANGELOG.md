@@ -5,6 +5,21 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.6
+
+Graphics
+- Twelve new city buildings: shopping mall, hospital and railway station (big), school, hotel, office tower, theatre,
+  parking garage, market hall and fire station (medium), police station and filling station (small). The real-life maps
+  (Dubrovnik, Liberec, Jablonec, Mostyska, Sudzha, Tokmachka, Frankivsk) got some of them in place of existing buildings
+  of the same size (`tools/urbanize.py`): dense centres get malls, towers and hotels, the rest schools, stations and shops.
+- Churches differ by theme: Orthodox with gold domes for the village and Soviet maps, a baroque church with a campanile
+  for Dubrovnik and a Gothic spire church for Liberec and Jablonec. Grocery stores and apartment buildings got theme
+  versions too (four shops, seaside and city tenements, two large apartment blocks).
+- Low-poly versions of all the new and themed buildings (flat windows, no balconies, shutters or small props) are used at
+  low and medium building detail; High and Ultra show the full models.
+- New setting "Distance blur" (a slider, off by default; High preset 40%, Ultra 70%): depth of field that softens what
+  lies far beyond the point the camera looks at.
+
 ## v0.15.5
 
 Graphics

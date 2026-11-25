@@ -512,7 +512,7 @@
       "owner": 0
     },
     {
-      "def": "science_lab",
+      "def": "parking_garage",
       "pos": {
         "x": 196.0,
         "y": 508.0
@@ -530,7 +530,7 @@
       "owner": 0
     },
     {
-      "def": "admin_hall",
+      "def": "hospital",
       "pos": {
         "x": 210.0,
         "y": 316.0
@@ -557,7 +557,7 @@
       "owner": 0
     },
     {
-      "def": "admin_hall",
+      "def": "train_station",
       "pos": {
         "x": 12.0,
         "y": 276.0
@@ -566,7 +566,7 @@
       "owner": 0
     },
     {
-      "def": "admin_hall",
+      "def": "mall",
       "pos": {
         "x": 272.0,
         "y": 408.0
@@ -818,7 +818,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "hotel",
       "pos": {
         "x": 400.0,
         "y": 362.0
@@ -1034,7 +1034,7 @@
       "owner": 0
     },
     {
-      "def": "admin_building",
+      "def": "market_hall",
       "pos": {
         "x": 308.0,
         "y": 480.0
@@ -1205,7 +1205,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house3",
+      "def": "gas_station",
       "pos": {
         "x": 844.0,
         "y": 68.0
@@ -1304,7 +1304,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "theatre",
       "pos": {
         "x": 698.0,
         "y": 640.0
@@ -1466,7 +1466,7 @@
       "owner": 0
     },
     {
-      "def": "residential_tower",
+      "def": "hotel",
       "pos": {
         "x": 196.0,
         "y": 394.0
@@ -2051,7 +2051,7 @@
       "owner": 0
     },
     {
-      "def": "admin_building",
+      "def": "hotel",
       "pos": {
         "x": 548.0,
         "y": 574.0
@@ -2303,7 +2303,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "fire_station",
       "pos": {
         "x": 822.0,
         "y": 670.0
@@ -2708,7 +2708,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house4",
+      "def": "gas_station",
       "pos": {
         "x": 224.0,
         "y": 450.0
@@ -3203,7 +3203,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "fire_station",
       "pos": {
         "x": 400.0,
         "y": 446.0
@@ -3482,7 +3482,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house2",
+      "def": "gas_station",
       "pos": {
         "x": 686.0,
         "y": 684.0
@@ -3608,7 +3608,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "school",
       "pos": {
         "x": 486.0,
         "y": 512.0
@@ -4112,7 +4112,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "school",
       "pos": {
         "x": 1016.0,
         "y": 580.0
@@ -4490,7 +4490,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "parking_garage",
       "pos": {
         "x": 138.0,
         "y": 410.0
@@ -5759,7 +5759,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "hotel",
       "pos": {
         "x": 306.0,
         "y": 490.0
@@ -5948,7 +5948,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "hotel",
       "pos": {
         "x": 190.0,
         "y": 306.0
@@ -6074,7 +6074,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "market_hall",
       "pos": {
         "x": 632.0,
         "y": 16.0
@@ -8081,7 +8081,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house1",
+      "def": "police_station",
       "pos": {
         "x": 218.0,
         "y": 290.0
@@ -8783,7 +8783,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "school",
       "pos": {
         "x": 238.0,
         "y": 458.0
@@ -8891,7 +8891,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house4",
+      "def": "police_station",
       "pos": {
         "x": 384.0,
         "y": 514.0
@@ -8963,7 +8963,7 @@
       "owner": 0
     },
     {
-      "def": "old_house4",
+      "def": "police_station",
       "pos": {
         "x": 254.0,
         "y": 474.0
@@ -8999,7 +8999,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "hotel",
       "pos": {
         "x": 658.0,
         "y": 654.0
@@ -12410,7 +12410,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house3",
+      "def": "police_station",
       "pos": {
         "x": 468.0,
         "y": 446.0

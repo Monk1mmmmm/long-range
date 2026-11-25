@@ -801,6 +801,25 @@ pub struct ModelDef {
     pub spin: Vec<SpinDef>,
     #[serde(default)]
     pub boxes: Vec<BoxDef>,
+    /// A low-poly version of the model with its own textures, drawn at low and medium building detail
+    /// (`Settings::building_detail` below 2, `view::models::ModelCache::low_poly`).
+    #[serde(default)]
+    pub mesh_low: Option<String>,
+    #[serde(default)]
+    pub albedo_low: Option<String>,
+    #[serde(default)]
+    pub team_mask_low: Option<String>,
+}
+
+impl ModelDef {
+    /// The mesh, albedo and team mask paths of the full or (when `low` and there is one) the low-poly version.
+    pub fn paths(&self, low: bool) -> (Option<&String>, Option<&String>, Option<&String>) {
+        if low && self.mesh_low.is_some() {
+            (self.mesh_low.as_ref(), self.albedo_low.as_ref(), self.team_mask_low.as_ref())
+        } else {
+            (self.mesh.as_ref(), self.albedo.as_ref(), self.team_mask.as_ref())
+        }
+    }
 }
 
 /// Strategic icon: a base shape plus overlaid glyphs; the tier adds pips underneath.
@@ -1310,7 +1329,7 @@ impl Defs {
     pub fn asset_paths(&self) -> Vec<String> {
         let mut out: Vec<String> = vec![];
         for u in &self.units {
-            for p in [&u.model.mesh, &u.model.albedo, &u.model.team_mask, &u.model.normal, &u.portrait].into_iter().flatten() {
+            for p in [&u.model.mesh, &u.model.albedo, &u.model.team_mask, &u.model.normal, &u.model.mesh_low, &u.model.albedo_low, &u.model.team_mask_low, &u.portrait].into_iter().flatten() {
                 if !out.contains(p) {
                     out.push(p.clone());
                 }

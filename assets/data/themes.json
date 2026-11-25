@@ -258,6 +258,21 @@
     "dacha": [
      "cottage",
      "dacha"
+    ],
+    "church": [
+     "church_baroque"
+    ],
+    "grocery": [
+     "shop_adriatic"
+    ],
+    "apartment2": [
+     "adr_apartments"
+    ],
+    "apartment": [
+     "adr_apartment_block"
+    ],
+    "residential_tower": [
+     "adr_apartment_block"
     ]
    }
   },
@@ -477,6 +492,22 @@
      "khata",
      "khata_slate",
      "cottage"
+    ],
+    "church": [
+     "church_gothic"
+    ],
+    "grocery": [
+     "shop_central"
+    ],
+    "apartment2": [
+     "ce_tenement"
+    ],
+    "apartment": [
+     "ce_apartment_block"
+    ],
+    "residential_tower": [
+     "ce_apartment_block",
+     "sov_block5"
     ]
    }
   },
@@ -687,6 +718,21 @@
      "cottage",
      "dacha",
      "vil_log_house"
+    ],
+    "church": [
+     "church_orthodox"
+    ],
+    "grocery": [
+     "shop_village"
+    ],
+    "apartment2": [
+     "sov_stalinka"
+    ],
+    "apartment": [
+     "sov_block5"
+    ],
+    "residential_tower": [
+     "sov_block5"
     ]
    }
   },
@@ -861,6 +907,12 @@
     ],
     "apartment": [
      "sov_block5"
+    ],
+    "grocery": [
+     "shop_soviet"
+    ],
+    "apartment2": [
+     "ind_flat_house"
     ]
    }
   },
@@ -1017,6 +1069,15 @@
     ],
     "apartment": [
      "sov_block5"
+    ],
+    "church": [
+     "church_orthodox"
+    ],
+    "grocery": [
+     "shop_soviet"
+    ],
+    "apartment2": [
+     "sov_stalinka"
     ]
    }
   }

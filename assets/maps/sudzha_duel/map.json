@@ -248,7 +248,7 @@
       "owner": 0
     },
     {
-      "def": "admin_hall",
+      "def": "hospital",
       "pos": {
         "x": 714.0,
         "y": 204.0
@@ -824,7 +824,7 @@
       "owner": 0
     },
     {
-      "def": "warehouse",
+      "def": "train_station",
       "pos": {
         "x": 838.0,
         "y": 382.0
@@ -1103,7 +1103,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "hotel",
       "pos": {
         "x": 470.0,
         "y": 532.0
@@ -1373,7 +1373,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house1",
+      "def": "police_station",
       "pos": {
         "x": 784.0,
         "y": 282.0
@@ -1733,7 +1733,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "school",
       "pos": {
         "x": 272.0,
         "y": 372.0
@@ -2210,7 +2210,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "market_hall",
       "pos": {
         "x": 788.0,
         "y": 434.0
@@ -2795,7 +2795,7 @@
       "owner": 0
     },
     {
-      "def": "residential_tower",
+      "def": "fire_station",
       "pos": {
         "x": 500.0,
         "y": 472.0
@@ -4478,7 +4478,7 @@
       "owner": 0
     },
     {
-      "def": "old_house2",
+      "def": "gas_station",
       "pos": {
         "x": 700.0,
         "y": 370.0
@@ -4955,7 +4955,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "school",
       "pos": {
         "x": 264.0,
         "y": 606.0
@@ -5378,7 +5378,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house4",
+      "def": "gas_station",
       "pos": {
         "x": 518.0,
         "y": 540.0
@@ -5891,7 +5891,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house1",
+      "def": "gas_station",
       "pos": {
         "x": 706.0,
         "y": 304.0
@@ -6107,7 +6107,7 @@
       "owner": 0
     },
     {
-      "def": "old_house4",
+      "def": "police_station",
       "pos": {
         "x": 664.0,
         "y": 250.0

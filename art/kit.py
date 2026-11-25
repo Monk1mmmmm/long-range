@@ -15,6 +15,9 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
+import os
+
+LOW = bool(os.environ.get("LR_LOW"))  # low-poly build: flat windows and doors, fewer segments, no small extras (models_themed / models_urban)
 TEX = 512  # atlas size; the game copies the albedo once per unit type and player colour
 
 # ---------------------------------------------------------------- tiles (seamless, numpy)
@@ -438,7 +441,7 @@ class Part:
 
 class Kit:
     def __init__(self, name):
-        self.name = name
+        self.name = name + "_low" if LOW else name
         bpy.ops.wm.read_factory_settings(use_empty=True)
         _MATS.clear()
         TILES_USED.clear()
@@ -589,6 +592,8 @@ class Kit:
         """Cylinder (or frustum, top radius r2) from loc along +axis by depth."""
         bm = bmesh.new()
         r2 = r if r2 is None else r2
+        if LOW:
+            seg = min(seg, 6)
         bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=seg, radius1=r, radius2=r2, depth=depth)
         bmesh.ops.translate(bm, vec=Vector((0, 0, depth / 2)), verts=bm.verts)
         mats = [mat]
@@ -612,6 +617,8 @@ class Kit:
 
     def sphere(self, r, loc=(0, 0, 0), mat="steel", seg=12, rings=6, scale=(1, 1, 1), half=False):
         bm = bmesh.new()
+        if LOW:
+            seg, rings = min(seg, 8), min(rings, 4)
         bmesh.ops.create_uvsphere(bm, u_segments=seg, v_segments=rings, radius=r)
         if half:
             bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -1e-4], context="VERTS")
@@ -654,6 +661,9 @@ class Kit:
         rot = Matrix((u, v, n)).transposed().to_4x4()
         with self.at(tuple(cen)):
             self.xf[-1] = self.xf[-1] @ rot
+            if LOW:
+                self.box((w + 0.06, h + 0.06, 0.03), (0, 0, 0.012), mat)
+                return
             self.box((w + 2 * f, h + 2 * f, 0.03), (0, 0, 0.005), frame)
             self.box((w, h, 0.02), (0, 0, 0.022), mat)
             self.box((w + 2 * f + 0.06, 0.05, 0.08), (0, -h / 2 - f - 0.02, 0.03), frame)  # sill
@@ -667,6 +677,9 @@ class Kit:
         rot = Matrix((u, v, n)).transposed().to_4x4()
         with self.at(tuple(Vector(cen) + v * h / 2)):
             self.xf[-1] = self.xf[-1] @ rot
+            if LOW:
+                self.box((w, h, 0.03), (0, 0, 0.015), mat)
+                return
             self.box((w + 0.1, h + 0.05, 0.03), (0, 0.025, 0.005), frame)
             self.box((w, h, 0.025), (0, 0, 0.02), mat)
 

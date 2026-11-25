@@ -410,7 +410,7 @@
   ],
   "props": [
     {
-      "def": "admin_hall",
+      "def": "hospital",
       "pos": {
         "x": 366.0,
         "y": 122.0
@@ -644,7 +644,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "school",
       "pos": {
         "x": 98.0,
         "y": 716.0
@@ -680,7 +680,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "fire_station",
       "pos": {
         "x": 164.0,
         "y": 558.0
@@ -743,7 +743,7 @@
       "owner": 0
     },
     {
-      "def": "house7",
+      "def": "gas_station",
       "pos": {
         "x": 668.0,
         "y": 672.0
@@ -1013,7 +1013,7 @@
       "owner": 0
     },
     {
-      "def": "corner_house4",
+      "def": "police_station",
       "pos": {
         "x": 88.0,
         "y": 134.0
@@ -2804,7 +2804,7 @@
       "owner": 0
     },
     {
-      "def": "apartment",
+      "def": "market_hall",
       "pos": {
         "x": 536.0,
         "y": 660.0
@@ -3947,7 +3947,7 @@
       "owner": 0
     },
     {
-      "def": "apartment2",
+      "def": "gas_station",
       "pos": {
         "x": 640.0,
         "y": 154.0
