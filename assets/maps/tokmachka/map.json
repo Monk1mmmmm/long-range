@@ -1,6 +1,7 @@
 {
   "name": "Tokmachka",
   "sky": "hazy",
+  "theme": "village",
   "n": 384,
   "water": -1.0,
   "min_height": 1.0,

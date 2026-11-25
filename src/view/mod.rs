@@ -722,9 +722,12 @@ fn wreck_visuals(
 }
 
 /// Tells the model cache which building detail is set (`Settings::building_detail`).
-fn model_detail_sync(settings: Res<crate::settings::Settings>, mut cache: ResMut<ModelCache>) {
+fn model_detail_sync(settings: Res<crate::settings::Settings>, map: Option<Res<MapData>>, mut cache: ResMut<ModelCache>) {
     if cache.detail != settings.building_detail {
         cache.detail = settings.building_detail;
+    }
+    if let Some(map) = map {
+        cache.set_theme(&map.theme);
     }
 }
 

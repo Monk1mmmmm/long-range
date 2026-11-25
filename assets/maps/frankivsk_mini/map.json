@@ -1,6 +1,7 @@
 {
   "name": "Ivano-Frankivsk City",
   "sky": "clear",
+  "theme": "soviet",
   "n": 256,
   "water": 3.75,
   "min_height": 1.9921875,

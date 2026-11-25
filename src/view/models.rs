@@ -155,6 +155,11 @@ pub struct ModelCache {
     pub variant: u32,
     ruins: HashMap<(DefId, u8), Vec<Option<Handle<Mesh>>>>,
     ruin_mats: HashMap<DefId, Handle<StandardMaterial>>,
+    /// The map's theme (`set_theme`).
+    pub theme: Theme,
+    theme_name: Option<String>,
+    /// Ultra: part meshes with eaves and window sills added.
+    detailed: HashMap<DefId, Vec<Option<Handle<Mesh>>>>,
     rubble: Option<(Handle<Mesh>, Handle<Mesh>, Vec<Handle<StandardMaterial>>)>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
     wreck: HashMap<DefId, Handle<StandardMaterial>>,
@@ -370,12 +375,53 @@ fn vnoise(x: f32, y: f32, seed: u32) -> f32 {
     top + ((c + (d - c) * fx) - top) * fy
 }
 
+/// A map's building theme (`assets/data/themes.json`): paints for plaster walls and coloured roofs, and
+/// which models may stand in for a building type (`looks`: type id -> model ids).
+#[derive(Clone, Default)]
+pub struct Theme {
+    pub walls: Vec<[f32; 3]>,
+    pub roofs: Vec<[f32; 3]>,
+    pub looks: HashMap<String, Vec<String>>,
+}
+
+impl Theme {
+    pub fn load(name: &str) -> Theme {
+        let read = || -> Option<serde_json::Value> { serde_json::from_str(&std::fs::read_to_string(asset_root().join("data/themes.json")).ok()?).ok() };
+        let json = read();
+        let themes = json.as_ref().and_then(|j| j.get("themes"));
+        let pick = themes.and_then(|t| t.get(name).or_else(|| t.get("default")));
+        let colours = |v: Option<&serde_json::Value>| -> Vec<[f32; 3]> {
+            v.and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|c| serde_json::from_value::<[f32; 3]>(c.clone()).ok()).collect()).unwrap_or_default()
+        };
+        let mut t = Theme { walls: colours(pick.and_then(|p| p.get("walls"))), roofs: colours(pick.and_then(|p| p.get("roofs"))), looks: HashMap::new() };
+        if let Some(l) = pick.and_then(|p| p.get("looks")).and_then(|l| l.as_object()) {
+            for (k, v) in l {
+                if let Ok(list) = serde_json::from_value::<Vec<String>>(v.clone()) {
+                    t.looks.insert(k.clone(), list);
+                }
+            }
+        }
+        if t.walls.is_empty() {
+            t.walls = vec![[0.9, 0.86, 0.78], [0.82, 0.85, 0.88]];
+        }
+        if t.roofs.is_empty() {
+            t.roofs = vec![[0.6, 0.28, 0.2], [0.3, 0.33, 0.38]];
+        }
+        t
+    }
+}
+
+fn luminance(c: [f32; 3]) -> f32 {
+    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+}
+
+fn saturation(c: [f32; 3]) -> f32 {
+    let mx = c[0].max(c[1]).max(c[2]);
+    if mx > 0.001 { (mx - c[0].min(c[1]).min(c[2])) / mx } else { 0.0 }
+}
+
 /// How many looks of one building type there are at high detail.
 const BUILDING_VARIANTS: u32 = 6;
-
-/// Paints that multiply the baked wall and roof colours (mild: plaster and brick stay plaster and brick).
-const WALL_PAINT: [[f32; 3]; 7] = [[1.0, 1.0, 1.0], [1.1, 1.03, 0.88], [0.9, 0.95, 1.06], [1.08, 0.94, 0.84], [0.95, 1.05, 0.92], [1.12, 1.02, 0.78], [0.85, 0.85, 0.88]];
-const ROOF_PAINT: [[f32; 3]; 6] = [[1.0, 1.0, 1.0], [1.3, 0.75, 0.65], [0.7, 0.78, 0.9], [0.85, 1.1, 0.8], [0.72, 0.66, 0.6], [1.15, 0.9, 0.7]];
 
 /// Which texels of a model's albedo belong to roofs (255, faces turned up) and which to walls (120),
 /// by rasterising its triangles in UV space; 0 where nothing is drawn.
@@ -518,7 +564,223 @@ fn ruin_mesh(src: &Mesh, seed: u32, style: u32) -> Option<Mesh> {
     )
 }
 
+/// Reads a mesh's positions, normals, uvs and indices.
+type MeshData = (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<u32>);
+fn mesh_data(src: &Mesh) -> Option<MeshData> {
+    use bevy::mesh::VertexAttributeValues as V;
+    let V::Float32x3(pos) = src.attribute(Mesh::ATTRIBUTE_POSITION)? else { return None };
+    let V::Float32x3(nrm) = src.attribute(Mesh::ATTRIBUTE_NORMAL)? else { return None };
+    let V::Float32x2(uv) = src.attribute(Mesh::ATTRIBUTE_UV_0)? else { return None };
+    let idx: Vec<u32> = match src.indices()? {
+        Indices::U32(i) => i.clone(),
+        Indices::U16(i) => i.iter().map(|&x| x as u32).collect(),
+    };
+    Some((pos.clone(), nrm.clone(), uv.clone(), idx))
+}
+
+/// Ultra detail for a house part: the pitched roof's rim is pushed out into an eave, tapering to the
+/// ridge, and a sill box is added under every window found in the albedo (a small dark or bluish
+/// rectangle on a wall island: `walls` marks wall texels with 120). Same material and one mesh.
+fn detail_mesh(src: &Mesh, albedo: &image::RgbaImage, walls: &[u8], brightness: f32) -> Option<Mesh> {
+    let (mut pos, mut nrm, mut uv, mut idx) = mesh_data(src)?;
+    let (w, h) = albedo.dimensions();
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for p in &pos {
+        lo = lo.min(Vec3::from_array(*p));
+        hi = hi.max(Vec3::from_array(*p));
+    }
+    let ext = hi - lo;
+    if ext.y < 0.3 || ext.x < 0.3 || ext.z < 0.3 {
+        return None;
+    }
+    let big = ext.x.max(ext.z);
+    let centre = (lo + hi) * 0.5;
+    // Eaves: vertices of pitched-roof triangles in the upper part of the model.
+    let orig = pos.clone();
+    let tri_n = |t: &[u32]| (Vec3::from_array(orig[t[1] as usize]) - Vec3::from_array(orig[t[0] as usize])).cross(Vec3::from_array(orig[t[2] as usize]) - Vec3::from_array(orig[t[0] as usize])).normalize_or_zero();
+    let mut roof: Vec<u32> = vec![];
+    for t in idx.chunks_exact(3) {
+        let n = tri_n(t);
+        let cy = (pos[t[0] as usize][1] + pos[t[1] as usize][1] + pos[t[2] as usize][1]) / 3.0;
+        if n.y > 0.35 && n.y < 0.97 && cy > lo.y + ext.y * 0.4 {
+            roof.extend_from_slice(t);
+        }
+    }
+    if !roof.is_empty() {
+        let (eave, ridge) = roof.iter().fold((f32::MAX, f32::MIN), |(a, b), &i| (a.min(pos[i as usize][1]), b.max(pos[i as usize][1])));
+        if ridge - eave > 0.05 {
+            let mut moved = vec![false; pos.len()];
+            for &i in &roof {
+                let i = i as usize;
+                if moved[i] {
+                    continue;
+                }
+                moved[i] = true;
+                let taper = 1.0 - ((pos[i][1] - eave) / (ridge - eave)).clamp(0.0, 1.0);
+                let out = Vec2::new(pos[i][0] - centre.x, pos[i][2] - centre.z).normalize_or_zero() * big * 0.055 * taper * taper;
+                pos[i][0] += out.x;
+                pos[i][2] += out.y;
+            }
+        }
+    }
+    // Window sills.
+    let lum_px = |x: u32, y: u32| {
+        let p = albedo.get_pixel(x, y);
+        [p[0] as f32 / 255.0 * brightness, p[1] as f32 / 255.0 * brightness, p[2] as f32 / 255.0 * brightness]
+    };
+    let glass = |x: u32, y: u32| -> bool {
+        let c = lum_px(x, y);
+        let l = luminance(c);
+        walls[(y * w + x) as usize] == 120 && ((c[2] >= c[0] * 0.9 && l < 0.5) || (c[2] > c[0] + 0.04 && l > 0.55 && saturation(c) > 0.08))
+    };
+    let mut seen = vec![false; (w * h) as usize];
+    let mut sills = 0;
+    let base_tris: Vec<[u32; 3]> = idx.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect();
+    for y0 in 0..h {
+        for x0 in 0..w {
+            if seen[(y0 * w + x0) as usize] || !glass(x0, y0) {
+                continue;
+            }
+            // Flood fill the window.
+            let (mut x_lo, mut x_hi, mut y_lo, mut y_hi, mut count) = (x0, x0, y0, y0, 0u32);
+            let mut stack = vec![(x0, y0)];
+            seen[(y0 * w + x0) as usize] = true;
+            while let Some((x, y)) = stack.pop() {
+                count += 1;
+                (x_lo, x_hi, y_lo, y_hi) = (x_lo.min(x), x_hi.max(x), y_lo.min(y), y_hi.max(y));
+                for (nx, ny) in [(x.wrapping_sub(1), y), (x + 1, y), (x, y.wrapping_sub(1)), (x, y + 1)] {
+                    if nx < w && ny < h && !seen[(ny * w + nx) as usize] && glass(nx, ny) {
+                        seen[(ny * w + nx) as usize] = true;
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+            let (bw, bh) = (x_hi - x_lo + 1, y_hi - y_lo + 1);
+            if !(5..=90).contains(&bw) || !(6..=110).contains(&bh) || (count as f32) < 0.5 * (bw * bh) as f32 || !(0.6..=3.0).contains(&(bh as f32 / bw as f32)) || sills >= 90 {
+                continue;
+            }
+            // The wall triangle under the window's bottom middle.
+            let probe = Vec2::new((x_lo + x_hi) as f32 * 0.5 + 0.5, y_hi as f32 + 0.5);
+            let uvp = |u: Vec2| Vec2::new(u.x / w as f32, u.y / h as f32);
+            for t in &base_tris {
+                let q: Vec<Vec2> = t.iter().map(|&i| Vec2::from_array(uv[i as usize])).collect();
+                let bary = |p: Vec2| -> Option<[f32; 3]> {
+                    let den = (q[1].y - q[2].y) * (q[0].x - q[2].x) + (q[2].x - q[1].x) * (q[0].y - q[2].y);
+                    if den.abs() < 1e-9 {
+                        return None;
+                    }
+                    let a = ((q[1].y - q[2].y) * (p.x - q[2].x) + (q[2].x - q[1].x) * (p.y - q[2].y)) / den;
+                    let b = ((q[2].y - q[0].y) * (p.x - q[2].x) + (q[0].x - q[2].x) * (p.y - q[2].y)) / den;
+                    Some([a, b, 1.0 - a - b])
+                };
+                let Some(bc) = bary(uvp(probe)) else { continue };
+                if bc.iter().any(|&v| v < -1e-4) {
+                    continue;
+                }
+                let n = tri_n(t);
+                if n.y.abs() > 0.3 {
+                    continue;
+                }
+                let at = |p: Vec2| -> Option<Vec3> {
+                    let b = bary(uvp(p))?;
+                    Some(b.iter().zip(t).map(|(k, &i)| Vec3::from_array(orig[i as usize]) * *k).sum())
+                };
+                let (Some(pl), Some(pr)) = (at(Vec2::new(x_lo as f32, y_hi as f32 + 1.0)), at(Vec2::new(x_hi as f32 + 1.0, y_hi as f32 + 1.0))) else { break };
+                let span = pr - pl;
+                let wl = span.length();
+                if wl < 0.02 || wl > big * 0.4 {
+                    break;
+                }
+                let side = Vec3::new(span.x, 0.0, span.z).normalize_or_zero();
+                if side == Vec3::ZERO {
+                    break;
+                }
+                let (len, depth, hgt) = (wl * 1.3, wl * 0.2, wl * 0.11);
+                let c = (pl + pr) * 0.5 + n * depth * 0.5 - Vec3::Y * hgt * 0.5;
+                let (hs, hn, hu) = (side * len * 0.5, n * depth * 0.5, Vec3::Y * hgt * 0.5);
+                // Texture: the plaster just under the window.
+                let tex = [probe.x / w as f32, ((y_hi + 3).min(h - 1)) as f32 / h as f32];
+                // (normal, centre offset, half-extents spanning the face)
+                let faces: [(Vec3, Vec3, Vec3, Vec3); 5] = [(n, hn, hs, hu), (Vec3::Y, hu, hs, hn), (-side, -hs, hn, hu), (side, hs, hn, hu), (-n, -hn, hs, hu)];
+                for (nn, off, a, b) in faces {
+                    let first = pos.len() as u32;
+                    for (sa, sb) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                        pos.push((c + off + a * sa + b * sb).to_array());
+                        nrm.push(nn.to_array());
+                        uv.push(tex);
+                    }
+                    // Wound to face along nn.
+                    let e1 = Vec3::from_array(pos[first as usize + 1]) - Vec3::from_array(pos[first as usize]);
+                    let e2 = Vec3::from_array(pos[first as usize + 2]) - Vec3::from_array(pos[first as usize]);
+                    if e1.cross(e2).dot(nn) >= 0.0 {
+                        idx.extend_from_slice(&[first, first + 1, first + 2, first, first + 2, first + 3]);
+                    } else {
+                        idx.extend_from_slice(&[first, first + 2, first + 1, first, first + 3, first + 2]);
+                    }
+                }
+                sills += 1;
+                break;
+            }
+        }
+    }
+    Some(
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, nrm)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+            .with_inserted_indices(Indices::U32(idx)),
+    )
+}
+
 impl ModelCache {
+    /// Switches to a map's building theme (no theme: the default one); what was made for another theme is dropped.
+    pub fn set_theme(&mut self, name: &str) {
+        if self.theme_name.as_deref() != Some(name) {
+            self.theme = Theme::load(name);
+            self.theme_name = Some(name.to_string());
+            self.mats.clear();
+            self.ruin_mats.clear();
+            self.ruins.clear();
+            self.detailed.clear();
+        }
+    }
+
+    /// The model that stands in for building type `def` (the theme's choice for this building, `variant`).
+    pub fn look(&self, defs: &Defs, def: DefId) -> DefId {
+        if self.detail < 2 {
+            return def;
+        }
+        let Some(list) = self.theme.looks.get(&defs.get(def).id) else { return def };
+        let ids: Vec<DefId> = list.iter().filter_map(|n| defs.id(n)).filter(|&i| defs.get(i).footprint == defs.get(def).footprint && defs.get(i).model.mesh.is_some()).collect();
+        if ids.is_empty() {
+            return def;
+        }
+        ids[(lattice(9, 9, self.variant) * ids.len() as f32) as usize % ids.len()]
+    }
+
+    /// Ultra: the part meshes of a house with roofs that overhang and sills under its windows (`detail_mesh`).
+    fn detailed_meshes(&mut self, defs: &Defs, def: DefId, model: &Model, meshes: &mut Assets<Mesh>) -> Vec<Option<Handle<Mesh>>> {
+        if self.detail < 3 || !defs.get(def).has_category("residential") {
+            return vec![];
+        }
+        if let Some(v) = self.detailed.get(&def) {
+            return v.clone();
+        }
+        let albedo = defs.get(def).model.albedo.as_deref().and_then(read_rgba);
+        let made: Vec<Option<Mesh>> = model
+            .parts
+            .iter()
+            .map(|p| {
+                let src = p.mesh.as_ref().and_then(|h| meshes.get(h))?;
+                let walls = roof_mask(std::slice::from_ref(p), meshes, albedo.as_ref()?.width(), albedo.as_ref()?.height());
+                detail_mesh(src, albedo.as_ref()?, &walls, defs.get(def).model.brightness)
+            })
+            .collect();
+        let handles: Vec<Option<Handle<Mesh>>> = made.into_iter().map(|m| m.map(|m| meshes.add(m))).collect();
+        self.detailed.insert(def, handles.clone());
+        handles
+    }
+
     pub fn init(&mut self, materials: &mut Assets<StandardMaterial>) {
         let ghost = |c: Color| StandardMaterial { base_color: c, alpha_mode: AlphaMode::Blend, unlit: true, ..default() };
         self.ghost_ok = materials.add(ghost(Color::srgba(0.3, 1.0, 0.4, 0.45)));
@@ -586,8 +848,28 @@ impl ModelCache {
             let mask = md.team_mask.as_deref().and_then(read_rgba).filter(|m| m.dimensions() == albedo.dimensions());
             let width = albedo.width();
             let roofs = if var > 0 { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
-            let wall_paint = WALL_PAINT[(var as usize * 3 + def as usize) % WALL_PAINT.len()];
-            let roof_paint = ROOF_PAINT[(var as usize * 5 + def as usize * 2 + 1) % ROOF_PAINT.len()];
+            let wall_paint = self.theme.walls[(var as usize * 3 + def as usize) % self.theme.walls.len()];
+            let roof_paint = self.theme.roofs[(var as usize * 5 + def as usize * 2 + 1) % self.theme.roofs.len()];
+            // Mean brightness of this model's coloured roof tiles and of its plaster: the paints replace the
+            // hue and keep each texel's own light and dark (tile edges, stains, window frames).
+            let (mut roof_sum, mut roof_n, mut wall_sum, mut wall_n) = (0.0f32, 0u32, 0.0f32, 0u32);
+            if var > 0 {
+                for (i, px) in albedo.pixels().enumerate() {
+                    let c = [px[0] as f32 / 255.0 * md.brightness, px[1] as f32 / 255.0 * md.brightness, px[2] as f32 / 255.0 * md.brightness];
+                    let (l, sat) = (luminance(c), saturation(c));
+                    if roofs.get(i).copied() == Some(255) {
+                        if sat > 0.15 {
+                            roof_sum += l;
+                            roof_n += 1;
+                        }
+                    } else if l > 0.5 && sat < 0.3 {
+                        wall_sum += l;
+                        wall_n += 1;
+                    }
+                }
+            }
+            let roof_ref = if roof_n > 0 { (roof_sum / roof_n as f32).max(0.1) } else { 0.3 };
+            let wall_ref = if wall_n > 0 { (wall_sum / wall_n as f32).max(0.3) } else { 0.8 };
             for (i, px) in albedo.pixels_mut().enumerate() {
                 let (x, y) = (i as u32 % width, i as u32 / width);
                 // The mod's albedo maps are dark (`brightness` 2.1 lifts them); paint the team areas.
@@ -596,13 +878,23 @@ impl ModelCache {
                 if var > 0 {
                     // This variant's paint and wear: a tint, blotchy weathering and rain streaks.
                     let sd = var as u32 * 7919 + def as u32 * 104729;
-                    let paint = if roofs.get(i).copied().unwrap_or(0) == 255 { roof_paint } else { wall_paint };
-                    let tint = [paint[0] * (0.95 + 0.1 * lattice(1, 0, sd)), paint[1] * (0.95 + 0.1 * lattice(2, 0, sd)), paint[2] * (0.95 + 0.1 * lattice(3, 0, sd))];
+                    let (l, sat) = (luminance(c), saturation(c));
+                    if roofs.get(i).copied() == Some(255) {
+                        if sat > 0.15 {
+                            for j in 0..3 {
+                                c[j] += (roof_paint[j] * l / roof_ref - c[j]) * 0.9;
+                            }
+                        }
+                    } else if l > 0.5 && sat < 0.3 {
+                        for j in 0..3 {
+                            c[j] += (wall_paint[j] * l / wall_ref - c[j]) * 0.85;
+                        }
+                    }
                     let blot = vnoise(x as f32 / 22.0, y as f32 / 22.0, sd);
                     let streak = vnoise(x as f32 / 5.0, y as f32 / 70.0, sd ^ 77);
                     let wear = (0.84 + 0.26 * blot) * (1.0 - 0.22 * streak * streak) * (0.94 + 0.12 * lattice(x as i32, y as i32, sd));
                     for j in 0..3 {
-                        c[j] *= tint[j] * wear;
+                        c[j] = (c[j] * wear).min(0.97);
                     }
                 }
                 if let Some(m) = &mask {
@@ -893,9 +1185,12 @@ pub fn spawn_model_dim(
     images: &mut Assets<Image>,
     materials: &mut Assets<StandardMaterial>,
 ) -> Entity {
-    let model = cache.model(defs, def, meshes).clone();
-    let mats = cache.unit_mats(defs, def, color, rgb, &model.parts, meshes, images, materials);
+    // What the map's theme shows for this building type (the type itself unless the theme says otherwise).
+    let look = cache.look(defs, def);
+    let model = cache.model(defs, look, meshes).clone();
+    let mats = cache.unit_mats(defs, look, color, rgb, &model.parts, meshes, images, materials);
     let d = defs.get(def);
+    let detailed = cache.detailed_meshes(defs, look, &model, meshes);
     let jitter = if cache.detail >= 2 && d.has_category("civilian") {
         let k = cache.variant;
         Vec3::new(0.97 + 0.06 * lattice(1, 1, k), 0.94 + 0.12 * lattice(2, 1, k), 0.97 + 0.06 * lattice(3, 1, k))
@@ -916,7 +1211,7 @@ pub fn spawn_model_dim(
         if live && !tracks.is_empty() {
             e.insert(AnimPart { rest: part.local, tracks });
         }
-        if let Some(mesh) = &part.mesh {
+        if let Some(mesh) = detailed.get(pi).and_then(|m| m.as_ref()).or(part.mesh.as_ref()) {
             let mat = match (&override_mat, &part.mat) {
                 (Some(m), _) => m.clone(),
                 (None, PartMat::Unit) => {
@@ -982,5 +1277,26 @@ mod tests {
         found.sort();
         println!("{}", found.join(" "));
         assert!(found.len() >= 19, "{found:?}");
+    }
+}
+
+#[cfg(test)]
+mod detail_tests {
+    use super::*;
+
+    /// Ultra detail finds windows in the real houses and adds geometry to them without breaking the mesh.
+    #[test]
+    fn ultra_houses_get_sills_and_eaves() {
+        let mut meshes = Assets::<Mesh>::default();
+        for name in ["civ_old_house1", "civ_corner_house1", "civ_house1", "civ_apartments2"] {
+            let (parts, _) = load_glb(&asset_root().join(format!("models/{name}.glb")), &mut meshes, false, true).unwrap();
+            let albedo = read_rgba(&format!("models/{name}_albedo.png")).unwrap();
+            let p = parts.iter().find(|p| p.mesh.is_some()).unwrap();
+            let before = meshes.get(p.mesh.as_ref().unwrap()).unwrap().count_vertices();
+            let walls = roof_mask(std::slice::from_ref(p), &meshes, albedo.width(), albedo.height());
+            let m = detail_mesh(meshes.get(p.mesh.as_ref().unwrap()).unwrap(), &albedo, &walls, 1.0).unwrap();
+            println!("{name}: {} -> {} vertices", before, m.count_vertices());
+            assert!(m.count_vertices() > before, "{name}: no sills found");
+        }
     }
 }

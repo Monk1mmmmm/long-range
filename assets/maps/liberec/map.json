@@ -1,6 +1,7 @@
 {
   "name": "Liberec and Jablonec",
   "sky": "arctic",
+  "theme": "central",
   "n": 512,
   "water": 1.026,
   "min_height": -0.4079999999999999,

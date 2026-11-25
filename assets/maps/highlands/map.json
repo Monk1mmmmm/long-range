@@ -1,6 +1,7 @@
 {
   "name": "highlands",
   "sky": "overcast",
+  "theme": "industrial",
   "n": 384,
   "water": 0.0,
   "min_height": -3.6056988,

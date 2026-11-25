@@ -1,6 +1,7 @@
 {
   "name": "crossroads",
   "sky": "clear",
+  "theme": "industrial",
   "n": 256,
   "water": 0.0,
   "min_height": -3.8799117,

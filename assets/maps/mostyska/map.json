@@ -1,6 +1,7 @@
 {
   "name": "Mostyska",
   "sky": "sunset",
+  "theme": "village",
   "n": 512,
   "water": 1.107,
   "min_height": -0.09274729363059309,
