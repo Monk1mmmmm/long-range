@@ -198,6 +198,7 @@
     "custom": "Custom",
     "distance_blur": "Distance blur",
     "distance_blur_tip": "Blurs what lies far beyond the point the camera looks at (depth of field). 0 = off. Costs a little frame rate; not on very old graphics cards.",
+    "distance_blur_gl": "Not available with the OpenGL renderer: its shader compiler cannot build the depth-of-field effect. Use Vulkan or DirectX 12 for it.",
     "building_detail": "Buildings",
     "building_detail_tip": "High: the map's theme (wall and roof paints and which house models it uses), every building differs in colour and wear, sharper textures with mipmaps, and destroyed buildings leave broken, burnt-out ruins with holes instead of a sunk wreck. Ultra: houses also get overhanging eaves and window sills, and windows and bare metal reflect the sky.",
     "grass_detail": "Grass",

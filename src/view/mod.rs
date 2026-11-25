@@ -753,7 +753,8 @@ fn model_detail_sync(settings: Res<crate::settings::Settings>, map: Option<Res<M
 /// Off when the slider is 0 or the camera is far up (strategic zoom).
 fn blur_sync(mut commands: Commands, settings: Res<crate::settings::Settings>, view: Res<ViewState>, cams: Query<(Entity, Has<bevy::post_process::dof::DepthOfField>), With<MainCamera>>) {
     use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
-    let s = settings.distance_blur.clamp(0.0, 1.0);
+    // OpenGL cannot compile Bevy's depth-of-field shader (it loads from a depth texture): never add the component.
+    let s = if settings.uses_gl() { 0.0 } else { settings.distance_blur.clamp(0.0, 1.0) };
     for (e, has) in &cams {
         if s <= 0.0 || view.cam_dist > 500.0 {
             if has {
