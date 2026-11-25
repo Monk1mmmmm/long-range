@@ -193,6 +193,7 @@
     "terrain_detail_on": "Detailed shading",
     "preset": "Graphics preset",
     "preset_tip": "Sets shadows, trees and rocks, effects, terrain, sky, buildings, grass and water together. Changing one of them shows Custom.",
+    "vram_cap": "This graphics card has {} MB of video memory, too little for the Ultra options (it ran out of memory and crashed): they are limited to High. Set LR_NOVRAMCAP=1 to lift the limit.",
     "preset_low": "Low",
     "ultra": "Ultra",
     "custom": "Custom",

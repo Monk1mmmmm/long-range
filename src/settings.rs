@@ -563,12 +563,25 @@ pub fn apply_ui_scale(settings: Res<Settings>, mut contexts: bevy_egui::EguiCont
 }
 
 pub fn apply_settings(
-    settings: Res<Settings>,
+    mut settings: ResMut<Settings>,
+    adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
+    mut probed: Local<bool>,
     mut commands: Commands,
     cameras: Query<(Entity, &Msaa, Has<bevy::anti_alias::fxaa::Fxaa>), With<MainCamera>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
 ) {
+    if !*probed {
+        if let Some(a) = adapter {
+            *probed = true;
+            probe_vram(&a.name);
+        }
+    }
+    if vram_cap().is_some() && settings.ultra_levels() {
+        let s = &mut *settings;
+        cap_to_vram(s);
+        s.save();
+    }
     let want_msaa = if settings.antialiasing == "msaa4" { Msaa::Sample4 } else { Msaa::Off };
     let want_fxaa = settings.antialiasing == "fxaa";
     for (e, msaa, fxaa) in &cameras {
@@ -595,6 +608,108 @@ pub fn apply_settings(
     if shadow_map.size != size {
         shadow_map.size = size;
     }
+}
+
+/// Video memory of the GPU in use in MB, 0 = not known (set once by `probe_vram`).
+static VRAM_MB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Cards with less video memory than this (MB) cannot hold the Ultra detail levels: the half-size
+/// reflection pass, the big ultra tree meshes and the shadow maps together ran a GT 730 out of memory
+/// (the device was lost, then "Buffer ... is invalid" and a panic). `LR_NOVRAMCAP=1` switches the cap off.
+pub const ULTRA_MIN_VRAM_MB: u64 = 3000;
+
+pub fn vram_mb() -> Option<u64> {
+    Some(VRAM_MB.load(std::sync::atomic::Ordering::Relaxed)).filter(|&m| m > 0)
+}
+
+/// Some when the GPU is known to have too little memory for Ultra: the memory in MB.
+pub fn vram_cap() -> Option<u64> {
+    if std::env::var_os("LR_NOVRAMCAP").is_some() {
+        return None;
+    }
+    vram_mb().filter(|&m| m < ULTRA_MIN_VRAM_MB)
+}
+
+impl Settings {
+    /// True when an option stands at its Ultra level.
+    pub fn ultra_levels(&self) -> bool {
+        self.flora_detail >= 3 || self.building_detail >= 3 || self.water_detail >= 3 || self.grass_detail >= 2
+    }
+}
+
+/// Brings every Ultra option down to High (what a preset below Ultra sets).
+pub fn cap_to_vram(s: &mut Settings) {
+    s.flora_detail = s.flora_detail.min(2);
+    s.building_detail = s.building_detail.min(2);
+    s.water_detail = s.water_detail.min(2);
+    s.grass_detail = s.grass_detail.min(1);
+    s.distance_blur = s.distance_blur.min(0.4);
+}
+
+/// Finds the video memory of the adapter `name` (Windows: the display adapters in the registry; other
+/// systems report none, so no cap) and logs it.
+fn probe_vram(name: &str) {
+    let mb = if let Ok(v) = std::env::var("LR_VRAM_MB") { v.parse().ok() } else { windows_vram_mb(name) };
+    match mb {
+        Some(m) => {
+            VRAM_MB.store(m, std::sync::atomic::Ordering::Relaxed);
+            info!("video memory of {name}: {m} MB{}", if m < ULTRA_MIN_VRAM_MB { " (too little for Ultra: Ultra options are capped at High)" } else { "" });
+        }
+        None => info!("video memory of {name}: unknown"),
+    }
+}
+
+#[cfg(windows)]
+fn windows_vram_mb(name: &str) -> Option<u64> {
+    use std::os::windows::process::CommandExt;
+    let out = std::process::Command::new("reg")
+        .args(["query", r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11cd-be10-08002be10318}", "/s"])
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .output()
+        .ok()?;
+    pick_vram(&String::from_utf8_lossy(&out.stdout), name)
+}
+
+#[cfg(not(windows))]
+fn windows_vram_mb(_: &str) -> Option<u64> {
+    None
+}
+
+/// From `reg query ... /s` text: the memory of the display adapter whose description matches `name`
+/// (or of the only one that reports any).
+fn pick_vram(text: &str, name: &str) -> Option<u64> {
+    let mut cards: Vec<(String, u64)> = vec![];
+    let (mut desc, mut mem) = (String::new(), 0u64);
+    for line in text.lines().chain(std::iter::once("HKEY_end")) {
+        let line = line.trim();
+        if line.starts_with("HKEY_") {
+            if mem > 0 {
+                cards.push((desc.to_lowercase(), mem));
+            }
+            desc.clear();
+            mem = 0;
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let (key, kind) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+        let rest = parts.collect::<Vec<_>>().join(" ");
+        let rest = rest.as_str();
+        if key == "DriverDesc" {
+            desc = rest.to_string();
+        } else if key == "HardwareInformation.qwMemorySize" || key == "HardwareInformation.MemorySize" {
+            let v = match kind {
+                "REG_QWORD" | "REG_DWORD" => u64::from_str_radix(rest.trim_start_matches("0x"), 16).ok(),
+                // little-endian bytes as hex text
+                "REG_BINARY" => (0..rest.len() / 2).rev().try_fold(0u64, |a, i| Some(a.checked_mul(256)? + u64::from_str_radix(rest.get(i * 2..i * 2 + 2)?, 16).ok()?)),
+                _ => None,
+            };
+            if let Some(v) = v {
+                mem = v / (1024 * 1024);
+            }
+        }
+    }
+    let name = name.to_lowercase();
+    cards.iter().find(|(d, _)| !d.is_empty() && (name.contains(d.as_str()) || d.contains(name.as_str()))).map(|c| c.1).or(if cards.len() == 1 { Some(cards[0].1) } else { None })
 }
 
 /// Restarts the program (used after changing the graphics API).
@@ -857,6 +972,10 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
     }
     ui.add_space(6.0);
     ui.label(egui::RichText::new(tr!("settings.running_on", adapter)).weak());
+    if let Some(mb) = vram_cap() {
+        cap_to_vram(s);
+        ui.colored_label(egui::Color32::from_rgb(255, 210, 100), tr!("settings.vram_cap", mb));
+    }
     let needs_restart = s.backend != started_with.backend;
     if needs_restart {
         ui.colored_label(egui::Color32::from_rgb(255, 210, 100), tr!("settings.restart_needed"));
@@ -899,6 +1018,13 @@ pub struct StartSettings(pub Settings);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vram_from_registry_text() {
+        let t = "HKEY_LOCAL_MACHINE\\X\\0000\r\n    DriverDesc    REG_SZ    Intel(R) UHD Graphics\r\n    HardwareInformation.qwMemorySize    REG_QWORD    0x40000000\r\n\r\nHKEY_LOCAL_MACHINE\\X\\0001\r\n    DriverDesc    REG_SZ    NVIDIA GeForce GT 730\r\n    HardwareInformation.qwMemorySize    REG_BINARY    0000008000000000\r\n";
+        assert_eq!(pick_vram(t, "NVIDIA GeForce GT 730/PCIe/SSE2"), Some(2048));
+        assert_eq!(pick_vram(t, "Intel(R) UHD Graphics"), Some(1024));
+    }
 
     /// A setting of the wrong type or an unknown one costs only itself.
     #[test]

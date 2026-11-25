@@ -9,6 +9,7 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 Fixes
 - OpenGL: the game crashed at start-up at Ultra graphics ("Could not lock adapter context") after Bevy's unused ambient-occlusion shader failed to compile. The OpenGL renderer now asks for fewer storage textures per stage, so Bevy leaves that pass out. Pre-release for testing.
+- Graphics cards with less than 3 GB of video memory (read on Windows) can no longer use the Ultra options: trees, buildings, water and grass are limited to High, with a note in the settings window. On a GT 730 Ultra ran the card out of memory (lost device, "Buffer ... is invalid", then a crash). `LR_NOVRAMCAP=1` lifts the limit; `LR_VRAM_MB=n` overrides the detected size.
 
 ## v0.15.7
 
