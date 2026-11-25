@@ -131,12 +131,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.4, wet);
     }
 
-    // Scorched ground: near-black char (linear colour: 0.004 is ~5% grey on screen), up to 97% opaque,
-    // the hollows of the texture first.
+    // Scorched ground (SupCom / BAR style): a soft decal, not a black disc. The stored value is how
+    // much has burnt; noise from the ground's own height texture breaks the rim into ragged flecks, the
+    // ground texture still shows through the char, and a faint grey-brown ash skirt surrounds the core.
     let s = textureSampleLevel(scorch, scorch_sampler, uv, 0.0).r;
-    let burn = saturate(s * (1.9 - 0.4 * hc));
-    let charred = col * vec3<f32>(0.025, 0.022, 0.02) + vec3<f32>(0.004, 0.0035, 0.003);
-    col = mix(col, charred, burn * 0.97);
+    if s > 0.004 {
+        let n1 = textureSampleGrad(albedo, albedo_sampler, p * 0.22 + vec2<f32>(0.37, 0.71), 0u, dx * 0.22, dy * 0.22).a;
+        let n2 = textureSampleGrad(albedo, albedo_sampler, p * 0.9 + vec2<f32>(0.13, 0.29), 0u, dx * 0.9, dy * 0.9).a;
+        let t = s * 1.25 + (n1 - 0.5) * 0.5 * (0.35 + s) + (n2 - 0.5) * 0.25 * s;
+        let core = smoothstep(0.16, 0.62, t);
+        let skirt = smoothstep(0.02, 0.3, t) * (1.0 - core * 0.5);
+        let ash = col * vec3<f32>(0.62, 0.58, 0.54);
+        let charred = col * vec3<f32>(0.11, 0.095, 0.085) + vec3<f32>(0.006, 0.005, 0.0045);
+        col = mix(col, ash, skirt * 0.55);
+        col = mix(col, charred, core * 0.92);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, core);
+    }
 
     // Relief: tilt the normal along the slope of the blended height (surface gradient).
     let n = pbr_input.N;

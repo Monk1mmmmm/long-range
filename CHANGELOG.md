@@ -5,6 +5,11 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.15.11
+
+Graphics
+- Scorch marks redone in the style of SupCom / BAR: a soft, lumpy decal with a ragged edge and a faint ash skirt instead of a black disc; the ground texture shows through the char, repeated blasts build up gradually, and the scorch map has twice the resolution.
+
 ## v0.15.10
 
 Graphics

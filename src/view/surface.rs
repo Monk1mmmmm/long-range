@@ -19,7 +19,7 @@ pub type SurfaceMaterial = ExtendedMaterial<StandardMaterial, SurfaceExt>;
 /// Side of every layer texture in pixels.
 const TEX: usize = 512;
 /// Scorch map texels per world unit.
-const BURN_PER_UNIT: f32 = 1.0;
+const BURN_PER_UNIT: f32 = 2.0;
 /// Road field texels per world unit (the field is distance-like, so this can be coarse).
 const ROAD_PER_UNIT: f32 = 1.0;
 
@@ -101,9 +101,9 @@ pub struct SurfaceView {
 impl SurfaceView {
     /// Darkens the ground around `p` after a blast of size `size` (about its radius).
     pub fn burn(&mut self, p: Vec2, size: f32) {
-        let r = (0.8 + size * 1.0).min(10.0);
-        // Strong enough that one blast leaves a solid charred core.
-        let strength = (0.55 + size * 0.3).min(1.0);
+        // Soft decal: dense in the middle, a long faint skirt (the shader breaks the edge up).
+        let r = (1.0 + size * 1.1).min(11.0);
+        let strength = (0.30 + size * 0.12).min(0.8);
         let k = BURN_PER_UNIT;
         let (side, side_y) = (self.side.0 as i32, self.side.1 as i32);
         let (x0, x1) = (((p.x - r) * k).floor() as i32, ((p.x + r) * k).ceil() as i32);
@@ -111,18 +111,16 @@ impl SurfaceView {
         for y in y0.max(0)..=y1.min(side_y - 1) {
             for x in x0.max(0)..=x1.min(side - 1) {
                 let q = Vec2::new((x as f32 + 0.5) / k, (y as f32 + 0.5) / k);
-                let d = q.distance(p) / r;
+                // Lumpy outline: the reach varies with the angle round the centre.
+                let a = (q.y - p.y).atan2(q.x - p.x);
+                let lump = 1.0 + 0.22 * (a * 3.0 + p.x * 1.7).sin() + 0.12 * (a * 7.0 + p.y * 2.3).sin();
+                let d = q.distance(p) / (r * lump);
                 if d >= 1.0 {
                     continue;
                 }
-                // Ragged rim: a little noise on the reach.
-                let jag = noise(q.x * 0.9, q.y * 0.9, 77) * 0.5 + 0.75;
-                // Solid core, fading only near the rim.
-                let f = ((1.0 - d) * jag * 1.8).clamp(0.0, 1.0);
-                let f = f * f * (3.0 - 2.0 * f) * strength;
+                let f = (1.0 - d * d).powi(2) * strength;
                 let c = &mut self.burn[y as usize * self.side.0 + x as usize];
-                // Accumulates towards full char.
-                *c = (*c as f32 + (255.0 - *c as f32).max(0.0) * f) as u8;
+                *c = (*c as f32 + (255.0 - *c as f32) * f).min(255.0) as u8;
             }
         }
         self.burn_dirty = true;
