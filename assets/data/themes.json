@@ -125,81 +125,123 @@
    ],
    "looks": {
     "house": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house2": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house3": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house4": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house5": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house6": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house7": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house8": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "house9": [
-     "house2",
-     "house7",
-     "house8"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "corner_house1": [
-     "corner_house1",
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
      "corner_house2"
     ],
     "corner_house2": [
-     "corner_house1",
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
      "corner_house2"
     ],
     "corner_house3": [
-     "corner_house1",
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
      "corner_house2"
     ],
     "corner_house4": [
-     "corner_house1",
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
      "corner_house2"
     ],
     "row_house": [
-     "row_house",
-     "old_house2"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "old_house2": [
-     "row_house",
-     "old_house2"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "old_house3": [
-     "row_house",
-     "old_house2"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "old_house4": [
-     "row_house",
-     "old_house2"
+     "adr_stone_house",
+     "adr_stone_house",
+     "adr_townhouse",
+     "adr_townhouse",
+     "corner_house2"
     ],
     "khata": [
      "cottage",
@@ -281,151 +323,140 @@
    ],
    "looks": {
     "house": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house2": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house3": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house4": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house5": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house6": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house7": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house8": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "house9": [
-     "house",
-     "house2",
-     "house3",
-     "house4",
-     "house5",
-     "house6",
-     "house7",
-     "house8",
-     "house9"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "corner_house1": [
-     "corner_house1",
-     "corner_house2",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
      "corner_house3",
-     "corner_house4"
+     "old_house3"
     ],
     "corner_house2": [
-     "corner_house1",
-     "corner_house2",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
      "corner_house3",
-     "corner_house4"
+     "old_house3"
     ],
     "corner_house3": [
-     "corner_house1",
-     "corner_house2",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
      "corner_house3",
-     "corner_house4"
+     "old_house3"
     ],
     "corner_house4": [
-     "corner_house1",
-     "corner_house2",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
      "corner_house3",
-     "corner_house4"
+     "old_house3"
     ],
     "row_house": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "old_house2": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "old_house3": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "old_house4": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "ce_halftimber",
+     "ce_gabled_townhouse",
+     "corner_house3",
+     "old_house3"
     ],
     "khata": [
      "khata",
@@ -511,135 +542,151 @@
    ],
    "looks": {
     "house": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house2": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house3": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house4": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house5": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house6": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house7": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house8": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "house9": [
-     "house1",
-     "house3",
-     "house5",
-     "house6",
-     "house9"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "corner_house1": [
-     "corner_house2",
-     "corner_house3",
-     "corner_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "corner_house2": [
-     "corner_house2",
-     "corner_house3",
-     "corner_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "corner_house3": [
-     "corner_house2",
-     "corner_house3",
-     "corner_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "corner_house4": [
-     "corner_house2",
-     "corner_house3",
-     "corner_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "row_house": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "old_house2": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "old_house3": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "old_house4": [
-     "row_house",
-     "old_house2",
-     "old_house3",
-     "old_house4"
+     "vil_log_house",
+     "vil_white_house",
+     "vil_white_house",
+     "vil_log_house",
+     "house"
     ],
     "khata": [
      "khata",
      "khata_slate",
      "cottage",
-     "dacha"
+     "dacha",
+     "vil_log_house"
     ],
     "khata_slate": [
      "khata",
      "khata_slate",
      "cottage",
-     "dacha"
+     "dacha",
+     "vil_log_house"
     ],
     "cottage": [
      "khata",
      "khata_slate",
      "cottage",
-     "dacha"
+     "dacha",
+     "vil_log_house"
     ],
     "dacha": [
      "khata",
      "khata_slate",
      "cottage",
-     "dacha"
+     "dacha",
+     "vil_log_house"
     ]
    }
   },
@@ -695,90 +742,106 @@
    ],
    "looks": {
     "house": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house2": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house3": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house4": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house5": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house6": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house7": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house8": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "house9": [
-     "house1",
-     "house3",
-     "house5",
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
      "house9"
     ],
     "corner_house1": [
-     "corner_house1",
-     "corner_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "corner_house2": [
-     "corner_house1",
-     "corner_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "corner_house3": [
-     "corner_house1",
-     "corner_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "corner_house4": [
-     "corner_house1",
-     "corner_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "row_house": [
-     "row_house",
-     "old_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "old_house2": [
-     "row_house",
-     "old_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "old_house3": [
-     "row_house",
-     "old_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "old_house4": [
-     "row_house",
-     "old_house3"
+     "ind_flat_house",
+     "ind_flat_house",
+     "house",
+     "house9"
     ],
     "khata": [
      "khata_slate",
@@ -795,6 +858,9 @@
     "dacha": [
      "khata_slate",
      "dacha"
+    ],
+    "apartment": [
+     "sov_block5"
     ]
    }
   },
@@ -845,114 +911,112 @@
    ],
    "looks": {
     "house": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house2": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house3": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house4": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house5": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house6": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house7": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house8": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "house9": [
-     "house1",
-     "house5",
-     "house9",
-     "house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "corner_house1": [
+     "sov_stalinka",
+     "sov_stalinka",
      "corner_house1",
-     "corner_house3"
+     "house5"
     ],
     "corner_house2": [
+     "sov_stalinka",
+     "sov_stalinka",
      "corner_house1",
-     "corner_house3"
+     "house5"
     ],
     "corner_house3": [
+     "sov_stalinka",
+     "sov_stalinka",
      "corner_house1",
-     "corner_house3"
+     "house5"
     ],
     "corner_house4": [
+     "sov_stalinka",
+     "sov_stalinka",
      "corner_house1",
-     "corner_house3"
+     "house5"
     ],
     "row_house": [
-     "row_house",
-     "old_house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "old_house2": [
-     "row_house",
-     "old_house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "old_house3": [
-     "row_house",
-     "old_house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
     "old_house4": [
-     "row_house",
-     "old_house3"
+     "sov_stalinka",
+     "sov_stalinka",
+     "corner_house1",
+     "house5"
     ],
-    "khata": [
-     "khata",
-     "khata_slate",
-     "cottage",
-     "dacha"
+    "residential_tower": [
+     "sov_block5"
     ],
-    "khata_slate": [
-     "khata",
-     "khata_slate",
-     "cottage",
-     "dacha"
-    ],
-    "cottage": [
-     "khata",
-     "khata_slate",
-     "cottage",
-     "dacha"
-    ],
-    "dacha": [
-     "khata",
-     "khata_slate",
-     "cottage",
-     "dacha"
+    "apartment": [
+     "sov_block5"
     ]
    }
   }

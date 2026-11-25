@@ -384,6 +384,9 @@ pub struct Theme {
     pub looks: HashMap<String, Vec<String>>,
 }
 
+/// The building themes of `assets/data/themes.json` that maps can pick (id, English name), for the editor.
+pub const THEMES: [(&str, &str); 6] = [("default", "Default"), ("adriatic", "Adriatic"), ("central", "Central European"), ("village", "Village"), ("soviet", "Soviet"), ("industrial", "Industrial")];
+
 impl Theme {
     pub fn load(name: &str) -> Theme {
         let read = || -> Option<serde_json::Value> { serde_json::from_str(&std::fs::read_to_string(asset_root().join("data/themes.json")).ok()?).ok() };
@@ -847,7 +850,8 @@ impl ModelCache {
         if let Some(mut albedo) = md.albedo.as_deref().and_then(read_rgba) {
             let mask = md.team_mask.as_deref().and_then(read_rgba).filter(|m| m.dimensions() == albedo.dimensions());
             let width = albedo.width();
-            let roofs = if var > 0 { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
+            let themed = defs.get(def).has_category("themed");
+            let roofs = if var > 0 && !themed { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
             let wall_paint = self.theme.walls[(var as usize * 3 + def as usize) % self.theme.walls.len()];
             let roof_paint = self.theme.roofs[(var as usize * 5 + def as usize * 2 + 1) % self.theme.roofs.len()];
             // Mean brightness of this model's coloured roof tiles and of its plaster: the paints replace the
@@ -879,7 +883,12 @@ impl ModelCache {
                     // This variant's paint and wear: a tint, blotchy weathering and rain streaks.
                     let sd = var as u32 * 7919 + def as u32 * 104729;
                     let (l, sat) = (luminance(c), saturation(c));
-                    if roofs.get(i).copied() == Some(255) {
+                    if themed {
+                        // Models made for a theme keep their own materials; only a little tint.
+                        for j in 0..3 {
+                            c[j] *= 0.94 + 0.12 * lattice(j as i32 + 1, 0, sd);
+                        }
+                    } else if roofs.get(i).copied() == Some(255) {
                         if sat > 0.15 {
                             for j in 0..3 {
                                 c[j] += (roof_paint[j] * l / roof_ref - c[j]) * 0.9;

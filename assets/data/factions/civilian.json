@@ -1710,6 +1710,411 @@
      }
     }
    ]
+  },
+  {
+   "id": "adr_stone_house",
+   "name": "Stone House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.83,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.83,
+    3.83
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/adr_stone_house.glb",
+    "albedo": "models/adr_stone_house_albedo.png",
+    "team_mask": "models/adr_stone_house_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "adr_townhouse",
+   "name": "Town House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.93,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    4.93,
+    3.73
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/adr_townhouse.glb",
+    "albedo": "models/adr_townhouse_albedo.png",
+    "team_mask": "models/adr_townhouse_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ce_halftimber",
+   "name": "Half-Timbered House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.22,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    4.22,
+    3.9
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ce_halftimber.glb",
+    "albedo": "models/ce_halftimber_albedo.png",
+    "team_mask": "models/ce_halftimber_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ce_gabled_townhouse",
+   "name": "Gabled Townhouse",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.08,
+    4.0
+   ],
+   "hit_box": [
+    3.29,
+    5.08,
+    3.8
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ce_gabled_townhouse.glb",
+    "albedo": "models/ce_gabled_townhouse_albedo.png",
+    "team_mask": "models/ce_gabled_townhouse_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "vil_log_house",
+   "name": "Log House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.16,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.16,
+    3.9
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/vil_log_house.glb",
+    "albedo": "models/vil_log_house_albedo.png",
+    "team_mask": "models/vil_log_house_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "vil_white_house",
+   "name": "Whitewashed House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.33,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.33,
+    3.9
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/vil_white_house.glb",
+    "albedo": "models/vil_white_house_albedo.png",
+    "team_mask": "models/vil_white_house_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "sov_stalinka",
+   "name": "Stalin-Era Block",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.3,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    4.3,
+    3.9
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/sov_stalinka.glb",
+    "albedo": "models/sov_stalinka_albedo.png",
+    "team_mask": "models/sov_stalinka_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "sov_block5",
+   "name": "Panel Block",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 1500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 90,
+    "energy": 450,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    6.9,
+    8.0
+   ],
+   "hit_box": [
+    7.52,
+    6.9,
+    4.49
+   ],
+   "footprint": 4,
+   "transport": {
+    "capacity": 6
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/sov_block5.glb",
+    "albedo": "models/sov_block5_albedo.png",
+    "team_mask": "models/sov_block5_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ind_flat_house",
+   "name": "Flat-Roofed House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.34,
+    4.0
+   ],
+   "hit_box": [
+    3.7,
+    3.34,
+    3.9
+   ],
+   "footprint": 2,
+   "transport": {
+    "capacity": 3
+   },
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ind_flat_house.glb",
+    "albedo": "models/ind_flat_house_albedo.png",
+    "team_mask": "models/ind_flat_house_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
   }
  ]
 }

@@ -912,6 +912,17 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
             }
         });
     });
+    ui.horizontal(|ui| {
+        ui.label(tr!("map_editor.theme")).on_hover_text(tr!("map_editor.theme_tip"));
+        let cur = crate::view::models::THEMES.iter().find(|t| t.0 == map.theme).unwrap_or(&crate::view::models::THEMES[0]);
+        egui::ComboBox::from_id_salt("theme").selected_text(crate::i18n::theme_name(cur.0, cur.1)).show_ui(ui, |ui| {
+            for t in &crate::view::models::THEMES {
+                if ui.selectable_label(cur.0 == t.0, crate::i18n::theme_name(t.0, t.1)).clicked() {
+                    map.theme = if t.0 == "default" { String::new() } else { t.0.to_string() };
+                }
+            }
+        });
+    });
     // Layers, top first, as in an image editor.
     let count = map.layers.len();
     let mut action: Option<(usize, u8)> = None;

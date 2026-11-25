@@ -187,6 +187,10 @@ pub fn sky_name(s: &crate::view::sky::Sky) -> &'static str {
     data_text(&format!("terrain.sky_{}", s.id), s.name)
 }
 
+pub fn theme_name(id: &str, name: &'static str) -> &'static str {
+    data_text(&format!("terrain.theme_{id}"), name)
+}
+
 pub fn ai_name(k: crate::ai::AiKind) -> &'static str {
     data_text(&format!("ai.{}", slug(k.name())), k.name())
 }
@@ -451,6 +455,9 @@ mod tests {
         }
         for k in &crate::view::sky::SKIES {
             data(format!("terrain.sky_{}", k.id), k.name);
+        }
+        for (id, name) in crate::view::models::THEMES {
+            data(format!("terrain.theme_{id}"), name);
         }
         for k in crate::ai::AI_KINDS {
             data(format!("ai.{}", slug(k.name())), k.name());

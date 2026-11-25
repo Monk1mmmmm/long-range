@@ -686,6 +686,42 @@
       "name": "House",
       "desc": "Residential building."
     },
+    "adr_stone_house": {
+      "name": "Stone House",
+      "desc": "Residential building."
+    },
+    "adr_townhouse": {
+      "name": "Town House",
+      "desc": "Residential building."
+    },
+    "ce_halftimber": {
+      "name": "Half-Timbered House",
+      "desc": "Residential building."
+    },
+    "ce_gabled_townhouse": {
+      "name": "Gabled Townhouse",
+      "desc": "Residential building."
+    },
+    "vil_log_house": {
+      "name": "Log House",
+      "desc": "Residential building."
+    },
+    "vil_white_house": {
+      "name": "Whitewashed House",
+      "desc": "Residential building."
+    },
+    "sov_stalinka": {
+      "name": "Stalin-Era Block",
+      "desc": "Residential building."
+    },
+    "sov_block5": {
+      "name": "Panel Block",
+      "desc": "Residential building."
+    },
+    "ind_flat_house": {
+      "name": "Flat-Roofed House",
+      "desc": "Residential building."
+    },
     "khata": {
       "name": "Hut",
       "desc": "Residential building."
@@ -913,7 +949,13 @@
     "sky_overcast": "Overcast",
     "sky_sunset": "Sunset",
     "sky_night": "Night",
-    "sky_arctic": "Cold sky"
+    "sky_arctic": "Cold sky",
+    "theme_default": "Default",
+    "theme_adriatic": "Adriatic",
+    "theme_central": "Central European",
+    "theme_village": "Village",
+    "theme_soviet": "Soviet",
+    "theme_industrial": "Industrial"
   },
   "ai": {
     "simple": "Simple",
@@ -1409,6 +1451,8 @@
     "auto_paint": "Auto paint",
     "auto_paint_tip": "Replaces all layers with the biome's, painted from heights and slopes (also used by Generate and Flat)",
     "sky": "Sky",
+    "theme": "Buildings",
+    "theme_tip": "The look of the map's buildings: wall and roof paints and which house models stand in for the map's houses (shown at High building detail).",
     "tile_size_tip": "Tile size in world units",
     "move_up": "Move up",
     "move_down": "Move down",

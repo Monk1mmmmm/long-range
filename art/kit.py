@@ -287,6 +287,50 @@ def tile_glass(col=None, size=1.0):
     return t
 
 
+def tile_ashlar(col, size=2.0, seed=60):
+    """Dressed limestone blocks in courses, each its own tone."""
+    t = Tile(size)
+    t.fill(col)
+    bh, bw = 0.25, 0.5
+    row = np.floor(t.y / bh).astype(np.int64)
+    off = (row % 2) * bw / 2
+    bx = np.floor((t.x + off) / bw).astype(np.int64) % int(round(size / bw))
+    tint = _hash(bx, row % int(round(size / bh)), seed)
+    t.mul(0.88 + 0.2 * tint)
+    t.mul(0.7, ((t.y % bh) < 0.014) | (((t.x + off) % bw) < 0.014))
+    t.grime(0.16, 4, seed)
+    t.grime(0.06, 40, seed + 1)
+    return t
+
+
+def tile_halftimber(col, beam=None, size=2.0, seed=61):
+    """Plaster panels between dark timber beams (posts every 0.66, rails every 0.5)."""
+    t = Tile(size)
+    t.fill(col)
+    t.grime(0.1, 3, seed)
+    beam = beam if beam is not None else rgb(72, 50, 36)
+    w = 0.07
+    post = np.abs(((t.x % 0.66) - 0.33)) > 0.33 - w / 2
+    rail = np.abs(((t.y % 0.5) - 0.25)) > 0.25 - w / 2
+    m = post | rail
+    t.c[m] = (beam * (0.85 + 0.3 * fbm(t.n, 24, seed + 2)[..., None]))[m]
+    return t
+
+
+def tile_log(col, size=1.2, seed=62):
+    """Horizontal logs with dark joints."""
+    t = Tile(size)
+    t.fill(col)
+    rowh = 0.16
+    row = np.floor(t.y / rowh).astype(np.int64)
+    t.mul(0.8 + 0.3 * _hash(row % int(round(size / rowh)), 0, seed))
+    f = (t.y % rowh) / rowh
+    t.mul(0.55, (f < 0.1))
+    t.mul(0.88 + 0.3 * np.abs(f - 0.5))
+    t.grime(0.2, 4, seed)
+    return t
+
+
 TILES = {}
 
 
@@ -316,6 +360,16 @@ def tiles():
         "timber": tile_wood(rgb(110, 84, 58), 1.2, seed=33), "thatch": tile_wood(rgb(176, 146, 84), 0.8, seed=40), "plaster_b": tile_plaster(rgb(120, 160, 190), seed=41), "concrete_old": tile_concrete(rgb(150, 150, 140), 3.0, 1.5, seed=34),
         "red_white": tile_plain(rgb(200, 50, 40), 1.0, 0.08), "rust": tile_dirt(rgb(120, 70, 44), 1.5, seed=35),
         "metal_door": tile_steel(rgb(110, 116, 120), 1.0, (1.0, 0.5), seed=28),
+        "stone": tile_ashlar(rgb(214, 202, 178)), "stone_d": tile_ashlar(rgb(160, 150, 132), seed=63),
+        "terracotta": tile_roof(rgb(190, 90, 56), seed=64), "roof_brown": tile_roof(rgb(112, 74, 54), seed=65), "roof_green": tile_roof(rgb(66, 104, 78), seed=66),
+        "plaster_ochre": tile_plaster(rgb(228, 190, 118), seed=67), "plaster_pink": tile_plaster(rgb(226, 178, 152), seed=68),
+        "plaster_sky": tile_plaster(rgb(172, 192, 208), seed=69), "plaster_cream": tile_plaster(rgb(238, 226, 196), seed=70),
+        "halftimber": tile_halftimber(rgb(236, 226, 200)), "halftimber_y": tile_halftimber(rgb(232, 206, 150), seed=71),
+        "log": tile_log(rgb(150, 108, 66)), "log_d": tile_log(rgb(112, 80, 52), seed=72),
+        "shutter_g": tile_plain(rgb(62, 108, 80), 1.0, 0.12), "shutter_b": tile_plain(rgb(52, 84, 140), 1.0, 0.12),
+        "shutter_r": tile_plain(rgb(130, 44, 38), 1.0, 0.12), "trim_blue": tile_plain(rgb(70, 130, 190), 1.0, 0.1),
+        "panel_grey": tile_panel_block(rgb(176, 176, 168), seed=73), "panel_beige": tile_panel_block(rgb(204, 192, 164), seed=74),
+        "concrete_l": tile_concrete(rgb(196, 194, 186), 3.0, 1.5, seed=75),
     })
     return TILES
 
