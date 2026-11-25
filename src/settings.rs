@@ -222,6 +222,13 @@ pub fn render_plugin(s: &Settings) -> bevy::render::RenderPlugin {
     // OpenGL has one context guarded by a lock: pipelines compiled on Bevy's background threads
     // time out waiting for it ("Could not lock adapter context") and take the program down.
     let gl = w.backends == Some(Backends::GL);
+    if gl {
+        // Bevy's SSAO plugin (never used here) queues a compute shader at start-up that GLSL cannot express
+        // (`textureGatherOffset` on a shadow sampler); on Windows OpenGL the failed compile ended in
+        // "Could not lock adapter context". The plugin skips itself when fewer than 5 storage textures per
+        // stage are available, so ask for 4 (the other compute passes need fewer).
+        w.limits.max_storage_textures_per_shader_stage = w.limits.max_storage_textures_per_shader_stage.min(4);
+    }
     #[cfg(target_os = "linux")]
     if gl {
         if let Some(manual) = linux_gl::render_creation(&w) {
