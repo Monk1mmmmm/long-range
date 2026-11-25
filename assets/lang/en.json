@@ -694,8 +694,8 @@
       "name": "Town House",
       "desc": "Residential building."
     },
-    "ce_halftimber": {
-      "name": "Half-Timbered House",
+    "ce_plaster_house": {
+      "name": "Plaster House",
       "desc": "Residential building."
     },
     "ce_gabled_townhouse": {

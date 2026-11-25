@@ -1802,8 +1802,8 @@
    ]
   },
   {
-   "id": "ce_halftimber",
-   "name": "Half-Timbered House",
+   "id": "ce_plaster_house",
+   "name": "Plaster House",
    "desc": "Residential building.",
    "tier": 0,
    "hp": 300,
@@ -1814,15 +1814,15 @@
     "time": 100
    },
    "size": [
-    4.0,
-    4.22,
-    4.0
-   ],
+   4.0,
+   4.13,
+   4.0
+  ],
    "hit_box": [
-    3.9,
-    4.22,
-    3.9
-   ],
+   3.88,
+   4.13,
+   3.9
+  ],
    "footprint": 2,
    "transport": {
     "capacity": 3
@@ -1834,9 +1834,9 @@
     ]
    },
    "model": {
-    "mesh": "models/ce_halftimber.glb",
-    "albedo": "models/ce_halftimber_albedo.png",
-    "team_mask": "models/ce_halftimber_team.png",
+    "mesh": "models/ce_plaster_house.glb",
+    "albedo": "models/ce_plaster_house_albedo.png",
+    "team_mask": "models/ce_plaster_house_team.png",
     "scale": 1,
     "brightness": 1.0
    },

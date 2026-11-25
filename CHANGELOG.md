@@ -34,7 +34,7 @@ Graphics
   roof paints that suit the place (Adriatic terracotta and ochre, Central European pastels, village whitewash, industrial
   greys, Soviet) and the set of house models it uses. Walls are repainted instead of just tinted, so no more white boxes.
 - Buildings (Ultra): houses get overhanging eaves and a sill under every window.
-- Nine new building models made for the themes (`art/models_themed.py`): Adriatic stone house and town house; half-timbered house
+- Nine new building models made for the themes (`art/models_themed.py`): Adriatic stone house and town house; plaster house
   and stepped-gable townhouse; log house and whitewashed thatched house; Stalin-era block and a five-storey panel block;
   a flat-roofed block-and-brick house. Maps use them at High building detail through their theme (Sudzha is now Soviet).
 - The map editor has a Buildings (theme) dropdown next to the sky.

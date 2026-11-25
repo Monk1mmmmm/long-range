@@ -1,5 +1,5 @@
 """Houses made for the map themes (assets/data/themes.json): Adriatic stone and plaster, Central European
-half-timber and gabled townhouses, village log and whitewashed houses, Soviet blocks, industrial flat-roofed
+plaster houses and gabled townhouses, village log and whitewashed houses, Soviet blocks, industrial flat-roofed
 houses. Footprint 2 (4 x 4 units) unless noted; front is -y."""
 import math
 
@@ -105,29 +105,23 @@ def adr_townhouse():
 # ---------------------------------------------------------------- Central European
 
 @model
-def ce_halftimber():
-    """Half-timbered house: stone ground floor, a jettied timber-frame upper floor and a steep tiled gable."""
-    k = Kit("ce_halftimber")
-    w, l = 3.3, 3.2
-    g, u = 1.15, 1.2
-    k.box((w, l, g), (0, 0, g / 2), "plaster_cream", faces={"top": "concrete"})
-    k.box((w + 0.1, l + 0.1, 0.2), (0, 0, 0.1), "stone_d")
-    k.box((w + 0.3, l + 0.3, 0.14), (0, 0, g + 0.07), "wood")  # jetty beam
-    k.box((w + 0.3, l + 0.3, u), (0, 0, g + 0.14 + u / 2), "halftimber", faces={"top": "concrete"})
-    top = g + 0.14 + u
-    gable(k, 0, 0, w + 0.3, l + 0.3, top, 1.5, "roof_brown", "halftimber", over=0.22, ridge="y")
-    chimney(k, 0.8, 0.5, top + 0.6, 1.1)
-    front_windows(k, 0, -l / 2, w - 0.6, 0.15, 1, g, 2, win=(0.4, 0.5), trim="wood", skip=(), seed=5)
-    k.door((0.0, -l / 2, 0.2), (0, -1, 0), 0.5, 0.9, "door", frame="wood")
-    k.box((0.9, 0.55, 0.07), (0, -l / 2 - 0.3, 1.05), "wood")  # porch roof
-    k.windows((0, -l / 2 - 0.15, g + 0.14 + u / 2), (0, -1, 0), w - 0.5, u, 1, 3, win=(0.34, 0.5), sill=0.3, frame="wood")
+def ce_plaster_house():
+    """Plain two-storey plaster house: a string course, framed windows, a small canopy over the door, a tiled gable roof."""
+    k = Kit("ce_plaster_house")
+    w, l, sh = 3.4, 3.1, 1.2
+    h = 2 * sh + 0.2
+    k.box((w, l, h), (0, 0, h / 2), "plaster_cream", faces={"top": "concrete"})
+    k.box((w + 0.1, l + 0.1, 0.24), (0, 0, 0.12), "stone_d")
+    k.box((w + 0.06, l + 0.06, 0.08), (0, 0, 0.2 + sh), "plaster_w")  # string course
+    k.box((w + 0.14, l + 0.14, 0.1), (0, 0, h + 0.03), "plaster_w")  # eaves cornice
+    gable(k, 0, 0, w, l, h + 0.08, 1.15, "roof_tile", "plaster_cream", over=0.24, ridge="x")
+    chimney(k, 0.9, 0.2, h + 0.6, 0.9)
+    front_windows(k, 0, -l / 2, w - 0.6, 0.3, 2, sh, 3, win=(0.38, 0.54), trim="white", skip=((0, 1),), seed=5)
+    k.door((0, -l / 2, 0.24), (0, -1, 0), 0.55, 1.0, "door", frame="white")
+    k.box((1.0, 0.45, 0.07), (0, -l / 2 - 0.22, 1.35), "concrete")  # canopy
     for sx in (-1, 1):
-        k.windows((sx * (w / 2 + 0.15), 0, g + 0.14 + u / 2), (sx, 0, 0), l - 0.7, u, 1, 2, win=(0.32, 0.46), sill=0.3, frame="wood")
-        side_windows(k, sx * w / 2, sx, l - 0.8, 0.15, 1, g, 2, win=(0.34, 0.46), trim="wood")
-    # dormer in the roof
-    with k.at((-0.9, -l / 2 + 0.1, top + 0.45)):
-        k.box((0.7, 0.6, 0.55), (0, 0, 0), "halftimber")
-        gable(k, 0, 0, 0.7, 0.6, 0.27, 0.35, "roof_brown", "halftimber", over=0.08, ridge="y")
+        side_windows(k, sx * w / 2, sx, l - 0.8, 0.3, 2, sh, 2, win=(0.34, 0.5), trim="white")
+    k.windows((0, l / 2, 0.3 + sh), (0, 1, 0), w - 0.6, 2 * sh, 2, 3, win=(0.36, 0.5), sill=0.35, frame="white")
     return k
 
 
