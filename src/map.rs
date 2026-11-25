@@ -1234,6 +1234,10 @@ impl MapData {
             let k = m.feature_kind(kind);
             m.features.push(Feature { kind: k, pos: v2(v[0], v[1]), yaw: v.get(2).copied().unwrap_or(0.0), scale: v.get(3).copied().unwrap_or(1.0) });
         }
+        // No trees or rocks under water, whatever the file says (older maps have some).
+        let mut features = std::mem::take(&mut m.features);
+        features.retain(|f| m.h(f.pos) >= m.water_at(f.pos));
+        m.features = features;
         m.rebuild_blocked();
         if m.layers.is_empty() {
             // Saved before ground textures existed: grass, sand, mud and stone as the old colours had them.
