@@ -268,6 +268,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/sound.rs` | synthesised weapon and interface sounds, file overrides |
 | `src/view/fx.rs` | projectile visuals and explosions (fewer puffs, no flash lights at the low effects level) |
 | `src/view/debris.rs` | debris pieces: jagged chunk meshes, falling/tumbling, shown by the effects level |
+| `src/view/grass.rs`, `grass.wesl` | grass (`Settings::grass_detail`): clumped blades per 8-cell chunk near the view point, `GrassMaterial` vertex shader thins them by distance (blade rank vs density; far chunks hold only low ranks), sways them, hides them where the scorch map is set; rebuilt only where `GrassTouched` (from `terrain_sync`) says the ground changed |
 | `src/view/flora.rs` | trees and rocks: procedural models (detail setting), one merged mesh per 16-cell chunk |
 | `src/view/marks.rs` | pings and map drawings (`Marks`: own ones to send, those shown), team filter, sound |
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
@@ -374,6 +375,11 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   rocks have `hp` in `rules.json: features` (times the map's scale; `left` drops by damage / hp), wrecks have
   `rules.wreck_hp` x the unit's hp (armor applies) and lose mass in step. At zero they are gone.
   Unfinished buildings are ordinary targets (5% hp at placement, hp grows with progress).
+  **Felling** (`rules.tree_fall`, 0.25): a blast doing that share of a tree's (not a bush's) or rock's hp, or a shell
+  that destroys a standing tree, calls `Features::fell`: `FeatureState.fall` (1 + direction in 255 steps, `sim::fall_yaw`;
+  snapshot field `fallen`) and the height drops to `FALLEN_HEIGHT`; it keeps at least `FALLEN_KEEP` of its value and
+  is destroyed by further hits. View: `flora::ruin` / `fallen_pose` (charred log along the fall, rocks a rubble heap),
+  `flora::launch` / `fly` (the tree flies and topples, rock splinters), only for falls seen happening.
 - **Debris** (`rules.debris`): a single hit of at least `min_hit` of a finished building's hp, and its
   destruction, drop pieces of debris. A piece is a `Wreck` with `piece` > 0 (its size; never revived) that
   first falls (`falling`, `vel`, moved by `systems::debris_fall`; not in `WreckList` until it lands, then it
@@ -581,7 +587,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   at most 4 kinds per map) are a distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; trees and
   rocks are kept off them (`scatter_features`, `clear_features_on_roads`). **Scorch**: blasts and deaths near the
   ground darken a view-side map (`SurfaceView::burn` from `fx::spawn_fx`, also unseen ones), permanent, lost when the
-  view restarts. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
+  view restarts. Two channels: R char (darkest at the centre, a gradient), G the singed ring round it (darker than the
+  ground, lighter than the char); the grass shader reads the same texture. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
   selected layer, right removes it, on layer 0 it clears all layers above; Road tool: left adds points, right finishes
   or deletes the road under the pointer). `--generate` towns get paving/gravel around the buildings and asphalt roads.
 - **Glass and metal reflections** (ultra building detail, requested close up only): `models::gloss_map` (from the stored albedo: blue-tinted texels not on roofs = glass, a vehicle's grey = steel) gives a glossy material with a metallic-roughness map and lightened panes; `gloss_sync` swaps every model between it and the plain one when `cam_dist` crosses `GLOSS_NEAR`/`GLOSS_FAR` (38/46; `ModelCache::pair`, `set_close`). Flat "metal" parts likewise.
