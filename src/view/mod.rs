@@ -842,6 +842,7 @@ impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LocalCommands>().init_resource::<marks::Marks>().init_resource::<sound::UiSounds>();
         app.add_plugins(surface::SurfacePlugin);
+        app.add_plugins(grass::GrassPlugin);
         app.add_plugins(water::WaterPlugin);
         app.add_systems(Startup, sound::load);
         app.add_systems(
