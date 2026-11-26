@@ -276,6 +276,10 @@ pub fn start_view(world: &mut World, me: u8, with_fog: bool) {
                 let detail = world.get_resource::<crate::settings::Settings>().map_or(1, |s| s.flora_detail);
                 let mut flora = flora::FloraView::new(&defs, &mut materials, Some(fog), shown, detail);
                 flora.version = version;
+                // Trees already felled lie on the ground from the start.
+                if let Some(f) = world.get_resource::<crate::sim::Features>() {
+                    flora.fall = f.list.iter().map(|s| s.fall).collect();
+                }
                 flora::spawn_flora(&mut world.commands(), &map, &defs, &mut flora, &mut meshes);
                 world.insert_resource(flora);
             });
