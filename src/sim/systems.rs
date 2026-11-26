@@ -1101,7 +1101,12 @@ fn think(
             }
             Some(Order::AttackGround { pos: gp, radius }) => {
                 let range = df.weapons.iter().filter(|w| w.hits_land).map(|w| w.range).fold(0.0, f32::max);
-                if range <= 0.0 {
+                // A bombing run is one stick; shelling goes on for a few volleys, more for a wide circle.
+                let bomber = df.weapons.iter().any(|w| w.kind == WeaponKind::Bomb);
+                let need = if bomber { 1 } else { 3 + radius.round() as u16 };
+                let same = weapons.as_ref().is_some_and(|w| w.ground.is_some_and(|(p, _)| p == gp));
+                let done = same && weapons.as_ref().is_some_and(|w| w.ground_shots >= need);
+                if range <= 0.0 || done {
                     pop = true;
                 } else {
                     ground = Some((gp, radius));
@@ -1698,6 +1703,9 @@ fn think(
         }
         if let Some(w) = weapons.as_mut() {
             w.focus = focus;
+            if w.ground.map(|g| g.0) != ground.map(|g| g.0) {
+                w.ground_shots = 0;
+            }
             w.ground = ground;
         }
         if pop && !orders.0.is_empty() {
@@ -2836,6 +2844,7 @@ fn weapons(
     let g = defs.rules.gravity;
     let tick = game.tick;
     for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        let mut ground_volleys = 0u16;
         // Still falling from an airdrop.
         if mover.as_ref().is_some_and(|m| m.drop > 0.0) {
             continue;
@@ -3066,6 +3075,7 @@ fn weapons(
                     st.burst_cd = w.salvo_delay;
                     let fix = d.miss * (1.0 / d.fall.max(0.3));
                     st.fix = if fix.len() > 6.0 { fix.norm() * 6.0 } else { fix };
+                    ground_volleys |= gpoint.is_some() as u16;
                     fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
                     if let Some(m) = mover.as_mut() {
                         // Fly on past the target before turning, so the next run starts lined up.
@@ -3132,6 +3142,7 @@ fn weapons(
             if let Some(m) = mover.as_mut().filter(|_| !df.is_air() && !w.is_machine_gun() && hosted.is_none()) {
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
+            ground_volleys |= gpoint.is_some() as u16;
             fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
             if w.suicide {
                 // The drone is the warhead: it is gone, quietly (no wreck, no death blast).
@@ -3140,6 +3151,7 @@ fn weapons(
                 break;
             }
         }
+        ws.ground_shots = ws.ground_shots.saturating_add(ground_volleys);
     }
 }
 

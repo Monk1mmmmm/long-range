@@ -190,6 +190,9 @@ pub struct Weapons {
     pub focus: u32,
     /// Ground-attack point and scatter radius.
     pub ground: Option<(V2, f32)>,
+    /// Volleys fired at the current ground-attack order (it ends after enough of them).
+    #[serde(default)]
+    pub ground_shots: u16,
 }
 
 /// Anything with build power. `work` is the unit or wreck being worked on.
