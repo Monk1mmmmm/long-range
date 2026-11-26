@@ -86,8 +86,11 @@ pub struct SurfaceView {
     masks: Handle<Image>,
     roads: Handle<Image>,
     scorch: Handle<Image>,
-    /// Scorch map on the CPU (`side` x `side`, 0 = untouched).
+    /// Scorch map on the CPU, two bytes per texel (0 = untouched): char (dark, strongest at the
+    /// centre of a blast) and churned earth (the ring round it: lighter than the char, darker than the ground).
     burn: Vec<u8>,
+    /// Counts the uploads of the scorch map (materials sampling it refresh their bind group then).
+    pub burn_gen: u32,
     /// Scorch texels across and deep.
     side: (usize, usize),
     burn_dirty: bool,
@@ -99,11 +102,16 @@ pub struct SurfaceView {
 }
 
 impl SurfaceView {
+    /// The scorch map texture (char in red, singed churned earth in green).
+    pub fn scorch(&self) -> Handle<Image> {
+        self.scorch.clone()
+    }
     /// Darkens the ground around `p` after a blast of size `size` (about its radius).
     pub fn burn(&mut self, p: Vec2, size: f32) {
-        // Soft decal: dense in the middle, a long faint skirt (the shader breaks the edge up).
-        let r = (1.0 + size * 1.1).min(11.0);
-        let strength = (0.30 + size * 0.12).min(0.8);
+        // A crater-like decal: char fading out from the middle over 0.65 of the reach, a ring of
+        // singed thrown-out earth beyond it (darker than the ground, lighter than the char) (the shader breaks both edges up with noise).
+        let r = (1.4 + size * 1.35).min(13.0);
+        let strength = (0.35 + size * 0.12).min(0.85);
         let k = BURN_PER_UNIT;
         let (side, side_y) = (self.side.0 as i32, self.side.1 as i32);
         let (x0, x1) = (((p.x - r) * k).floor() as i32, ((p.x + r) * k).ceil() as i32);
@@ -118,9 +126,14 @@ impl SurfaceView {
                 if d >= 1.0 {
                     continue;
                 }
-                let f = (1.0 - d * d).powi(2) * strength;
-                let c = &mut self.burn[y as usize * self.side.0 + x as usize];
-                *c = (*c as f32 + (255.0 - *c as f32) * f).min(255.0) as u8;
+                let dc = d / 0.65;
+                let char_f = if dc < 1.0 { (1.0 - dc * dc).powf(1.5) * strength } else { 0.0 };
+                let ring_f = (-((d - 0.72) / 0.2).powi(2)).exp() * strength * 0.9 * (1.0 - d.powi(6));
+                let k = (y as usize * self.side.0 + x as usize) * 2;
+                for (j, f) in [(k, char_f), (k + 1, ring_f)] {
+                    let c = &mut self.burn[j];
+                    *c = (*c as f32 + (255.0 - *c as f32) * f).min(255.0) as u8;
+                }
             }
         }
         self.burn_dirty = true;
@@ -211,7 +224,7 @@ fn road_image(map: &MapData) -> Image {
 }
 
 fn scorch_image(side: (usize, usize), burn: &[u8]) -> Image {
-    let mut img = Image::new(Extent3d { width: side.0 as u32, height: side.1 as u32, depth_or_array_layers: 1 }, TextureDimension::D2, burn.to_vec(), TextureFormat::R8Unorm, RenderAssetUsages::RENDER_WORLD);
+    let mut img = Image::new(Extent3d { width: side.0 as u32, height: side.1 as u32, depth_or_array_layers: 1 }, TextureDimension::D2, burn.to_vec(), TextureFormat::Rg8Unorm, RenderAssetUsages::RENDER_WORLD);
     img.sampler = sampler(false, false);
     img
 }
@@ -219,7 +232,7 @@ fn scorch_image(side: (usize, usize), burn: &[u8]) -> Image {
 impl SurfaceView {
     fn new(map: &MapData, images: &mut Assets<Image>, mats: &mut Assets<SurfaceMaterial>, cache: &mut TextureCache) -> SurfaceView {
         let side = (((map.world_x() * BURN_PER_UNIT).round() as usize).max(1), ((map.world_z() * BURN_PER_UNIT).round() as usize).max(1));
-        let burn = vec![0u8; side.0 * side.1];
+        let burn = vec![0u8; side.0 * side.1 * 2];
         let albedo = images.add(albedo_image(map, cache));
         let masks = images.add(mask_image(map));
         let roads = images.add(road_image(map));
@@ -228,7 +241,7 @@ impl SurfaceView {
             base: StandardMaterial { perceptual_roughness: 0.95, reflectance: 0.15, ..default() },
             extension: SurfaceExt { params: params(map), albedo: albedo.clone(), masks: masks.clone(), roads: roads.clone(), scorch: scorch.clone() },
         });
-        SurfaceView { material, albedo, masks, roads, scorch, burn, side, burn_dirty: false, burn_wait: 0.0, layers_dirty: false, masks_dirty: false, roads_dirty: false }
+        SurfaceView { material, albedo, masks, roads, scorch, burn, burn_gen: 0, side, burn_dirty: false, burn_wait: 0.0, layers_dirty: false, masks_dirty: false, roads_dirty: false }
     }
 }
 
@@ -283,6 +296,7 @@ fn surface_sync(
         // A few uploads a second are plenty for marks that only ever grow.
         let _ = images.insert(&v.scorch, scorch_image(v.side, &v.burn));
         v.burn_dirty = false;
+        v.burn_gen = v.burn_gen.wrapping_add(1);
         v.burn_wait = 0.3;
         touched = true;
     }
