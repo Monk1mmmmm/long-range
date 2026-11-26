@@ -931,6 +931,20 @@ pub struct FeatureState {
     pub hp: f32,
     /// Map cell it stands in.
     pub cell: u32,
+    /// 0 standing; a felled tree or shattered rock (rubble): 1 + the direction it lies towards in 255 steps of a turn (`fall_yaw`).
+    pub fall: u8,
+    /// Height while standing (`height` drops to `FALLEN_HEIGHT` when it falls).
+    pub tall: f32,
+}
+
+/// Height a felled tree or a rock's rubble still blocks sight to and gives cover up to: below what infantry hide behind.
+pub const FALLEN_HEIGHT: f32 = 0.45;
+/// Share of its value a tree keeps when a blast throws it down (it lies there as a log).
+pub const FALLEN_KEEP: f32 = 0.35;
+
+/// The direction (yaw, radians) a felled tree lies towards.
+pub fn fall_yaw(fall: u8) -> f32 {
+    (fall.max(1) - 1) as f32 / 255.0 * std::f32::consts::TAU
 }
 
 /// What blocks sight besides the terrain (radar passes all of it): standing trees and rocks plus
@@ -999,6 +1013,8 @@ pub struct Features {
     pub list: Vec<FeatureState>,
     /// Touched features: index -> share left.
     pub changed: BTreeMap<u32, f32>,
+    /// Felled trees: index -> `FeatureState::fall`.
+    pub fallen: BTreeMap<u32, u8>,
     /// Counts up whenever a feature disappears or comes back (the view redraws then).
     pub version: u64,
     /// Per map cell: height of the tallest standing feature (blocks sight, see `sight_block`).
@@ -1024,7 +1040,7 @@ impl Features {
             let hp = fd.map_or(1.0, |d| (d.max_hp() * m.scale).max(1.0));
             let (cx, cy) = map.cell_of(m.pos);
             let cell = (cy.clamp(0, last_y) as usize * map.nx + cx.clamp(0, last) as usize) as u32;
-            f.list.push(FeatureState { def, pos: m.pos, left: if def == u16::MAX { 0.0 } else { 1.0 }, height, radius, hp, cell });
+            f.list.push(FeatureState { def, pos: m.pos, left: if def == u16::MAX { 0.0 } else { 1.0 }, height, radius, hp, cell, fall: 0, tall: height });
             let c = f.cell(m.pos);
             f.grid[c].push(i as u32);
             if def != u16::MAX {
@@ -1080,6 +1096,49 @@ impl Features {
             self.changed.remove(&(idx as u32));
         } else {
             self.changed.insert(idx as u32, left);
+        }
+    }
+    /// Throws a standing tree down towards `dir` (from where the blast came), or shatters a rock into
+    /// rubble thrown that way; it keeps `left` of
+    /// its value, at least `FALLEN_KEEP`.
+    pub fn fell(&mut self, idx: usize, dir: V2, left: f32) {
+        let Some(f) = self.list.get(idx) else { return };
+        if f.def == u16::MAX || f.left <= 0.0 || f.fall != 0 {
+            return;
+        }
+        let a = crate::map::fm::atan2(dir.y, dir.x).rem_euclid(std::f32::consts::TAU);
+        let fall = 1 + ((a / std::f32::consts::TAU * 255.0).round() as u32 % 255) as u8;
+        self.set_fall(idx, fall);
+        self.set_left(idx, left.max(FALLEN_KEEP).min(1.0));
+    }
+    fn set_fall(&mut self, idx: usize, fall: u8) {
+        let Some(f) = self.list.get_mut(idx) else { return };
+        if f.fall == fall {
+            return;
+        }
+        f.fall = fall;
+        f.height = if fall == 0 { f.tall } else { f.tall.min(FALLEN_HEIGHT) };
+        let (cell, pos) = (f.cell, f.pos);
+        self.version += 1;
+        self.resight(cell, pos);
+        if fall == 0 {
+            self.fallen.remove(&(idx as u32));
+        } else {
+            self.fallen.insert(idx as u32, fall);
+        }
+    }
+    /// Felled trees in index order, for a snapshot.
+    pub fn save_fallen(&self) -> Vec<(u32, u8)> {
+        self.fallen.iter().map(|(k, v)| (*k, *v)).collect()
+    }
+    /// Makes the felled trees match a saved list.
+    pub fn load_fallen(&mut self, to: &[(u32, u8)]) {
+        let stale: Vec<u32> = self.fallen.keys().copied().filter(|k| to.binary_search_by_key(k, |e| e.0).is_err()).collect();
+        for k in stale {
+            self.set_fall(k as usize, 0);
+        }
+        for (k, v) in to {
+            self.set_fall(*k as usize, *v);
         }
     }
     /// Calls `f(index, feature)` for every standing feature within `r` of `p`, in index order
@@ -1632,6 +1691,8 @@ pub struct Snapshot {
     pub ground: Arc<Vec<(u32, f32)>>,
     /// Trees and rocks partly or completely reclaimed: (feature index, share left).
     pub features: Vec<(u32, f32)>,
+    /// Felled trees: (feature index, `FeatureState::fall`).
+    pub fallen: Vec<(u32, u8)>,
 }
 
 pub fn make_snapshot(world: &mut World) -> Snapshot {
@@ -1650,6 +1711,7 @@ pub fn make_snapshot(world: &mut World) -> Snapshot {
     }
     if let Some(f) = world.get_resource::<Features>() {
         s.features = f.save();
+        s.fallen = f.save_fallen();
     }
     s
 }
@@ -1770,6 +1832,7 @@ pub fn restore(world: &mut World, s: &Snapshot) {
     });
     if let Some(mut f) = world.get_resource_mut::<Features>() {
         f.load(&s.features);
+        f.load_fallen(&s.fallen);
     }
     world.insert_resource(s.game.clone());
     world.insert_resource(SimRng(Rng(s.rng)));

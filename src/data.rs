@@ -96,6 +96,9 @@ fn cp_bleed() -> f32 {
 fn reclaim_energy_factor() -> f32 {
     5.0
 }
+fn tree_fall() -> f32 {
+    0.25
+}
 fn wreck_cover() -> f32 {
     0.5
 }
@@ -437,6 +440,11 @@ pub struct Rules {
     /// Share of a shot's damage a wreck soaks up when the shot passes through it.
     #[serde(default = "wreck_cover")]
     pub wreck_cover: f32,
+    /// Share of a tree's (not a bush's) or rock's hit points one blast must do to throw the tree down
+    /// or shatter the rock (0 = never). A felled tree lies as a charred log, a rock as rubble: low (no
+    /// sight blocking, little cover), still reclaimable, destroyed by further hits.
+    #[serde(default = "tree_fall")]
+    pub tree_fall: f32,
     /// Trees, rocks and wrecks closer than this to where a shot was fired give no cover from it
     /// (a unit fires over or around its own cover).
     #[serde(default = "cover_grace")]

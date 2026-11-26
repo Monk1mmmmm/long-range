@@ -2780,7 +2780,7 @@ fn selftest() {
         if t % every == 0 || game.winner.is_some() {
             let snap = make_snapshot(world);
             let bytes = bincode::serialize(&snap).map(|b| b.len()).unwrap_or(0);
-            println!("t={:5}s units={} projectiles={} wrecks={} features touched={} state={}B hash={:016x} wall={:?}", t / 10, snap.units.len(), snap.projectiles.len(), snap.wrecks.len(), snap.features.len(), bytes, state_hash(&snap), t0.elapsed());
+            println!("t={:5}s units={} projectiles={} wrecks={} features touched={} fallen={} state={}B hash={:016x} wall={:?}", t / 10, snap.units.len(), snap.projectiles.len(), snap.wrecks.len(), snap.features.len(), snap.fallen.len(), bytes, state_hash(&snap), t0.elapsed());
             // With LR_PROFILE=1: what the ticks since the last report cost (the lag late in a game).
             if let Some(mut p) = world.get_resource_mut::<longrange::sim::systems::SimProfile>() {
                 if p.ticks > 0 {

@@ -5,6 +5,17 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.16.0
+
+Gameplay
+- Ground attack orders now end after a few volleys (one run for a bomber), so orders queued after them are carried out.
+- Blasts now throw trees down and shatter rocks instead of just wearing them away: a blast doing at least `tree_fall` (new rule, 0.25) of a tree's or rock's hit points fells the tree away from the blast, or breaks the rock into rubble. A tree shot through by gunfire falls the way the shot flew. Felled trees lie as charred logs and rubble stays as a low heap: they no longer block sight, give little cover (too low for infantry to hide behind), keep at least a third of their value for reclaiming and are destroyed by further hits. Bushes are still simply shredded.
+
+Graphics
+- Trees thrown down by a blast fly: flung up and toppling outwards, stripped and charred, landing as logs pointing away from the blast. Shattered rocks send splinters flying.
+- Scorch marks: char darkest at the centre and fading out smoothly, with a singed ring of thrown-out earth round it (darker than the ground, lighter than the char).
+- Grass redone: dense blades in clumps that share height and lean, lit with the ground's normal and rooted in the ground's colour so they blend into the terrain, thinning out smoothly with the distance from the view point (no popping), swaying in wind gusts. No grass on roads, asphalt/paving/sand layers, blocked cells or under water, and none where blasts scorched the ground (withered at the edges). Grass no longer rebuilds everywhere whenever a crater is dug (that made it reload every few frames in battles): only the chunks where the ground changed are remade.
+
 ## v0.15.11
 
 Graphics

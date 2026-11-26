@@ -1185,6 +1185,8 @@
     "wrecks_revive_cooldown_tip": "Seconds before the wreck of a revived unit, or of a revival site destroyed unfinished, can be revived again.",
     "wrecks_wreck_cover": "Wreck cover",
     "wrecks_wreck_cover_tip": "Share of a shot's damage a wreck soaks up when the shot passes through it.",
+    "wrecks_tree_fall": "Felling and shattering",
+    "wrecks_tree_fall_tip": "Share of a tree's or rock's hit points one blast must do to throw the tree down or shatter the rock. A felled tree lies as a charred log, a shattered rock as rubble: they no longer block sight, give little cover and can still be reclaimed. 0: never.",
     "cover_grace": "Cover grace distance",
     "cover_grace_tip": "Trees, rocks and wrecks closer than this to the shooter give no cover from its shots (units fire out from behind their own cover).",
     "cover_search": "Infantry cover search",

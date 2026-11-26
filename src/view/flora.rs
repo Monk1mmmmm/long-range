@@ -117,6 +117,81 @@ pub struct FloraView {
     models: Vec<Vec<Model>>,
     /// The same at low detail, for distant chunks (empty when `detail` is already low).
     far_models: Vec<Vec<Model>>,
+    /// `models` / `far_models` blasted (`ruin`): trees stripped and charred (upright: `fallen_pose`
+    /// lays them down), rocks broken into rubble.
+    ruined: Vec<Vec<Model>>,
+    far_ruined: Vec<Vec<Model>>,
+    /// Per map feature: `sim::FeatureState::fall` as drawn (0 standing).
+    pub fall: Vec<u8>,
+    /// Trees in the air (`Flying`): not drawn in their chunk until they land.
+    flying: Vec<u32>,
+    /// Shape per feature type of `rules.features`.
+    shapes: Vec<FeatureShape>,
+}
+
+fn ruin_models(defs: &Defs, models: &[Vec<Model>]) -> Vec<Vec<Model>> {
+    models.iter().enumerate().map(|(k, vs)| vs.iter().enumerate().map(|(v, m)| ruin(m, defs.rules.features.get(k).map_or(FeatureShape::Pine, |d| d.shape), (k * 31 + v * 7 + 5) as u64)).collect()).collect()
+}
+
+/// A model after a blast hit it (`sim::Features::fell`). A tree: most of its foliage blown off, what
+/// is left withered brown, the wood charred - still upright, `fallen_pose` lays it on the ground.
+/// A rock: shattered - the boulder squashed into a low heap with broken pieces round it, darker.
+fn ruin(m: &Model, shape: FeatureShape, seed: u64) -> Model {
+    let mut out = Model::default();
+    if shape == FeatureShape::Rock {
+        let (lo, hi) = m.pos.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), p| (a.min(*p), b.max(*p)));
+        let size = (hi - lo).max_element().max(0.1);
+        // The heap, then a ring of pieces (the same rock, small and turned) thrown round it.
+        let mut place = |rot: Quat, scale: Vec3, at: Vec3, dark: f32| {
+            for v in 0..m.pos.len() {
+                out.pos.push(at + rot * (m.pos[v] * scale));
+                out.nrm.push((rot * (m.nrm[v] / scale)).normalize_or_zero());
+                out.col.push(scale3(m.col[v], dark));
+            }
+        };
+        place(Quat::IDENTITY, Vec3::new(1.2, 0.36, 1.2), Vec3::new(0.0, -0.02 * size, 0.0), 0.72);
+        for k in 0..5u64 {
+            let a = (k as f32 + hash(seed, 60 + k)) / 5.0 * std::f32::consts::TAU;
+            let d = size * (0.55 + 0.35 * hash(seed, 70 + k));
+            let r = Quat::from_euler(EulerRot::YXZ, hash(seed, 80 + k) * 6.3, hash(seed, 90 + k) * 1.5, hash(seed, 95 + k) * 1.5);
+            let k2 = 0.22 + 0.14 * hash(seed, 99 + k);
+            place(r, Vec3::splat(k2), Vec3::new(a.cos() * d, -0.05 * size * k2, a.sin() * d), 0.62 + 0.15 * hash(seed, 50 + k));
+        }
+        return out;
+    }
+    let leafy = |c: [f32; 3]| c[1] > c[0] * 1.12 && c[1] > c[2] * 1.05;
+    // Only finely made crowns keep some withered leaves: on a low-poly crown they would be big shards.
+    let leaves = (0..m.pos.len() / 3).filter(|t| leafy(m.col[t * 3])).count();
+    let hang = (leaves as f32 / 2000.0).min(0.22);
+    for t in 0..m.pos.len() / 3 {
+        let c = m.col[t * 3];
+        let (keep, col) = if leafy(c) {
+            let k = hash(seed ^ t as u64, 31);
+            (k < hang, [0.17 + 0.08 * k, 0.12 + 0.03 * k, 0.05])
+        } else {
+            // Charred bark: much darker, a little brown.
+            (true, [c[0] * 0.38 + 0.02, c[1] * 0.33 + 0.012, c[2] * 0.3 + 0.008])
+        };
+        if keep {
+            for v in t * 3..t * 3 + 3 {
+                out.pos.push(m.pos[v]);
+                out.nrm.push(m.nrm[v]);
+                out.col.push(col);
+            }
+        }
+    }
+    out
+}
+
+/// How a blasted feature lies, relative to its foot: (rotation, lift). Trees are laid along the
+/// direction they fell (`sim::fall_yaw`), their trunk resting on the ground; rubble keeps the yaw.
+fn fallen_pose(shape: FeatureShape, own_yaw: f32, fall: u8, size: f32) -> (Quat, f32) {
+    if shape == FeatureShape::Rock {
+        return (Quat::from_rotation_y(own_yaw), 0.0);
+    }
+    // Ry(-a) turns +x towards (cos a, sin a) on the map; Rz(-90 deg) lays the trunk (+y) along +x.
+    let a = crate::sim::fall_yaw(fall);
+    (Quat::from_rotation_y(-a) * Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2 + 0.06) * Quat::from_rotation_y(own_yaw), 0.1 * size)
 }
 
 fn build_models(defs: &Defs, detail: u8) -> Vec<Vec<Model>> {
@@ -132,7 +207,10 @@ impl FloraView {
         let material_ds = materials.add(ds);
         let detail = detail.min(3);
         let far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
-        FloraView { material, material_ds, shown, models: build_models(defs, detail), far_models, detail, ..default() }
+        let models = build_models(defs, detail);
+        let (ruined, far_ruined) = (ruin_models(defs, &models), ruin_models(defs, &far_models));
+        let shapes = defs.rules.features.iter().map(|d| d.shape).collect();
+        FloraView { material, material_ds, shown, models, far_models, ruined, far_ruined, detail, shapes, ..default() }
     }
     /// Mesh levels a chunk has: `false` the detailed one, `true` the distant one.
     fn levels(&self) -> &'static [bool] {
@@ -145,6 +223,8 @@ impl FloraView {
             self.detail = detail;
             self.models = build_models(defs, detail);
             self.far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
+            self.ruined = ruin_models(defs, &self.models);
+            self.far_ruined = ruin_models(defs, &self.far_models);
             self.all_dirty = true;
         }
     }
@@ -179,7 +259,7 @@ fn buckets(map: &MapData, view: &FloraView) -> (usize, Vec<Vec<u32>>) {
     let side = map.nx.div_ceil(FLORA_CHUNK).max(1);
     let mut out = vec![vec![]; side * map.ny.div_ceil(FLORA_CHUNK).max(1)];
     for (i, f) in map.features.iter().enumerate() {
-        if view.shown.get(i).copied().unwrap_or(true) {
+        if view.shown.get(i).copied().unwrap_or(true) && !view.flying.contains(&(i as u32)) {
             let (cx, cy) = chunk_of(map, f.pos);
             out[(cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK].push(i as u32);
         }
@@ -448,16 +528,22 @@ fn chunk_origin(map: &MapData, cx: usize, cy: usize) -> Vec3 {
 /// The mesh of the given features (one chunk's) at a level (`far`: low detail), relative to the
 /// chunk's centre, or `None` if there are none.
 fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], origin: Vec3, far: bool) -> Option<Mesh> {
-    let models = if far { &view.far_models } else { &view.models };
     let world = map.size();
     let (mut pos, mut nrm, mut col, mut uv) = (vec![], vec![], vec![], vec![]);
     for &i in list {
         let Some(f) = map.features.get(i as usize) else { continue };
         let Some(Some(k)) = kinds.get(f.kind as usize) else { continue };
+        let fall = view.fall.get(i as usize).copied().unwrap_or(0);
+        let models = match (far, fall != 0) {
+            (false, false) => &view.models,
+            (true, false) => &view.far_models,
+            (false, true) => &view.ruined,
+            (true, true) => &view.far_ruined,
+        };
         let Some(variants) = models.get(*k) else { continue };
         let model = &variants[(hash(i as u64, 11) * VARIANTS as f32) as usize % VARIANTS];
-        let rot = Quat::from_rotation_y(f.yaw);
-        let at = f.pos.at(map.h(f.pos)) - origin;
+        let (rot, lift) = if fall != 0 { fallen_pose(view.shapes.get(*k).copied().unwrap_or(FeatureShape::Pine), f.yaw, fall, f.scale) } else { (Quat::from_rotation_y(f.yaw), 0.0) };
+        let at = f.pos.at(map.h(f.pos) + lift) - origin;
         let tint = 0.86 + 0.26 * hash(i as u64, 12);
         // High detail: trees differ in hue too (some yellower, some bluer).
         let hue = if view.detail >= 2 { 0.2 * (hash(i as u64, 13) - 0.5) } else { 0.0 };
@@ -682,6 +768,8 @@ pub fn flora_sync(
     mut chunks: FloraChunks,
     mut meshes: ResMut<Assets<Mesh>>,
     cams: Query<&GlobalTransform, With<super::terrain::MainCamera>>,
+    mut flights: Query<(Entity, &mut Flying, &mut Transform)>,
+    time: Res<Time>,
 ) {
     let (Some(features), Some(mut view)) = (features, view) else { return };
     let view = &mut *view;
@@ -690,15 +778,124 @@ pub fn flora_sync(
     if features.version != view.version {
         view.version = features.version;
         view.shown.resize(features.list.len(), false);
+        view.fall.resize(features.list.len(), 0);
+        let kinds = kinds_of(&map, &defs);
         for i in 0..features.list.len() {
             let alive = features.alive(i);
-            if view.shown[i] != alive {
-                view.shown[i] = alive;
-                if let Some(f) = map.features.get(i) {
-                    view.mark(chunk_of(&map, f.pos));
+            let fall = features.list[i].fall;
+            let Some(f) = map.features.get(i) else { continue };
+            if view.shown[i] != alive || view.fall[i] != fall {
+                // Blown down just now (not a rollback or a restored state): it flies first.
+                if alive && fall != 0 && view.fall[i] == 0 && view.shown[i] {
+                    launch(&mut commands, &map, &kinds, view, &mut meshes, i, fall);
                 }
+                view.shown[i] = alive;
+                view.fall[i] = fall;
+                view.mark(chunk_of(&map, f.pos));
             }
         }
     }
+    fly(&mut commands, &map, view, &mut flights, time.delta_secs());
     rebuild_flora(&mut commands, &map, &defs, view, &mut chunks, &mut meshes);
+}
+
+/// A tree thrown down by a blast on its way to the ground, or a piece of a shattered rock.
+#[derive(Component)]
+pub struct Flying {
+    /// Map feature (a tree is drawn in its chunk again once it has landed).
+    idx: u32,
+    /// A tree (else a rock splinter, which lies a while, then sinks away).
+    tree: bool,
+    t: f32,
+    secs: f32,
+    from: Vec3,
+    to: Vec3,
+    hop: f32,
+    r0: Quat,
+    r1: Quat,
+}
+
+/// One model as its own mesh (vertices relative to its foot), fog UVs at `p`.
+fn single_mesh(map: &MapData, model: &Model, p: V2, scale: f32, tint: f32) -> Mesh {
+    let world = map.size();
+    let t = [p.x / world.x.max(1.0), p.y / world.y.max(1.0)];
+    let pos: Vec<[f32; 3]> = model.pos.iter().map(|v| (*v * scale).to_array()).collect();
+    let nrm: Vec<[f32; 3]> = model.nrm.iter().map(|v| v.to_array()).collect();
+    let col: Vec<[f32; 4]> = model.col.iter().map(|c| [c[0] * tint, c[1] * tint, c[2] * tint, 1.0]).collect();
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![t; pos.len()]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
+    mesh
+}
+
+/// Starts the flight of a feature a blast just threw down: a tree is flung up and topples over
+/// onto where it will lie; a rock sends splinters flying (its rubble is drawn at once).
+fn launch(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view: &mut FloraView, meshes: &mut Assets<Mesh>, i: usize, fall: u8) {
+    let Some(f) = map.features.get(i) else { return };
+    let Some(Some(k)) = kinds.get(f.kind as usize) else { return };
+    let shape = view.shapes.get(*k).copied().unwrap_or(FeatureShape::Pine);
+    let seed = i as u64;
+    let material = if view.detail >= 3 { view.material_ds.clone() } else { view.material.clone() };
+    let foot = f.pos.at(map.h(f.pos));
+    let a = crate::sim::fall_yaw(fall);
+    let dir = Vec3::new(a.cos(), 0.0, a.sin());
+    let variant = (hash(i as u64, 11) * VARIANTS as f32) as usize % VARIANTS;
+    if shape == FeatureShape::Rock {
+        let Some(model) = view.models.get(*k).and_then(|v| v.get(variant)) else { return };
+        let size = 0.9 * f.scale;
+        for n in 0..4u64 {
+            let s = 0.2 + 0.12 * hash(seed, 200 + n);
+            let mesh = meshes.add(single_mesh(map, model, f.pos, f.scale * s, 0.7));
+            let side = Vec3::new(-dir.z, 0.0, dir.x) * (hash(seed, 210 + n) - 0.5) * 2.4;
+            let out = (dir * (1.2 + 2.5 * hash(seed, 220 + n)) + side) * size;
+            let land = foot.xz() + out.xz();
+            let to = Vec3::new(land.x, map.height(land.x, land.y), land.y);
+            let r1 = Quat::from_euler(EulerRot::YXZ, hash(seed, 230 + n) * 6.3, 2.0 + hash(seed, 240 + n) * 4.0, hash(seed, 250 + n) * 3.0);
+            let fl = Flying { idx: i as u32, tree: false, t: 0.0, secs: 0.6 + 0.4 * hash(seed, 260 + n), from: foot + Vec3::Y * 0.4 * size, to, hop: (1.0 + 1.5 * hash(seed, 270 + n)) * size, r0: Quat::IDENTITY, r1 };
+            commands.spawn((Mesh3d(mesh), MeshMaterial3d(material.clone()), Transform::from_translation(fl.from), Visibility::Inherited, NotShadowCaster, fl, super::terrain::GameScene));
+        }
+        return;
+    }
+    if shape == FeatureShape::Bush {
+        return;
+    }
+    let Some(model) = view.ruined.get(*k).and_then(|v| v.get(variant)) else { return };
+    let mesh = meshes.add(single_mesh(map, model, f.pos, f.scale, 0.86 + 0.26 * hash(i as u64, 12)));
+    let (r1, lift) = fallen_pose(shape, f.yaw, fall, f.scale);
+    // Upright at first (turned so that toppling about one axis ends in the pose it lies in).
+    let start = Quat::from_rotation_y(-a) * Quat::from_rotation_y(f.yaw);
+    let fl = Flying { idx: i as u32, tree: true, t: 0.0, secs: 0.9 + 0.3 * hash(seed, 300), from: foot - dir * 1.2 * f.scale, to: foot + Vec3::Y * lift, hop: (1.6 + 1.6 * hash(seed, 301)) * f.scale, r0: start, r1 };
+    commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(fl.from).with_rotation(start), Visibility::Inherited, fl, super::terrain::GameScene));
+    view.flying.push(i as u32);
+}
+
+/// Moves what is in the air; a tree that has landed goes back into its chunk's mesh.
+fn fly(commands: &mut Commands, map: &MapData, view: &mut FloraView, q: &mut Query<(Entity, &mut Flying, &mut Transform)>, dt: f32) {
+    for (e, mut f, mut tr) in q.iter_mut() {
+        f.t += dt / f.secs.max(0.05);
+        let t = f.t.min(1.0);
+        if f.tree {
+            if f.t >= 1.0 {
+                commands.entity(e).despawn();
+                view.flying.retain(|&i| i != f.idx);
+                if let Some(ft) = map.features.get(f.idx as usize) {
+                    view.mark(chunk_of(map, ft.pos));
+                }
+                continue;
+            }
+            // Flung up and out, toppling faster as it goes.
+            tr.translation = f.from.lerp(f.to, t) + Vec3::Y * f.hop * 4.0 * t * (1.0 - t);
+            tr.rotation = f.r0.slerp(f.r1, t * t * (3.0 - 2.0 * t) * 0.4 + t * t * 0.6);
+        } else if f.t < 1.0 {
+            tr.translation = f.from.lerp(f.to, t) + Vec3::Y * f.hop * 4.0 * t * (1.0 - t);
+            tr.rotation = f.r0.slerp(f.r1, t);
+        } else if f.t < 4.0 {
+            // Lies a while, then sinks into the ground.
+            tr.translation = f.to - Vec3::Y * ((f.t - 2.5).max(0.0) * 0.25);
+        } else {
+            commands.entity(e).despawn();
+        }
+    }
 }

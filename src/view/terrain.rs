@@ -66,6 +66,7 @@ pub fn terrain_sync(
     mut snapped: Query<(&GroundSnap, &mut Transform), Without<crate::sim::Wreck>>,
     mut wrecks: Query<(&crate::sim::Wreck, &mut Transform)>,
     mut flora: Option<ResMut<super::flora::FloraView>>,
+    mut grass: Option<ResMut<super::grass::GrassTouched>>,
 ) {
     let Some(mut ground) = ground else { return };
     if ground.touched.is_empty() && !ground.touched_all {
@@ -73,6 +74,10 @@ pub fn terrain_sync(
     }
     let touched = std::mem::take(&mut ground.touched);
     let all = std::mem::take(&mut ground.touched_all);
+    if let Some(g) = grass.as_mut() {
+        g.0.extend_from_slice(&touched);
+        g.1 |= all;
+    }
     let near = |p: V2, r: f32| all || touched.iter().any(|t| (t.x - p.x).abs() < r && (t.y - p.y).abs() < r);
     let size = CHUNK as f32 * CELL;
     // A touched spot stands for the vertices within a few units of it; normals reach one cell further.

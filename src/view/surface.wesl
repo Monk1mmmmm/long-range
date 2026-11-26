@@ -131,21 +131,26 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.4, wet);
     }
 
-    // Scorched ground (SupCom / BAR style): a soft decal, not a black disc. The stored value is how
-    // much has burnt; noise from the ground's own height texture breaks the rim into ragged flecks, the
-    // ground texture still shows through the char, and a faint grey-brown ash skirt surrounds the core.
-    let s = textureSampleLevel(scorch, scorch_sampler, uv, 0.0).r;
-    if s > 0.004 {
+    // Scorched ground: a crater-like decal, not a black disc. Red is char: darkest in the middle of a
+    // blast, fading out smoothly (a gradient, the ground texture still showing through); green is the
+    // earth the blast threw out and singed, a ring round it lighter than the char but still darker than
+    // the untouched ground. Noise from the ground's own height
+    // texture breaks both edges into ragged flecks.
+    let sc = textureSampleLevel(scorch, scorch_sampler, uv, 0.0).rg;
+    let s = sc.r;
+    if s > 0.004 || sc.g > 0.004 {
         let n1 = textureSampleGrad(albedo, albedo_sampler, p * 0.22 + vec2<f32>(0.37, 0.71), 0u, dx * 0.22, dy * 0.22).a;
         let n2 = textureSampleGrad(albedo, albedo_sampler, p * 0.9 + vec2<f32>(0.13, 0.29), 0u, dx * 0.9, dy * 0.9).a;
-        let t = s * 1.25 + (n1 - 0.5) * 0.5 * (0.35 + s) + (n2 - 0.5) * 0.25 * s;
-        let core = smoothstep(0.16, 0.62, t);
-        let skirt = smoothstep(0.02, 0.3, t) * (1.0 - core * 0.5);
-        let ash = col * vec3<f32>(0.62, 0.58, 0.54);
-        let charred = col * vec3<f32>(0.11, 0.095, 0.085) + vec3<f32>(0.006, 0.005, 0.0045);
-        col = mix(col, ash, skirt * 0.55);
-        col = mix(col, charred, core * 0.92);
-        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, core);
+        let t = saturate(s * 1.6 + (n1 - 0.5) * 0.45 * (0.3 + s) + (n2 - 0.5) * 0.22 * s);
+        let core = t * t * (3.0 - 2.0 * t);
+        let rg = saturate(sc.g * 1.2 + (n2 - 0.5) * 0.5 * sc.g + (n1 - 0.5) * 0.25);
+        let ring = smoothstep(0.08, 0.75, rg) * (1.0 - core);
+        // Churned, singed earth: darker and browner than the ground, but well short of the char.
+        let dust = col * vec3<f32>(0.55, 0.5, 0.45) * (0.85 + 0.3 * n2) + vec3<f32>(0.012, 0.009, 0.005);
+        let charred = col * vec3<f32>(0.10, 0.09, 0.08) + vec3<f32>(0.012, 0.010, 0.008);
+        col = mix(col, dust, ring * 0.85);
+        col = mix(col, charred, core * 0.94);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, max(core, ring));
     }
 
     // Relief: tilt the normal along the slope of the blended height (surface gradient).
