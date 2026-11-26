@@ -8,6 +8,7 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 ## v0.16.0
 
 Gameplay
+- Ground attack orders now end after a few volleys (one run for a bomber), so orders queued after them are carried out.
 - Blasts now throw trees down and shatter rocks instead of just wearing them away: a blast doing at least `tree_fall` (new rule, 0.25) of a tree's or rock's hit points fells the tree away from the blast, or breaks the rock into rubble. A tree shot through by gunfire falls the way the shot flew. Felled trees lie as charred logs and rubble stays as a low heap: they no longer block sight, give little cover (too low for infantry to hide behind), keep at least a third of their value for reclaiming and are destroyed by further hits. Bushes are still simply shredded.
 
 Graphics
