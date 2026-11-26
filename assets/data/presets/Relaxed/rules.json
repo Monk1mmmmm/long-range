@@ -64,6 +64,7 @@
  "reclaim_energy_factor": 5,
  "_comment_cover": "Cover: a shot flying through a tree, rock or wreck loses that one's cover share of its damage (features: cover, default by shape - pine 0.3, broadleaf 0.35, bush 0.15, rock 0.65; wrecks: wreck_cover), and the cover takes it. Cover within cover_grace of the shooter does not count (units fire out from behind their own). Infantry (unit category infantry) standing idle or fighting look for cover within cover_search of where they were sent, against the nearest known armed enemy up to cover_threat_range away. Infantry thrown out of a destroyed building lose garrison_eject_damage of their hit points; inside it they take garrison_damage of every hit on it (their armor applies) and look from its roof with garrison_vision times their vision and binocular range. Infantry ordered into a building held by an enemy storm it: at the door they and the infantry inside trade their assault damage per second (unit JSON assault; the defenders deal garrison_defense times theirs), and once nobody is left inside they walk in.",
  "wreck_cover": 0.5,
+ "tree_fall": 0.25,
  "cover_grace": 2.5,
  "cover_search": 10,
  "cover_threat_range": 100,

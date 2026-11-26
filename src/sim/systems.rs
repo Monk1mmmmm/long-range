@@ -3482,7 +3482,13 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
         p.damage -= soak;
         if is_feature {
             if let Some(f) = features.list.get(key as usize).copied() {
-                features.set_left(key as usize, f.left - soak / f.hp);
+                let left = f.left - soak / f.hp;
+                // A tree shot through falls the way the shot flew instead of vanishing (a rock crumbles).
+                if left <= 0.0 && fellable(defs, &f) {
+                    features.fell(key as usize, fall_dir(v2(seg2.x, seg2.y), key as usize), left);
+                } else {
+                    features.set_left(key as usize, left);
+                }
             }
         } else if let Some(w) = wrecks.0.iter().find(|w| w.0 == key) {
             let d = defs.get(w.3);
@@ -3551,6 +3557,21 @@ pub fn blast_share(d: f32, radius: f32) -> f32 {
 /// rock loses the share of its worth that the damage is of its hit points (changed at once); hits
 /// on wrecks are added to `wreck_hits` as (wreck id, damage after armor) for `damage_wrecks`.
 #[allow(clippy::too_many_arguments)]
+/// A standing tree (not a bush) that a hit can throw down, or a rock it can shatter into rubble
+/// (`rules.tree_fall`).
+fn fellable(defs: &Defs, f: &FeatureState) -> bool {
+    f.fall == 0 && f.left > 0.0 && defs.rules.tree_fall > 0.0 && defs.rules.features.get(f.def as usize).is_some_and(|d| d.shape != crate::data::FeatureShape::Bush)
+}
+
+/// Direction a tree falls: `dir`, or one picked from its index when that is too short (a blast right on it).
+fn fall_dir(dir: V2, idx: usize) -> V2 {
+    if dir.len2() > 1e-4 {
+        return dir;
+    }
+    let a = (idx as f32 * 0.618034).fract() * std::f32::consts::TAU;
+    v2(fm::cos(a), fm::sin(a))
+}
+
 pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, wreck_hits: &mut Vec<(u32, f32)>) {
     let reach = radius.max(0.3);
     let centre = flat(at);
@@ -3559,15 +3580,21 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
         let d = (horiz * horiz + vert * vert).sqrt();
         (d < reach).then(|| if radius > 0.0 { damage * blast_share(d, radius) } else { damage })
     };
-    let mut hit: Vec<(usize, f32)> = vec![];
+    // (index, share left after the hit, thrown down: away from the blast)
+    let mut hit: Vec<(usize, f32, Option<V2>)> = vec![];
     features.near(centre, reach + 6.0, |i, s| {
         let ground = map.h(s.pos);
         if let Some(dmg) = hurt((s.pos.dist(centre) - s.radius).max(0.0), ground, ground + s.height) {
-            hit.push((i, s.left - dmg / s.hp));
+            let left = s.left - dmg / s.hp;
+            let fells = radius > 0.0 && fellable(defs, s) && (dmg / s.hp >= defs.rules.tree_fall || left <= 0.0);
+            hit.push((i, left, fells.then(|| fall_dir(s.pos - centre, i))));
         }
     });
-    for (i, left) in hit {
-        features.set_left(i, left);
+    for (i, left, fall) in hit {
+        match fall {
+            Some(dir) => features.fell(i, dir, left),
+            None => features.set_left(i, left),
+        }
     }
     for &(id, pos, mass, def, piece, _) in &wrecks.0 {
         let d = defs.get(def);

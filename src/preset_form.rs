@@ -120,6 +120,7 @@ pub const RULE_WRECKS: &[Field] = &[
     num("wreck_hp", tx!("preset_rules.wrecks_wreck_hp"), 0.5, 100.0, tx!("preset_rules.wrecks_wreck_hp_tip")),
     num("revive_cooldown", tx!("preset_rules.wrecks_revive_cooldown"), 60.0, 3600.0, tx!("preset_rules.wrecks_revive_cooldown_tip")),
     num("wreck_cover", tx!("preset_rules.wrecks_wreck_cover"), 0.5, 1.0, tx!("preset_rules.wrecks_wreck_cover_tip")),
+    num("tree_fall", tx!("preset_rules.wrecks_tree_fall"), 0.25, 10.0, tx!("preset_rules.wrecks_tree_fall_tip")),
 ];
 
 pub const RULE_COVER: &[Field] = &[
