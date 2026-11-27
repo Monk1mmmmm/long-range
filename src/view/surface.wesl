@@ -132,7 +132,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let fw2 = max(fwidth(rv2), vec4<f32>(1e-4));
     // Centre line (derivatives taken here, in uniform control flow).
     let cl = textureSampleLevel(centre, centre_sampler, uv, 0.0);
-    let arc = cl.r * 16.0;
+    // The distance along the road wraps at 16: filtered plainly, a texel across the wrap sweeps through
+    // every dash phase (a dotted dash every 16 units). Filter by hand with the wrap undone instead.
+    let st = uv * vec2<f32>(textureDimensions(centre)) - 0.5;
+    let fs = fract(st);
+    // Gather order: (u0, v1), (u1, v1), (u1, v0), (u0, v0).
+    let g = textureGather(0, centre, centre_sampler, uv);
+    let g0 = g.w;
+    let g1 = g.z - round(g.z - g0);
+    let g2 = g.x - round(g.x - g0);
+    let g3 = g.y - round(g.y - g0);
+    let arc = mix(mix(g0, g1, fs.x), mix(g2, g3, fs.x), fs.y) * 16.0;
     let off = cl.g * 8.0 - 4.0;
     let fw_arc = fwidth(arc);
     let fw_off = max(fwidth(off), 1e-4);
