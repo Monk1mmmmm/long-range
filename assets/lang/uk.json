@@ -106,10 +106,10 @@
     "waiting_for_host": "Очікування старту від хоста...",
     "leave": "Вийти",
     "connecting": "З'єднання...",
-    "weather_button": "Погода: {}",
     "weather_random": "Випадкова",
     "weather_random_tip": "Одна з погод нижче, обирається на початку гри",
-    "summary_weather": "\nПогода: {}"
+    "summary_weather": "\nПогода: {}",
+    "weather_label": "Погода"
   },
   "browser": {
     "title": "Мережеві ігри",

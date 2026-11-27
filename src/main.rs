@@ -2152,11 +2152,21 @@ fn menu_ui(world: &mut World) {
                                         l.biome = (l.biome + 1) % (longrange::surface::BIOMES.len() + 1);
                                     }
                                 }
-                                let weather_tip = cur.rules.weather.get(l.weather).map_or_else(|| tr!("lobby.weather_random_tip").to_string(), |w| longrange::i18n::weather_desc(w).to_string());
-                                if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("lobby.weather_button", l.weather_label(&cur)))).on_hover_text(weather_tip).clicked() {
-                                    l.weather = (l.weather + 1) % (cur.rules.weather.len() + 1);
-                                    l.dirty = true;
-                                }
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(tr!("lobby.weather_label")).size(15.0));
+                                    let tip = cur.rules.weather.get(l.weather).map_or_else(|| tr!("lobby.weather_random_tip").to_string(), |w| longrange::i18n::weather_desc(w).to_string());
+                                    egui::ComboBox::from_id_salt("weather").width(right_w - 120.0).selected_text(l.weather_label(&cur)).show_ui(ui, |ui| {
+                                        for (k, w) in cur.rules.weather.iter().enumerate() {
+                                            if ui.selectable_value(&mut l.weather, k, longrange::i18n::weather_name(w)).on_hover_text(longrange::i18n::weather_desc(w)).changed() {
+                                                l.dirty = true;
+                                            }
+                                        }
+                                        let random = cur.rules.weather.len();
+                                        if ui.selectable_value(&mut l.weather, random, tr!("lobby.weather_random")).on_hover_text(tr!("lobby.weather_random_tip")).changed() {
+                                            l.dirty = true;
+                                        }
+                                    }).response.on_hover_text(tip);
+                                });
                                 if ui.checkbox(&mut l.reveal_props, tr!("lobby.reveal_props")).changed() {
                                     l.dirty = true;
                                 }

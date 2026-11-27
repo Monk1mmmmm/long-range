@@ -106,10 +106,10 @@
     "waiting_for_host": "Waiting for the host to start...",
     "leave": "Leave",
     "connecting": "Connecting...",
-    "weather_button": "Weather: {}",
     "weather_random": "Random",
     "weather_random_tip": "One of the weathers below, picked when the game starts",
-    "summary_weather": "\nWeather: {}"
+    "summary_weather": "\nWeather: {}",
+    "weather_label": "Weather"
   },
   "browser": {
     "title": "Multiplayer games",
