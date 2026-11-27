@@ -4,8 +4,11 @@
 //!
 //! Scorch marks are view-only: every blast near the ground darkens the scorch map a little
 //! (`SurfaceView::burn`, called by `fx::spawn_fx`); marks stay for the rest of the game.
+//! Tracks are view-only too: moving land units press their treads and feet into the track map
+//! (`SurfaceView::track`, from `weather::lay_tracks`), which fades over the weather's `track_secs`.
+//! The weather also wets the ground or covers it with snow (`SurfaceView::wet` / `snow`).
 use crate::map::*;
-use crate::surface::{kind, Kind, KINDS, MAX_LAYERS, MAX_ROAD_KINDS};
+use crate::surface::{kind, Kind, KINDS, MAX_LAYERS, MAX_ROAD_KINDS, SIDEWALK};
 use bevy::asset::{embedded_asset, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -20,6 +23,9 @@ pub type SurfaceMaterial = ExtendedMaterial<StandardMaterial, SurfaceExt>;
 const TEX: usize = 512;
 /// Scorch map texels per world unit.
 const BURN_PER_UNIT: f32 = 2.0;
+/// Track map texels per world unit (at most `TRACK_MAX` across).
+const TRACK_PER_UNIT: f32 = 2.0;
+const TRACK_MAX: f32 = 4096.0;
 /// Road field texels per world unit (the field is distance-like, so this can be coarse).
 const ROAD_PER_UNIT: f32 = 1.0;
 
@@ -30,14 +36,23 @@ pub struct SurfaceParams {
     pub layers: u32,
     pub roads: u32,
     pub bump: f32,
-    pub scales: [Vec4; 4],
-    pub road_soft: Vec4,
+    /// Tile size of every texture slot (layers, then road kinds), four per vector.
+    pub scales: [Vec4; 5],
+    /// Edge sharpness per road kind.
+    pub road_soft: [Vec4; 2],
+    /// Road slot of the sidewalks (kerbs along the roads beside them), 99 = none.
+    pub sidewalk: u32,
+    /// Road slot of the kind with lane markings (`Kind::lines`), 99 = none: they are painted on it only.
+    pub marked: u32,
     /// Debug view (`LR_SURFACE_DEBUG`, see surface.wesl).
     pub debug: u32,
     /// 1 = cliffs on steep slopes, broad colour variation and a wet shoreline (`Settings::terrain_detail`).
     pub quality: u32,
     /// Sea level (the shoreline darkens just above it).
     pub water: f32,
+    /// Weather: wet ground (0-1: darker, shinier) and snow cover (0-1).
+    pub wet: f32,
+    pub snow: f32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -56,6 +71,18 @@ pub struct SurfaceExt {
     #[texture(107)]
     #[sampler(108)]
     pub scorch: Handle<Image>,
+    /// Road kinds 5-8.
+    #[texture(109)]
+    #[sampler(110)]
+    pub roads2: Handle<Image>,
+    /// Centre lines (`MapData::centre_raster`).
+    #[texture(111)]
+    #[sampler(112)]
+    pub centre: Handle<Image>,
+    /// Tracks of units (`SurfaceView::track`).
+    #[texture(113)]
+    #[sampler(114)]
+    pub tracks: Handle<Image>,
 }
 
 impl MaterialExtension for SurfaceExt {
@@ -85,6 +112,8 @@ pub struct SurfaceView {
     albedo: Handle<Image>,
     masks: Handle<Image>,
     roads: Handle<Image>,
+    roads2: Handle<Image>,
+    centre: Handle<Image>,
     scorch: Handle<Image>,
     /// Scorch map on the CPU, two bytes per texel (0 = untouched): char (dark, strongest at the
     /// centre of a blast) and churned earth (the ring round it: lighter than the char, darker than the ground).
@@ -99,6 +128,22 @@ pub struct SurfaceView {
     pub layers_dirty: bool,
     pub masks_dirty: bool,
     pub roads_dirty: bool,
+    tracks: Handle<Image>,
+    /// Track map on the CPU, one byte per texel (depth), `track_side` across and deep.
+    track: Vec<u8>,
+    track_side: (usize, usize),
+    track_k: f32,
+    /// Rows holding any track (the rest are skipped when tracks fade).
+    track_rows: Vec<bool>,
+    track_dirty: bool,
+    track_wait: f32,
+    /// Depth lost so far that has not made a whole step yet.
+    track_fade: f32,
+    /// Seconds a full-depth track takes to fade (the weather's `track_secs`).
+    pub track_secs: f32,
+    /// Weather: wet ground and snow cover (0-1), sent to the shader.
+    pub wet: f32,
+    pub snow: f32,
 }
 
 impl SurfaceView {
@@ -138,6 +183,61 @@ impl SurfaceView {
         }
         self.burn_dirty = true;
     }
+
+    /// Presses a track from `a` to `b` into the ground: a strip `half` wide on each side, `depth` (0-1)
+    /// deep in the middle, softer at the edge. A deeper track already there stays.
+    pub fn track(&mut self, a: Vec2, b: Vec2, half: f32, depth: f32) {
+        let k = self.track_k;
+        let half = half.max(0.5 / k);
+        let (side, side_y) = (self.track_side.0 as i32, self.track_side.1 as i32);
+        let (x0, x1) = (((a.x.min(b.x) - half) * k).floor() as i32, ((a.x.max(b.x) + half) * k).ceil() as i32);
+        let (y0, y1) = (((a.y.min(b.y) - half) * k).floor() as i32, ((a.y.max(b.y) + half) * k).ceil() as i32);
+        let ab = b - a;
+        let len2 = ab.length_squared().max(1e-6);
+        let v = depth.clamp(0.0, 1.0) * 255.0;
+        for y in y0.max(0)..=y1.min(side_y - 1) {
+            let mut any = false;
+            for x in x0.max(0)..=x1.min(side - 1) {
+                let q = Vec2::new((x as f32 + 0.5) / k, (y as f32 + 0.5) / k);
+                let t = ((q - a).dot(ab) / len2).clamp(0.0, 1.0);
+                let d = q.distance(a + ab * t) / half;
+                if d >= 1.0 {
+                    continue;
+                }
+                let f = (v * (1.0 - d * d)) as u8;
+                let c = &mut self.track[y as usize * self.track_side.0 + x as usize];
+                if f > *c {
+                    *c = f;
+                    any = true;
+                }
+            }
+            if any {
+                self.track_rows[y as usize] = true;
+                self.track_dirty = true;
+            }
+        }
+    }
+
+    /// Fades every track by `secs` of time.
+    fn fade_tracks(&mut self, secs: f32) {
+        self.track_fade += 255.0 * secs / self.track_secs.max(1.0);
+        let step = self.track_fade.floor();
+        if step < 1.0 {
+            return;
+        }
+        self.track_fade -= step;
+        let step = step.min(255.0) as u8;
+        let w = self.track_side.0;
+        for (y, live) in self.track_rows.iter_mut().enumerate().filter(|(_, l)| **l) {
+            let mut left = false;
+            for c in &mut self.track[y * w..(y + 1) * w] {
+                *c = c.saturating_sub(step);
+                left |= *c > 0;
+            }
+            *live = left;
+            self.track_dirty = true;
+        }
+    }
 }
 
 /// Texture slots: the layers first, then one per road kind.
@@ -148,17 +248,19 @@ fn slots(map: &MapData) -> (Vec<(String, f32)>, Vec<String>) {
 
 fn params(map: &MapData) -> SurfaceParams {
     let (layers, roads) = slots(map);
-    let mut scales = [Vec4::splat(8.0); 4];
+    let mut scales = [Vec4::splat(8.0); 5];
     let all: Vec<f32> = layers.iter().map(|(k, s)| if *s > 0.0 { *s } else { kind(k).map_or(8.0, |k| k.scale) }).chain(roads.iter().map(|k| kind(k).map_or(6.0, |k| k.scale))).collect();
-    for (i, s) in all.iter().enumerate().take(16) {
+    for (i, s) in all.iter().enumerate().take(20) {
         scales[i / 4][i % 4] = *s;
     }
-    let mut road_soft = Vec4::splat(2.4);
+    let mut road_soft = [Vec4::splat(2.4); 2];
     for (i, k) in roads.iter().enumerate().take(MAX_ROAD_KINDS) {
-        road_soft[i] = if kind(k).map_or(false, |k| k.hard) { 7.0 } else { 2.4 };
+        road_soft[i / 4][i % 4] = if kind(k).map_or(false, |k| k.hard) { 7.0 } else { 2.4 };
     }
+    let sidewalk = roads.iter().position(|k| k == SIDEWALK).map_or(99, |i| i as u32);
+    let marked = roads.iter().position(|k| kind(k).is_some_and(|k| k.lines)).map_or(99, |i| i as u32);
     let debug = std::env::var("LR_SURFACE_DEBUG").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, debug, quality: 1, water: map.water }
+    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, sidewalk, marked, debug, quality: 1, water: map.water, wet: 0.0, snow: 0.0 }
 }
 
 fn sampler(repeat: bool, aniso: bool) -> ImageSampler {
@@ -216,9 +318,30 @@ fn mask_image(map: &MapData) -> Image {
     img
 }
 
-fn road_image(map: &MapData) -> Image {
-    let ((side, side_y), px) = map.road_raster(ROAD_PER_UNIT);
+/// Centre-line texels per world unit: the offset is linear across a texel, so 1 is exact enough.
+const CENTRE_PER_UNIT: f32 = 1.0;
+
+fn centre_image(map: &MapData) -> Image {
+    let ((side, side_y), px) = map.centre_raster(CENTRE_PER_UNIT);
     let mut img = Image::new(Extent3d { width: side as u32, height: side_y as u32, depth_or_array_layers: 1 }, TextureDimension::D2, px.concat(), TextureFormat::Rgba8Unorm, RenderAssetUsages::RENDER_WORLD);
+    img.sampler = sampler(false, false);
+    img
+}
+
+/// The road field as two RGBA textures (kinds 1-4 and 5-8).
+fn road_images(map: &MapData) -> (Image, Image) {
+    let ((side, side_y), px) = map.road_raster(ROAD_PER_UNIT);
+    let half = |h: usize| {
+        let data: Vec<u8> = px.iter().flat_map(|p| p[h * 4..h * 4 + 4].iter().copied()).collect();
+        let mut img = Image::new(Extent3d { width: side as u32, height: side_y as u32, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8Unorm, RenderAssetUsages::RENDER_WORLD);
+        img.sampler = sampler(false, false);
+        img
+    };
+    (half(0), half(1))
+}
+
+fn track_image(side: (usize, usize), track: &[u8]) -> Image {
+    let mut img = Image::new(Extent3d { width: side.0 as u32, height: side.1 as u32, depth_or_array_layers: 1 }, TextureDimension::D2, track.to_vec(), TextureFormat::R8Unorm, RenderAssetUsages::RENDER_WORLD);
     img.sampler = sampler(false, false);
     img
 }
@@ -235,13 +358,46 @@ impl SurfaceView {
         let burn = vec![0u8; side.0 * side.1 * 2];
         let albedo = images.add(albedo_image(map, cache));
         let masks = images.add(mask_image(map));
-        let roads = images.add(road_image(map));
+        let (r1, r2) = road_images(map);
+        let (roads, roads2) = (images.add(r1), images.add(r2));
+        let centre = images.add(centre_image(map));
         let scorch = images.add(scorch_image(side, &burn));
+        let track_k = TRACK_PER_UNIT.min(TRACK_MAX / map.world_x().max(map.world_z()).max(1.0));
+        let track_side = (((map.world_x() * track_k).round() as usize).max(1), ((map.world_z() * track_k).round() as usize).max(1));
+        let track = vec![0u8; track_side.0 * track_side.1];
+        let tracks = images.add(track_image(track_side, &track));
         let material = mats.add(ExtendedMaterial {
             base: StandardMaterial { perceptual_roughness: 0.95, reflectance: 0.15, ..default() },
-            extension: SurfaceExt { params: params(map), albedo: albedo.clone(), masks: masks.clone(), roads: roads.clone(), scorch: scorch.clone() },
+            extension: SurfaceExt { params: params(map), albedo: albedo.clone(), masks: masks.clone(), roads: roads.clone(), scorch: scorch.clone(), roads2: roads2.clone(), centre: centre.clone(), tracks: tracks.clone() },
         });
-        SurfaceView { material, albedo, masks, roads, scorch, burn, burn_gen: 0, side, burn_dirty: false, burn_wait: 0.0, layers_dirty: false, masks_dirty: false, roads_dirty: false }
+        SurfaceView {
+            material,
+            albedo,
+            masks,
+            roads,
+            roads2,
+            centre,
+            scorch,
+            burn,
+            burn_gen: 0,
+            side,
+            burn_dirty: false,
+            burn_wait: 0.0,
+            layers_dirty: false,
+            masks_dirty: false,
+            roads_dirty: false,
+            tracks,
+            track_rows: vec![false; track_side.1],
+            track,
+            track_side,
+            track_k,
+            track_dirty: false,
+            track_wait: 0.0,
+            track_fade: 0.0,
+            track_secs: 90.0,
+            wet: 0.0,
+            snow: 0.0,
+        }
     }
 }
 
@@ -273,8 +429,19 @@ fn surface_sync(
     let Some(mut v) = view else { return };
     let v = &mut *v;
     let mut touched = false;
-    if mats.get(&v.material).is_some_and(|m| m.extension.params.quality != quality) {
+    if mats.get(&v.material).is_some_and(|m| m.extension.params.quality != quality || m.extension.params.wet != v.wet || m.extension.params.snow != v.snow) {
         touched = true;
+    }
+    v.track_wait -= time.delta_secs();
+    if v.track_wait <= 0.0 {
+        // Tracks fade and new ones show twice a second.
+        v.fade_tracks(0.5 - v.track_wait.min(0.0));
+        v.track_wait = 0.5;
+        if v.track_dirty {
+            let _ = images.insert(&v.tracks, track_image(v.track_side, &v.track));
+            v.track_dirty = false;
+            touched = true;
+        }
     }
     if v.layers_dirty || v.roads_dirty {
         // Road kinds are texture slots too.
@@ -283,7 +450,10 @@ fn surface_sync(
         touched = true;
     }
     if v.roads_dirty {
-        let _ = images.insert(&v.roads, road_image(&map));
+        let (r1, r2) = road_images(&map);
+        let _ = images.insert(&v.roads, r1);
+        let _ = images.insert(&v.roads2, r2);
+        let _ = images.insert(&v.centre, centre_image(&map));
         v.roads_dirty = false;
     }
     if v.masks_dirty {
@@ -305,6 +475,8 @@ fn surface_sync(
         if let Some(mut m) = mats.get_mut(&v.material) {
             m.extension.params = params(&map);
             m.extension.params.quality = quality;
+            m.extension.params.wet = v.wet;
+            m.extension.params.snow = v.snow;
         }
     }
 }
@@ -318,7 +490,7 @@ pub struct Tint {
     road_colors: Vec<[f32; 3]>,
     /// Texels across and deep of `roads` (0 without roads).
     road_side: (usize, usize),
-    roads: Vec<[u8; 4]>,
+    roads: Vec<[u8; MAX_ROAD_KINDS]>,
 }
 
 fn kind_color(id: &str) -> [f32; 3] {
@@ -542,6 +714,61 @@ fn texel(k: &Kind, u: f32, v: f32, px: i32, py: i32) -> ([f32; 3], f32) {
             let c = mul(base, 0.85 + 0.3 * (grain - 0.5) + 0.25 * (n - 0.5) + speck);
             (c, (0.5 * grain + 0.5 * n).clamp(0.0, 1.0))
         }
+        "asphalt_worn" => {
+            // Old, sun-bleached asphalt: darker rectangular repair patches, a few thin cracks, loose grit.
+            let n = tfbm(u, v, 8, 3, 141);
+            let (gx, gy) = (u * 5.0, v * 5.0);
+            let (ix, iy) = (gx.floor() as i32, gy.floor() as i32);
+            let (fx, fy) = (gx - ix as f32, gy - iy as f32);
+            let r = |j: u32| hash(ix.rem_euclid(5), iy.rem_euclid(5), 140 + j);
+            let (x0, y0) = (r(1) * 0.4, r(2) * 0.4);
+            let (x1, y1) = (x0 + 0.25 + r(3) * 0.35, y0 + 0.2 + r(4) * 0.3);
+            let inside = sm(0.0, 0.01, (fx - x0).min(x1 - fx).min(fy - y0).min(y1 - fy));
+            let patch = inside * (r(5) > 0.55) as u8 as f32;
+            let (c1, c2, _) = worley(u, v, 10, 144);
+            let crack = sm(0.035, 0.008, c2 - c1) * sm(0.45, 0.6, tfbm(u, v, 4, 2, 145)) * (1.0 - patch);
+            let speck = (grain > 0.92) as u8 as f32 * 0.5;
+            let k = (0.92 + 0.3 * (grain - 0.5) + 0.3 * (n - 0.5) + speck) * (1.0 - 0.3 * patch) * (1.0 - 0.5 * crack);
+            (mul(base, k), ((0.45 * grain + 0.55 * n) * (1.0 - 0.6 * crack) * (1.0 - 0.3 * patch)).clamp(0.0, 1.0))
+        }
+        "cobble" => {
+            // Setts in offset rows, eight rows per tile, rounded and each its own shade, sandy joints.
+            let (gx, gy) = (u * 6.0, v * 8.0);
+            let row = gy.floor();
+            let gx = gx + hash((row as i32).rem_euclid(8), 0, 151);
+            let (fx, fy) = (gx - gx.floor(), gy - row);
+            let e = (fx.min(1.0 - fx) * 8.0 / 6.0).min(fy.min(1.0 - fy));
+            let stone = sm(0.0, 0.2, e);
+            let id = ((gx.floor() as i32).rem_euclid(6), (row as i32).rem_euclid(8));
+            let tone = 0.65 + 0.7 * hash(id.0, id.1, 152);
+            let warm = hash(id.0, id.1, 153);
+            let n = tfbm(u, v, 12, 3, 154);
+            let joint = [0.16, 0.14, 0.11];
+            let sett = mix3(mul(base, tone), mul([base[0] * 1.2, base[1], base[2] * 0.75], tone), warm * 0.7);
+            (mix3(joint, mul(sett, 0.8 + 0.4 * n), sm(0.0, 0.07, e)), (stone * (0.75 + 0.25 * n)).clamp(0.0, 1.0))
+        }
+        "concrete" => {
+            // Road slabs, two across and three along a tile, with tar-filled joints and odd cracks.
+            let (gx, gy) = (u * 2.0, v * 3.0);
+            let (fx, fy) = (gx - gx.floor(), gy - gy.floor());
+            let joint = sm(0.018, 0.006, (fx.min(1.0 - fx) * 2.0 / 3.0).min(fy.min(1.0 - fy)));
+            let slab = hash(gx.floor() as i32, gy.floor() as i32, 161);
+            let n = tfbm(u, v, 8, 4, 162);
+            let (c1, c2, _) = worley(u, v, 7, 163);
+            let crack = sm(0.02, 0.005, c2 - c1) * (slab > 0.7) as u8 as f32;
+            let k = (0.86 + 0.22 * slab + 0.22 * (n - 0.5) + 0.08 * (grain - 0.5)) * (1.0 - 0.55 * joint) * (1.0 - 0.3 * crack);
+            (mul(base, k), ((1.0 - joint) * (0.55 + 0.35 * n) * (1.0 - 0.5 * crack)).clamp(0.0, 1.0))
+        }
+        "sidewalk" => {
+            // Small square tiles, six by six per tile, with light joints and a little wear.
+            let (gx, gy) = (u * 6.0, v * 6.0);
+            let (fx, fy) = (gx - gx.floor(), gy - gy.floor());
+            let joint = sm(0.05, 0.02, fx.min(1.0 - fx).min(fy).min(1.0 - fy));
+            let tile = hash(gx.floor() as i32, gy.floor() as i32, 171);
+            let n = tfbm(u, v, 6, 4, 172);
+            let k = (0.9 + 0.14 * tile + 0.2 * (n - 0.5) + 0.08 * (grain - 0.5)) * (1.0 - 0.35 * joint);
+            (mul(base, k), ((1.0 - joint) * (0.6 + 0.3 * n)).clamp(0.0, 1.0))
+        }
         _ => {
             let n = tfbm(u, v, 4, 4, 131);
             (mul(base, 0.8 + 0.4 * n), n)
@@ -703,5 +930,41 @@ mod tests {
         let (side, raster) = m.road_raster(1.0);
         assert_eq!(side, (m.world_x() as usize, m.world_z() as usize));
         assert!(raster.iter().any(|p| p[0] == 255));
+    }
+
+    /// Sidewalks survive the map.json line, get their own slot (drawn first), stay off the water;
+    /// main asphalt gets lane markings, dashed or solid by width.
+    #[test]
+    fn sidewalks_water_and_markings() {
+        use crate::surface::{parse_road, road_line, Road, SIDEWALK};
+        let mut m = MapData::generate(64, 3, 2);
+        m.roads.clear();
+        let r = Road { sidewalk: 1.2, ..Road::new("asphalt", 4.0, vec![v2(10.0, 40.0), v2(110.0, 40.0)]) };
+        let back = parse_road(&road_line(&r)).unwrap();
+        assert_eq!((back.kind.as_str(), back.width, back.sidewalk), ("asphalt", 4.0, 1.2));
+        assert_eq!(parse_road("dirt_road 2.50 0 0 5 5").unwrap().sidewalk, 0.0);
+        assert!(parse_road("asphalt 4+x 0 0 5 5").is_err());
+        m.roads.push(r);
+        m.roads.push(Road::new("dirt_road", 3.0, vec![v2(60.0, 10.0), v2(60.0, 110.0)]));
+        assert_eq!(m.road_kinds(), vec![SIDEWALK.to_string(), "dirt_road".into(), "asphalt".into()]);
+        let (side, px) = m.road_raster(1.0);
+        let at = |x: usize, z: usize| px[z * side.0 + x];
+        // Road centre: sidewalk (slot 0) and asphalt (slot 2); 2.5 off the centre: the sidewalk.
+        assert_eq!((at(30, 40)[0], at(30, 40)[2]), (255, 255));
+        assert!(at(30, 42)[0] > 200 && at(30, 42)[2] < 80, "{:?}", at(30, 42));
+        // Flood the map: nothing is drawn under water.
+        m.water = m.heights.iter().cloned().fold(f32::MIN, f32::max) + 1.0;
+        let (_, wet) = m.road_raster(1.0);
+        assert!(wet.iter().all(|p| p.iter().all(|c| *c == 0)));
+        m.water = -1000.0;
+        // Markings: the asphalt road (long and wide enough) has them, dashed; the track none.
+        let (cs, c) = m.centre_raster(1.0);
+        let t = c[40 * cs.0 + 30];
+        assert!(t[2] == 255 && t[3] < 128, "drawn and dashed: {t:?}");
+        assert!((t[1] as f32 / 255.0 * 8.0 - 4.0).abs() < 0.6, "offset from the centre line");
+        assert_eq!(c[60 * cs.0 + 60][2], 0, "no markings on the track");
+        m.roads[0].width = 7.0;
+        let (_, c) = m.centre_raster(1.0);
+        assert!(c[40 * cs.0 + 30][3] >= 128, "wide roads get a solid line");
     }
 }

@@ -356,6 +356,58 @@ impl Frame<'_> {
     fn d(&self, id: DefId) -> &UnitDef {
         self.defs.get(id)
     }
+    /// An attack circle, Ctrl+R style: the known enemies in it (seen or on radar) are shared out among
+    /// the armed non-artillery units of `ids`, each taking a run of nearby targets, about as many as
+    /// the others, then the rest of what it can hit nearest first (so it fights on until the circle is
+    /// clear). Returns (unit, orders); units left out (artillery, nothing to hit) shell the circle.
+    fn spread_attack(&self, ids: &[u32], c: V2, r: f32) -> Vec<(u32, Vec<Order>)> {
+        use crate::data::WeaponKind as K;
+        let mut units: Vec<&Info> = ids
+            .iter()
+            .filter_map(|id| self.infos.get(id))
+            .filter(|u| {
+                let d = self.d(u.def);
+                u.host == 0 && d.armed() && !d.is_scavenger() && !d.is_structure() && !d.weapons.iter().any(|w| matches!(w.kind, K::Arc | K::HighArc))
+            })
+            .collect();
+        units.sort_by_key(|u| u.id);
+        let mut targets: Vec<(u32, V2, Option<bool>)> = self
+            .seen
+            .iter()
+            .filter(|s| s.enemy && s.contact != Contact::Stale && s.pos.dist(c) <= r)
+            .map(|s| (s.id, s.pos, s.def.map(|d| self.d(d).is_air())))
+            .collect();
+        targets.sort_by_key(|t| t.0);
+        let hits = |u: &Info, air: Option<bool>| self.d(u.def).weapons.iter().any(|w| if air == Some(true) { w.hits_air } else { w.hits_land });
+        units.retain(|u| targets.iter().any(|t| hits(u, t.2)));
+        if units.is_empty() || targets.len() < 2 {
+            return vec![];
+        }
+        let cap = targets.len().div_ceil(units.len());
+        let mut lists: Vec<Vec<usize>> = vec![vec![]; units.len()];
+        let mut ends: Vec<V2> = units.iter().map(|u| u.pos).collect();
+        for (t, (_, pos, air)) in targets.iter().enumerate() {
+            let best = (0..units.len()).filter(|k| hits(units[*k], *air)).min_by(|a, b| {
+                let key = |k: usize| (lists[k].len() >= cap, ends[k].dist(*pos));
+                let (ka, kb) = (key(*a), key(*b));
+                ka.0.cmp(&kb.0).then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
+            });
+            if let Some(k) = best {
+                ends[k] = *pos;
+                lists[k].push(t);
+            }
+        }
+        (0..units.len())
+            .map(|k| {
+                let mut list = lists[k].clone();
+                let mut rest: Vec<usize> = (0..targets.len()).filter(|t| !list.contains(t) && hits(units[k], targets[*t].2)).collect();
+                let from = ends[k];
+                rest.sort_by(|a, b| targets[*a].1.dist(from).partial_cmp(&targets[*b].1.dist(from)).unwrap_or(std::cmp::Ordering::Equal));
+                list.extend(rest);
+                (units[k].id, list.into_iter().map(|t| Order::Attack(targets[t].0)).collect())
+            })
+            .collect()
+    }
     /// Those of `units` that can storm `s`, a visible building with enemy infantry inside.
     fn stormers(&self, units: &[&Info], s: &Seen) -> Vec<u32> {
         let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.enemy && s.contact == Contact::Visible) else { return vec![] };
@@ -1156,9 +1208,10 @@ fn binocular_cone(g: &mut Gizmos, map: &MapData, c: V2, yaw: f32, angle: f32, r:
 }
 
 /// Radar range rings, one per radar level (blue, violet, orange for levels 1-3).
-fn radar_rings(g: &mut Gizmos, map: &MapData, c: V2, d: &UnitDef, alpha: f32) {
+/// `k`: the weather's radar multiplier.
+fn radar_rings(g: &mut Gizmos, map: &MapData, c: V2, d: &UnitDef, alpha: f32, k: f32) {
     let cols = [(0.4, 0.7, 1.0), (0.75, 0.5, 1.0), (1.0, 0.6, 0.3)];
-    for (r, (cr, cg, cb)) in [d.radar, d.radar2, d.radar3].into_iter().zip(cols) {
+    for (r, (cr, cg, cb)) in [d.radar * k, d.radar2 * k, d.radar3 * k].into_iter().zip(cols) {
         if r > 0.0 {
             ring(g, map, c, r, Color::srgba(cr, cg, cb, alpha));
         }
@@ -1561,6 +1614,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
                             for (b, ids, _) in fr.occupy_area(&fr.selected(view), start, radius, true) {
                                 rest.retain(|id| !ids.contains(id));
                                 fr.send_in(b, ids, start, shift, out);
+                            }
+                            // Direct-fire units, missiles and planes share out the enemies in it.
+                            for (id, orders) in fr.spread_attack(&rest, start, radius) {
+                                rest.retain(|r| *r != id);
+                                out.push(Command::Orders { ids: vec![id], orders, queue: shift });
                             }
                         }
                         if !rest.is_empty() {
@@ -2123,9 +2181,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, u.pos, minr, Color::srgba(1.0, 0.6, 0.2, 0.4));
                 }
             }
-            radar_rings(g, map, u.pos, d, 0.6);
+            let wx = fr.defs.rules.weather_of(fr.game.weather);
+            radar_rings(g, map, u.pos, d, 0.6, wx.radar);
             if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
-                binocular_cone(g, map, u.pos, u.look, bd.angle.clamp(1.0, 170.0).to_radians(), bd.range, u.lock != 0);
+                binocular_cone(g, map, u.pos, u.look, bd.angle.clamp(1.0, 170.0).to_radians(), bd.range * wx.binoculars, u.lock != 0);
             }
             if d.is_station() {
                 ring(g, map, u.pos, d.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.6));
@@ -2272,7 +2331,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 for (r, c) in range_rings(df, 0.8) {
                     ring(g, map, *pt, r, c);
                 }
-                radar_rings(g, map, *pt, df, 0.8);
+                radar_rings(g, map, *pt, df, 0.8, fr.defs.rules.weather_of(fr.game.weather).radar);
                 if df.is_station() {
                     ring(g, map, *pt, df.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.8));
                 }
@@ -2682,6 +2741,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     let secs = game.tick / 10;
     let clock = hud.text(Pos2::new(sw - 10.0, 7.0), Align2::RIGHT_TOP, tr!("hud_top_bar.clock", secs / 60, secs % 60), font(14.0), rgba(205, 205, 205, 255));
+    // The weather, unless it is the first (clear) one: it shortens sight, so players should know.
+    if game.weather > 0 {
+        let wx = defs.rules.weather_of(game.weather);
+        hud.text(Pos2::new(clock.min.x - 110.0, 7.0), Align2::RIGHT_TOP, crate::i18n::weather_name(wx), font(14.0), rgba(170, 200, 235, 255));
+    }
     {
         let r = rect(clock.min.x - 100.0, 4.0, 86.0, TOP - 8.0);
         let hov = r.contains(mouse) && !view.menu_open && !view.settings_open;
@@ -2745,11 +2809,57 @@ pub fn ui_system(mut p: UiParams) -> Result {
             hud.text(Pos2::new(x + w * 0.5, y + 30.0), Align2::CENTER_CENTER, &line, font(12.0), c);
         }
     }
-    for (k, pl) in game.players.iter().enumerate() {
-        let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
-        let score = if game.mode == MODE_POINTS { tr!("hud_top_bar.points_left", game.scores.get(pl.team as usize).copied().unwrap_or(0.0)) } else { String::new() };
-        let t = tr!("hud_top_bar.player_line", pl.name, if pl.alive { "" } else { tr!("hud_top_bar.player_defeated") }, pl.team + 1, score);
-        hud.text(Pos2::new(sw - 10.0, TOP + 6.0 + k as f32 * 16.0), Align2::RIGHT_TOP, t, font(13.0), if pl.alive { c } else { rgba(130, 130, 130, 255) });
+    // Player list: one row per player on a dark translucent panel. Columns: colour, name, team,
+    // points left (control points mode), and the mass and energy income when the lobby made it
+    // public (`Game.eco_public`) or for observers.
+    {
+        let show_eco = observer || game.eco_public;
+        let row_h = 18.0;
+        let pad = 7.0;
+        let fnt = font(13.0);
+        let width = |t: &str| hud.layout_no_wrap(t.to_string(), fnt.clone(), Color32::WHITE).size().x;
+        let names: Vec<String> = game.players.iter().map(|pl| if pl.alive { pl.name.clone() } else { format!("{}{}", pl.name, tr!("hud_top_bar.player_defeated")) }).collect();
+        let name_w = names.iter().map(|n| width(n)).fold(60.0, f32::max);
+        let team_w = 28.0;
+        let pts_w = if game.mode == MODE_POINTS { 50.0 } else { 0.0 };
+        let eco_w = if show_eco { 62.0 } else { 0.0 };
+        let w = pad + 10.0 + 6.0 + name_w + 10.0 + team_w + pts_w + eco_w * 2.0 + pad;
+        let x0 = sw - 8.0 - w;
+        let y0 = TOP + 4.0;
+        let h = pad * 2.0 - 4.0 + row_h * game.players.len() as f32;
+        if !game.players.is_empty() {
+            hud.rect_filled(rect(x0, y0, w, h), 4.0, rgba(0, 0, 0, 150));
+        }
+        for (k, pl) in game.players.iter().enumerate() {
+            let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
+            let dim = rgba(130, 130, 130, 255);
+            let y = y0 + pad - 2.0 + k as f32 * row_h;
+            let cy = y + row_h * 0.5;
+            if pl.team == team && !observer {
+                hud.rect_filled(rect(x0 + 2.0, y, w - 4.0, row_h), 2.0, rgba(255, 255, 255, 18));
+            }
+            let mut x = x0 + pad;
+            hud.rect_filled(rect(x, cy - 5.0, 10.0, 10.0), 2.0, if pl.alive { c } else { dim });
+            x += 16.0;
+            hud.text(Pos2::new(x, cy), Align2::LEFT_CENTER, &names[k], fnt.clone(), if pl.alive { Color32::WHITE } else { dim });
+            x += name_w + 10.0;
+            hud.text(Pos2::new(x, cy), Align2::LEFT_CENTER, format!("T{}", pl.team + 1), font(12.0), if pl.alive { rgba(190, 190, 190, 255) } else { dim });
+            x += team_w;
+            if game.mode == MODE_POINTS {
+                let sc = game.scores.get(pl.team as usize).copied().unwrap_or(0.0);
+                hud.text(Pos2::new(x + pts_w - 6.0, cy), Align2::RIGHT_CENTER, format!("{:.0}", sc.ceil()), font(12.0), if pl.alive { rgba(215, 215, 215, 255) } else { dim });
+                x += pts_w;
+            }
+            if show_eco {
+                for (name, inc, col) in [("mass", pl.income_m, rgba(190, 215, 240, 255)), ("energy", pl.income_e, rgba(255, 215, 65, 255))] {
+                    if let Some(tx) = res_tex.get(name) {
+                        hud.image(tx.id(), rect(x, cy - 7.0, 14.0, 14.0), UV, if pl.alive { col } else { dim });
+                    }
+                    hud.text(Pos2::new(x + eco_w - 4.0, cy), Align2::RIGHT_CENTER, format!("+{:.1}", if pl.alive { inc } else { 0.0 }), font(12.0), if pl.alive { rgba(110, 255, 130, 255) } else { dim });
+                    x += eco_w;
+                }
+            }
+        }
     }
 
     // --- minimap
@@ -3542,6 +3652,22 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if out[out_before.min(out.len())..].iter().any(|c| matches!(c, Command::Orders { .. })) {
         p.ui_sounds.0.push(("ack", 0.4));
     }
+    // Ctrl held while giving orders (not a Ctrl+key shortcut, not building, where Ctrl changes the
+    // spots): the units move in step, at the pace of the slowest of them.
+    let shortcut = p.keys.get_just_pressed().any(|k| !matches!(k, KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::AltLeft | KeyCode::AltRight));
+    if ctrl && !shortcut {
+        let mut ids: Vec<u32> = vec![];
+        for c in &out[out_before.min(out.len())..] {
+            if let Command::Orders { ids: i, orders, .. } = c {
+                if !orders.iter().any(|o| matches!(o, Order::Build { .. })) {
+                    ids.extend(i.iter().filter(|id| !ids.contains(id)).copied().collect::<Vec<_>>());
+                }
+            }
+        }
+        if ids.len() > 1 {
+            out.push(Command::Pace { ids });
+        }
+    }
 
     // --- mode hint, banners
     let label = match view.mode {
@@ -3626,6 +3752,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             tr!("hud_help.select_ctrl_a_air_ctrl_d"),
             tr!("hud_help.ctrl_shift_d_a_nearest_land"),
             tr!("hud_help.ctrl_r_distribute"),
+            tr!("hud_help.ctrl_move_in_step"),
             tr!("hud_help.build_menu_click_then_click_the"),
             tr!("hud_help.factory_menu_left_click_queues"),
             tr!("hud_help.ctrl_0_9_set_group_0"),
@@ -3707,8 +3834,10 @@ const REPLAY_SPEED: (f32, f32) = (0.25, 32.0);
 
 /// A playback speed rounded to a value that reads well: x0.35, x1.75, x6.
 fn round_speed(v: f32) -> f32 {
-    let step = if v < 1.0 { 0.05 } else if v < 4.0 { 0.25 } else { 1.0 };
-    ((v / step).round() * step).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
+    // Steps per unit (1/20, 1/4, 1): dividing by a whole number gives the nearest float to
+    // 0.9, where multiplying by 0.05 printed 0.90000004.
+    let per = if v < 1.0 { 20.0 } else if v < 4.0 { 4.0 } else { 1.0 };
+    ((v * per).round() / per).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
 }
 
 /// Replay controls at the bottom, right of the minimap, with `bottom` the lowest y they may take:

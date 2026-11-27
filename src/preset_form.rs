@@ -74,6 +74,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("sight_blocked_by_terrain", tx!("preset_rules.switch_sight_blocked_by_terrain"), tx!("preset_rules.switch_sight_blocked_by_terrain_tip")),
     yes("sight_blocked_by_reclaimables", tx!("preset_rules.switch_sight_blocked_by_reclaimables"), tx!("preset_rules.switch_sight_blocked_by_reclaimables_tip")),
     yes("sight_blocked_by_buildings", tx!("preset_rules.switch_sight_blocked_by_buildings"), tx!("preset_rules.switch_sight_blocked_by_buildings_tip")),
+    yes("rubble_blocks_paths", tx!("preset_rules.switch_rubble_blocks_paths"), tx!("preset_rules.switch_rubble_blocks_paths_tip")),
     yes("radar_blocked_by_terrain", tx!("preset_rules.switch_radar_blocked_by_terrain"), tx!("preset_rules.switch_radar_blocked_by_terrain_tip")),
     yes("counter_battery", tx!("preset_rules.switch_counter_battery"), tx!("preset_rules.switch_counter_battery_tip")),
     yes("ghosts_show_destroyed", tx!("preset_rules.switch_ghosts_show_destroyed"), tx!("preset_rules.switch_ghosts_show_destroyed_tip")),
@@ -117,7 +118,7 @@ pub const RULE_INTEL: &[Field] = &[
 pub const RULE_WRECKS: &[Field] = &[
     num("wreck_mass_fraction", tx!("preset_rules.wrecks_wreck_mass_fraction"), 0.6, 10.0, tx!("preset_rules.wrecks_wreck_mass_fraction_tip")),
     f("max_wrecks", tx!("preset_rules.wrecks_max_wrecks"), Kind::Int(400, 0, 100000), tx!("preset_rules.wrecks_max_wrecks_tip")),
-    num("wreck_hp", tx!("preset_rules.wrecks_wreck_hp"), 0.5, 100.0, tx!("preset_rules.wrecks_wreck_hp_tip")),
+    num("rubble_push", tx!("preset_rules.wrecks_rubble_push"), 0.25, 10.0, tx!("preset_rules.wrecks_rubble_push_tip")),
     num("revive_cooldown", tx!("preset_rules.wrecks_revive_cooldown"), 60.0, 3600.0, tx!("preset_rules.wrecks_revive_cooldown_tip")),
     num("wreck_cover", tx!("preset_rules.wrecks_wreck_cover"), 0.5, 1.0, tx!("preset_rules.wrecks_wreck_cover_tip")),
     num("tree_fall", tx!("preset_rules.wrecks_tree_fall"), 0.25, 10.0, tx!("preset_rules.wrecks_tree_fall_tip")),
@@ -165,6 +166,29 @@ pub const FEATURE_FIELDS: &[Field] = &[
     num("weight", tx!("preset_rules.feature_weight"), 1.0, 1000.0, tx!("preset_rules.feature_weight_tip")),
     f("color", tx!("preset_rules.feature_color"), Kind::Color([0.2, 0.4, 0.2]), tx!("preset_rules.feature_color_tip")),
     f("trunk", tx!("preset_rules.feature_trunk"), Kind::Color([0.33, 0.24, 0.16]), tx!("preset_rules.feature_trunk_tip")),
+];
+
+/// One weather (`rules.json: weather`, `data::WeatherDef`).
+pub const WEATHER_FIELDS: &[Field] = &[
+    f("id", tx!("preset_rules.weather_id"), Kind::Text, tx!("preset_rules.weather_id_tip")),
+    f("name", tx!("preset_rules.weather_name"), Kind::Text, tx!("preset_rules.weather_name_tip")),
+    f("desc", tx!("preset_rules.weather_desc"), Kind::Text, tx!("preset_rules.weather_desc_tip")),
+    num("vision", tx!("preset_rules.weather_vision"), 1.0, 10.0, tx!("preset_rules.weather_vision_tip")),
+    num("binoculars", tx!("preset_rules.weather_binoculars"), 1.0, 10.0, tx!("preset_rules.weather_binoculars_tip")),
+    num("radar", tx!("preset_rules.weather_radar"), 1.0, 10.0, tx!("preset_rules.weather_radar_tip")),
+    num("spotting", tx!("preset_rules.weather_spotting"), 1.0, 100.0, tx!("preset_rules.weather_spotting_tip")),
+    num("spread", tx!("preset_rules.weather_spread"), 1.0, 100.0, tx!("preset_rules.weather_spread_tip")),
+    num("speed", tx!("preset_rules.weather_speed"), 1.0, 10.0, tx!("preset_rules.weather_speed_tip")),
+    num("tracks", tx!("preset_rules.weather_tracks"), 1.0, 10.0, tx!("preset_rules.weather_tracks_tip")),
+    num("track_secs", tx!("preset_rules.weather_track_secs"), 90.0, 100000.0, tx!("preset_rules.weather_track_secs_tip")),
+    f("sky", tx!("preset_rules.weather_sky"), Kind::Text, tx!("preset_rules.weather_sky_tip")),
+    num("light", tx!("preset_rules.weather_light"), 1.0, 2.0, tx!("preset_rules.weather_light_tip")),
+    num("haze", tx!("preset_rules.weather_haze"), 0.0, 100000.0, tx!("preset_rules.weather_haze_tip")),
+    num("rain", tx!("preset_rules.weather_rain"), 0.0, 1.0, tx!("preset_rules.weather_rain_tip")),
+    num("snow", tx!("preset_rules.weather_snow"), 0.0, 1.0, tx!("preset_rules.weather_snow_tip")),
+    num("wind", tx!("preset_rules.weather_wind"), 0.0, 1.0, tx!("preset_rules.weather_wind_tip")),
+    num("wet", tx!("preset_rules.weather_wet"), 0.0, 1.0, tx!("preset_rules.weather_wet_tip")),
+    num("cover", tx!("preset_rules.weather_cover"), 0.0, 1.0, tx!("preset_rules.weather_cover_tip")),
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -644,6 +668,7 @@ pub fn rules_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     section(ui, tr!("preset_rules.control_points_mode"), false, |ui| ch |= grid(ui, v, RULE_POINTS, ctx, "cp"));
     section(ui, tr!("preset_rules.armor_table"), false, |ui| ch |= armor_table(ui, v));
     section(ui, tr!("common.trees_and_rocks"), false, |ui| ch |= features(ui, v, ctx));
+    section(ui, tr!("preset_rules.weather"), false, |ui| ch |= weathers(ui, v, ctx));
     section(ui, tr!("preset_rules.colours"), false, |ui| ch |= colours(ui, v));
     ch
 }
@@ -706,6 +731,45 @@ fn features(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
         changed = true;
     }
     if let Some(k) = remove {
+        list.remove(k);
+        changed = true;
+    }
+    changed
+}
+
+/// The weather the lobby offers: one block per weather, copied or removed like the features.
+fn weathers(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
+    let mut changed = false;
+    ui.label(egui::RichText::new(tr!("preset_rules.weather_hint")).weak());
+    if !v["weather"].is_array() {
+        // A preset made before weather existed plays with the built-in list: start from that.
+        let builtin: Value = serde_json::from_slice(include_bytes!("../assets/data/rules.json")).unwrap_or_default();
+        v["weather"] = builtin.get("weather").cloned().unwrap_or_else(|| json!([{ "id": "clear", "name": "Clear" }]));
+    }
+    let list = v["weather"].as_array_mut().unwrap();
+    let mut remove = None;
+    let mut copy = None;
+    for (k, w) in list.iter_mut().enumerate() {
+        let title = format!("{}  ({})", w["name"].as_str().unwrap_or("?"), w["id"].as_str().unwrap_or("?"));
+        egui::CollapsingHeader::new(title).id_salt(("weather", k)).show(ui, |ui| {
+            changed |= grid(ui, w, WEATHER_FIELDS, ctx, &format!("weather{k}"));
+            ui.horizontal(|ui| {
+                if ui.button(tr!("preset_rules.feature_copy")).on_hover_text(tr!("preset_rules.weather_copy_tip")).clicked() {
+                    copy = Some(k);
+                }
+                if ui.button(tr!("preset_rules.feature_remove")).on_hover_text(tr!("preset_rules.weather_remove_tip")).clicked() {
+                    remove = Some(k);
+                }
+            });
+        });
+    }
+    if let Some(k) = copy {
+        let mut c = list[k].clone();
+        c["id"] = json!(format!("{}_copy", c["id"].as_str().unwrap_or("weather")));
+        list.insert(k + 1, c);
+        changed = true;
+    }
+    if let Some(k) = remove.filter(|_| list.len() > 1) {
         list.remove(k);
         changed = true;
     }

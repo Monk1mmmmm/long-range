@@ -396,7 +396,8 @@ pub fn grass_sync(
     let focus = view_point(&map, &cam);
     let fp = Vec2::new(focus.x, focus.z);
     let height_fade = 1.0 - ((cam.translation.y - map.h(v2(cam.translation.x, cam.translation.z)).max(map.water) - MAX_CAM * 0.75) / (MAX_CAM * 0.25)).clamp(0.0, 1.0);
-    let low = height_fade > 0.0 && level > 0;
+    // Snow weather buries the grass.
+    let low = height_fade > 0.0 && level > 0 && surface.snow < 0.5;
     // The material: made once per map; its uniform follows the view every frame.
     let scorch = surface.scorch();
     let mat = match state.mat.clone() {

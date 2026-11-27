@@ -20,6 +20,10 @@
 //! leaves (`near_drop`). At high detail all of them at once came to gigabytes on a big forest map and
 //! lost the device (DeviceLost on a GT 730 / Vulkan). A chunk without a detailed mesh shows the
 //! low-detail one at every distance (its `VisibilityRange` is only there while the other exists).
+//! Chunks in the camera's view (`FloraView::frustum`) come first; off-view ones get a detailed mesh
+//! only right round the camera (`OFF_VIEW_KEEP`), lose it beyond `OFF_VIEW_DROP`, and are the first
+//! given up when the budget is spent. Detailed meshes are built on the compute threads (`Job`), so
+//! streaming ultra chunks does not stall frames; chunk meshes are indexed (`Packed`).
 //!
 //! Vertex UVs hold the feature's map position, so the fog-of-war texture (whose colour channels
 //! carry the brightness, see `intel.rs`) darkens features in the fog like the terrain.
@@ -43,11 +47,13 @@ pub const FLORA_CHUNK: usize = 16;
 
 /// Camera distance to a chunk's centre (world units) over which its detailed mesh fades into the
 /// low-detail one. At the closest zoom chunks around the view centre are about 45-100 away.
-pub const LOD_FADE: std::ops::Range<f32> = 170.0..210.0;
+pub const LOD_FADE: std::ops::Range<f32> = 180.0..220.0;
 
-/// `LOD_FADE` at a detail level: ultra models are heavy, so they only show close to the camera.
+/// `LOD_FADE` at a detail level. Ultra models are heavy, but only chunks in view get them (and the
+/// meshes are indexed), so they reach nearly as far: a short ring showed low-poly trees right
+/// beside detailed ones at an ordinary zoom.
 pub fn lod_fade(detail: u8) -> std::ops::Range<f32> {
-    if detail >= 3 { 110.0..140.0 } else { LOD_FADE }
+    if detail >= 3 { 165.0..200.0 } else { LOD_FADE }
 }
 
 /// A chunk gets its detailed mesh only while the camera is within this distance of its centre (a
@@ -55,21 +61,28 @@ pub fn lod_fade(detail: u8) -> std::ops::Range<f32> {
 /// low-detail mesh exists. At high detail the whole map's detailed meshes came to gigabytes of vertex
 /// data (frankivsk: 20 million triangles), which lost the device on small GPUs.
 fn near_range(detail: u8) -> f32 {
-    lod_fade(detail).end + 30.0
+    lod_fade(detail).end + 25.0
 }
 /// A detailed mesh is dropped again beyond this distance (hysteresis, so a camera hovering at the
 /// edge does not rebuild it over and over).
 fn near_drop(detail: u8) -> f32 {
-    near_range(detail) + 50.0
+    near_range(detail) + 40.0
 }
-/// Most vertices all detailed chunk meshes together may hold (48 bytes each, about 190 MB).
+/// Chunks out of the camera's view get a detailed mesh only within this distance (turning the
+/// camera a little should not show low-poly trees at its feet); those further out are made only
+/// once they come into view, and are the first dropped when the budget runs out.
+const OFF_VIEW_KEEP: f32 = 70.0;
+/// Off-view detailed meshes further than this are dropped (hysteresis to `OFF_VIEW_KEEP`).
+const OFF_VIEW_DROP: f32 = 110.0;
+/// Added to an off-view chunk's distance when ranking which chunks deserve a detailed mesh.
+const OFF_VIEW_PENALTY: f32 = 1000.0;
+/// Most vertices all detailed chunk meshes together may hold (48 bytes each).
 fn near_budget(detail: u8) -> usize {
-    if detail >= 3 { 10_000_000 } else { 4_000_000 }
+    if detail >= 3 { 9_000_000 } else { 4_000_000 }
 }
-/// Detailed chunks are streamed in every this many frames, at most `STREAM_PER_CALL` at a time.
-const STREAM_EVERY: u32 = 2;
-fn per_call(detail: u8) -> usize {
-    if detail >= 3 { 1 } else { 4 }
+/// Detailed chunk meshes are built on the compute threads, at most this many at a time.
+fn max_jobs(detail: u8) -> usize {
+    if detail >= 3 { 3 } else { 6 }
 }
 
 /// The mesh entity of the features in the chunk starting at cell (cx, cy).
@@ -88,6 +101,63 @@ struct Model {
     pos: Vec<Vec3>,
     nrm: Vec<Vec3>,
     col: Vec<[f32; 3]>,
+}
+
+/// A model as an indexed mesh: corners that several triangles share (same position, normal and
+/// colour: tubes, leaves) are stored once. Ultra trees need about half the vertices this way.
+#[derive(Default, Clone)]
+struct Packed {
+    pos: Vec<Vec3>,
+    nrm: Vec<Vec3>,
+    col: Vec<[f32; 3]>,
+    idx: Vec<u32>,
+}
+
+fn pack(m: &Model) -> Packed {
+    let mut out = Packed::default();
+    let mut seen: std::collections::HashMap<[u32; 9], u32> = std::collections::HashMap::with_capacity(m.pos.len());
+    for v in 0..m.pos.len() {
+        let (p, n, c) = (m.pos[v], m.nrm[v], m.col[v]);
+        let key = [p.x, p.y, p.z, n.x, n.y, n.z, c[0], c[1], c[2]].map(f32::to_bits);
+        let i = *seen.entry(key).or_insert_with(|| {
+            out.pos.push(p);
+            out.nrm.push(n);
+            out.col.push(c);
+            out.pos.len() as u32 - 1
+        });
+        out.idx.push(i);
+    }
+    out
+}
+
+/// Every model the chunk meshes are made of: per feature type of `rules.features`, its variants.
+/// Shared with the threads that build detailed chunk meshes.
+#[derive(Default)]
+struct ModelSet {
+    models: Vec<Vec<Packed>>,
+    /// The same at low detail, for distant chunks (empty when the detail is already low).
+    far: Vec<Vec<Packed>>,
+    /// `models` / `far` blasted (`ruin`): trees stripped and charred (upright: `fallen_pose`
+    /// lays them down), rocks broken into rubble.
+    ruined: Vec<Vec<Packed>>,
+    far_ruined: Vec<Vec<Packed>>,
+}
+
+impl ModelSet {
+    fn new(defs: &Defs, detail: u8) -> ModelSet {
+        let packs = |ms: &[Vec<Model>]| ms.iter().map(|vs| vs.iter().map(pack).collect()).collect();
+        let models = build_models(defs, detail);
+        let far = if detail > 0 { build_models(defs, 0) } else { vec![] };
+        ModelSet { ruined: packs(&ruin_models(defs, &models)), far_ruined: packs(&ruin_models(defs, &far)), models: packs(&models), far: packs(&far) }
+    }
+}
+
+/// A detailed chunk mesh being built on a compute thread.
+struct Job {
+    at: (usize, usize),
+    /// The detailed mesh entity whose mesh it replaces (a rebuild); `None`: a new one (streaming).
+    target: Option<(Entity, Handle<Mesh>)>,
+    task: bevy::tasks::Task<Option<Mesh>>,
 }
 
 /// What the view draws of the features.
@@ -109,18 +179,15 @@ pub struct FloraView {
     /// Where the camera is (set by whoever draws: the game or the editor); the detailed meshes are
     /// streamed in around it. `None`: only low-detail meshes are made.
     pub cam: Option<Vec3>,
+    /// What the camera sees: chunks in it get their detailed meshes first. `None`: all count as seen.
+    pub frustum: Option<bevy::camera::primitives::Frustum>,
     /// Chunks (corner cell) that have a detailed mesh, with its vertex count (only with LOD).
     near_verts: std::collections::HashMap<(usize, usize), usize>,
-    /// Frame counter for `STREAM_EVERY`.
-    frame: u32,
-    /// Models per feature type of `rules.features`.
-    models: Vec<Vec<Model>>,
-    /// The same at low detail, for distant chunks (empty when `detail` is already low).
-    far_models: Vec<Vec<Model>>,
-    /// `models` / `far_models` blasted (`ruin`): trees stripped and charred (upright: `fallen_pose`
-    /// lays them down), rocks broken into rubble.
-    ruined: Vec<Vec<Model>>,
-    far_ruined: Vec<Vec<Model>>,
+    /// Detailed meshes being built.
+    jobs: Vec<Job>,
+    /// `buckets` as last worked out; cleared by `mark` and whenever features come or go.
+    bucket_cache: Option<std::sync::Arc<(usize, Vec<Vec<u32>>)>>,
+    set: std::sync::Arc<ModelSet>,
     /// Per map feature: `sim::FeatureState::fall` as drawn (0 standing).
     pub fall: Vec<u8>,
     /// Trees in the air (`Flying`): not drawn in their chunk until they land.
@@ -206,11 +273,9 @@ impl FloraView {
         ds.cull_mode = None;
         let material_ds = materials.add(ds);
         let detail = detail.min(3);
-        let far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
-        let models = build_models(defs, detail);
-        let (ruined, far_ruined) = (ruin_models(defs, &models), ruin_models(defs, &far_models));
+        let set = std::sync::Arc::new(ModelSet::new(defs, detail));
         let shapes = defs.rules.features.iter().map(|d| d.shape).collect();
-        FloraView { material, material_ds, shown, models, far_models, ruined, far_ruined, detail, shapes, ..default() }
+        FloraView { material, material_ds, shown, set, detail, shapes, ..default() }
     }
     /// Mesh levels a chunk has: `false` the detailed one, `true` the distant one.
     fn levels(&self) -> &'static [bool] {
@@ -221,14 +286,13 @@ impl FloraView {
         let detail = detail.min(3);
         if detail != self.detail {
             self.detail = detail;
-            self.models = build_models(defs, detail);
-            self.far_models = if detail > 0 { build_models(defs, 0) } else { vec![] };
-            self.ruined = ruin_models(defs, &self.models);
-            self.far_ruined = ruin_models(defs, &self.far_models);
+            self.set = std::sync::Arc::new(ModelSet::new(defs, detail));
+            self.jobs.clear();
             self.all_dirty = true;
         }
     }
     pub fn mark(&mut self, c: (usize, usize)) {
+        self.bucket_cache = None;
         if !self.dirty.contains(&c) {
             self.dirty.push(c);
         }
@@ -254,17 +318,30 @@ pub fn chunk_of(map: &MapData, p: V2) -> (usize, usize) {
     ((cx.clamp(0, last) as usize / FLORA_CHUNK) * FLORA_CHUNK, (cy.clamp(0, last_y) as usize / FLORA_CHUNK) * FLORA_CHUNK)
 }
 
-/// The shown features of every chunk: chunk (x, y) is at index `y * side + x`. Returns (side, lists).
-fn buckets(map: &MapData, view: &FloraView) -> (usize, Vec<Vec<u32>>) {
+/// The shown features of every chunk: chunk (x, y) is at index `y * side + x`, as (side, lists).
+/// Kept until a chunk is marked: going through every feature of a big map each frame was wasted.
+fn buckets(map: &MapData, view: &mut FloraView) -> std::sync::Arc<(usize, Vec<Vec<u32>>)> {
     let side = map.nx.div_ceil(FLORA_CHUNK).max(1);
-    let mut out = vec![vec![]; side * map.ny.div_ceil(FLORA_CHUNK).max(1)];
+    let n = side * map.ny.div_ceil(FLORA_CHUNK).max(1);
+    if let Some(b) = &view.bucket_cache {
+        if b.0 == side && b.1.len() == n {
+            return b.clone();
+        }
+    }
+    let mut out = vec![vec![]; n];
     for (i, f) in map.features.iter().enumerate() {
         if view.shown.get(i).copied().unwrap_or(true) && !view.flying.contains(&(i as u32)) {
             let (cx, cy) = chunk_of(map, f.pos);
             out[(cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK].push(i as u32);
         }
     }
-    (side, out)
+    let b = std::sync::Arc::new((side, out));
+    view.bucket_cache = Some(b.clone());
+    b
+}
+
+fn list_at(b: &(usize, Vec<Vec<u32>>), at: (usize, usize)) -> &[u32] {
+    b.1.get((at.1 / FLORA_CHUNK) * b.0 + at.0 / FLORA_CHUNK).map_or(&[][..], |l| &l[..])
 }
 
 fn hash(i: u64, salt: u64) -> f32 {
@@ -525,47 +602,95 @@ fn chunk_origin(map: &MapData, cx: usize, cy: usize) -> Vec3 {
     c.at(map.h(c))
 }
 
-/// The mesh of the given features (one chunk's) at a level (`far`: low detail), relative to the
-/// chunk's centre, or `None` if there are none.
-fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], origin: Vec3, far: bool) -> Option<Mesh> {
+/// One feature placed in a chunk mesh: which model, where (relative to the chunk's centre), how
+/// turned, scaled and tinted.
+struct Inst {
+    k: usize,
+    variant: usize,
+    ruined: bool,
+    at: Vec3,
+    rot: Quat,
+    scale: f32,
+    tint: [f32; 3],
+    uv: [f32; 2],
+}
+
+/// The features of one chunk as placed models (needs the map: done before a mesh is built elsewhere).
+fn instances(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], origin: Vec3) -> Vec<Inst> {
     let world = map.size();
-    let (mut pos, mut nrm, mut col, mut uv) = (vec![], vec![], vec![], vec![]);
+    let mut out = Vec::with_capacity(list.len());
     for &i in list {
         let Some(f) = map.features.get(i as usize) else { continue };
         let Some(Some(k)) = kinds.get(f.kind as usize) else { continue };
         let fall = view.fall.get(i as usize).copied().unwrap_or(0);
-        let models = match (far, fall != 0) {
-            (false, false) => &view.models,
-            (true, false) => &view.far_models,
-            (false, true) => &view.ruined,
-            (true, true) => &view.far_ruined,
-        };
-        let Some(variants) = models.get(*k) else { continue };
-        let model = &variants[(hash(i as u64, 11) * VARIANTS as f32) as usize % VARIANTS];
         let (rot, lift) = if fall != 0 { fallen_pose(view.shapes.get(*k).copied().unwrap_or(FeatureShape::Pine), f.yaw, fall, f.scale) } else { (Quat::from_rotation_y(f.yaw), 0.0) };
-        let at = f.pos.at(map.h(f.pos) + lift) - origin;
         let tint = 0.86 + 0.26 * hash(i as u64, 12);
         // High detail: trees differ in hue too (some yellower, some bluer).
         let hue = if view.detail >= 2 { 0.2 * (hash(i as u64, 13) - 0.5) } else { 0.0 };
-        let tint3 = [tint * (1.0 + hue), tint, tint * (1.0 - hue)];
-        let t = [f.pos.x / world.x.max(1.0), f.pos.y / world.y.max(1.0)];
-        for v in 0..model.pos.len() {
-            pos.push((at + rot * (model.pos[v] * f.scale)).to_array());
-            nrm.push((rot * model.nrm[v]).to_array());
-            let c = model.col[v];
-            col.push([c[0] * tint3[0], c[1] * tint3[1], c[2] * tint3[2], 1.0]);
-            uv.push(t);
-        }
+        out.push(Inst {
+            k: *k,
+            variant: (hash(i as u64, 11) * VARIANTS as f32) as usize % VARIANTS,
+            ruined: fall != 0,
+            at: f.pos.at(map.h(f.pos) + lift) - origin,
+            rot,
+            scale: f.scale,
+            tint: [tint * (1.0 + hue), tint, tint * (1.0 - hue)],
+            uv: [f.pos.x / world.x.max(1.0), f.pos.y / world.y.max(1.0)],
+        });
     }
-    if pos.is_empty() {
+    out
+}
+
+/// The indexed mesh of placed models at a level (`far`: low detail), or `None` if there are none.
+fn assemble(set: &ModelSet, insts: &[Inst], far: bool) -> Option<Mesh> {
+    let pick = |n: &Inst| {
+        let models = match (far, n.ruined) {
+            (false, false) => &set.models,
+            (true, false) => &set.far,
+            (false, true) => &set.ruined,
+            (true, true) => &set.far_ruined,
+        };
+        models.get(n.k).and_then(|v| v.get(n.variant))
+    };
+    let (verts, tris) = insts.iter().filter_map(pick).fold((0, 0), |(v, t), m| (v + m.pos.len(), t + m.idx.len()));
+    if tris == 0 {
         return None;
+    }
+    let (mut pos, mut nrm, mut col, mut uv) = (Vec::with_capacity(verts), Vec::with_capacity(verts), Vec::with_capacity(verts), Vec::with_capacity(verts));
+    let mut idx: Vec<u32> = Vec::with_capacity(tris);
+    for n in insts {
+        let Some(model) = pick(n) else { continue };
+        let base = pos.len() as u32;
+        idx.extend(model.idx.iter().map(|i| base + i));
+        for v in 0..model.pos.len() {
+            pos.push((n.at + n.rot * (model.pos[v] * n.scale)).to_array());
+            nrm.push((n.rot * model.nrm[v]).to_array());
+            let c = model.col[v];
+            col.push([c[0] * n.tint[0], c[1] * n.tint[1], c[2] * n.tint[2], 1.0]);
+            uv.push(n.uv);
+        }
     }
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
+    mesh.insert_indices(bevy::mesh::Indices::U32(idx));
     Some(mesh)
+}
+
+/// The mesh of the given features (one chunk's) at a level (`far`: low detail), relative to the
+/// chunk's centre, or `None` if there are none.
+fn chunk_mesh(map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], origin: Vec3, far: bool) -> Option<Mesh> {
+    assemble(&view.set, &instances(map, kinds, view, list, origin), far)
+}
+
+/// Starts building the detailed mesh of the chunk at `at` on a compute thread.
+fn start_job(map: &MapData, kinds: &[Option<usize>], view: &mut FloraView, list: &[u32], at: (usize, usize), target: Option<(Entity, Handle<Mesh>)>) {
+    let insts = instances(map, kinds, view, list, chunk_origin(map, at.0, at.1));
+    let set = view.set.clone();
+    let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move { assemble(&set, &insts, false) });
+    view.jobs.push(Job { at, target, task });
 }
 
 fn kinds_of(map: &MapData, defs: &Defs) -> Vec<Option<usize>> {
@@ -601,38 +726,27 @@ fn vis_near(detail: u8) -> VisibilityRange {
     VisibilityRange { start_margin: 0.0..0.0, end_margin: lod_fade(detail), use_aabb: false }
 }
 
-/// Spawns the mesh entities of the chunk at cell (cx, cy), if it has features: with LOD the
-/// low-detail one, and the detailed one only when `near` and the camera is close (within the vertex
-/// budget). Returns the vertices of the detailed mesh made (0: none).
+/// Spawns the mesh entity of the chunk at cell (cx, cy), if it has features: with LOD the
+/// low-detail one (`stream_near` adds the detailed one as the camera comes close).
 #[allow(clippy::too_many_arguments)]
-fn spawn_chunk(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], meshes: &mut Assets<Mesh>, cx: usize, cy: usize, near: bool) -> usize {
+fn spawn_chunk(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view: &FloraView, list: &[u32], meshes: &mut Assets<Mesh>, cx: usize, cy: usize) {
     let origin = chunk_origin(map, cx, cy);
-    if view.levels().len() < 2 {
-        if let Some(m) = chunk_mesh(map, kinds, view, list, origin, false) {
-            chunk_entity(commands, meshes, view, m, origin, cx, cy, false, None);
-        }
-        return 0;
+    let far = view.levels().len() >= 2;
+    if let Some(m) = chunk_mesh(map, kinds, view, list, origin, far) {
+        chunk_entity(commands, meshes, view, m, origin, cx, cy, far, None);
     }
-    let Some(far_mesh) = chunk_mesh(map, kinds, view, list, origin, true) else { return 0 };
-    let close = near && view.cam.is_some_and(|c| c.distance(origin) < near_range(view.detail)) && view.near_verts.values().sum::<usize>() < near_budget(view.detail);
-    let near_mesh = if close { chunk_mesh(map, kinds, view, list, origin, false) } else { None };
-    let verts = near_mesh.as_ref().map_or(0, |m| m.count_vertices());
-    // Without a detailed mesh the low-detail one is shown at every distance.
-    chunk_entity(commands, meshes, view, far_mesh, origin, cx, cy, true, near_mesh.is_some().then(|| vis_far(view.detail)));
-    if let Some(m) = near_mesh {
-        chunk_entity(commands, meshes, view, m, origin, cx, cy, false, Some(vis_near(view.detail)));
-    }
-    verts
 }
 
 /// Spawns the chunk meshes of every chunk that has features: the detailed ones of a level of
 /// detail follow by `rebuild_flora` as the camera comes close.
 pub fn spawn_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, meshes: &mut Assets<Mesh>) {
     let kinds = kinds_of(map, defs);
-    let (side, lists) = buckets(map, view);
+    view.bucket_cache = None;
+    view.jobs.clear();
     view.near_verts.clear();
-    for (k, list) in lists.iter().enumerate() {
-        spawn_chunk(commands, map, &kinds, view, list, meshes, (k % side) * FLORA_CHUNK, (k / side) * FLORA_CHUNK, false);
+    let b = buckets(map, view);
+    for k in 0..b.1.len() {
+        spawn_chunk(commands, map, &kinds, view, &b.1[k], meshes, (k % b.0) * FLORA_CHUNK, (k / b.0) * FLORA_CHUNK);
     }
 }
 
@@ -653,22 +767,31 @@ pub fn rebuild_flora(commands: &mut Commands, map: &MapData, defs: &Defs, view: 
     if !dirty.is_empty() {
         rebuild_dirty(commands, map, defs, view, chunks, meshes, &dirty);
     }
-    stream_near(commands, map, defs, view, chunks, meshes);
+    finish_jobs(commands, map, view, chunks, meshes);
+    stream_near(commands, map, defs, view, chunks);
 }
 
 fn rebuild_dirty(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>, dirty: &[(usize, usize)]) {
     let kinds = kinds_of(map, defs);
-    let (side, lists) = buckets(map, view);
-    let list_of = |cx: usize, cy: usize| lists.get((cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK).map_or(&[][..], |l| &l[..]);
-    let mut done = vec![false; lists.len()];
-    for (_, c, mesh, mut vis) in chunks.iter_mut() {
-        if !dirty.contains(&(c.cx, c.cy)) {
+    let b = buckets(map, view);
+    // Meshes being built from the old features are of no use now (dropping a task cancels it).
+    view.jobs.retain(|j| !dirty.contains(&j.at));
+    let mut done = vec![false; b.1.len()];
+    for (e, c, mesh, mut vis) in chunks.iter_mut() {
+        let at = (c.cx, c.cy);
+        if !dirty.contains(&at) {
             continue;
         }
-        if let Some(d) = done.get_mut((c.cy / FLORA_CHUNK) * side + c.cx / FLORA_CHUNK) {
+        if let Some(d) = done.get_mut((c.cy / FLORA_CHUNK) * b.0 + c.cx / FLORA_CHUNK) {
             *d = true;
         }
-        match chunk_mesh(map, &kinds, view, list_of(c.cx, c.cy), chunk_origin(map, c.cx, c.cy), c.far) {
+        if !c.far && view.levels().len() >= 2 {
+            // A detailed mesh is heavy (ultra: hundreds of thousands of vertices): it is made on a
+            // compute thread and swapped in when done; the old one shows meanwhile.
+            start_job(map, &kinds, view, list_at(&b, at), at, Some((e, mesh.0.clone())));
+            continue;
+        }
+        match chunk_mesh(map, &kinds, view, list_at(&b, at), chunk_origin(map, c.cx, c.cy), c.far) {
             Some(m) => {
                 // Changing the mesh asset makes Bevy recompute the chunk's bounding box, so
                 // frustum culling keeps working with the new shape.
@@ -686,71 +809,169 @@ fn rebuild_dirty(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut
             }
         }
     }
-    for &(cx, cy) in dirty {
-        if done.get((cy / FLORA_CHUNK) * side + cx / FLORA_CHUNK).copied().unwrap_or(true) {
+    for &at in dirty {
+        if done.get((at.1 / FLORA_CHUNK) * b.0 + at.0 / FLORA_CHUNK).copied().unwrap_or(true) {
             continue;
         }
-        let verts = spawn_chunk(commands, map, &kinds, view, list_of(cx, cy), meshes, cx, cy, true);
-        if verts > 0 {
-            view.near_verts.insert((cx, cy), verts);
+        spawn_chunk(commands, map, &kinds, view, list_at(&b, at), meshes, at.0, at.1);
+    }
+}
+
+/// Puts the detailed meshes the compute threads have finished in place.
+fn finish_jobs(commands: &mut Commands, map: &MapData, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>) {
+    if view.jobs.is_empty() {
+        return;
+    }
+    let mut done = vec![];
+    let mut k = 0;
+    while k < view.jobs.len() {
+        match bevy::tasks::futures::check_ready(&mut view.jobs[k].task) {
+            Some(m) => done.push((view.jobs.swap_remove(k), m)),
+            None => k += 1,
+        }
+    }
+    if done.is_empty() {
+        return;
+    }
+    let mut far_of = std::collections::HashMap::new();
+    for (e, c, ..) in chunks.iter() {
+        if c.far {
+            far_of.insert((c.cx, c.cy), e);
+        }
+    }
+    for (job, mesh) in done {
+        let verts = mesh.as_ref().map_or(0, |m| m.count_vertices());
+        match (job.target, mesh) {
+            (Some((e, _)), _) if chunks.get(e).is_err() => {}
+            (Some((e, handle)), Some(m)) => {
+                if let Some(old) = meshes.get_mut(&handle) {
+                    *old.into_inner() = m;
+                }
+                if let Ok((_, _, _, mut vis)) = chunks.get_mut(e) {
+                    if *vis != Visibility::Inherited {
+                        *vis = Visibility::Inherited;
+                    }
+                }
+                view.near_verts.insert(job.at, verts);
+            }
+            (Some((e, _)), None) => {
+                if let Ok((_, _, _, mut vis)) = chunks.get_mut(e) {
+                    *vis = Visibility::Hidden;
+                }
+                view.near_verts.insert(job.at, 0);
+            }
+            (None, Some(m)) => {
+                // The chunk may have lost its low-detail mesh meanwhile (all its features gone).
+                let Some(&far) = far_of.get(&job.at) else { continue };
+                if view.near_verts.contains_key(&job.at) {
+                    continue;
+                }
+                chunk_entity(commands, meshes, view, m, chunk_origin(map, job.at.0, job.at.1), job.at.0, job.at.1, false, Some(vis_near(view.detail)));
+                commands.entity(far).insert(vis_far(view.detail));
+                view.near_verts.insert(job.at, verts);
+            }
+            (None, None) => {}
         }
     }
 }
 
-/// Level of detail: makes the detailed mesh of chunks the camera has come close to (nearest first,
-/// a few at a time, within the vertex budget) and drops those it has left behind.
-fn stream_near(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks, meshes: &mut Assets<Mesh>) {
+/// Whether the chunk around `origin` may be on screen (a generous box: trees stand up to ~25 tall).
+fn in_view(view: &FloraView, origin: Vec3) -> bool {
+    let Some(f) = &view.frustum else { return true };
+    let half = FLORA_CHUNK as f32 * CELL * 0.5 + 4.0;
+    let aabb = bevy::camera::primitives::Aabb::from_min_max(origin - Vec3::new(half, 20.0, half), origin + Vec3::new(half, 30.0, half));
+    f.intersects_obb_identity(&aabb)
+}
+
+/// Level of detail: starts the detailed meshes of chunks the camera has come close to (those in
+/// view nearest first, off-view ones only right round the camera, within the vertex budget, taking
+/// the place of off-view or further ones when it is spent) and drops those it has left behind.
+fn stream_near(commands: &mut Commands, map: &MapData, defs: &Defs, view: &mut FloraView, chunks: &mut FloraChunks) {
     let Some(cam) = view.cam else { return };
     if view.levels().len() < 2 {
         return;
     }
-    view.frame = view.frame.wrapping_add(1);
-    if view.frame % STREAM_EVERY != 0 {
-        return;
-    }
+    let detail = view.detail;
+    // Rank: distance, off-view chunks behind every chunk in view.
+    let rank = |view: &FloraView, origin: Vec3| {
+        let d = origin.distance(cam);
+        if in_view(view, origin) { d } else { d + OFF_VIEW_PENALTY }
+    };
     let mut far_of = std::collections::HashMap::new();
+    let mut have: Vec<(f32, Entity, (usize, usize))> = vec![];
     let mut drop: Vec<(Entity, (usize, usize))> = vec![];
-    for (e, c, ..) in chunks.iter() {
+    let mut empty = std::collections::HashSet::new();
+    for (e, c, _, vis) in chunks.iter() {
         let at = (c.cx, c.cy);
         if c.far {
             far_of.insert(at, e);
-        } else if chunk_origin(map, c.cx, c.cy).distance(cam) > near_drop(view.detail) {
+            // All its features gone: nothing to build.
+            if *vis == Visibility::Hidden {
+                empty.insert(at);
+            }
+            continue;
+        }
+        let origin = chunk_origin(map, c.cx, c.cy);
+        let d = origin.distance(cam);
+        // Out of view and not right round the camera: its heavy mesh would only be drawn into the
+        // shadow maps and hold memory; the low-detail one takes over until it comes back into view.
+        if d > near_drop(detail) || (d > OFF_VIEW_DROP && !in_view(view, origin)) {
             drop.push((e, at));
+        } else if !view.jobs.iter().any(|j| j.at == at) {
+            have.push((rank(view, origin), e, at));
         }
     }
-    for (e, at) in drop {
+    let unload = |commands: &mut Commands, view: &mut FloraView, e: Entity, at: (usize, usize)| {
         commands.entity(e).despawn();
         view.near_verts.remove(&at);
+        view.jobs.retain(|j| j.at != at);
         if let Some(far) = far_of.get(&at) {
             // The low-detail mesh is now all there is: show it from every distance.
             commands.entity(*far).remove::<VisibilityRange>();
         }
+    };
+    for (e, at) in drop {
+        unload(commands, view, e, at);
     }
-    let mut want: Vec<(f32, (usize, usize), Entity)> = far_of
-        .iter()
-        .filter(|(at, _)| !view.near_verts.contains_key(*at))
-        .map(|(at, e)| (chunk_origin(map, at.0, at.1).distance(cam), *at, *e))
-        .filter(|w| w.0 < near_range(view.detail))
+    let jobs = view.jobs.len();
+    if jobs >= max_jobs(detail) {
+        return;
+    }
+    let mut want: Vec<(f32, (usize, usize))> = far_of
+        .keys()
+        .filter(|at| !empty.contains(*at) && !view.near_verts.contains_key(*at) && !view.jobs.iter().any(|j| j.at == **at))
+        .filter_map(|at| {
+            let origin = chunk_origin(map, at.0, at.1);
+            let d = origin.distance(cam);
+            if d >= near_range(detail) {
+                return None;
+            }
+            let r = rank(view, origin);
+            (r < OFF_VIEW_PENALTY || d < OFF_VIEW_KEEP).then_some((r, *at))
+        })
         .collect();
-    want.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
     if want.is_empty() {
         return;
     }
+    want.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    // Worst-ranked detailed meshes first: they make room when the budget is spent.
+    have.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.2.cmp(&a.2)));
+    let mut have = have.into_iter();
     let kinds = kinds_of(map, defs);
-    let (side, lists) = buckets(map, view);
+    let b = buckets(map, view);
     let mut total: usize = view.near_verts.values().sum();
-    for (_, at, far) in want.into_iter().take(per_call(view.detail)) {
-        if total >= near_budget(view.detail) {
-            break;
+    for (r, at) in want.into_iter().take(max_jobs(detail) - jobs) {
+        while total >= near_budget(detail) {
+            // Only for a chunk clearly more deserving: no swapping back and forth at equal ranks.
+            match have.next() {
+                Some((hr, e, hat)) if hr > r + 40.0 => {
+                    total -= view.near_verts.get(&hat).copied().unwrap_or(0);
+                    unload(commands, view, e, hat);
+                }
+                _ => return,
+            }
         }
-        let list = lists.get((at.1 / FLORA_CHUNK) * side + at.0 / FLORA_CHUNK).map_or(&[][..], |l| &l[..]);
-        let origin = chunk_origin(map, at.0, at.1);
-        let Some(m) = chunk_mesh(map, &kinds, view, list, origin, false) else { continue };
-        let verts = m.count_vertices();
-        total += verts;
-        chunk_entity(commands, meshes, view, m, origin, at.0, at.1, false, Some(vis_near(view.detail)));
-        commands.entity(far).insert(vis_far(view.detail));
-        view.near_verts.insert(at, verts);
+        start_job(map, &kinds, view, list_at(&b, at), at, None);
     }
 }
 
@@ -767,13 +988,15 @@ pub fn flora_sync(
     view: Option<ResMut<FloraView>>,
     mut chunks: FloraChunks,
     mut meshes: ResMut<Assets<Mesh>>,
-    cams: Query<&GlobalTransform, With<super::terrain::MainCamera>>,
+    cams: Query<(&GlobalTransform, &bevy::camera::primitives::Frustum), With<super::terrain::MainCamera>>,
     mut flights: Query<(Entity, &mut Flying, &mut Transform)>,
     time: Res<Time>,
 ) {
     let (Some(features), Some(mut view)) = (features, view) else { return };
     let view = &mut *view;
-    view.cam = cams.iter().next().map(|g| g.translation());
+    let cam = cams.iter().next();
+    view.cam = cam.map(|(g, _)| g.translation());
+    view.frustum = cam.map(|(_, f)| *f);
     view.set_detail(&defs, settings.flora_detail);
     if features.version != view.version {
         view.version = features.version;
@@ -816,7 +1039,7 @@ pub struct Flying {
 }
 
 /// One model as its own mesh (vertices relative to its foot), fog UVs at `p`.
-fn single_mesh(map: &MapData, model: &Model, p: V2, scale: f32, tint: f32) -> Mesh {
+fn single_mesh(map: &MapData, model: &Packed, p: V2, scale: f32, tint: f32) -> Mesh {
     let world = map.size();
     let t = [p.x / world.x.max(1.0), p.y / world.y.max(1.0)];
     let pos: Vec<[f32; 3]> = model.pos.iter().map(|v| (*v * scale).to_array()).collect();
@@ -827,6 +1050,7 @@ fn single_mesh(map: &MapData, model: &Model, p: V2, scale: f32, tint: f32) -> Me
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
+    mesh.insert_indices(bevy::mesh::Indices::U32(model.idx.clone()));
     mesh
 }
 
@@ -843,7 +1067,8 @@ fn launch(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view:
     let dir = Vec3::new(a.cos(), 0.0, a.sin());
     let variant = (hash(i as u64, 11) * VARIANTS as f32) as usize % VARIANTS;
     if shape == FeatureShape::Rock {
-        let Some(model) = view.models.get(*k).and_then(|v| v.get(variant)) else { return };
+        let set = view.set.clone();
+        let Some(model) = set.models.get(*k).and_then(|v| v.get(variant)) else { return };
         let size = 0.9 * f.scale;
         for n in 0..4u64 {
             let s = 0.2 + 0.12 * hash(seed, 200 + n);
@@ -861,7 +1086,8 @@ fn launch(commands: &mut Commands, map: &MapData, kinds: &[Option<usize>], view:
     if shape == FeatureShape::Bush {
         return;
     }
-    let Some(model) = view.ruined.get(*k).and_then(|v| v.get(variant)) else { return };
+    let set = view.set.clone();
+    let Some(model) = set.ruined.get(*k).and_then(|v| v.get(variant)) else { return };
     let mesh = meshes.add(single_mesh(map, model, f.pos, f.scale, 0.86 + 0.26 * hash(i as u64, 12)));
     let (r1, lift) = fallen_pose(shape, f.yaw, fall, f.scale);
     // Upright at first (turned so that toppling about one axis ends in the pose it lies in).

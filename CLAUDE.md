@@ -45,12 +45,15 @@ cargo run -- --ground out.png     # every ground texture in one picture, plus ta
 cargo run -- --editor             # map editor (also the main menu's "Map editor": the game starts itself with --editor)
 cargo run -- --editor --generate NAME CELLS[xDEPTH] SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky; 256x160 = not square, 2 players)
 cargo run -- --editor --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
+cargo run -- --editor --roads NAME ..  # restyle a saved map's roads: kinds by width and town, sidewalks, cut under water (only map.json)
 cargo run -- --editor --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
+scripts/exe_updates.sh vX              # in-game updater files in dist/: whole exe + patch from the previous release (zstd; release.sh and CI run it)
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
 python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/models/NAME.glb + textures (needs Blender; tools/README.md)
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python art/build.py [NAME ...] [--blend]   # our own models (factories, engineers, aircraft, carriers, city buildings, variants) -> assets/models (needs bpy: .venv/bin/pip install bpy)
+.venv/bin/python art/menu_background.py [--size WxH]   # main-menu backdrop (steppe, tanks on a ridge) -> assets/ui/menu_bg.png (Cycles, ~1.5 min)
 .venv/bin/python art/render.py out.png NAME ...     # contact sheet of exported models rendered by Blender (--anim open:1, --yaw 35)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
 python3 tools/relaxed_preset.py                           # remake the Relaxed preset from the built-in data (after data changes)
@@ -68,11 +71,11 @@ fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
 each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control points mode), `LR_COMP=1` (lists
-what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_INFCAP=1` (the lobby option "infantry capture buildings"), `LR_EVERY=300`
+what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_INFCAP=0` (the lobby option "infantry capture buildings" off; on by default), `LR_RUBBLE=0/1` (the lobby option "rubble blocks paths", default from the data), `LR_EVERY=300`
 (report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
 distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist[,shore|x:z]`
-(screenshot of a running game after `secs` of game time, then quit; `shore` looks at a steep shore near the map centre, `x:z` at that point). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
+(screenshot of a running game after `secs` of game time, then quit; `file.png,secs,menu`: the menu screen after `secs`; `shore` looks at a steep shore near the map centre, `x:z` at that point). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
 windowed game a `profile:` line goes to the log every 30 s: fps, frame / main / render CPU / GPU ms, the costliest view
 systems and sim systems, `view::perf::FrameProfile`), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 
@@ -231,7 +234,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
   with hotbuild keys chosen by unit role in `hud::hot_key`.
 - Releases: `scripts/release.sh` / `release.ps1` make one archive per platform in `dist/` (the game with the editor in it, + assets)
-  and publish them with `gh`. They first delete everything else in `dist/` (older versions).
+  and publish them with `gh`. Each release also carries the in-game updater's `longrange-<v>-<platform>-exe.zst` and
+  `-from-<previous v>.zst` (`scripts/exe_updates.sh`, needs zstd: `release.ps1` makes none). **In-game updater**
+  (`src/update.rs`, main menu "Check for updates", manual only): compares local files' git blob hashes with the tag's git
+  tree (GitHub API), fetches changed assets from raw.githubusercontent.com and the exe patch (or the whole exe) with the
+  `curl` program into `.update/`, checks them, moves them into place (running exe -> `*.old`) and restarts. Assets must stay
+  byte for byte what git holds (they do: the bundle copies the checkout). Off under `cargo run` / `LR_ASSETS`. They first delete everything else in `dist/` (older versions).
   `.github/workflows/release.yml` does the same on GitHub's machines (Linux + Windows MSVC) when a tag `v*` is pushed
   (or by hand from the Actions tab, "Run workflow" on main, which creates the tag): bump `Cargo.toml`, add the `## vX.Y.Z` CHANGELOG section, tag, push the tag.
   Commit every finished incremental change right away (one commit per change, short message saying what it does),
@@ -274,6 +282,8 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
+| `src/update.rs`, `scripts/exe_updates.sh` | in-game updater: changed assets via the tag's git tree + raw downloads, exe via zstd patch, curl, install + restart |
+| `src/theme.rs`, `assets/fonts/` | interface look (game, menus, editor): Play (all text, Cyrillic) and Michroma (title only, Latin) embedded, flat egui style (square, 1 px lines, no shadows, gradients or glows: requested), menu plates/buttons with cut corners, backdrop `assets/ui/menu_bg.png` |
 | `src/i18n.rs`, `assets/lang/` | localisation: `tr!` / `tx!` / `tr`, language files, completeness test |
 | `src/preset_form.rs` | the preset editor's form view: one `Field` (JSON path, label, kind + default, tooltip) per setting of rules.json, units and weapons; edits a `serde_json::Value`, keys it does not know stay |
 | `src/editor.rs` | map editor and map generation CLI (`longrange --editor`) |
@@ -292,10 +302,14 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `Cen::hit_r` around the box.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 - **Line of fire** (direct fire, `systems::Lane`): a gun follows the shell's real arc (with a spread allowance)
-  and fires only if it reaches the target before the ground, water, a building other than the target, or an own
-  (with friendly fire) or neutral unit. A hull-down target is aimed at higher up (`WeaponState.lift`); with no
-  clear shot (`WeaponState.blocked`) the gun takes another enemy in the clear (not an ordered one), and units on
-  Attack / attack-move whose guns are all blocked close in. `fire` adds half a tick of gravity so shells fly the
+  and fires only if it reaches the target before the ground, water, a building other than the target, an own
+  (with friendly fire) or neutral unit, or a reclaimable with at least `COVER_BLOCK` (0.25) cover (trees, rocks,
+  wrecks, debris; bushes do not count; nothing within `cover_grace` of the shooter). A hull-down target is aimed at
+  higher up (`WeaponState.lift`, up to 0.6 of its height); with no clear shot (`WeaponState.blocked`) the gun takes
+  another enemy in the clear (not an ordered one), and a ground unit whose guns are all blocked - idle, on
+  attack-move or on Attack - steps aside to the nearest spot with a clear line (`firing_spot`: rings up to 26 round
+  it, kept in `Mover.cover` until reached); on Attack with no such spot it closes in, but not nearer than half its
+  range (requested: try to shoot round a boulder, move a little, not drive up to the target). `fire` adds half a tick of gravity so shells fly the
   arc they were laid for. `--combattest` "Line of fire" lines.
 - **Engineers before buildings**: while an enemy engineer (any mobile builder: engineers, commander, scavengers;
   `Cen::engineer`) is in a weapon's reach, enemy buildings rank below every other enemy (`Census::pick_enemy`,
@@ -369,31 +383,42 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   setting "Remembered buildings: Show models in the fog" (`Settings::ghost_models`, default on) turns these models off:
   out of sight only the icons remain. Right-clicking a
   ghost issues ground fire at its position.
-- **Reclaimables** (the user's word for trees, rocks and wrecks together): shells do not stop at them, but a
-  shell flying through one loses its `cover` share of the damage to it (cover, below), and a
-  shell landing on one or a blast (radius, death blasts) wears it down (`systems::hurt_reclaimables`): trees and
-  rocks have `hp` in `rules.json: features` (times the map's scale; `left` drops by damage / hp), wrecks have
-  `rules.wreck_hp` x the unit's hp (armor applies) and lose mass in step. At zero they are gone.
+- **Reclaimables** (the user's word for trees, rocks and wrecks together): **weapons never destroy them** (requested;
+  only reclaiming, a building site on a tree/rock and the wreck caps remove them). Shells do not stop at them, but a
+  shell flying through one loses its `cover` share of the damage to it (cover, below); a shell landing on one or a
+  blast (radius, death blasts; `systems::hurt_reclaimables`) fells trees and shatters rocks (below) and shoves wrecks
+  and debris (`push_wrecks`: impulse = damage away from the blast, or along the shot for cover passes; speed +=
+  `rules.rubble_push` (0.25) x impulse / sqrt(mass still in it); a piece shoved at least `RUBBLE_THROW` (2.5) fast is
+  thrown (falling again, up to 10), others slide (whole unit wrecks up to 2); wrecks of buildings never move).
+  `rubble_motion` (was `debris_fall`) moves them: falling pieces as before (keeping 0.3 of their ground speed on
+  landing), sliding ones with friction 0.8 g and the slope's pull, stopped by a building's footprint. `Wreck.vel` and
+  `falling` are snapshotted. View: wrecks follow the slide (`wreck_visuals`), debris rolls (`debris_visuals`).
   Unfinished buildings are ordinary targets (5% hp at placement, hp grows with progress).
-  **Felling** (`rules.tree_fall`, 0.25): a blast doing that share of a tree's (not a bush's) or rock's hp, or a shell
-  that destroys a standing tree, calls `Features::fell`: `FeatureState.fall` (1 + direction in 255 steps, `sim::fall_yaw`;
-  snapshot field `fallen`) and the height drops to `FALLEN_HEIGHT`; it keeps at least `FALLEN_KEEP` of its value and
-  is destroyed by further hits. View: `flora::ruin` / `fallen_pose` (charred log along the fall, rocks a rubble heap),
+  **Felling** (`rules.tree_fall`, 0.25): one hit (blast, or a shot through it soaking that much) doing that share of a
+  tree's (not a bush's) or rock's `hp` (`rules.json: features`, times the map's scale) calls `Features::fell`:
+  `FeatureState.fall` (1 + direction in 255 steps, `sim::fall_yaw`; snapshot field `fallen`) and the height drops to
+  `FALLEN_HEIGHT`; it keeps its value. View: `flora::ruin` / `fallen_pose` (charred log along the fall, rocks a rubble heap),
   `flora::launch` / `fly` (the tree flies and topples, rock splinters), only for falls seen happening.
 - **Debris** (`rules.debris`): a single hit of at least `min_hit` of a finished building's hp, and its
   destruction, drop pieces of debris. A piece is a `Wreck` with `piece` > 0 (its size; never revived) that
-  first falls (`falling`, `vel`, moved by `systems::debris_fall`; not in `WreckList` until it lands, then it
+  first falls (`falling`, `vel`, moved by `systems::rubble_motion`; not in `WreckList` until it lands, then it
   hurts the units it lands on). Their mass comes out of the building's wreck value: the unit's `Shed`
   component (snapshot field `shed`) counts what it dropped, the wreck and reclaiming the standing building
-  give that much less, so damage + repair makes no mass. Pieces have their own cap (`debris.max`), take
-  shell damage like wrecks, and those at least `sight_size` big block sight (`Wreck::shape`).
+  give that much less, so damage + repair makes no mass. Pieces have their own cap (`debris.max`), are thrown and
+  shoved by blasts like wrecks, and those at least `sight_size` big block sight (`Wreck::shape`).
   View: `Settings::effects` 0 low (pieces appear on landing, boxes without shadows, fewer explosion
   puffs, no flash lights), 1 medium, 2 high (dust where pieces land, `FX_DEBRIS`).
 - **Cover** (`systems::soak_cover`, called in `projectiles` for every flight segment): each tree, rock or wreck
   a shot passes through (closest approach to its axis inside this tick's segment, so each counts once) takes
   its share of the damage: `features[].cover` (default by shape: pine 0.3, broadleaf 0.35, bush 0.15, rock
   0.65) or `rules.wreck_cover`; the shot flies on with the rest. Cover within `rules.cover_grace` of the shooter
-  (`Projectile.from`) does not count, so units fire out from behind their own. Cover wears away under fire.
+  (`Projectile.from`) does not count, so units fire out from behind their own. Cover is never used up.
+- **Rubble blocks paths** (lobby option, `Game.rubble_blocks`; ticked by default from `rules.rubble_blocks_paths`,
+  on in the built-in data, off in Relaxed; the lobby resets it when the data preset changes): `begin_tick` marks the
+  free cells under unit wrecks (the cells their `Wreck::shape` radius covers, at least their own), building ruins
+  (footprint) and debris pieces of at least `debris.sight_size` as `map::OCC_RUBBLE` in `Nav.occ` (`rubble_cells`,
+  `Nav.rubble` remembers them; derived, not state), so land units path round them (infantry too) until reclaimed or
+  shoved away. `can_place` treats them as free: buildings may go on rubble. `--combattest` "Rubble blocks paths" line.
 - **Infantry** (`"categories": ["infantry"]`, `UnitDef::is_infantry`: Trooper, AT/SAM Trooper): idle or
   engaged on attack-move/patrol, `think` sends them to `cover_spot`, behind the nearest tree/rock/wreck (at
   least 0.7 tall) on the far side from the closest known armed enemy within `cover_threat_range`, within
@@ -435,7 +460,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   soften close-quarters damage), the holders do not fire out while stormed, and once it is clear one attacker steps in.
   Before this a trench could only be shot out: 6 riflemen on attack-move lost to 4 in a trench. `--combattest` fieldworks
   "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
-- **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, off by default; Cossacks
+- **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, on by default (requested; headless tests: Game default off, `--selftest` on); Cossacks
   style): infantry may take `Order::Capture` (right-click an enemy or neutral building, or the Capture button) on any
   building `sim::seizable` (every turret; not factories or field works; of the garrisons only bunkers and other
   military ones - armed, or built by a side - and only once empty, `systems::can_seize`: held ones are stormed). At the building it queues
@@ -488,6 +513,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Overtaker unopposed; with a radar tower an MBFAG downs 4 of 6, a T1 AA turret all 6.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
+  Orders given with Ctrl held (`hud`: any non-build order, not a Ctrl+key shortcut) are followed by `Command::Pace`:
+  land and hover units in it get `Mover.pace` / `pace_accel` = the slowest one's speed and acceleration, cleared by a
+  new order, Stop or running out of orders. `--combattest` (`LR_TEST=apc`) "Pace" line.
 - **Adaptive maps** (SupCom style; `frankivsk_mini`, `frankivsk`, `liberec`, made by `tools/merge_variants.py` from the former
   per-player-count maps): `map.json` holds the union of the starts plus `variants` (`{starts: [indices in slot order], points}`:
   one way to play per player count) and `attached` (`{pos, start}` / `{pos, variant}` per deposit, matched by position).
@@ -565,11 +593,14 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   LOD: at medium/high detail each chunk has a second, low-detail mesh; `VisibilityRange` crossfades to it at
   `flora::LOD_FADE` camera distance from the chunk centre (chunk meshes are built around that centre).
   Only the low-detail meshes exist map-wide: the detailed ones are streamed in near the camera (`flora::stream_near`, within
-  `NEAR_RANGE`, a vertex budget `NEAR_VERTS`) and dropped when it leaves; all of them at once crashed small GPUs at high detail.
+  `near_range`, a vertex budget `near_budget`) and dropped when it leaves; all of them at once crashed small GPUs at high detail.
+  Chunks in the camera's frustum (`FloraView.frustum`) come first; off-view ones get a detailed mesh only within `OFF_VIEW_KEEP`,
+  lose it beyond `OFF_VIEW_DROP` and are evicted first when the budget is spent. Detailed meshes are built on the compute
+  threads (`flora::Job`, also rebuilds after a tree falls); chunk meshes are indexed (`flora::Packed`: ultra trees ~45% fewer vertices).
   Ultra (`flora_detail` 3, `view/flora/ultra.rs`): real branching trees made in code - a flared bent trunk, limbs that rise and droop,
   twigs, ~700 single leaves per broadleaf (folded kites, soft crown normals, darker inside), conifers with whorls of drooping
   boughs carrying needle sprays, leafy bushes, angular plane-cut rocks with pebbles. Heavy (thousands of triangles), so the
-  detailed ring is small (`lod_fade(3)` 110..140, 1 chunk per streaming step, 10M vertex budget) and drawn double-sided
+  detailed ring is a little shorter (`lod_fade(3)` 165..200 vs 180..220, at most 3 chunks building at once, 9M vertex budget) and drawn double-sided
   (`FloraView::material_ds`). Ultra grass (`grass_detail` 2): bent three-triangle blades and scattered wildflowers.
   `cargo test --lib ultra_models` checks them (`LR_OBJ_DIR=dir` also writes OBJ files).
   Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.
@@ -583,9 +614,22 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   they show its tiling. `KINDS.color` must match the texture's average (`--ground` prints both): the minimap, lobby
   picture and the land beyond the border use it. Maps saved without layers are painted at load
   (`paint_ground(Temperate)`); random maps get a biome (lobby "Terrain": random from the seed, or chosen) and dirt
-  tracks along the lanes. **Roads** (`MapData.roads`: kind, width, points; map.json lines "kind width x z x z ...",
-  at most 4 kinds per map) are a distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; trees and
-  rocks are kept off them (`scatter_features`, `clear_features_on_roads`). **Scorch**: blasts and deaths near the
+  tracks along the lanes. **Roads** (`MapData.roads`: kind, width, points, `sidewalk`; map.json lines "kind width x z
+  x z ...", the width "4.00+1.20" with sidewalks that wide on each side; at most 8 kinds per map, sidewalks included:
+  two RGBA textures) are a distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; nothing is drawn
+  under water (the field fades out at the waterline). Kinds (`road_kinds` sorts them into drawing order: sidewalk, tracks,
+  then paved in `KINDS` order, main asphalt last): `asphalt` (main roads, `Kind::lines`), `asphalt_worn` (side streets,
+  patched), `concrete` (slab roads), `cobble` (old centres), `gravel`, `dirt_road`, `sidewalk` (the `SIDEWALK` slot; the
+  shader cuts a kerb + gutter from the road field where a sidewalk runs beside a hard road). Lane markings
+  (`MapData::centre_raster`, own RGBA8 texture): per texel the distance along the road mod 16 and the signed offset from
+  the centre line (both linear, so bilinear filtering keeps the line exact) and a drawn flag; only a dashed centre line
+  (2 on, 2 off; edge and solid lines were removed on request: simpler, no glitches), on `lines` kinds at least `CENTRE_MIN`
+  (3.5) wide and `CENTRE_MIN_LEN` (15) long (short ways are junction links), none within 2.5 of another marked road
+  (crossings, merges, divided carriageways). `--editor --roads NAME..` restyles a map's roads (`editor::restyle_roads`; only the
+  roads block of map.json changes): OSM widths say the class, the built-up share round a road says town / old centre
+  (buildings are 2x scale: shares run high, villages get no sidewalks), sidewalks only as wide as the gap to the
+  buildings, pieces under water cut off; run it after `tools/osm_map.py`. The shipped OSM maps have been through it. Trees and
+  rocks are kept off roads and sidewalks (`scatter_features`, `clear_features_on_roads`, `Road::reach`). **Scorch**: blasts and deaths near the
   ground darken a view-side map (`SurfaceView::burn` from `fx::spawn_fx`, also unseen ones), permanent, lost when the
   view restarts. Two channels: R char (darkest at the centre, a gradient), G the singed ring round it (darker than the
   ground, lighter than the char); the grass shader reads the same texture. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the

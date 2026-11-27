@@ -180,8 +180,8 @@ impl Default for DebrisRules {
     }
 }
 
-fn wreck_hp() -> f32 {
-    0.5
+fn rubble_push() -> f32 {
+    0.25
 }
 fn revive_cooldown() -> f32 {
     60.0
@@ -212,6 +212,77 @@ pub enum FeatureShape {
     Bush,
     /// A lumpy stone.
     Rock,
+}
+
+/// One kind of weather (`rules.json: weather`), chosen in the lobby. The first group of numbers
+/// changes the fight (multipliers, 1 = no change); the rest is only how it looks.
+#[derive(Deserialize, Clone, Debug)]
+pub struct WeatherDef {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub desc: String,
+    /// Vision range of every unit.
+    #[serde(default = "one")]
+    pub vision: f32,
+    /// Binocular range.
+    #[serde(default = "one")]
+    pub binoculars: f32,
+    /// Radar range (every level).
+    #[serde(default = "one")]
+    pub radar: f32,
+    /// Spotting delay (`spot_time`, `spot_time_moving`): above 1 units take longer to make out.
+    #[serde(default = "one")]
+    pub spotting: f32,
+    /// Weapon spread.
+    #[serde(default = "one")]
+    pub spread: f32,
+    /// Top speed of land units.
+    #[serde(default = "one")]
+    pub speed: f32,
+    /// View: how deep units' tracks are drawn, and how many seconds they take to fade.
+    #[serde(default = "one")]
+    pub tracks: f32,
+    #[serde(default = "track_secs")]
+    pub track_secs: f32,
+    /// View: sky (`view::sky::SKIES` id; empty = the map's), light of the sun (x), distance over
+    /// which the haze thickens (0 = the normal far haze).
+    #[serde(default)]
+    pub sky: String,
+    #[serde(default = "one")]
+    pub light: f32,
+    #[serde(default)]
+    pub haze: f32,
+    /// View: rain, snowfall and ground fog (0-1), wind (0-1: slants rain and snow), wet ground
+    /// (darker, shinier) and snow cover on the ground (0-1).
+    #[serde(default)]
+    pub rain: f32,
+    #[serde(default)]
+    pub snow: f32,
+    #[serde(default)]
+    pub fog: f32,
+    #[serde(default)]
+    pub wind: f32,
+    #[serde(default)]
+    pub wet: f32,
+    #[serde(default)]
+    pub cover: f32,
+}
+
+fn track_secs() -> f32 {
+    90.0
+}
+
+impl WeatherDef {
+    pub fn clear() -> WeatherDef {
+        serde_json::from_str(r#"{"id": "clear", "name": "Clear"}"#).unwrap()
+    }
+}
+
+/// The weather list of the built-in rules.json (for presets made before weather existed).
+fn builtin_weather() -> Vec<WeatherDef> {
+    let v: serde_json::Value = serde_json::from_slice(include_bytes!("../assets/data/rules.json")).unwrap_or_default();
+    v.get("weather").and_then(|w| serde_json::from_value(w.clone()).ok()).unwrap_or_else(|| vec![WeatherDef::clear()])
 }
 
 /// A reclaimable map feature type: a tree or a rock (`rules.json: features`).
@@ -311,9 +382,10 @@ pub struct Rules {
     pub start_energy: f32,
     pub wreck_mass_fraction: f32,
     pub max_wrecks: usize,
-    /// A wreck's hit points as a share of the unit's (weapons wear wrecks down).
-    #[serde(default = "wreck_hp")]
-    pub wreck_hp: f32,
+    /// Blasts and shots shove wrecks and debris (never destroyed by weapons): speed gained per
+    /// damage, divided by the square root of the mass still in it. 0: they never move.
+    #[serde(default = "rubble_push")]
+    pub rubble_push: f32,
     /// Seconds before the wreck of a revived unit (or of an unfinished revival site) can be revived again.
     #[serde(default = "revive_cooldown")]
     pub revive_cooldown: f32,
@@ -394,6 +466,9 @@ pub struct Rules {
     /// A remembered enemy building that was destroyed out of sight shows dimmed (SupCom style; view only).
     #[serde(default = "yes")]
     pub ghosts_show_destroyed: bool,
+    /// Default of the lobby option "Rubble blocks paths" (`Game.rubble_blocks`) for this data set.
+    #[serde(default = "yes")]
+    pub rubble_blocks_paths: bool,
     /// AI engineers reclaim trees and rocks when short of resources.
     #[serde(default = "yes")]
     pub ai_reclaim: bool,
@@ -470,6 +545,10 @@ pub struct Rules {
     /// Reclaimable trees and rocks maps can place.
     #[serde(default)]
     pub features: Vec<FeatureDef>,
+    /// Weather the lobby can choose (`Game.weather` is an index into this list); presets without
+    /// a list get the built-in one.
+    #[serde(default = "builtin_weather")]
+    pub weather: Vec<WeatherDef>,
     pub commander_death: Blast,
     pub damage_types: Vec<String>,
     pub armor: HashMap<String, HashMap<String, f32>>,
@@ -484,6 +563,11 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// The weather of a game (`Game.weather`); clear when the index is beyond the list.
+    pub fn weather_of(&self, k: u8) -> &WeatherDef {
+        static CLEAR: std::sync::OnceLock<WeatherDef> = std::sync::OnceLock::new();
+        self.weather.get(k as usize).unwrap_or_else(|| CLEAR.get_or_init(WeatherDef::clear))
+    }
     /// Craters are dug at all.
     pub fn craters_on(&self) -> bool {
         self.craters && self.crater_scale > 0.0

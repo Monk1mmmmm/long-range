@@ -69,7 +69,6 @@ def adr_stone_house():
     k = Kit("adr_stone_house")
     w, l, h, sh = 3.5, 3.0, 2.5, 1.25
     k.box((w, l, h), (0, 0, h / 2), "stone", faces={"top": "stone_d"})
-    k.box((w + 0.1, l + 0.1, 0.22), (0, 0, 0.11), "stone_d")
     k.box((w + 0.16, l + 0.16, 0.1), (0, 0, h + 0.04), "stone")  # cornice
     hip(k, 0, 0, w, l, h + 0.05, 1.0, "terracotta", over=0.28)
     chimney(k, 0.9, 0.4, h + 0.6, 0.7, "stone")
@@ -90,7 +89,6 @@ def adr_townhouse():
     w, l, sh = 3.4, 2.9, 1.2
     h = 3 * sh
     k.box((w, l, h), (0, 0, h / 2), "plaster_ochre", faces={"top": "stone_d"})
-    k.box((w + 0.1, l + 0.1, 0.25), (0, 0, 0.12), "stone")
     for sx in (-1, 1):  # stone quoins
         for i in range(7):
             k.box((0.22 + 0.08 * (i % 2), 0.22, 0.22), (sx * (w / 2 - 0.06), -l / 2 + 0.01, 0.4 + i * 0.5), "stone")
@@ -114,7 +112,6 @@ def ce_plaster_house():
     w, l, sh = 3.4, 3.1, 1.2
     h = 2 * sh + 0.2
     k.box((w, l, h), (0, 0, h / 2), "plaster_cream", faces={"top": "concrete"})
-    k.box((w + 0.1, l + 0.1, 0.24), (0, 0, 0.12), "stone_d")
     k.box((w + 0.06, l + 0.06, 0.08), (0, 0, 0.2 + sh), "plaster_w")  # string course
     k.box((w + 0.14, l + 0.14, 0.1), (0, 0, h + 0.03), "plaster_w")  # eaves cornice
     gable(k, 0, 0, w, l, h + 0.08, 1.15, "roof_tile", "plaster_cream", over=0.24, ridge="x")
@@ -135,7 +132,6 @@ def ce_gabled_townhouse():
     w, l, sh = 3.0, 3.4, 1.15
     h = 3 * sh
     k.box((w, l, h), (0, 0, h / 2), "plaster_sky", faces={"top": "roof_tar"})
-    k.box((w + 0.1, l + 0.1, 0.25), (0, 0, 0.12), "stone_d")
     for i, fw in enumerate((w, w * 0.78, w * 0.56, w * 0.34)):  # stepped gable on the front
         k.box((fw, 0.32, 0.3), (0, -l / 2 + 0.16, h + 0.15 + i * 0.3), "plaster_sky")
         k.box((fw + 0.08, 0.36, 0.06), (0, -l / 2 + 0.16, h + 0.3 + i * 0.3), "stone")
@@ -156,8 +152,7 @@ def vil_log_house():
     """Log house: horizontal timber walls, blue-framed windows, a wooden porch and a green sheet roof."""
     k = Kit("vil_log_house")
     w, l, h = 3.4, 3.0, 1.45
-    k.box((w, l, h), (0, 0, 0.18 + h / 2), "log", faces={"top": "log_d"})
-    k.box((w + 0.08, l + 0.08, 0.2), (0, 0, 0.1), "dirt")  # clay plinth
+    k.box((w, l, h + 0.18), (0, 0, (h + 0.18) / 2), "log", faces={"top": "log_d"})
     for sx in (-1, 1):  # log ends sticking out at the corners
         for sy in (-1, 1):
             for i in range(5):
@@ -183,8 +178,7 @@ def vil_white_house():
     """Whitewashed village house under a hipped thatch roof, blue trim and a veranda."""
     k = Kit("vil_white_house")
     w, l, h = 3.3, 3.1, 1.5
-    k.box((w, l, h), (0, 0, 0.2 + h / 2), "plaster_w", faces={"top": "plaster_w"})
-    k.box((w + 0.08, l + 0.08, 0.3), (0, 0, 0.15), "plaster_b")  # blue-painted plinth
+    k.box((w, l, h + 0.2), (0, 0, (h + 0.2) / 2), "plaster_w", faces={"top": "plaster_w"})
     hip(k, 0, 0, w, l, 0.2 + h, 1.3, "thatch", over=0.42)
     chimney(k, 0.7, 0.2, 0.2 + h + 0.8, 0.8, "brick")
     front_windows(k, 0, -l / 2, w - 0.5, 0.3, 1, 1.3, 3, win=(0.4, 0.52), shutter="shutter_b", trim="trim_blue", skip=((0, 1),), seed=8)
@@ -207,7 +201,6 @@ def sov_stalinka():
     w, l, sh = 3.8, 3.4, 1.15
     h = 3 * sh
     k.box((w, l, h), (0, 0, h / 2), "plaster_y", faces={"top": "concrete"})
-    k.box((w + 0.12, l + 0.12, 0.3), (0, 0, 0.15), "stone_d")
     k.box((w + 0.25, l + 0.25, 0.16), (0, 0, h + 0.05), "plaster_w")  # cornice
     hip(k, 0, 0, w, l, h + 0.1, 0.75, "corr_green", over=0.2)
     front_windows(k, 0, -l / 2, w - 0.5, 0.3, 3, sh, 4, win=(0.36, 0.56), trim="white", skip=((0, 1), (0, 2)), seed=9)
@@ -228,10 +221,7 @@ def sov_block5():
     k = Kit("sov_block5")
     w, l, sh = 7.4, 3.4, 1.2
     h = 5 * sh
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "asphalt")
-    k.box((w, l, h), (0, 0, 0.3 + h / 2), "panel_grey", faces={"top": "roof_tar"})
-    k.box((w + 0.1, l + 0.1, 0.3), (0, 0, 0.15), "concrete_d")
+    k.box((w, l, h + 0.3), (0, 0, (h + 0.3) / 2), "panel_grey", faces={"top": "roof_tar"})
     k.box((w + 0.12, l + 0.12, 0.2), (0, 0, 0.3 + h + 0.05), "concrete")
     front_windows(k, 0, -l / 2, w - 0.6, 0.55, 5, sh, 9, win=(0.3, 0.5), trim="white", skip=tuple((0, c) for c in (1, 4, 7)), lit=0.1, seed=10)
     for x in (-2.4, 0.0, 2.4):

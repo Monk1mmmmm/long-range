@@ -85,6 +85,9 @@ pub enum Command {
     /// Pause or resume: builders stop working, extractors and radars switch off and stop drawing energy.
     Pause { ids: Vec<u32>, on: bool },
     Resign,
+    /// Sent after `Orders` given with Ctrl held: the mobile units among `ids` (planes aside) move no
+    /// faster (nor speed up quicker) than the slowest of them until they run out of orders or get a new order.
+    Pace { ids: Vec<u32> },
 }
 
 #[derive(Resource, Default)]
@@ -296,6 +299,11 @@ pub struct Mover {
     pub drop_to: V2,
     #[serde(default)]
     pub drop_h: f32,
+    /// Top speed and acceleration while moving in step with a group (`Command::Pace`); 0 = its own.
+    #[serde(default)]
+    pub pace: f32,
+    #[serde(default)]
+    pub pace_accel: f32,
 }
 
 /// A unit's wreck, or a piece of debris a building dropped (`piece` > 0).
@@ -435,6 +443,19 @@ pub struct Game {
     /// style: free, while no armed unit of the building's side stands near it.
     #[serde(default)]
     pub infantry_capture: bool,
+    /// Lobby option: the player list shows every player's mass and energy income to everyone
+    /// (off: only observers see it). View only.
+    #[serde(default)]
+    pub eco_public: bool,
+    /// Lobby option (its default from `rules.rubble_blocks_paths`): wrecks, ruins and big pieces of
+    /// debris block land units' paths (`map::OCC_RUBBLE` cells in `Nav.occ`) until reclaimed.
+    #[serde(default)]
+    pub rubble_blocks: bool,
+    /// Lobby option: the weather (index into `rules.weather`; 0 = the first, clear). It shortens
+    /// vision, binoculars and radar, slows spotting and land units and scatters shots by the
+    /// numbers of `data::WeatherDef`.
+    #[serde(default)]
+    pub weather: u8,
 }
 
 /// A building infantry may capture when `Game.infantry_capture` is on: not a factory or a field
@@ -532,6 +553,8 @@ impl FxLog {
 pub struct Nav {
     pub occ: Vec<u8>,
     pub dirty: bool,
+    /// Cells marked `OCC_RUBBLE` (sorted), redone every tick from the wrecks (`begin_tick`).
+    pub rubble: Vec<u32>,
     /// Path searches left this tick (`locomotion` plans them).
     pub paths_left: i32,
 }
@@ -593,7 +616,7 @@ pub fn can_place(defs: &Defs, map: &MapData, occ: &[u8], d: DefId, p: V2) -> boo
     let (mut lo, mut hi) = (f32::MAX, f32::MIN);
     for y in y0..y0 + f {
         for x in x0..x0 + f {
-            if !map.inside(x, y) || occ[map.idx(x, y)] != 0 {
+            if !map.inside(x, y) || !matches!(occ[map.idx(x, y)], 0 | crate::map::OCC_RUBBLE) {
                 return false;
             }
         }

@@ -16,7 +16,7 @@ pub fn register(app: &mut App) {
             // Inner tuples need their own chain(): the outer one only orders the groups.
             (mark::<0>, begin_tick, mark::<1>, census_build, mark::<2>, crate::ai::ai_system, mark::<3>, apply_commands, mark::<4>, visibility, mark::<5>, income, mark::<6>).chain(),
             (think, mark::<7>, assaults, mark::<8>, factories, mark::<9>, build_progress, mark::<10>, locomotion, mark::<11>, separation, mark::<12>, carry, mark::<13>, garrisons, mark::<14>).chain(),
-            (weapons, mark::<15>, projectiles, mark::<16>, debris_fall, mark::<17>, apply_reclaim, mark::<18>, apply_capture, mark::<19>, deaths, mark::<20>, apply_ground, mark::<21>, control_points, mark::<22>, victory, mark::<23>).chain(),
+            (weapons, mark::<15>, projectiles, mark::<16>, rubble_motion, mark::<17>, apply_reclaim, mark::<18>, apply_capture, mark::<19>, deaths, mark::<20>, apply_ground, mark::<21>, control_points, mark::<22>, victory, mark::<23>).chain(),
         )
             .chain(),
     );
@@ -24,7 +24,7 @@ pub fn register(app: &mut App) {
 
 /// The tick's systems in the order `register` runs them (names for `SimProfile`).
 pub const SYSTEM_NAMES: [&str; 23] = [
-    "begin_tick", "census_build", "ai_system", "apply_commands", "visibility", "income", "think", "assaults", "factories", "build_progress", "locomotion", "separation", "carry", "garrisons", "weapons", "projectiles", "debris_fall", "apply_reclaim", "apply_capture", "deaths", "apply_ground", "control_points", "victory",
+    "begin_tick", "census_build", "ai_system", "apply_commands", "visibility", "income", "think", "assaults", "factories", "build_progress", "locomotion", "separation", "carry", "garrisons", "weapons", "projectiles", "rubble_motion", "apply_reclaim", "apply_capture", "deaths", "apply_ground", "control_points", "victory",
 ];
 
 /// Wall time each tick system took, summed over the ticks run while it is present (`LR_PROFILE=1`
@@ -114,6 +114,7 @@ fn begin_tick(
     map: Res<MapData>,
     defs: Res<Defs>,
     structures: Query<(&Unit, &Body), With<Structure>>,
+    wrecks: Query<&Wreck>,
 ) {
     game.tick += 1;
     fx.tick.clear();
@@ -127,7 +128,62 @@ fn begin_tick(
             nav.stamp_def(&map, defs.get(u.def), b.pos);
         }
         nav.dirty = false;
+        nav.rubble.clear();
     }
+    let cells = if game.rubble_blocks { rubble_cells(&defs, &map, &wrecks) } else { vec![] };
+    if cells != nav.rubble {
+        let nav = &mut *nav;
+        for &c in &nav.rubble {
+            if nav.occ[c as usize] == crate::map::OCC_RUBBLE {
+                nav.occ[c as usize] = 0;
+            }
+        }
+        nav.rubble.clear();
+        for c in cells {
+            // Only on open ground: buildings, steep and deep cells keep their own value.
+            if nav.occ[c as usize] == 0 {
+                nav.occ[c as usize] = crate::map::OCC_RUBBLE;
+                nav.rubble.push(c);
+            }
+        }
+    }
+}
+
+/// The cells rubble lies on (sorted, each once): the footprint of a building's ruin, the cells a
+/// unit's wreck covers (at least its own), the cell of a piece of debris big enough to block sight.
+fn rubble_cells(defs: &Defs, map: &MapData, wrecks: &Query<&Wreck>) -> Vec<u32> {
+    let mut out: Vec<u32> = vec![];
+    for w in wrecks {
+        if w.falling || w.mass <= 0.0 || (w.piece > 0.0 && w.piece < defs.rules.debris.sight_size) {
+            continue;
+        }
+        let d = defs.get(w.def);
+        if w.piece <= 0.0 && d.is_structure() && d.footprint > 0 {
+            let (x0, y0) = foot_origin(w.pos, d.footprint);
+            for y in y0..y0 + d.footprint {
+                for x in x0..x0 + d.footprint {
+                    if map.inside(x, y) {
+                        out.push(map.idx(x, y) as u32);
+                    }
+                }
+            }
+            continue;
+        }
+        let (r, _) = Wreck::shape(defs, w.def, w.piece);
+        let (cx, cy) = map.cell_of(w.pos);
+        let k = (r / CELL).ceil() as i32;
+        for y in cy - k..=cy + k {
+            for x in cx - k..=cx + k {
+                let centre = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+                if map.inside(x, y) && ((x, y) == (cx, cy) || centre.dist(w.pos) < r) {
+                    out.push(map.idx(x, y) as u32);
+                }
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 #[allow(clippy::type_complexity)]
@@ -303,6 +359,8 @@ fn apply_commands(
                             m.path.clear();
                             m.stuck = 0;
                             m.cover = None;
+                            m.pace = 0.0;
+                            m.pace_accel = 0.0;
                             // A new order cuts a weapon's set-up/recoil hold short: the unit obeys at once.
                             m.hold = 0.0;
                         }
@@ -340,6 +398,8 @@ fn apply_commands(
                     ord.0.clear();
                     if let Some(mut m) = mover {
                         m.path.clear();
+                        m.pace = 0.0;
+                        m.pace_accel = 0.0;
                         // Infantry look for cover around where they were stopped.
                         m.anchor = b.pos;
                         m.cover = None;
@@ -473,6 +533,28 @@ fn apply_commands(
                     }
                 }
             }
+            Command::Pace { ids } => {
+                // Ids are owned, mobile, out of transports and no planes (they cannot slow down).
+                let group: Vec<(Entity, f32, f32)> = ids
+                    .iter()
+                    .filter_map(|id| census.get(*id).filter(|c| c.owner == pl && !c.hosted))
+                    .filter_map(|c| {
+                        let mv = &defs.get(c.def).mv;
+                        (matches!(mv.kind, MoveKind::Land | MoveKind::Hover) && mv.speed > 0.0).then_some((c.e, mv.speed, mv.accel))
+                    })
+                    .collect();
+                if group.len() < 2 {
+                    continue;
+                }
+                let slow = group.iter().map(|g| g.1).fold(f32::MAX, f32::min);
+                let accel = group.iter().map(|g| g.2).fold(f32::MAX, f32::min);
+                for (e, ..) in group {
+                    if let Ok((_, _, _, _, Some(mut m), _, _, _)) = q.get_mut(e) {
+                        m.pace = slow;
+                        m.pace_accel = accel;
+                    }
+                }
+            }
             Command::Resign => {
                 let com = defs.factions[game.players[pl as usize].faction as usize].commander;
                 for c in &census.list {
@@ -517,6 +599,8 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     let block = sight_block(&features, &wrecks, standing, &defs, &map);
     let (hills_sight, hills_radar) = (defs.rules.sight_blocked_by_terrain, defs.rules.radar_blocked_by_terrain);
     let near2 = defs.rules.near_sight * defs.rules.near_sight;
+    // Weather shortens vision, binoculars and radar, and makes units slower to spot.
+    let wx = defs.rules.weather_of(game.weather);
     struct Viewer {
         pos: V2,
         eye: Vec3,
@@ -554,10 +638,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         };
         let d = defs.get(c.def);
         let gain = if roof { census.get(c.host).map_or(1.0, |h| defs.get(h.def).roof_vision(&defs.rules)) } else { 1.0 };
-        let vision = d.vision * gain;
+        let vision = d.vision * gain * wx.vision;
         let (mut bin2, mut dir, mut cos2) = (0.0, v2(1.0, 0.0), 1.0);
         if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
-            let range = bd.range * gain;
+            let range = bd.range * gain * wx.binoculars;
             let (look, lock) = q.get(c.e).map_or((c.yaw, 0), |i| (i.look, i.lock));
             let (look, lock) = aim_binoculars(&census, c, bd, range, look, lock, roof, game.tick);
             if let Ok(mut i) = q.get_mut(c.e) {
@@ -577,7 +661,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             eye: c.pos.at(c.y + top + defs.rules.radar_los_height),
             look: c.pos.at(c.y + top + defs.rules.vision_los_height),
             vis2: vision * vision,
-            radar2: if radar_on { [0u8, 1, 2].map(|s| d.radar_vs(s) * d.radar_vs(s)) } else { [0.0; 3] },
+            radar2: if radar_on { [0u8, 1, 2].map(|s| {
+                let r = d.radar_vs(s) * wx.radar;
+                r * r
+            }) } else { [0.0; 3] },
             team: c.team,
             bin2,
             dir,
@@ -720,7 +807,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         let d = defs.get(c.def);
         if d.spot_time > 0.0 || d.spot_time_moving > 0.0 {
             let exposed = c.firing || c.vel.len2() > 0.04;
-            let gain = step(if exposed { d.spot_time_moving } else { d.spot_time });
+            let gain = step(if exposed { d.spot_time_moving } else { d.spot_time } * wx.spotting);
             for t in 0..16 {
                 let bit = 1u16 << t;
                 if t == c.team as usize {
@@ -925,9 +1012,9 @@ fn think(
             }
             let ws = weapons.as_deref()?;
             let m = mover.as_mut()?;
-            let keep = m.cover.filter(|c| c.dist(pos) > 0.5 && c.dist(pos) < 25.0);
+            let keep = m.cover.filter(|c| c.dist(pos) > 0.5 && c.dist(pos) < 30.0);
             if keep.is_none() || (game.tick + id) % 10 == 0 {
-                m.cover = firing_spot(&defs, &census, &map, &nav, id, team, df, pos, ws, keep);
+                m.cover = firing_spot(&defs, &census, &features, &wrecks, &map, &nav, id, team, df, pos, ws, keep, game.weather);
             }
             m.cover.filter(|c| c.dist(pos) > 0.5)
         };
@@ -954,6 +1041,13 @@ fn think(
                     if let Some(t) = t {
                         goal = Some(t.pos);
                     }
+                }
+                // Ground units with a target but no line of fire to it (a rock, a wreck, a hill or a
+                // friend in the way) step aside to a nearby spot that has one (`firing_spot`).
+                if !plane && goal.is_none() {
+                    goal = reposition(&mut mover);
+                    // (The spot stays in `Mover.cover` until it is reached.)
+                    in_cover |= goal.is_some();
                 }
                 // Engineering stations pick their own work.
                 if df.is_station() {
@@ -1063,6 +1157,7 @@ fn think(
                     goal = cover(&mut mover, Some(pos), defs.rules.cover_search * 0.6);
                 } else if let Some(s) = shift {
                     goal = Some(s);
+                    in_cover = true;
                 } else if !engaged {
                     // Passing a building it may take, infantry take it on the way.
                     let auto = if infantry && game.infantry_capture { seize_target(&census, &defs, team, pos) } else { None };
@@ -1093,8 +1188,11 @@ fn think(
                         if plane || (!is_struct && pos.dist(t.pos) > range * 0.9) {
                             goal = Some(t.pos);
                         } else if !is_struct && no_shot(Some(tid)) {
-                            // No line to it from here: another angle if one is near, else straight in.
-                            goal = reposition(&mut mover).or(Some(t.pos));
+                            // No line to it from here: another angle if one is near, else closer in,
+                            // but not right up to it (half the range is as close as that goes).
+                            let spot = reposition(&mut mover);
+                            in_cover |= spot.is_some();
+                            goal = spot.or_else(|| (pos.dist(t.pos) > range * 0.5).then_some(t.pos));
                         }
                     }
                 }
@@ -1823,10 +1921,10 @@ fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
 /// A nearby spot from which every direct-fire gun of the unit that has no shot now (a building,
 /// a hill or a friend in the way) would have a clear line to its target and be in range: the unit
 /// moves there and lays its guns again instead of driving straight at the target. Rings of
-/// growing radius round the unit, the spot picked last time first (`keep`), so a unit does not
-/// dither between two spots.
+/// growing radius round the unit (the nearest that works: a step aside, not a drive up to the
+/// target), the spot picked last time first (`keep`), so a unit does not dither between two spots.
 #[allow(clippy::too_many_arguments)]
-fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>) -> Option<V2> {
+fn firing_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckList, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>, weather: u8) -> Option<V2> {
     let lane = Lane {
         census,
         map,
@@ -1836,6 +1934,10 @@ fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, 
         shooter: id,
         host: 0,
         g: defs.rules.gravity,
+        spread: defs.rules.weather_of(weather).spread,
+        features,
+        wrecks,
+        defs,
     };
     let jobs: Vec<(&WeaponDef, &Cen)> = df
         .weapons
@@ -1849,7 +1951,7 @@ fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, 
     }
     let h = df.height() * 0.8;
     let mut cands: Vec<V2> = keep.into_iter().collect();
-    for (ri, r) in [3.0f32, 6.0, 10.0, 15.0].into_iter().enumerate() {
+    for (ri, r) in [3.0f32, 6.0, 10.0, 15.0, 20.0, 26.0].into_iter().enumerate() {
         let n = 8 + ri * 4;
         for k in 0..n {
             cands.push(pos + V2::from_angle(k as f32 / n as f32 * std::f32::consts::TAU + ri as f32 * 0.4) * r);
@@ -2344,8 +2446,11 @@ fn locomotion(
     defs: Res<Defs>,
     map: Res<MapData>,
     mut nav: ResMut<Nav>,
+    game: Res<Game>,
 ) {
     let (world, world_z) = (map.world_x(), map.world_z());
+    // Mud and snow slow land units down.
+    let wx_speed = defs.rules.weather_of(game.weather).speed;
     let n = map.nx as i32;
     let needs_path = |df: &crate::data::UnitDef, m: &Mover| -> Option<V2> {
         let g = m.goal?;
@@ -2377,6 +2482,11 @@ fn locomotion(
         let mv = &df.mv;
         let old = body.pos;
         let turn = mv.turn.to_radians();
+        if orders.0.is_empty() {
+            // Moving in step ends with the orders it was given for.
+            m.pace = 0.0;
+            m.pace_accel = 0.0;
+        }
         if m.drop > 0.0 {
             // An airdrop fall: glides down onto its spot and does nothing else until it lands.
             m.drop = (m.drop - DT).max(0.0);
@@ -2437,8 +2547,10 @@ fn locomotion(
                     let dist = to.len();
                     if dist > 0.4 {
                         body.yaw = turn_toward(body.yaw, to.angle(), turn * DT);
-                        want_speed = mv.speed.min((2.0 * mv.accel * dist).sqrt() + 0.5);
-                        m.speed += (want_speed - m.speed).clamp(-mv.accel * 2.0 * DT, mv.accel * DT);
+                        let top = if m.pace > 0.0 { mv.speed.min(m.pace) } else { mv.speed };
+                        want_speed = top.min((2.0 * mv.accel * dist).sqrt() + 0.5);
+                        let accel = if m.pace_accel > 0.0 { mv.accel.min(m.pace_accel) } else { mv.accel };
+                        m.speed += (want_speed - m.speed).clamp(-mv.accel * 2.0 * DT, accel * DT);
                         body.pos = body.pos + to.norm() * (m.speed * DT).min(dist);
                     }
                 }
@@ -2505,7 +2617,10 @@ fn locomotion(
                 let face = if m.reversing { wrap(desired + PI) } else { desired };
                 body.yaw = turn_toward(body.yaw, face, turn * DT);
                 let off = wrap(face - body.yaw).abs();
-                let top = if m.reversing { mv.reverse } else { mv.speed };
+                let mut top = if m.reversing { mv.reverse } else { mv.speed } * wx_speed;
+                if m.pace > 0.0 {
+                    top = top.min(m.pace * wx_speed);
+                }
                 let mut want = if off < 0.35 {
                     top
                 } else if off < 1.0 {
@@ -2515,7 +2630,8 @@ fn locomotion(
                 };
                 let brake = mv.accel * 2.5;
                 want = want.min((2.0 * brake * remaining).sqrt() + 0.4);
-                m.speed += (want - m.speed).clamp(-brake * DT, mv.accel * DT);
+                let accel = if m.pace_accel > 0.0 { mv.accel.min(m.pace_accel) } else { mv.accel };
+                m.speed += (want - m.speed).clamp(-brake * DT, accel * DT);
                 let step = (m.speed * DT).min(dist).max(0.0);
                 let dir = V2::from_angle(body.yaw) * if m.reversing { -1.0 } else { 1.0 };
                 let np = body.pos + dir * step;
@@ -2702,7 +2818,16 @@ struct Lane<'a> {
     shooter: u32,
     host: u32,
     g: f32,
+    /// Weather's multiplier of every weapon's spread.
+    spread: f32,
+    /// Trees, rocks and wrecks: shells fly through them but lose damage, so guns aim round them.
+    features: &'a Features,
+    wrecks: &'a WreckList,
+    defs: &'a Defs,
 }
+
+/// Least cover share for a tree, rock or wreck to count as in the way of a shot (bushes do not).
+const COVER_BLOCK: f32 = 0.25;
 
 /// A cylinder a shell must stay out of: (centre, radius, bottom, top).
 type Obstacle = (V2, f32, f32, f32);
@@ -2730,6 +2855,29 @@ impl Lane<'_> {
                 list.push((c.pos, c.hit_r, c.y - HIT_BELOW, c.y + c.hit_h));
             }
         });
+        // Reclaimables (trees, rocks, wrecks, debris) soak a share of the damage: no aim through them.
+        let (mid, reach) = ((from2 + to) * 0.5, from2.dist(to) * 0.5 + 4.0);
+        let rules = &self.defs.rules;
+        let mut soft = |pos: V2, r: f32, top: f32| {
+            if pos.dist(from2) - r >= self.grace {
+                let ground = self.map.h(pos);
+                list.push((pos, r, ground - 0.3, ground + top + 0.2));
+            }
+        };
+        self.features.near(mid, reach, |_, s| {
+            if rules.features.get(s.def as usize).map_or(0.0, |d| d.cover()) >= COVER_BLOCK {
+                soft(s.pos, s.radius, s.height);
+            }
+        });
+        if rules.wreck_cover >= COVER_BLOCK {
+            let r2 = reach * reach;
+            for &(_, pos, mass, def, piece, _) in &self.wrecks.0 {
+                if mass > 0.0 && (pos - mid).len2() <= r2 {
+                    let (r, top) = Wreck::shape(self.defs, def, piece);
+                    soft(pos, r, top);
+                }
+            }
+        }
         list
     }
 
@@ -2785,12 +2933,12 @@ impl Lane<'_> {
     /// little off. A target partly behind a crest is aimed at higher up; `None` when no part of it
     /// can be hit.
     fn aim(&self, w: &WeaponDef, origin: Vec3, c: &Cen) -> Option<f32> {
-        let spread = w.spread.to_radians();
+        let spread = w.spread.to_radians() * self.spread;
         let obst = self.obstacles(w, origin, c.pos + c.vel * (c.pos.dist(flat(origin)) / w.speed.max(1.0)), c.id);
         // `Rng::bell` throws up to +-1 x spread in yaw and +-0.6 x spread in pitch: allow for 80%
         // of that (nearly every shot), with no last resort that ignores the spread.
         let (dip, side) = (spread * 0.6 * 0.8, spread * 0.8);
-        for lift in [0.0, 0.2, 0.4] {
+        for lift in [0.0, 0.2, 0.4, 0.6] {
             let lift = lift * c.hit_h;
             let sol = solve(w, origin, c.center() + Vec3::Y * lift, c.vel, self.g);
             if self.clears(origin, &sol, c.hit_w.min(c.hit_l) * 0.5, dip, side, &obst) {
@@ -2840,9 +2988,12 @@ fn weapons(
     mut fx: ResMut<FxLog>,
     mut effects: ResMut<Effects>,
     mut commands: Commands,
+    (features, wreck_list): (Res<Features>, Res<WreckList>),
 ) {
     let g = defs.rules.gravity;
     let tick = game.tick;
+    // Rain, wind and snow scatter the shots.
+    let wx_spread = defs.rules.weather_of(game.weather).spread;
     for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let mut ground_volleys = 0u16;
         // Still falling from an airdrop.
@@ -2896,6 +3047,10 @@ fn weapons(
             shooter: u.id,
             host: hosted.map_or(0, |h| h.0),
             g,
+            spread: wx_spread,
+            features: &features,
+            wrecks: &wreck_list,
+            defs: &defs,
         };
         for (wi, w) in df.weapons.iter().enumerate() {
             let Some(st) = ws.list.get_mut(wi) else { continue };
@@ -3043,7 +3198,7 @@ fn weapons(
                     if !clear {
                         st.blocked = true;
                     } else {
-                        fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+                        fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g, wx_spread);
                     }
                 }
             }
@@ -3076,7 +3231,7 @@ fn weapons(
                     let fix = d.miss * (1.0 / d.fall.max(0.3));
                     st.fix = if fix.len() > 6.0 { fix.norm() * 6.0 } else { fix };
                     ground_volleys |= gpoint.is_some() as u16;
-                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g, wx_spread);
                     if let Some(m) = mover.as_mut() {
                         // Fly on past the target before turning, so the next run starts lined up.
                         m.extend = m.extend.max(2.5 / df.mv.turn.to_radians().max(0.1) + d.half);
@@ -3143,7 +3298,7 @@ fn weapons(
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             ground_volleys |= gpoint.is_some() as u16;
-            fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+            fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g, wx_spread);
             if w.suicide {
                 // The drone is the warhead: it is gone, quietly (no wreck, no death blast).
                 effects.damage.push((u.id, 1.0e9, 0));
@@ -3207,9 +3362,9 @@ fn bomb_drop(w: &WeaponDef, body: &Body, cruise: f32, tp: Vec3, tv: V2, g: f32) 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &mut WeaponState, g: f32) {
+fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &mut WeaponState, g: f32, wx_spread: f32) {
     st.fired = st.fired.saturating_add(1);
-    let spread = w.spread.to_radians();
+    let spread = w.spread.to_radians() * wx_spread;
     let (vel, kind, pos) = match w.kind {
         WeaponKind::Bomb => ((body.vel + st.fix).at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
         WeaponKind::Missile => {
@@ -3280,7 +3435,7 @@ fn projectiles(
     mut reactive: Query<&mut Reactive>,
     mut commands: Commands,
 ) {
-    let mut wreck_hits: Vec<(u32, f32)> = vec![];
+    let mut pushes: Vec<(u32, Vec3)> = vec![];
     let g = defs.rules.gravity;
     let ff = defs.rules.friendly_fire;
     let grace = defs.rules.cover_grace;
@@ -3356,7 +3511,7 @@ fn projectiles(
             }
         }
         // Cover: trees, rocks and wrecks the shot flies through on the way soak up part of it.
-        soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
+        soak_cover(&mut p, a, hit.map_or(b, |h| h.0), hit.is_some(), &map, &defs, &mut features, &wreck_list, &mut pushes);
         soak_works(&mut p, a, hit.map_or(b, |h| h.0), hit, &map, &defs, &census, &mut effects);
         let Some((at, victim)) = hit else {
             if p.life <= 0.0 || b.x < -20.0 || b.z < -20.0 || b.x > map.world_x() + 20.0 || b.z > map.world_z() + 20.0 {
@@ -3429,20 +3584,23 @@ fn projectiles(
             }
             effects.damage.push((victim, dmg, p.dtype as usize));
         }
-        // Trees, rocks and wrecks never stop a shot, but what lands on them or blasts next to them wears them down.
+        // Trees, rocks and wrecks never stop a shot and are never destroyed by one, but what lands on
+        // them or blasts next to them fells trees, shatters rocks and shoves wrecks and debris about.
         if p.radius > 0.0 || victim == 0 {
-            hurt_reclaimables(at, p.radius, p.damage, p.dtype as usize, &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
+            hurt_reclaimables(at, p.radius, p.damage, &map, &defs, &mut features, &wreck_list, &mut pushes);
         }
     }
-    damage_wrecks(&wreck_hits, &mut wq, &defs, &mut fx, &mut commands);
+    push_wrecks(&pushes, &mut wq, &defs);
 }
 
 /// A shot flying from `a` to `b` this tick passes trees, rocks and wrecks: each one whose axis it
 /// passes closest to within this stretch (so every one counts once over the flight) and that it
-/// goes through takes its `cover` share of the shot's damage, which the shot loses. Cover within
-/// `rules.cover_grace` of the shooter is left out. `end`: the shot stops at `b` (hits something).
+/// goes through soaks up its `cover` share of the shot's damage, which the shot loses. Cover is
+/// never used up: a hard enough hit fells a tree (shatters a rock), and wrecks and debris get a
+/// shove along the shot (`pushes`, see `push_wrecks`). Cover within `rules.cover_grace` of the
+/// shooter is left out. `end`: the shot stops at `b` (hits something).
 #[allow(clippy::too_many_arguments)]
-fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, wreck_hits: &mut Vec<(u32, f32)>) {
+fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, pushes: &mut Vec<(u32, Vec3)>) {
     let rules = &defs.rules;
     let seg = b - a;
     let seg2 = Vec2::new(seg.x, seg.z);
@@ -3489,22 +3647,19 @@ fn soak_cover(p: &mut Projectile, a: Vec3, b: Vec3, end: bool, map: &MapData, de
         return;
     }
     cross.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.2.cmp(&y.2)).then(x.1.cmp(&y.1)));
+    let along = Vec3::new(seg2.x, 0.0, seg2.y) / len2.sqrt();
     for (_, key, is_feature, cover) in cross {
         let soak = p.damage * cover.clamp(0.0, 1.0);
         p.damage -= soak;
         if is_feature {
             if let Some(f) = features.list.get(key as usize).copied() {
-                let left = f.left - soak / f.hp;
-                // A tree shot through falls the way the shot flew instead of vanishing (a rock crumbles).
-                if left <= 0.0 && fellable(defs, &f) {
-                    features.fell(key as usize, fall_dir(v2(seg2.x, seg2.y), key as usize), left);
-                } else {
-                    features.set_left(key as usize, left);
+                // A tree shot through hard enough falls the way the shot flew (a rock shatters).
+                if fellable(defs, &f) && soak / f.hp >= rules.tree_fall {
+                    features.fell(key as usize, fall_dir(v2(seg2.x, seg2.y), key as usize), f.left);
                 }
             }
-        } else if let Some(w) = wrecks.0.iter().find(|w| w.0 == key) {
-            let d = defs.get(w.3);
-            wreck_hits.push((key, soak * defs.armor_mult(p.dtype as usize, d.armor_id)));
+        } else {
+            pushes.push((key, along * soak));
         }
     }
 }
@@ -3564,11 +3719,6 @@ pub fn blast_share(d: f32, radius: f32) -> f32 {
     (1.0 - d / radius).clamp(0.0, 1.0)
 }
 
-/// Weapon damage to the reclaimables around an impact at `at`: a shell (`radius` 0) hurts what it
-/// lands on, a blast everything within its radius, with the same fall-off as for units. A tree or
-/// rock loses the share of its worth that the damage is of its hit points (changed at once); hits
-/// on wrecks are added to `wreck_hits` as (wreck id, damage after armor) for `damage_wrecks`.
-#[allow(clippy::too_many_arguments)]
 /// A standing tree (not a bush) that a hit can throw down, or a rock it can shatter into rubble
 /// (`rules.tree_fall`).
 fn fellable(defs: &Defs, f: &FeatureState) -> bool {
@@ -3584,7 +3734,13 @@ fn fall_dir(dir: V2, idx: usize) -> V2 {
     v2(fm::cos(a), fm::sin(a))
 }
 
-pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, wreck_hits: &mut Vec<(u32, f32)>) {
+/// Weapon damage to the reclaimables around an impact at `at`: a shell (`radius` 0) acts on what
+/// it lands on, a blast on everything within its radius, with the same fall-off as for units.
+/// Reclaimables are never destroyed by weapons (only reclaimed): a hit of `rules.tree_fall` of a
+/// tree's or rock's hit points fells the tree or shatters the rock, which keeps its worth; wrecks
+/// and debris get a shove away from the blast (`pushes`: wreck id, impulse; see `push_wrecks`).
+#[allow(clippy::too_many_arguments)]
+pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, map: &MapData, defs: &Defs, features: &mut Features, wrecks: &WreckList, pushes: &mut Vec<(u32, Vec3)>) {
     let reach = radius.max(0.3);
     let centre = flat(at);
     let hurt = |horiz: f32, ground: f32, top: f32| -> Option<f32> {
@@ -3592,24 +3748,23 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
         let d = (horiz * horiz + vert * vert).sqrt();
         (d < reach).then(|| if radius > 0.0 { damage * blast_share(d, radius) } else { damage })
     };
-    // (index, share left after the hit, thrown down: away from the blast)
-    let mut hit: Vec<(usize, f32, Option<V2>)> = vec![];
+    // (index, thrown down: away from the blast)
+    let mut fell: Vec<(usize, V2)> = vec![];
     features.near(centre, reach + 6.0, |i, s| {
         let ground = map.h(s.pos);
-        if let Some(dmg) = hurt((s.pos.dist(centre) - s.radius).max(0.0), ground, ground + s.height) {
-            let left = s.left - dmg / s.hp;
-            let fells = radius > 0.0 && fellable(defs, s) && (dmg / s.hp >= defs.rules.tree_fall || left <= 0.0);
-            hit.push((i, left, fells.then(|| fall_dir(s.pos - centre, i))));
+        if radius > 0.0 && fellable(defs, s) {
+            if let Some(dmg) = hurt((s.pos.dist(centre) - s.radius).max(0.0), ground, ground + s.height) {
+                if dmg / s.hp >= defs.rules.tree_fall {
+                    fell.push((i, fall_dir(s.pos - centre, i)));
+                }
+            }
         }
     });
-    for (i, left, fall) in hit {
-        match fall {
-            Some(dir) => features.fell(i, dir, left),
-            None => features.set_left(i, left),
-        }
+    for (i, dir) in fell {
+        let left = features.list[i].left;
+        features.fell(i, dir, left);
     }
     for &(id, pos, mass, def, piece, _) in &wrecks.0 {
-        let d = defs.get(def);
         let (r, h) = Wreck::shape(defs, def, piece);
         let horiz = (pos.dist(centre) - r).max(0.0);
         if mass <= 0.0 || horiz >= reach {
@@ -3619,39 +3774,73 @@ pub fn hurt_reclaimables(at: Vec3, radius: f32, damage: f32, dtype: usize, map: 
         // (As high as it blocks sight, see `sight_block`.)
         let top = ground + h;
         if let Some(dmg) = hurt(horiz, ground, top) {
-            wreck_hits.push((id, dmg * defs.armor_mult(dtype, d.armor_id)));
+            let away = pos - centre;
+            // Right on it: thrown a way picked from its id.
+            let dir = if away.len2() > 1e-4 { away * (1.0 / away.len2().sqrt()) } else { fall_dir(V2::default(), id as usize) };
+            pushes.push((id, Vec3::new(dir.x, 0.0, dir.y) * dmg));
         }
     }
 }
 
-/// Applies weapon damage to wrecks: every hit point a whole wreck of that unit has
-/// (`rules.wreck_hp` of the unit's) is worth the same share of its mass. Returns the wrecks
-/// destroyed (already despawned).
-fn damage_wrecks(hits: &[(u32, f32)], q: &mut Query<(Entity, &mut Wreck)>, defs: &Defs, fx: &mut FxLog, commands: &mut Commands) -> Vec<Entity> {
-    let mut gone = vec![];
-    if hits.is_empty() {
-        return gone;
+/// Least speed a shove must give rubble to move it at all, and below which sliding rubble stops.
+const RUBBLE_MIN_SPEED: f32 = 0.3;
+/// A piece of debris shoved at least this fast flies (and falls again); slower ones slide.
+const RUBBLE_THROW: f32 = 2.5;
+/// Fastest a shove throws a piece of debris, and slides a whole wreck.
+const RUBBLE_MAX_PIECE: f32 = 10.0;
+const RUBBLE_MAX_WRECK: f32 = 2.0;
+/// Sliding friction (times gravity), and the share of its ground speed a thrown piece keeps when it lands.
+const RUBBLE_FRICTION: f32 = 0.8;
+const RUBBLE_LAND_KEEP: f32 = 0.3;
+
+/// Applies the shoves blasts and shots gave wrecks and debris this tick: each (wreck id, impulse
+/// = damage along its direction) adds `rules.rubble_push` x impulse / sqrt(mass) to its ground
+/// speed, the mass being what it is still worth (a wreck half taken apart is lighter; the square
+/// root so that a tank hulk still budges under a direct hit while small pieces fly). Pieces shoved
+/// hard enough fly off and fall again; the rest slide (`rubble_motion`). Wrecks of buildings,
+/// pieces still in the air and tiny shoves do nothing.
+fn push_wrecks(pushes: &[(u32, Vec3)], q: &mut Query<(Entity, &mut Wreck)>, defs: &Defs) {
+    if pushes.is_empty() || defs.rules.rubble_push <= 0.0 {
+        return;
     }
-    for (e, mut w) in q.iter_mut().sort_by_key::<&Wreck, _>(|w| w.id) {
-        if w.mass <= 0.0 {
+    let mut sum: Vec<(u32, Vec3)> = vec![];
+    for &(id, j) in pushes {
+        match sum.iter_mut().find(|s| s.0 == id) {
+            Some(s) => s.1 += j,
+            None => sum.push((id, j)),
+        }
+    }
+    for (_, mut w) in q.iter_mut().sort_by_key::<&Wreck, _>(|w| w.id) {
+        let Some(&(_, j)) = sum.iter().find(|s| s.0 == w.id) else { continue };
+        let piece = w.piece > 0.0;
+        if w.mass <= 0.0 || w.falling || (!piece && defs.get(w.def).is_structure()) {
             continue;
         }
-        let dmg: f32 = hits.iter().filter(|h| h.0 == w.id).map(|h| h.1).sum();
-        if dmg <= 0.0 {
+        let dv = j * (defs.rules.rubble_push / w.mass.max(defs.rules.debris.min_mass.max(0.5)).sqrt());
+        let mut v = w.vel.v();
+        v.x += dv.x;
+        v.z += dv.z;
+        let speed = (v.x * v.x + v.z * v.z).sqrt();
+        if speed < RUBBLE_MIN_SPEED {
             continue;
         }
-        let d = defs.get(w.def);
-        let per_hp = d.cost.mass * defs.rules.wreck_mass_fraction / (d.hp * defs.rules.wreck_hp).max(1.0);
-        w.mass -= dmg * per_hp;
-        if w.mass <= 0.01 {
-            w.mass = 0.0;
-            let (r, h) = Wreck::shape(defs, w.def, w.piece);
-            fx.push(w.pos.at(w.y + h * 0.8), FX_BLAST, r * 1.1 + 0.3);
-            commands.entity(e).despawn();
-            gone.push(e);
+        let max = if piece { RUBBLE_MAX_PIECE } else { RUBBLE_MAX_WRECK };
+        if speed > max {
+            v.x *= max / speed;
+            v.z *= max / speed;
         }
+        if piece && speed >= RUBBLE_THROW {
+            // Thrown up and away, a little less far than it goes up.
+            let s = speed.min(max);
+            v.x *= 0.8;
+            v.z *= 0.8;
+            v.y = s * 0.6;
+            w.falling = true;
+        } else {
+            v.y = 0.0;
+        }
+        w.vel = v.into();
     }
-    gone
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3987,10 +4176,10 @@ fn deaths(
             }
         }
     }
-    let mut wreck_hits: Vec<(u32, f32)> = vec![];
+    let mut pushes: Vec<(u32, Vec3)> = vec![];
     let blast_type = 3.min(defs.rules.damage_types.len() - 1);
     for (pos, y, damage, radius, owner) in blasts {
-        hurt_reclaimables(pos.at(y + 0.5), radius, damage, blast_type, &map, &defs, &mut features, &wreck_list, &mut wreck_hits);
+        hurt_reclaimables(pos.at(y + 0.5), radius, damage, &map, &defs, &mut features, &wreck_list, &mut pushes);
         let team = game.team_of(owner);
         if defs.rules.craters_on() && y - map.h(pos) < 3.0 {
             effects.craters.push((pos, radius * 0.4, defs.rules.crater_scale * damage.sqrt()));
@@ -4002,20 +4191,18 @@ fn deaths(
             }
         });
     }
-    let gone = damage_wrecks(&wreck_hits, &mut wrecks, &defs, &mut fx, &mut commands);
+    push_wrecks(&pushes, &mut wrecks, &defs);
     // Keep the number of wrecks and of pieces of debris bounded (each on its own): drop the oldest.
     let (mut whole, mut pieces) = (new_wrecks, new_pieces);
-    for (e, w) in &wrecks {
-        if !gone.contains(&e) {
-            if w.piece > 0.0 {
-                pieces += 1;
-            } else {
-                whole += 1;
-            }
+    for (_, w) in &wrecks {
+        if w.piece > 0.0 {
+            pieces += 1;
+        } else {
+            whole += 1;
         }
     }
     if whole > defs.rules.max_wrecks || pieces > dr.max {
-        let mut all: Vec<(u32, Entity, bool)> = wrecks.iter().filter(|(e, _)| !gone.contains(e)).map(|(e, w)| (w.id, e, w.piece > 0.0)).collect();
+        let mut all: Vec<(u32, Entity, bool)> = wrecks.iter().map(|(e, w)| (w.id, e, w.piece > 0.0)).collect();
         all.sort_by_key(|x| x.0);
         let (mut cut_whole, mut cut_pieces) = (whole.saturating_sub(defs.rules.max_wrecks), pieces.saturating_sub(dr.max));
         for (_, e, piece) in all {
@@ -4030,7 +4217,7 @@ fn deaths(
 
 /// Drops `n` pieces of debris holding `mass` in all from building `d` standing at `b`: off its
 /// walls, falling close by (a hard hit), or spilling out all round (`burst`: it was destroyed).
-/// They fall in `debris_fall`. Returns how many it made.
+/// They fall in `rubble_motion`. Returns how many it made.
 #[allow(clippy::too_many_arguments)]
 fn drop_debris(commands: &mut Commands, game: &mut Game, rng: &mut Rng, d: &crate::data::UnitDef, def: DefId, b: &Body, mass: f32, n: u32, burst: bool) -> usize {
     let weights: Vec<f32> = (0..n).map(|_| rng.range(0.6, 1.4)).collect();
@@ -4054,13 +4241,40 @@ fn drop_debris(commands: &mut Commands, game: &mut Game, rng: &mut Rng, d: &crat
     n as usize
 }
 
-/// Falling debris: gravity until it reaches the ground, where it hurts the units it lands on and
-/// then lies as a reclaimable piece.
-fn debris_fall(mut q: Query<&mut Wreck>, census: Res<Census>, defs: Res<Defs>, map: Res<MapData>, mut effects: ResMut<Effects>, mut fx: ResMut<FxLog>) {
+/// Rubble on the move. Falling debris: gravity until it reaches the ground, where it hurts the
+/// units it lands on, keeps a little of its speed and then lies as a reclaimable piece. Shoved
+/// wrecks and landed pieces (`push_wrecks`) slide on the ground: friction slows them, slopes
+/// speed them up or down, a building's footprint stops them.
+fn rubble_motion(mut q: Query<&mut Wreck>, census: Res<Census>, defs: Res<Defs>, map: Res<MapData>, nav: Res<Nav>, mut effects: ResMut<Effects>, mut fx: ResMut<FxLog>) {
     let g = defs.rules.gravity;
     let dr = &defs.rules.debris;
     for mut w in q.iter_mut().sort_by_key::<&Wreck, _>(|w| w.id) {
         if !w.falling {
+            let v = w.vel.v();
+            if v.x == 0.0 && v.z == 0.0 {
+                continue;
+            }
+            let mut v = v2(v.x, v.z);
+            // Downhill pull, then friction against the motion.
+            let (e, p) = (0.5, w.pos);
+            let grad = v2(map.h(p + v2(e, 0.0)) - map.h(p - v2(e, 0.0)), map.h(p + v2(0.0, e)) - map.h(p - v2(0.0, e))) * (1.0 / (2.0 * e));
+            v = v - grad * (g * DT);
+            let speed = v.len2().sqrt();
+            let slow = RUBBLE_FRICTION * g * DT;
+            if speed <= slow || speed < RUBBLE_MIN_SPEED * 0.5 {
+                w.vel = V3::default();
+                continue;
+            }
+            v = v * ((speed - slow) / speed);
+            let next = map.clamp(p + v * DT);
+            // Runs into a building (one already standing on it may move off).
+            if nav.at(&map, next) == 2 && nav.at(&map, p) != 2 {
+                w.vel = V3::default();
+                continue;
+            }
+            w.pos = next;
+            w.y = map.h(next);
+            w.vel = Vec3::new(v.x, 0.0, v.y).into();
             continue;
         }
         let mut v = w.vel.v();
@@ -4076,7 +4290,8 @@ fn debris_fall(mut q: Query<&mut Wreck>, census: Res<Census>, defs: Res<Defs>, m
         }
         w.y = ground;
         w.falling = false;
-        w.vel = V3::default();
+        let keep = v2(v.x, v.z) * RUBBLE_LAND_KEEP;
+        w.vel = if keep.len2() >= RUBBLE_MIN_SPEED * RUBBLE_MIN_SPEED { Vec3::new(keep.x, 0.0, keep.y).into() } else { V3::default() };
         fx.push(pos.at(ground + 0.1), FX_DEBRIS, w.piece);
         let dmg = (w.mass * dr.land_damage).min(dr.land_damage_max);
         if dmg > 0.0 {

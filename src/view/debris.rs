@@ -1,5 +1,5 @@
 //! Pieces of debris buildings drop (wrecks with `piece` > 0): jagged chunks that fall and tumble,
-//! then lie where they landed. The effects setting (`Settings::effects`) decides how much of that
+//! then lie where they landed, until a blast throws them again or shoves them rolling along. The effects setting (`Settings::effects`) decides how much of that
 //! is shown: low draws a piece only once it lies on the ground, as a plain box without shadow.
 use super::intel::FogGrid;
 use super::ViewState;
@@ -150,17 +150,31 @@ pub fn debris_visuals(
         if dv.landed != !w.falling {
             dv.landed = !w.falling;
             dv.age = 0.0;
+            if w.falling {
+                // Thrown up again by a blast: tumble on from how it lay.
+                dv.rest = t.rotation;
+            }
         }
         dv.age += dt;
         let size = w.piece;
         let shape = Vec3::new(1.0 + hash(w.id, 7) * 0.5, 0.45 + hash(w.id, 8) * 0.35, 0.8 + hash(w.id, 9) * 0.4) * size;
-        let ground_rot = Quat::from_rotation_arc(Vec3::Y, map.normal(w.pos.x, w.pos.y)) * dv.rest;
+        let lerped = dv.prev.lerp(dv.cur, alpha);
+        if !w.falling {
+            // Sliding: it rolls over the ground the way it goes.
+            let step = Vec3::new(dv.cur.x - dv.prev.x, 0.0, dv.cur.z - dv.prev.z);
+            let speed = step.length() / DT;
+            if speed > 0.05 {
+                let axis = Vec3::Y.cross(step).normalize_or_zero();
+                dv.rest = Quat::from_axis_angle(axis, speed * dt / (size * 0.45).max(0.1)) * dv.rest;
+            }
+        }
+        let ground_rot = Quat::from_rotation_arc(Vec3::Y, map.normal(lerped.x, lerped.z)) * dv.rest;
         let (pos, rot) = if w.falling {
-            (dv.prev.lerp(dv.cur, alpha), Quat::from_scaled_axis(dv.spin * dv.age) * dv.rest)
+            (lerped, Quat::from_scaled_axis(dv.spin * dv.age) * dv.rest)
         } else {
             // Settles from its tumbling within a moment.
             let k = (dv.age / 0.15).min(1.0);
-            (now + Vec3::Y * shape.y * 0.35, if k >= 1.0 { ground_rot } else { t.rotation.slerp(ground_rot, k) })
+            (lerped + Vec3::Y * shape.y * 0.35, if k >= 1.0 { ground_rot } else { t.rotation.slerp(ground_rot, k) })
         };
         t.translation = pos;
         t.rotation = rot;

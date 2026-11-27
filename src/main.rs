@@ -77,6 +77,13 @@ struct HostLobby {
     reveal_props: bool,
     /// Infantry capture enemy buildings other than factories (`Game.infantry_capture`).
     infantry_capture: bool,
+    /// Everyone sees every player's mass and energy income in the player list (`Game.eco_public`).
+    eco_public: bool,
+    /// Wrecks and ruins block land units' paths (`Game.rubble_blocks`); set from the data
+    /// (`rules.rubble_blocks_paths`) whenever the game data changes.
+    rubble_blocks: bool,
+    /// Weather: k = `rules.weather[k]`, the length of the list = random (`Game.weather`).
+    weather: usize,
     /// Start positions of each premade map.
     counts: Vec<usize>,
     /// Ground of random maps: 0 = picked by the seed, k = `surface::BIOMES[k - 1]`.
@@ -100,6 +107,21 @@ impl HostLobby {
     /// Starting points of a control points game: the lobby's choice or the game data's value.
     fn cp_points(&self, defs: &Defs) -> f32 {
         if self.cp_start == 0 { defs.rules.cp_start_points } else { self.cp_start as f32 }
+    }
+    fn weather_label(&self, defs: &Defs) -> String {
+        match defs.rules.weather.get(self.weather) {
+            Some(w) => longrange::i18n::weather_name(w).to_string(),
+            None => tr!("lobby.weather_random").to_string(),
+        }
+    }
+    /// The weather the game is played in (a random choice is made at the start).
+    fn weather_index(&self, defs: &Defs) -> u8 {
+        let n = defs.rules.weather.len().max(1);
+        if self.weather < n {
+            return self.weather as u8;
+        }
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+        ((t ^ self.seed).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 33) as u8 % n as u8
     }
     fn preset_label(&self) -> String {
         match self.preset {
@@ -182,6 +204,9 @@ impl HostLobby {
         if self.infantry_capture {
             t += &tr!("lobby.summary_infantry_capture", tr!("lobby.yes"));
         }
+        t += &tr!("lobby.summary_eco_public", if self.eco_public { tr!("lobby.yes") } else { tr!("lobby.no") });
+        t += &tr!("lobby.summary_rubble_blocks", if self.rubble_blocks { tr!("lobby.yes") } else { tr!("lobby.no") });
+        t += &tr!("lobby.summary_weather", self.weather_label(defs));
         if self.map_choice < SIZES.len() {
             let b = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k).copied()).unwrap_or(longrange::surface::Biome::from_seed(self.seed));
             t += &tr!("lobby.summary_terrain", longrange::i18n::biome_name(b));
@@ -785,9 +810,10 @@ fn replays_ui(ui: &mut egui::Ui, l: &mut ReplayList, message: &str, width: f32, 
             act = Some(ReplayAction::Back);
         }
     });
-    if let Some(k) = sel {
-        if !l.items[k].same_version() {
-            ui.colored_label(Color32::from_rgb(255, 170, 90), tr!("replays.other_version", &l.items[k].info.version));
+    // Delete / Refresh above may have shrunk the list: look the selection up again.
+    if let Some(r) = l.selected.and_then(|k| l.items.get(k)) {
+        if !r.same_version() {
+            ui.colored_label(Color32::from_rgb(255, 170, 90), tr!("replays.other_version", &r.info.version));
         }
     }
     if !message.is_empty() {
@@ -805,8 +831,12 @@ struct AppState {
     message: String,
     skirmish: bool,
     settings_open: bool,
+    /// The "Check for updates" window (main menu), with its check or download running in the background.
+    update: Option<longrange::update::Updater>,
     /// The built-in game data; a lobby or a host may put a preset in its place for one game.
     base_defs: Defs,
+    /// The menu backdrop picture (`assets/ui/menu_bg.png`), loaded on the first menu frame.
+    backdrop: Option<Option<egui::TextureHandle>>,
 }
 
 /// Back to the built-in game data (after a game or lobby that used a preset or the host's data).
@@ -859,12 +889,25 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         thumbs,
         tab: 0,
         reveal_props: true,
-        infantry_capture: false,
+        infantry_capture: true,
+        eco_public: false,
+        rubble_blocks: defs.rules.rubble_blocks_paths,
+        weather: 0,
         counts,
         biome: 0,
     };
     let _ = l.ensure_map(defs);
     Ok(l)
+}
+
+/// `LR_WEATHER=<id>`: the weather of a test or skirmish game, by its id in `rules.weather`.
+fn env_weather(defs: &Defs) -> Option<u8> {
+    let id = std::env::var("LR_WEATHER").ok()?;
+    let k = defs.rules.weather.iter().position(|w| w.id == id);
+    if k.is_none() {
+        eprintln!("LR_WEATHER: no weather '{id}' (have: {})", defs.rules.weather.iter().map(|w| w.id.as_str()).collect::<Vec<_>>().join(", "));
+    }
+    k.map(|k| k as u8)
 }
 
 fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
@@ -913,6 +956,10 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     }
     world.resource_mut::<Game>().reveal_props = l.reveal_props;
     world.resource_mut::<Game>().infantry_capture = l.infantry_capture;
+    world.resource_mut::<Game>().eco_public = l.eco_public;
+    world.resource_mut::<Game>().rubble_blocks = l.rubble_blocks;
+    let weather = env_weather(world.resource::<Defs>()).unwrap_or_else(|| l.weather_index(world.resource::<Defs>()));
+    world.resource_mut::<Game>().weather = weather;
     for ai in &ais {
         world.resource_mut::<Game>().players[ai.player as usize].ai_kind = ai.kind.id();
     }
@@ -1776,6 +1823,83 @@ fn browser_ui(ui: &mut egui::Ui, ctx: &egui::Context, b: &mut Browser, defs: &De
 }
 
 /// Main menu and lobbies.
+/// The updater window; true when closed.
+fn update_ui(ctx: &egui::Context, u: &longrange::update::Updater) -> bool {
+    use longrange::update::{mb, State};
+    let mut close = false;
+    egui::Window::new(tr!("update.title")).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        ui.set_width(520.0);
+        ui.label(tr!("update.running", env!("CARGO_PKG_VERSION")));
+        ui.add_space(6.0);
+        match u.state() {
+            State::Busy(t) => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(t);
+                });
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
+            State::UpToDate => {
+                ui.label(tr!("update.up_to_date"));
+            }
+            State::Ready(p) => {
+                ui.label(egui::RichText::new(tr!("update.available", p.tag)).strong());
+                ui.label(tr!("update.size", p.files, p.removed, mb(p.bytes)));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(tr!("update.changes")).strong());
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for (k, (tag, body)) in p.notes.iter().enumerate() {
+                        egui::CollapsingHeader::new(egui::RichText::new(tag).strong()).default_open(k == 0).show(ui, |ui| {
+                            // The CHANGELOG section: category lines ("Graphics") and "- " bullets.
+                            for line in body.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                                if let Some(b) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label("•");
+                                        ui.label(egui::RichText::new(b).size(12.5));
+                                    });
+                                } else {
+                                    ui.add_space(4.0);
+                                    ui.label(egui::RichText::new(line.trim_start_matches('#').trim()).strong());
+                                }
+                            }
+                            if body.is_empty() {
+                                ui.label(egui::RichText::new(tr!("update.no_notes")).weak());
+                            }
+                        });
+                    }
+                });
+                ui.add_space(6.0);
+                if ui.button(tr!("update.install")).clicked() {
+                    u.install(p.clone());
+                }
+            }
+            State::Done(tag) => {
+                ui.label(tr!("update.done", tag));
+                if ui.button(tr!("update.restart")).clicked() {
+                    match longrange::update::restart() {
+                        Ok(()) => std::process::exit(0),
+                        Err(e) => {
+                            ui.colored_label(egui::Color32::from_rgb(255, 120, 105), e);
+                        }
+                    }
+                }
+            }
+            State::Failed(e) => {
+                ui.colored_label(egui::Color32::from_rgb(255, 120, 105), e);
+                ui.hyperlink_to(tr!("update.releases_page"), format!("https://github.com/{}/releases", longrange::update::REPO));
+            }
+        }
+        // No closing while a check or download runs.
+        if !u.busy() {
+            ui.add_space(6.0);
+            if ui.button(tr!("update.close")).clicked() {
+                close = true;
+            }
+        }
+    });
+    close
+}
+
 fn menu_ui(world: &mut World) {
     let Some(mut app) = world.remove_non_send::<AppState>() else { return };
     if matches!(app.screen, Screen::Game(_)) {
@@ -1844,7 +1968,9 @@ fn menu_ui(world: &mut World) {
             Err(e) => app.message = e,
         }
     }
-    ctx.layer_painter(egui::LayerId::background()).rect_filled(ctx.content_rect(), 0.0, egui::Color32::from_rgb(15, 18, 23));
+    let backdrop = app.backdrop.get_or_insert_with(|| longrange::theme::load_backdrop(&ctx)).clone();
+    // The picture shows in full behind the main menu; the busier screens darken it to keep their text legible.
+    longrange::theme::backdrop(&ctx, backdrop.as_ref(), if matches!(app.screen, Screen::Menu) { 0 } else { 215 });
     // The lobby fills the screen like the preset editor: the players column and the map column share the
     // width, the map picture (kept small) grows with the height and the map list takes what is left under it.
     let screen = ctx.content_rect();
@@ -1860,21 +1986,30 @@ fn menu_ui(world: &mut World) {
             ui.set_max_width(if lobby { lobby_w } else { 560.0 });
             match &mut app.screen {
                 Screen::Menu => {
-                    ui.add_space(30.0);
-                    ui.label(egui::RichText::new(tr!("main_menu.title")).size(56.0).color(egui::Color32::from_rgb(255, 215, 100)).strong());
-                    ui.label(egui::RichText::new(tr!("main_menu.tagline")).size(16.0));
-                    ui.add_space(26.0);
-                    ui.horizontal(|ui| {
-                        ui.label(tr!("common.name"));
-                        if ui.add(egui::TextEdit::singleline(&mut app.name).desired_width(300.0).char_limit(16)).changed() {
+                    use longrange::theme;
+                    ui.add_space(40.0);
+                    theme::title(ui, tr!("main_menu.title"), 62.0);
+                    ui.add_space(34.0);
+                    // A plate behind the column, drawn once the column's height is known.
+                    let slot = ui.painter().add(egui::Shape::Noop);
+                    let top = ui.cursor().min.y;
+                    let bw = 440.0;
+                    let big = egui::vec2(bw, 46.0);
+                    let small = egui::vec2(bw, 36.0);
+                    ui.add_space(20.0);
+                    ui.allocate_ui_with_layout(egui::vec2(bw, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(tr!("common.name").to_uppercase()).font(theme::bold_font(ui.ctx(), 14.0)).color(theme::TEXT_DIM));
+                        ui.add_space(6.0);
+                        let edit = egui::TextEdit::singleline(&mut app.name).desired_width(ui.available_width()).char_limit(16).font(egui::FontId::proportional(16.0));
+                        if ui.add(edit).changed() {
                             // Remembered for the next start.
                             let mut s = world.resource_mut::<longrange::settings::Settings>();
                             s.name = app.name.clone();
                             s.save();
                         }
                     });
-                    ui.add_space(10.0);
-                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.host_game")).size(18.0))).clicked() {
+                    ui.add_space(14.0);
+                    if theme::menu_button(ui, tr!("main_menu.host_game"), big, true).clicked() {
                         match new_lobby(&app.name, &defs) {
                             Ok(l) => {
                                 next = Some(Screen::HostLobby(l));
@@ -1884,22 +2019,22 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.join_game")).size(18.0))).clicked() {
+                    if theme::menu_button(ui, tr!("main_menu.join_game"), big, true).clicked() {
                         next = Some(Screen::Browse(Browser::new()));
                         app.message.clear();
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.replays"))).clicked() {
+                    if theme::menu_button(ui, tr!("main_menu.replays"), small, false).clicked() {
                         next = Some(Screen::Replays(ReplayList::new()));
                         app.message.clear();
                     }
-                    ui.add_space(14.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.game_data_presets"))).clicked() {
+                    ui.add_space(16.0);
+                    if theme::menu_button(ui, tr!("main_menu.game_data_presets"), small, false).clicked() {
                         next = Some(Screen::Presets(PresetUi::new()));
                         app.message.clear();
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.map_editor"))).clicked() {
+                    if theme::menu_button(ui, tr!("main_menu.map_editor"), small, false).clicked() {
                         // The editor is this same program started with --editor, in its own window and process.
                         let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("--editor").spawn());
                         match started {
@@ -1908,19 +2043,27 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("common.settings"))).clicked() {
+                    if theme::menu_button(ui, tr!("common.settings"), small, false).clicked() {
                         app.settings_open = true;
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.quit"))).clicked() {
+                    if theme::menu_button(ui, tr!("update.check"), small, false).clicked() && app.update.is_none() {
+                        app.update = Some(longrange::update::Updater::check());
+                    }
+                    ui.add_space(16.0);
+                    if theme::menu_button(ui, tr!("main_menu.quit"), small, false).clicked() {
                         world.write_message(AppExit::Success);
                     }
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new(tr!("main_menu.fullscreen_hint")).size(12.0).weak());
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new(tr!("main_menu.fullscreen_hint")).size(13.0).color(theme::TEXT_DIM));
                     if !app.message.is_empty() {
-                        ui.add_space(10.0);
-                        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
+                        ui.add_space(8.0);
+                        ui.colored_label(egui::Color32::from_rgb(236, 120, 105), &app.message);
                     }
+                    ui.add_space(16.0);
+                    let cx = ui.max_rect().center().x;
+                    let r = egui::Rect::from_min_max(egui::pos2(cx - bw * 0.5 - 20.0, top), egui::pos2(cx + bw * 0.5 + 20.0, ui.cursor().min.y));
+                    ui.painter().set(slot, theme::plate_shape(r, 14.0, egui::Color32::from_rgba_unmultiplied(12, 16, 21, 215), theme::LINE));
                 }
                 Screen::HostLobby(l) => {
                     let first_faction = playable.first().copied().unwrap_or(0) as u8;
@@ -2092,6 +2235,7 @@ fn menu_ui(world: &mut World) {
                                     match Defs::load_preset(&asset_root(), &name) {
                                         Ok(d) => {
                                             l.preset = k;
+                                            l.rubble_blocks = d.rules.rubble_blocks_paths;
                                             let f = d.playable_factions().first().copied().unwrap_or(0) as u8;
                                             for s in l.slots.iter_mut() {
                                                 s.faction = f;
@@ -2121,10 +2265,31 @@ fn menu_ui(world: &mut World) {
                                         l.biome = (l.biome + 1) % (longrange::surface::BIOMES.len() + 1);
                                     }
                                 }
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(tr!("lobby.weather_label")).size(15.0));
+                                    let tip = cur.rules.weather.get(l.weather).map_or_else(|| tr!("lobby.weather_random_tip").to_string(), |w| longrange::i18n::weather_desc(w).to_string());
+                                    egui::ComboBox::from_id_salt("weather").width(right_w - 120.0).selected_text(l.weather_label(&cur)).show_ui(ui, |ui| {
+                                        for (k, w) in cur.rules.weather.iter().enumerate() {
+                                            if ui.selectable_value(&mut l.weather, k, longrange::i18n::weather_name(w)).on_hover_text(longrange::i18n::weather_desc(w)).changed() {
+                                                l.dirty = true;
+                                            }
+                                        }
+                                        let random = cur.rules.weather.len();
+                                        if ui.selectable_value(&mut l.weather, random, tr!("lobby.weather_random")).on_hover_text(tr!("lobby.weather_random_tip")).changed() {
+                                            l.dirty = true;
+                                        }
+                                    }).response.on_hover_text(tip);
+                                });
                                 if ui.checkbox(&mut l.reveal_props, tr!("lobby.reveal_props")).changed() {
                                     l.dirty = true;
                                 }
                                 if ui.checkbox(&mut l.infantry_capture, tr!("lobby.infantry_capture")).on_hover_text(tr!("lobby.infantry_capture_tip")).changed() {
+                                    l.dirty = true;
+                                }
+                                if ui.checkbox(&mut l.eco_public, tr!("lobby.eco_public")).on_hover_text(tr!("lobby.eco_public_tip")).changed() {
+                                    l.dirty = true;
+                                }
+                                if ui.checkbox(&mut l.rubble_blocks, tr!("lobby.rubble_blocks")).on_hover_text(tr!("lobby.rubble_blocks_tip")).changed() {
                                     l.dirty = true;
                                 }
                             } else {
@@ -2399,6 +2564,13 @@ fn menu_ui(world: &mut World) {
             app.settings_open = false;
         }
     }
+    if matches!(app.screen, Screen::Menu) && next.is_none() {
+        if let Some(u) = &app.update {
+            if update_ui(&ctx, u) {
+                app.update = None;
+            }
+        }
+    }
     if let Some(n) = next {
         if matches!(n, Screen::Menu | Screen::Browse(_)) {
             restore_defs(world, &app.base_defs);
@@ -2633,6 +2805,22 @@ fn dev_screenshot(mut commands: Commands, game: Option<Res<Game>>, view: Option<
         let mut it = v.split(',');
         Some((it.next()?.to_string(), it.next().and_then(|s| s.parse().ok()).unwrap_or(5.0), it.next().unwrap_or("").to_string(), it.next().and_then(|s| s.parse().ok()).unwrap_or(0.0)))
     });
+    // `LR_SHOT=<file.png>,<seconds>,menu`: the main menu after that many seconds.
+    if let (Some((path, at, select, _)), None) = (spec, &game) {
+        if select == "menu" {
+            match state.0 {
+                0 if time.elapsed_secs() >= *at => {
+                    commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+                    *state = (1, time.elapsed_secs());
+                }
+                1 if time.elapsed_secs() > state.1 + 1.0 => {
+                    exit.write(AppExit::Success);
+                }
+                _ => {}
+            }
+            return;
+        }
+    }
     let (Some((path, at, select, dist)), Some(game), Some(mut view)) = (spec, game, view) else { return };
     match state.0 {
         0 if game.tick as f32 * DT >= *at => {
@@ -2756,8 +2944,15 @@ fn selftest() {
     if let Some(points) = std::env::var("LR_POINTS").ok().and_then(|s| s.parse::<f32>().ok()) {
         enable_control_points(world, points);
     }
-    // LR_INFCAP=1: the lobby option "infantry capture buildings".
-    world.resource_mut::<Game>().infantry_capture = std::env::var("LR_INFCAP").is_ok();
+    // The lobby options "infantry capture buildings" (on by default, LR_INFCAP=0: off) and
+    // "rubble blocks paths" (from the data, LR_RUBBLE=0/1 overrides).
+    world.resource_mut::<Game>().infantry_capture = std::env::var("LR_INFCAP").as_deref() != Ok("0");
+    let rubble = std::env::var("LR_RUBBLE").map_or(world.resource::<Defs>().rules.rubble_blocks_paths, |v| v != "0");
+    world.resource_mut::<Game>().rubble_blocks = rubble;
+    // LR_WEATHER=rain (an id of `rules.weather`).
+    if let Some(w) = env_weather(world.resource::<Defs>()) {
+        world.resource_mut::<Game>().weather = w;
+    }
     world.insert_resource(Ais((0..n).map(|i| Ai::with_kind(i as u8, 99 + seed, kind(i))).collect()));
     // LR_PROFILE=1 prints how long each tick system took at the end.
     if std::env::var("LR_PROFILE").is_ok() {
@@ -3293,8 +3488,9 @@ fn combattest() {
         println!("== Sight through a tree line: enemy {:.0} away seen behind the trees: {behind_trees}, after they are gone: {in_the_open}", a.dist(b));
         assert!(!behind_trees && in_the_open, "trees block sight");
     }
-    // 7d. Weapons destroy reclaimables and unfinished buildings: a Pike shells a grove with a rock
-    // and a wreck in it, a Crony shoots an enemy windmill left half built.
+    // 7d. Weapons never destroy reclaimables, only unfinished buildings: a Pike shells a grove with
+    // a rock and a wreck in it (the pines fall, the rock shatters, the wreck is shoved about, all
+    // keep their worth), a Crony shoots an enemy windmill left half built.
     {
         let mut app = headless(defs.clone());
         let mut map = MapData::generate(192, 4242, 2);
@@ -3313,11 +3509,16 @@ fn combattest() {
         spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
         spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
         let mut game = world.resource::<Game>().clone();
+        let wreck_at = spot + v2(1.0, -2.5);
+        let crony = defs.id("crony").unwrap();
+        let wreck_mass = defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction;
         let (wreck, site) = {
             let mut commands = world.commands();
             let id = game.alloc();
-            let crony = defs.id("crony").unwrap();
-            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction, pos: spot + v2(1.0, -2.5), y: 2.0, yaw: 0.0, ..Default::default() });
+            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: wreck_mass, pos: wreck_at, y: 2.0, yaw: 0.0, ..Default::default() });
+            // A small piece of debris next to it (`id + 1`, allocated right after).
+            let piece = game.alloc();
+            spawn_wreck(&mut commands, Wreck { id: piece, def: crony, mass: 3.0, pos: spot + v2(-1.5, 1.5), y: 2.0, yaw: 0.0, piece: 0.6, ..Default::default() });
             let site = longrange::sim::spawn_unit_built(&mut commands, &defs, &mut game, &map, defs.id("windmill").unwrap(), 1, v2(140.0, 100.0), 0.0, Some(0.5), 0);
             (id, site)
         };
@@ -3329,27 +3530,74 @@ fn combattest() {
         world.flush();
         let before = make_snapshot(world);
         order(world, vec![pike], Order::AttackGround { pos: spot, radius: 3.0 });
-        let (mut site_gone, mut wreck_gone, mut grove_gone) = (None, None, None);
+        let mut site_gone = None;
+        let (mut felled, mut moved, mut slid, mut thrown, mut flew) = (None, 0.0f32, false, 0.0f32, false);
+        let piece_at = spot + v2(-1.5, 1.5);
         for t in 0..900u32 {
             world.run_schedule(SimTick);
             if site_gone.is_none() && !world.query::<&Unit>().iter(world).any(|u| u.id == site) {
                 site_gone = Some(t + 1);
             }
-            if wreck_gone.is_none() && !world.query::<&Wreck>().iter(world).any(|w| w.id == wreck) {
-                wreck_gone = Some(t + 1);
+            if felled.is_none() && (0..4).all(|i| world.resource::<Features>().list[i].fall != 0) {
+                felled = Some(t + 1);
             }
-            if grove_gone.is_none() && (0..4).all(|i| !world.resource::<Features>().alive(i)) {
-                grove_gone = Some(t + 1);
+            if let Some(w) = world.query::<&Wreck>().iter(world).find(|w| w.id == wreck) {
+                moved = moved.max(w.pos.dist(wreck_at));
+                slid |= w.vel.v().length() > 0.0;
+            }
+            if let Some(w) = world.query::<&Wreck>().iter(world).find(|w| w.id == wreck + 1) {
+                thrown = thrown.max(w.pos.dist(piece_at));
+                flew |= w.falling;
             }
         }
-        let rock_left = world.resource::<Features>().list[4].left;
+        let fs = world.resource::<Features>();
+        let standing = (0..5).filter(|i| fs.alive(*i)).count();
+        let worth = (0..5).map(|i| fs.list[i].left).fold(1.0f32, f32::min);
+        let kept = world.query::<&Wreck>().iter(world).find(|w| w.id == wreck).map(|w| w.mass);
         let after = make_snapshot(world);
         restore(world, &before);
-        let back = (0..5).filter(|i| world.resource::<Features>().alive(*i)).count() == 5 && world.query::<&Wreck>().iter(world).any(|w| w.id == wreck);
+        let back = (0..5).all(|i| world.resource::<Features>().list[i].fall == 0) && world.query::<&Wreck>().iter(world).any(|w| w.id == wreck && w.pos == wreck_at);
         restore(world, &after);
         let same = state_hash(&make_snapshot(world)) == state_hash(&after);
-        println!("== Weapons vs reclaimables: 4 pines gone after {grove_gone:?} ticks, wreck after {wreck_gone:?}, rock {:.0}% left.  Half-built enemy windmill destroyed after {site_gone:?} ticks.  Rollback restores them: {back}, hash equal {same}", rock_left * 100.0);
-        assert!(grove_gone.is_some() && wreck_gone.is_some() && rock_left < 1.0 && site_gone.is_some() && back && same, "weapons vs reclaimables and sites");
+        println!("== Weapons vs reclaimables: 4 pines felled after {felled:?} ticks (rock shattered: {}), {standing} of 5 still there ({:.0}% worth at least), wreck {} ({kept:?} of {wreck_mass:.0} mass) shoved {moved:.2} away (slid: {slid}), a small piece {thrown:.1} (thrown: {flew}).  Half-built enemy windmill destroyed after {site_gone:?} ticks.  Rollback restores them: {back}, hash equal {same}", world.resource::<Features>().list[4].fall != 0, worth * 100.0, if kept.is_some() { "kept" } else { "GONE" });
+        assert!(felled.is_some() && standing == 5 && worth >= 1.0 && kept == Some(wreck_mass) && thrown > 1.0 && site_gone.is_some() && back && same, "weapons vs reclaimables and sites");
+    }
+    // 7d2. Rubble blocks paths (lobby option): a tank drives past a line of wrecks lying across its
+    // way; with the option on it goes round them and never enters a cell they lie on.
+    {
+        let mut res = [(false, None::<u32>); 2];
+        for (k, on) in [false, true].into_iter().enumerate() {
+            let (mut app, map) = flat_world(192);
+            let world = app.world_mut();
+            world.resource_mut::<Game>().rubble_blocks = on;
+            let tank = spawn(world, &map, "overtaker", 0, v2(120.0, 99.0), 0.0);
+            let crony = defs.id("crony").unwrap();
+            let mut game = world.resource::<Game>().clone();
+            {
+                let mut commands = world.commands();
+                for j in 0..7 {
+                    let at = v2(151.0, 93.0 + j as f32 * 2.0);
+                    let id = game.alloc();
+                    spawn_wreck(&mut commands, Wreck { id, def: crony, mass: 300.0, pos: at, y: map.h(at), yaw: 1.57, ..Default::default() });
+                }
+            }
+            world.insert_resource(game);
+            world.flush();
+            order(world, vec![tank], Order::Move(v2(180.0, 99.0)));
+            let lying: Vec<(i32, i32)> = (0..7).map(|j| map.cell_of(v2(151.0, 93.0 + j as f32 * 2.0))).collect();
+            for t in 0..600u32 {
+                world.run_schedule(SimTick);
+                let p = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == tank).map(|(_, b)| b.pos).unwrap();
+                let (nav, map) = (world.resource::<Nav>(), world.resource::<MapData>());
+                let (cx, cy) = map.cell_of(p);
+                res[k].0 |= lying.contains(&(cx, cy)) || nav.occ[map.idx(cx, cy)] == longrange::map::OCC_RUBBLE;
+                if res[k].1.is_none() && p.dist(v2(180.0, 99.0)) < 2.0 {
+                    res[k].1 = Some(t + 1);
+                }
+            }
+        }
+        println!("== Rubble blocks paths: off - drove over a wreck: {}, there after {:?} ticks; on - drove over one: {}, there after {:?} ticks", res[0].0, res[0].1, res[1].0, res[1].1);
+        assert!(res[0].0 && res[0].1.is_some() && !res[1].0 && res[1].1.is_some(), "rubble blocks paths");
     }
     // 7e. Debris: hard hits on a finished enemy factory break pieces off, which drop next to its
     // walls; a rollback while they fall brings them back in the air. Destroyed, it spills more
@@ -3807,6 +4055,26 @@ fn apc_tests(defs: &Defs) {
             assert!(ax < 130.0, "a river 6 deep stops an amphibious carrier");
         }
     }
+    // 4. Ctrl-orders (`Command::Pace`): a carrier, a tank and a trooper side by side move in step.
+    {
+        let (mut app, map) = world_with(None);
+        let world = app.world_mut();
+        let ids: Vec<u32> = ["apc", "overtaker", "trooper"].iter().enumerate().map(|(i, n)| spawn(world, &map, n, 0, v2(60.0, 110.0 + i as f32 * 10.0), 0.0)).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: ids.clone(), orders: (0..3).map(|i| Order::Move(v2(200.0, 110.0 + i as f32 * 10.0))).collect(), queue: false }));
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Pace { ids: ids.clone() }));
+        for _ in 0..150 {
+            world.run_schedule(SimTick);
+        }
+        let xs: Vec<f32> = ids.iter().map(|id| body(world, *id).unwrap().0.x).collect();
+        let spread = xs.iter().cloned().fold(f32::MIN, f32::max) - xs.iter().cloned().fold(f32::MAX, f32::min);
+        println!("== Pace: after 15 s carrier / Overtaker / trooper at x {:.0} / {:.0} / {:.0} (spread {spread:.1})", xs[0], xs[1], xs[2]);
+        assert!(spread < 3.0 && xs[2] > 70.0, "units ordered with Ctrl move at the slowest one's speed");
+        for _ in 0..1200 {
+            world.run_schedule(SimTick);
+        }
+        let paces: Vec<f32> = world.query::<(&Unit, &Mover)>().iter(world).filter(|(u, _)| ids.contains(&u.id)).map(|(_, m)| m.pace).collect();
+        assert!(paces.iter().all(|p| *p == 0.0), "the pace ends with the orders");
+    }
 }
 
 /// Scavengers on every kind of reclaimable, reviving a building, and a commander killed inside a
@@ -4079,29 +4347,40 @@ fn infantry_tests(defs: &Defs) {
         assert!(found[0].is_some() && found[1].is_none(), "counter-battery radar finds the gun only with the rule on");
     }
 
-    // 1. A boulder between a tank and its target soaks up part of every shot.
-    let mut lost = [0.0f32; 2];
+    // 1. A boulder between a tank and its target 10 in front of it: the tank does not shoot
+    // through it (line of fire) but steps aside a little to get a clear shot, and shells sent through it
+    // anyway (ground fire at the target) lose part of their damage to it, which never wears it away.
+    let mut lost = [0.0f32; 4];
     let mut left = 1.0;
-    for (k, rock) in [false, true].into_iter().enumerate() {
-        let boulder = [("boulder", v2(146.0, 100.0))];
+    let (mut stepped, mut gap) = (0.0f32, 0.0f32);
+    for (k, (rock, ground)) in [(false, false), (true, false), (false, true), (true, true)].into_iter().enumerate() {
+        // (Ground fire: right in front of the target, so every shell flies through it.)
+        let boulder = [("boulder", v2(if ground { 146.0 } else { 140.0 }, 100.0))];
         let (mut app, map) = world_with(if rock { &boulder[..] } else { &[] });
         let world = app.world_mut();
-        spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
+        let tank = spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
         // Radar sees through the rock (sight does not).
         spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
         let target = spawn(world, &map, "overtaker", 1, v2(150.0, 100.0), 3.14);
         set_hp(world, target, 1.0e6);
+        if ground {
+            order(world, 0, vec![tank], Order::AttackGround { pos: v2(150.0, 100.0), radius: 0.5 });
+        }
         for _ in 0..300 {
             world.run_schedule(SimTick);
         }
         lost[k] = 1.0e6 - hp(world, target);
-        if rock {
+        if rock && ground {
             left = world.resource::<Features>().list[0].left;
         }
+        if rock && !ground {
+            let p = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == tank).map(|(_, b)| b.pos).unwrap();
+            (stepped, gap) = (p.dist(v2(100.0, 100.0)), p.dist(v2(150.0, 100.0)));
+        }
     }
-    println!("== Cover: a Crony shelling an Overtaker for 30 s does {:.0} damage in the open, {:.0} with a boulder in between ({:.0}% of the boulder left)", lost[0], lost[1], left * 100.0);
-    // (Shells dig the target into a pit; its rim makes the guns aim higher, partly over the boulder.)
-    assert!(lost[0] > 0.0 && lost[1] > 0.0 && lost[1] < lost[0] * 0.7, "cover");
+    println!("== Cover: a Crony with an Overtaker 50 away for 30 s does {:.0} damage in the open, {:.0} with a boulder in between (stepped {:.1} aside, {:.0} from the target); ground fire at it {:.0} in the open, {:.0} through the boulder ({:.0}% of the boulder left)", lost[0], lost[1], stepped, gap, lost[2], lost[3], left * 100.0);
+    assert!(lost[0] > 0.0 && lost[1] > lost[0] * 0.3 && stepped > 1.0 && stepped < 30.0 && gap > 30.0, "a tank behind cover steps aside to shoot");
+    assert!(lost[2] > 0.0 && lost[3] > 0.0 && lost[3] < lost[2] * 0.7 && left >= 1.0, "cover soaks shots and is not worn away");
 
     // 1b. Armor angle: a Crony shelling an Overtaker for 30 s that faces it, shows it its side, or
     // turns its back on it.
@@ -5692,6 +5971,7 @@ fn tank_tests(defs: &Defs) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    longrange::update::cleanup();
     if args.iter().any(|a| a == "--editor") {
         return longrange::editor::run();
     }
@@ -5765,13 +6045,13 @@ fn main() {
     .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))
     .insert_resource(settings)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, base_defs: defs })
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, update: None, base_defs: defs, backdrop: None })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
     .add_systems(Update, dev_screenshot)
-    .add_systems(bevy_egui::EguiPrimaryContextPass, (longrange::settings::apply_ui_scale, menu_ui));
+    .add_systems(bevy_egui::EguiPrimaryContextPass, (longrange::settings::apply_ui_scale, longrange::theme::apply_theme, menu_ui));
     // `--bench [minutes]`: the benchmark (view/bench.rs). LR_PROFILE=1: frame and tick times in the log.
     let bench = args.iter().position(|a| a == "--bench").map(|k| args.get(k + 1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(25.0));
     if bench.is_some() || std::env::var("LR_PROFILE").is_ok() {

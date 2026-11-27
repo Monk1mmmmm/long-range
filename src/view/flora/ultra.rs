@@ -322,8 +322,12 @@ mod tests {
                 assert!(!m.pos.is_empty() && m.pos.len() % 3 == 0, "{}", d.id);
                 assert!(m.pos.iter().chain(&m.nrm).all(|p| p.is_finite()), "{} has a non-finite vertex", d.id);
                 assert!(m.col.iter().all(|c| c.iter().all(|x| x.is_finite())));
+                // Indexed: the same triangles, fewer vertices.
+                let p = super::super::pack(&m);
+                assert_eq!(p.idx.len(), m.pos.len());
+                assert!(p.idx.iter().enumerate().all(|(i, &k)| p.pos[k as usize] == m.pos[i] && p.nrm[k as usize] == m.nrm[i]));
                 if v == 0 {
-                    println!("{:8} {:6} triangles", d.id, m.pos.len() / 3);
+                    println!("{:8} {:6} triangles, {:6} -> {:6} vertices indexed", d.id, m.pos.len() / 3, m.pos.len(), p.pos.len());
                 }
                 if let Ok(dir) = std::env::var("LR_OBJ_DIR") {
                     let mut o = String::new();

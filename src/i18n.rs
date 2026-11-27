@@ -175,6 +175,14 @@ pub fn weapon_name(w: &crate::data::WeaponDef) -> &str {
     data_text(&format!("weapons.{}", slug(&w.name)), &w.name)
 }
 
+pub fn weather_name(w: &crate::data::WeatherDef) -> &str {
+    data_text(&format!("weather.{}.name", w.id), &w.name)
+}
+
+pub fn weather_desc(w: &crate::data::WeatherDef) -> &str {
+    data_text(&format!("weather.{}.desc", w.id), &w.desc)
+}
+
 pub fn kind_name(k: &crate::surface::Kind) -> &'static str {
     data_text(&format!("terrain.{}", k.id), k.name)
 }
@@ -445,6 +453,12 @@ mod tests {
             }
             for w in &d.weapons {
                 data(format!("weapons.{}", slug(&w.name)), &w.name);
+            }
+        }
+        for w in &defs.rules.weather {
+            data(format!("weather.{}.name", w.id), &w.name);
+            if !w.desc.is_empty() {
+                data(format!("weather.{}.desc", w.id), &w.desc);
             }
         }
         for k in crate::surface::KINDS {

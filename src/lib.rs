@@ -11,5 +11,7 @@ pub mod preset_form;
 pub mod replay;
 pub mod settings;
 pub mod sim;
+pub mod theme;
 pub mod surface;
+pub mod update;
 pub mod view;

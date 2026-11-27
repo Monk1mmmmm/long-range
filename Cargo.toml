@@ -1,6 +1,6 @@
 [package]
 name = "longrange"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 default-run = "longrange"
 
@@ -18,6 +18,9 @@ gltf = { version = "1.4", default-features = false, features = ["utils", "names"
 libm = "0.2"
 # Replays: the start block (map, data, state) is deflated.
 flate2 = "1"
+# In-game updater (update.rs): exe patches (zstd --patch-from) and git blob hashes of the assets.
+zstd = { version = "0.13", default-features = false }
+sha1_smol = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 # build.rs: the Windows program icon (res/longrange.rc).

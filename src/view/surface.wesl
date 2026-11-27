@@ -17,15 +17,22 @@ struct SurfaceParams {
     // Relief from the height channel, in world units per full height step.
     bump: f32,
     // Tile size of every texture slot (layers, then road kinds), four per vector.
-    scales: array<vec4<f32>, 4>,
+    scales: array<vec4<f32>, 5>,
     // Edge sharpness per road kind (higher = harder edge).
-    road_soft: vec4<f32>,
-    // LR_SURFACE_DEBUG: 0 normal; 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 colour, 6 vertex tint (unlit).
+    road_soft: array<vec4<f32>, 2>,
+    // Road slot of the sidewalks (99 = none): kerbs where a paved road meets them.
+    sidewalk: u32,
+    // Road slot of the kind lane markings are painted on (99 = none).
+    marked: u32,
+    // LR_SURFACE_DEBUG: 0 normal; 1 base layer, 2 scorch, 3 masks 1-3, 4 roads 1-3, 5 colour, 6 vertex tint, 7 roads 5-7 (unlit).
     debug: u32,
     // 1: cliffs, broad colour variation, wet shoreline.
     quality: u32,
     // Sea level.
     water: f32,
+    // Weather: wet ground (darker, shinier) and snow cover, 0-1.
+    wet: f32,
+    snow: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> params: SurfaceParams;
@@ -37,6 +44,15 @@ struct SurfaceParams {
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var roads_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(107) var scorch: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(108) var scorch_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(109) var roads2: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(110) var roads2_sampler: sampler;
+// Lane markings (`MapData::centre_raster`): r distance along the road mod 16, g signed offset from
+// the centre line (-4..4 -> 0..1), b drawn here. One dashed centre line, nothing else.
+@group(constants::MATERIAL_BIND_GROUP) @binding(111) var centre: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(112) var centre_sampler: sampler;
+// Tracks of units: depth in r (`SurfaceView::track`), fading over the weather's track time.
+@group(constants::MATERIAL_BIND_GROUP) @binding(113) var tracks: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(114) var tracks_sampler: sampler;
 
 fn tile_scale(i: u32) -> f32 {
     return params.scales[i / 4u][i % 4u];
@@ -72,6 +88,11 @@ fn smooth_uv(uv: vec2<f32>, size: vec2<f32>) -> vec2<f32> {
     return (i + f + 0.5) / size;
 }
 
+// 1 where `a < v < b`, antialiased over the field's screen-space width `fw`.
+fn band(v: f32, fw: f32, a: f32, b: f32) -> f32 {
+    return saturate((v - a) / fw + 0.5) * saturate((b - v) / fw + 0.5);
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
@@ -104,16 +125,77 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
 
     let rv = textureSampleLevel(roads, roads_sampler, uv, 0.0);
+    var rv2 = vec4<f32>(0.0);
+    if params.roads > 4u {
+        rv2 = textureSampleLevel(roads2, roads2_sampler, uv, 0.0);
+    }
+    var walk = 0.0;
+    if params.sidewalk < 8u {
+        walk = select(rv2[params.sidewalk % 4u], rv[params.sidewalk % 4u], params.sidewalk < 4u);
+    }
+    // Screen-space width of the fields (derivatives only in uniform control flow).
+    let fw1 = max(fwidth(rv), vec4<f32>(1e-4));
+    let fw2 = max(fwidth(rv2), vec4<f32>(1e-4));
+    // Centre line (derivatives taken here, in uniform control flow).
+    let cl = textureSampleLevel(centre, centre_sampler, uv, 0.0);
+    // The distance along the road wraps at 16: filtered plainly, a texel across the wrap sweeps through
+    // every dash phase (a dotted dash every 16 units). Filter by hand with the wrap undone instead.
+    let st = uv * vec2<f32>(textureDimensions(centre)) - 0.5;
+    let fs = fract(st);
+    // Gather order: (u0, v1), (u1, v1), (u1, v0), (u0, v0).
+    let g = textureGather(0, centre, centre_sampler, uv);
+    let g0 = g.w;
+    let g1 = g.z - round(g.z - g0);
+    let g2 = g.x - round(g.x - g0);
+    let g3 = g.y - round(g.y - g0);
+    let arc = mix(mix(g0, g1, fs.x), mix(g2, g3, fs.x), fs.y) * 16.0;
+    let off = cl.g * 8.0 - 4.0;
+    let fw_arc = fwidth(arc);
+    let fw_off = max(fwidth(off), 1e-4);
+    var centre_line = 0.0;
+    var on_marked = 0.0;
+    // A jump in either field (seams between roads) shows as a large screen-space width: no line there.
+    if cl.b > 0.5 && fw_arc < 3.0 && fw_off < 0.6 {
+        // 0.14 wide; 2 units of paint, 2 of gap (the wrap at 0 falls in a gap and is hidden by fw_arc).
+        let half = 0.07;
+        let across = saturate((half - abs(off)) / fw_off + 0.5) * min(1.0, 2.0 * half / fw_off);
+        let ph = fract(arc * 0.25);
+        let dash = saturate((ph - 0.25) / max(fw_arc * 0.25, 1e-3) + 0.5) * saturate((0.75 - ph) / max(fw_arc * 0.25, 1e-3) + 0.5);
+        centre_line = across * dash * saturate((cl.b - 0.5) * 4.0);
+    }
+    var road_cover = 0.0;
     for (var k = 0u; k < params.roads; k++) {
-        let v = rv[k];
+        let v = select(rv2[k % 4u], rv[k % 4u], k < 4u);
         if v > 0.002 {
             let l = layer_sample(params.layers + k, p, dx, dy);
+            let soft = params.road_soft[k / 4u][k % 4u];
             // 0 beyond the edge whatever the heights (road_soft >= 2), 1 well inside.
-            let w = saturate((v - 0.5) * params.road_soft[k] + (l.a - hc) * 0.5 + 0.5);
+            let w = saturate((v - 0.5) * soft + (l.a - hc) * 0.5 + 0.5);
+            road_cover = max(road_cover, w);
             col = mix(col, l.rgb, w);
             hc = mix(hc, l.a * 0.6 + 0.2, w);
+            if k == params.marked {
+                on_marked = w;
+            }
+            // The field is linear within a unit of the edge (ROAD_RAMP 2: 0.1 of it = 0.2 units), so
+            // thin bands along the edge can be cut from it: a kerb where a sidewalk runs beside the road.
+            let fw = select(fw2[k % 4u], fw1[k % 4u], k < 4u);
+            if k != params.sidewalk && soft > 3.0 && v < 0.82 {
+                let side = smoothstep(0.55, 0.8, walk);
+                if side > 0.0 {
+                    // Kerb stone, a gutter just inside it.
+                    let kerb = band(v, fw, 0.5, 0.56) * side;
+                    let gutter = band(v, fw, 0.56, 0.6) * side;
+                    col = mix(col, vec3<f32>(0.42, 0.41, 0.39) * (0.85 + 0.3 * l.a), kerb);
+                    col = col * (1.0 - 0.35 * gutter);
+                    hc = mix(hc, 1.0, kerb);
+                    hc = mix(hc, 0.1, gutter);
+                }
+            }
         }
     }
+
+    col = mix(col, vec3<f32>(0.62, 0.62, 0.58), centre_line * on_marked * 0.9);
 
     if params.quality > 0u {
         // Broad variation of the colour, so large fields of one texture are not flat.
@@ -153,6 +235,34 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, max(core, ring));
     }
 
+    // Weather. Rain darkens the ground and makes it shine; snow covers the flat ground (thinner on
+    // slopes and roads, broken up by the ground texture's height); tracks press through both: dark
+    // ruts in the soil, slush through the snow, puddles in the rain.
+    let tr = textureSampleLevel(tracks, tracks_sampler, uv, 0.0).r;
+    let n3 = textureSampleGrad(albedo, albedo_sampler, p * 0.31 + vec2<f32>(0.71, 0.23), 0u, dx * 0.31, dy * 0.31).a;
+    let rut = saturate(tr * (0.8 + 0.4 * n3));
+    if params.wet > 0.001 {
+        col = col * mix(1.0, 0.68, params.wet);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.45, params.wet * 0.8);
+    }
+    if params.snow > 0.001 {
+        let flat_ground = smoothstep(0.55, 0.85, pbr_input.N.y);
+        let paved = saturate(road_cover);
+        let amount = saturate(params.snow * flat_ground * (1.0 - 0.45 * paved) * (0.75 + 0.5 * hc) + (n3 - 0.5) * 0.3 * params.snow);
+        let white = vec3<f32>(0.80, 0.83, 0.88) * (0.9 + 0.12 * hc);
+        // Through the snow, a track shows trodden grey slush.
+        let slush = mix(col * 0.6, vec3<f32>(0.42, 0.43, 0.45), 0.5);
+        col = mix(col, white, amount * (1.0 - rut * 0.8));
+        col = mix(col, slush, amount * rut * 0.8);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.8, amount);
+    }
+    if rut > 0.004 {
+        let ruts = col * vec3<f32>(0.58, 0.53, 0.48) * (0.9 + 0.2 * n3);
+        col = mix(col, ruts, rut * (0.6 + 0.3 * params.wet) * (1.0 - 0.5 * params.snow));
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.3, rut * params.wet * 0.8);
+        hc = hc - rut * 0.25;
+    }
+
     // Relief: tilt the normal along the slope of the blended height (surface gradient).
     let n = pbr_input.N;
     let wp = in.world_position.xyz;
@@ -177,6 +287,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             case 2u: { d = vec3<f32>(s); }
             case 3u: { d = m0.rgb; }
             case 4u: { d = rv.rgb; }
+            case 7u: { d = rv2.rgb; }
             case 6u: { d = tint; }
             default: {}
         }

@@ -135,6 +135,13 @@ if [ -z "$ONLY" ] || [ "$ONLY" = windows ]; then
     esac
 fi
 
+# The in-game updater's files: the whole exe and a patch from the previous release's (scripts/exe_updates.sh).
+if command -v zstd >/dev/null && command -v gh >/dev/null; then
+    while read -r f; do FILES+=("$f"); done < <(scripts/exe_updates.sh "$TAG")
+else
+    echo "warning: zstd or gh missing: no updater files, players of this release must download it whole" >&2
+fi
+
 if [ "$UPLOAD" = 0 ]; then
     echo "skipping upload (--no-upload). Archives: ${FILES[*]}"
     exit 0

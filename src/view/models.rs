@@ -193,6 +193,8 @@ pub struct ModelCache {
     /// Per part of a model (keyed like `models`): its simplified mesh for far away, if it gets much
     /// smaller (`decimate::simplify`).
     far: HashMap<(DefId, bool), Vec<Option<Handle<Mesh>>>>,
+    /// Per model (keyed like `models`): the skirt meshes of its parts (`skirt_meshes`).
+    skirts: HashMap<(DefId, bool), Vec<(usize, Handle<Mesh>)>>,
     rubble: Option<(Handle<Mesh>, Handle<Mesh>, Vec<Handle<StandardMaterial>>)>,
     flat: HashMap<(u32, u8), Handle<StandardMaterial>>,
     /// Glossy close-up versions of plain materials and the way back (`pair`, `set_close`).
@@ -479,7 +481,8 @@ fn roof_mask(parts: &[ModelPart], meshes: &Assets<Mesh>, w: u32, h: u32) -> Vec<
         for t in idx.chunks_exact(3) {
             let p: Vec<Vec3> = t.iter().map(|&i| Vec3::from_array(pos[i as usize])).collect();
             let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
-            let val = if n.y.abs() > 0.55 { 255 } else { 120 };
+            // Steep roofs count too: a mansard's hipped corners and church spires lean ~65 deg (n.y ~0.43).
+            let val = if n.y.abs() > 0.3 { 255 } else { 120 };
             let q: Vec<Vec2> = t.iter().map(|&i| Vec2::new(uv[i as usize][0] * w as f32, uv[i as usize][1] * h as f32)).collect();
             let (lo, hi) = (q[0].min(q[1]).min(q[2]), q[0].max(q[1]).max(q[2]));
             let den = (q[1].y - q[2].y) * (q[0].x - q[2].x) + (q[2].x - q[1].x) * (q[0].y - q[2].y);
@@ -833,6 +836,31 @@ impl ModelCache {
         let handles: Vec<Option<Handle<Mesh>>> = made.into_iter().map(|m| m.map(|m| meshes.add(m))).collect();
         self.far.insert(key, handles.clone());
         handles
+    }
+
+    /// The skirt of a building model, made once per model: every wall edge standing on the ground (y = 0 in the
+    /// model) of a part that never moves, carried straight down to y = -1 with the texture of the wall's bottom
+    /// row stretched along it. In the model root's space, one mesh per part (it takes that part's material);
+    /// `view::foundation_fit` stretches it to the ground under a building on a slope, so the model's own walls
+    /// run on down instead of the whole model being stretched.
+    fn skirt_meshes(&mut self, defs: &Defs, def: DefId, model: &Model, meshes: &mut Assets<Mesh>) -> Vec<(usize, Handle<Mesh>)> {
+        let key = (def, self.is_low(defs, def));
+        if let Some(v) = self.skirts.get(&key) {
+            return v.clone();
+        }
+        let mut glob: Vec<Transform> = Vec::with_capacity(model.parts.len());
+        let mut out = vec![];
+        for (pi, part) in model.parts.iter().enumerate() {
+            let g = part.parent.map_or(part.local, |p| glob[p].mul_transform(part.local));
+            glob.push(g);
+            let moves = part.spin.is_some() || model.anims.iter().any(|a| a.tracks.iter().any(|t| t.0 == pi));
+            let Some(m) = part.mesh.as_ref().and_then(|h| meshes.get(h)).filter(|_| !moves) else { continue };
+            if let Some(sk) = skirt_of(m, &g) {
+                out.push((pi, meshes.add(sk)));
+            }
+        }
+        self.skirts.insert(key, out.clone());
+        out
     }
 
     pub fn init(&mut self, materials: &mut Assets<StandardMaterial>) {
@@ -1309,6 +1337,76 @@ pub fn model_lod_swap(cams: Query<&GlobalTransform, With<super::terrain::MainCam
     }
 }
 
+/// Ground-level wall edges of a part mesh (placed by `g` in the model) carried down from y = 0 to y = -1
+/// (`ModelCache::skirt_meshes`). Faces lower than `SKIRT_MIN_RISE` (aprons, kerbs) and flat faces are left out.
+fn skirt_of(m: &Mesh, g: &Transform) -> Option<Mesh> {
+    use bevy::mesh::VertexAttributeValues as V;
+    const EPS: f32 = 0.03;
+    const SKIRT_MIN_RISE: f32 = 0.1;
+    let Some(V::Float32x3(pos)) = m.attribute(Mesh::ATTRIBUTE_POSITION) else { return None };
+    let nrm = match m.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(V::Float32x3(n)) => Some(n),
+        _ => None,
+    };
+    let uv = match m.attribute(Mesh::ATTRIBUTE_UV_0) {
+        Some(V::Float32x2(u)) => Some(u),
+        _ => None,
+    };
+    let tan = match m.attribute(Mesh::ATTRIBUTE_TANGENT) {
+        Some(V::Float32x4(t)) => Some(t),
+        _ => None,
+    };
+    let idx: Vec<u32> = match m.indices() {
+        Some(Indices::U32(i)) => i.clone(),
+        Some(Indices::U16(i)) => i.iter().map(|&v| v as u32).collect(),
+        None => (0..pos.len() as u32).collect(),
+    };
+    let wp: Vec<Vec3> = pos.iter().map(|p| g.transform_point(Vec3::from_array(*p))).collect();
+    let (mut p_out, mut n_out, mut uv_out, mut t_out, mut i_out) = (vec![], vec![], vec![], vec![], vec![]);
+    for t in idx.chunks_exact(3) {
+        let [a, b, c] = [t[0] as usize, t[1] as usize, t[2] as usize];
+        let face = (wp[b] - wp[a]).cross(wp[c] - wp[a]);
+        if face.length_squared() < 1e-12 || face.normalize().y.abs() > 0.5 {
+            continue;
+        }
+        for (i, j, k) in [(a, b, c), (b, c, a), (c, a, b)] {
+            if wp[i].y.abs() > EPS || wp[j].y.abs() > EPS || wp[k].y < SKIRT_MIN_RISE {
+                continue;
+            }
+            let n0 = p_out.len() as u32;
+            // Top i, top j, bottom j, bottom i; the opposite corner is above the edge, so the quad turns the other way.
+            for (v, y) in [(i, 0.0), (j, 0.0), (j, -1.0), (i, -1.0)] {
+                p_out.push([wp[v].x, y, wp[v].z]);
+                let n = nrm.map_or(face, |n| g.rotation * Vec3::from_array(n[v]));
+                n_out.push(Vec3::new(n.x, 0.0, n.z).try_normalize().unwrap_or(Vec3::new(face.x, 0.0, face.z).normalize()).to_array());
+                uv_out.push(uv.map_or([0.0, 0.0], |u| u[v]));
+                if let Some(tn) = tan {
+                    let d = g.rotation * Vec3::new(tn[v][0], tn[v][1], tn[v][2]);
+                    t_out.push([d.x, d.y, d.z, tn[v][3]]);
+                }
+            }
+            i_out.extend_from_slice(&[n0 + 1, n0, n0 + 3, n0 + 1, n0 + 3, n0 + 2]);
+        }
+    }
+    if i_out.is_empty() {
+        return None;
+    }
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, p_out)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, n_out)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv_out)
+        .with_inserted_indices(Indices::U32(i_out));
+    if tan.is_some() {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, t_out);
+    }
+    Some(mesh)
+}
+
+/// A building model's skirt (`ModelCache::skirt_meshes`): hidden until `view::foundation_fit` finds the
+/// building standing on a slope.
+#[derive(Component)]
+pub struct Skirt;
+
 /// Root of the visual parts under a unit entity.
 #[derive(Component)]
 pub struct ModelRoot {
@@ -1420,12 +1518,55 @@ pub fn spawn_model_dim(
         commands.entity(part.parent.map_or(root, |p| ents[p])).add_child(id);
         ents.push(id);
     }
+    if live && d.is_structure() && d.footprint > 0 && !d.is_fieldwork() {
+        for (pi, mesh) in cache.skirt_meshes(defs, look, &model, meshes) {
+            let mat = match &model.parts[pi].mat {
+                PartMat::Unit if building => mats.building.clone(),
+                PartMat::Unit => mats.normal.clone(),
+                PartMat::Flat(spec) => cache.flat_mat(spec, color, rgb, materials),
+            };
+            let mat = if dim { cache.dim_mat(&mat, materials) } else { mat };
+            let s = commands.spawn((Skirt, Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY, Visibility::Hidden)).id();
+            commands.entity(root).add_child(s);
+        }
+    }
     root
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Building models get skirts (their ground-level walls carried down), with valid indices.
+    #[test]
+    fn skirts_are_made() {
+        let mut meshes = Assets::<Mesh>::default();
+        let dir = asset_root().join("models");
+        let (mut with, mut total) = (0, 0);
+        for f in std::fs::read_dir(&dir).unwrap() {
+            let p = f.unwrap().path();
+            let name = p.file_stem().unwrap().to_string_lossy().to_string();
+            if !p.extension().is_some_and(|e| e == "glb") || !["civ_", "hotel", "residential_tower", "sov_"].iter().any(|k| name.starts_with(k)) {
+                continue;
+            }
+            let (parts, _) = load_glb(&p, &mut meshes, false, true).unwrap();
+            total += 1;
+            let mut quads = 0;
+            for part in &parts {
+                let Some(m) = part.mesh.as_ref().and_then(|h| meshes.get(h)) else { continue };
+                if let Some(s) = skirt_of(m, &part.local) {
+                    let Some(Indices::U32(idx)) = s.indices() else { panic!() };
+                    assert!(idx.iter().all(|&i| (i as usize) < s.count_vertices()));
+                    quads += idx.len() / 6;
+                }
+            }
+            if quads > 0 {
+                with += 1;
+            }
+            println!("{name}: {quads} skirt quads");
+        }
+        assert!(with * 2 > total, "{with} of {total}");
+    }
 
     /// Every part mesh of every model simplifies into a valid mesh (indices in range, finite) and the far
     /// meshes together are much smaller; prints the totals.

@@ -78,5 +78,9 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     let c = v.color.rgb;
     let withered = vec3<f32>(0.20, 0.15, 0.07) * (0.6 + 0.6 * saturate(h * 3.0));
     out.color = vec4<f32>(mix(c, withered, dry * 0.85), 1.0);
+    // The fragment shader reads the mesh flags (shadow receiver...) by this index: left at 0 it
+    // took another mesh's, and the grass got no shadows.
+@if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    out.instance_index = vertex_in.instance_index;
     return out;
 }

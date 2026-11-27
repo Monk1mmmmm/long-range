@@ -398,7 +398,7 @@ pub fn spawn_clouds(commands: &mut Commands, map: &MapData, meshes: &mut Assets<
 /// What `sky_sync` has put on the camera.
 #[derive(Default)]
 pub struct Applied {
-    key: Option<(String, bool, bool, bool)>,
+    key: Option<(String, bool, bool, bool, u32)>,
 }
 
 /// Puts the map's sky on the camera (skybox, haze colour, clear colour), the lights of the sky on the
@@ -417,13 +417,20 @@ pub fn sky_sync(
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<MainCamera>)>,
     mut clouds: Query<(&MeshMaterial3d<StandardMaterial>, &mut Visibility), With<CloudLayer>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    (game, defs, view): (Option<Res<crate::sim::Game>>, Option<Res<crate::data::Defs>>, Option<Res<super::ViewState>>),
 ) {
     let Some(map) = map else { return };
     let (show_sky, show_haze, show_clouds) = settings.as_ref().map_or((true, true, true), |s| (s.sky, s.haze, s.clouds));
-    let sky = find(&map.sky);
+    // In a game the weather may bring its own sky, dimmer light and a thick haze.
+    let wx = match (&game, &defs, &view) {
+        (Some(g), Some(d), Some(_)) => Some(d.rules.weather_of(g.weather).clone()),
+        _ => None,
+    };
+    let sky = find(wx.as_ref().filter(|w| !w.sky.is_empty()).map_or(&map.sky, |w| &w.sky));
+    let (light, haze) = wx.as_ref().map_or((1.0, 0.0), |w| (w.light.clamp(0.05, 2.0), w.haze.max(0.0)));
     // Ultra building detail: glass and metal reflect the sky (`env_light`).
     let shine = settings.as_ref().is_some_and(|s| s.building_detail >= 3);
-    let key = (sky.id.to_string(), show_sky, show_haze, shine);
+    let key = (sky.id.to_string(), show_sky, show_haze, shine, (light * 1000.0) as u32);
     let horizon = sky.horizon_color();
     if applied.key.as_ref() != Some(&key) {
         applied.key = Some(key);
@@ -452,13 +459,26 @@ pub fn sky_sync(
                 fog.falloff = if show_haze { FogFalloff::Linear { start: 900.0, end: 4000.0 } } else { FogFalloff::Linear { start: 1.0e6, end: 2.0e6 } };
             }
         }
-        for (mut light, mut t) in &mut sun {
-            let (shadows, lit) = (light.shadow_maps_enabled, sky.light());
-            *light = DirectionalLight { shadow_maps_enabled: shadows, ..lit };
+        for (mut sun_light, mut t) in &mut sun {
+            let (shadows, lit) = (sun_light.shadow_maps_enabled, sky.light());
+            *sun_light = DirectionalLight { shadow_maps_enabled: shadows, illuminance: lit.illuminance * light, ..lit };
             *t = sky.sun_transform();
         }
         if let Some(mut a) = ambient {
-            *a = sky.ambient_light();
+            let mut l = sky.ambient_light();
+            l.brightness *= light.sqrt();
+            *a = l;
+        }
+    }
+    // Weather haze: thick from a little beyond the ground the camera looks at, whatever the zoom,
+    // so the near ground stays readable and the distance fades out.
+    if haze > 0.0 && show_haze {
+        let d = view.as_ref().map_or(300.0, |v| v.cam_dist);
+        for (_, _, fog) in &mut cams {
+            if let Some(mut fog) = fog {
+                let start = d * 0.75 + haze * 0.1;
+                fog.falloff = FogFalloff::Linear { start, end: start + haze };
+            }
         }
     }
     // Clouds: invisible until the camera is far up, then they fade in and drift.

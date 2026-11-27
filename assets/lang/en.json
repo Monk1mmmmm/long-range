@@ -14,7 +14,6 @@
   },
   "main_menu": {
     "title": "LONG RANGE",
-    "tagline": "flow economy  -  long guns  -  scouts win wars",
     "host_game": "Host game / Skirmish vs AI",
     "join_game": "Join game",
     "replays": "Replays",
@@ -23,6 +22,32 @@
     "map_editor": "Map editor",
     "editor_failed": "Cannot start the map editor: {}",
     "fullscreen_hint": "F11 fullscreen."
+  },
+  "update": {
+    "check": "Check for updates",
+    "title": "Updates",
+    "running": "This is version {}.",
+    "checking": "Looking for a newer version...",
+    "comparing": "Comparing your files with the new version...",
+    "downloading": "Downloading...",
+    "progress": "Downloading: {} of {} MB",
+    "patching": "Unpacking the new program...",
+    "installing": "Installing...",
+    "up_to_date": "You have the newest version.",
+    "available": "{} is available.",
+    "size": "{} files to download, {} to remove: about {} MB.",
+    "install": "Download and install",
+    "done": "{} is installed. Restart the game to play it.",
+    "restart": "Restart now",
+    "close": "Close",
+    "changes": "What is new:",
+    "no_notes": "No notes for this version.",
+    "releases_page": "Download it from the releases page instead",
+    "dev_build": "Updating works only in a game unpacked from a release (not with cargo run or LR_ASSETS).",
+    "no_curl": "Could not run curl: {}",
+    "download_failed": "Download failed: {}",
+    "no_files": "{} has no update files: download it from the releases page.",
+    "bad_file": "A downloaded file is damaged: {}. Try again."
   },
   "connection": {
     "kicked_not_in_game": "You are not part of this game any more.",
@@ -58,7 +83,9 @@
     "no": "no",
     "summary_switched_off": "\nSwitched off: {}",
     "summary_props": "\nMap buildings known from the start: {}",
+    "summary_eco_public": "\nEconomy visible to everyone: {}",
     "summary_infantry_capture": "\nInfantry capture buildings: {}",
+    "summary_rubble_blocks": "\nRubble blocks paths: {}",
     "summary_terrain": "\nTerrain: {}",
     "observers": "Observers ({}/{})",
     "watch_instead": "Watch instead",
@@ -99,13 +126,21 @@
     "terrain_button": "Terrain: {}",
     "terrain_tip": "Ground of the random map; Random picks one from the map's seed",
     "reveal_props": "Neutral and hostile buildings known from the start",
+    "eco_public": "Mass and energy income visible to everyone",
+    "eco_public_tip": "Off: only observers see every player's income in the player list.",
     "infantry_capture": "Infantry capture buildings (not factories)",
+    "rubble_blocks": "Rubble blocks paths",
+    "rubble_blocks_tip": "Wrecks, ruins of buildings and big pieces of debris stand in the way of land units (they drive round them) until they are reclaimed. Buildings may still be put on them. Ticked by default unless the game data says otherwise.",
     "infantry_capture_tip": "Like in Cossacks: infantry take over enemy and neutral buildings they stand near (idle, moving or attack-moving, no order needed; or ordered to capture) while no armed enemy unit stands near the building. Factories, houses, bunkers and field works are not captured: those are stormed or entered.",
     "map_players": "{}  ({} players)",
     "nobody_plays": "Nobody would play: put a player or an AI in a slot.",
     "waiting_for_host": "Waiting for the host to start...",
     "leave": "Leave",
-    "connecting": "Connecting..."
+    "connecting": "Connecting...",
+    "weather_random": "Random",
+    "weather_random_tip": "One of the weathers below, picked when the game starts",
+    "summary_weather": "\nWeather: {}",
+    "weather_label": "Weather"
   },
   "browser": {
     "title": "Multiplayer games",
@@ -254,8 +289,6 @@
     "holds_bleed": "holds {:.0} of {}   -{:.1}/s",
     "holds": "holds {:.0} of {}",
     "points_short_bleed": "{:.0}  -{:.1}/s",
-    "points_left": "   {:.0} pts",
-    "player_line": "{}{} (team {}){}",
     "player_defeated": " - defeated"
   },
   "hud_map": {
@@ -415,6 +448,7 @@
     "select_ctrl_a_air_ctrl_d": "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
     "ctrl_shift_d_a_nearest_land": "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
     "ctrl_r_distribute": "        Ctrl+R share the selection's queued orders out among it   / nearest extractor of the lowest tier (Shift+/ adds the next)",
+    "ctrl_move_in_step": "        Ctrl+right-click: the selection moves in step, at the pace of its slowest unit",
     "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; sandbags and trenches: draw any line with the right button; pumps: drag a circle.",
     "factory_menu_left_click_queues": "Factory menu: left-click queues (Shift x5), right-click removes.",
     "ctrl_0_9_set_group_0": "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",
@@ -1035,7 +1069,11 @@
     "gravel": "Gravel",
     "paving": "Paving",
     "asphalt": "Asphalt",
+    "cobble": "Cobblestones",
+    "concrete": "Concrete slabs",
+    "asphalt_worn": "Worn asphalt",
     "dirt_road": "Dirt track",
+    "sidewalk": "Sidewalk",
     "biome_temperate": "Temperate",
     "biome_desert": "Desert",
     "biome_arctic": "Arctic",
@@ -1116,6 +1154,8 @@
     "switch_sight_blocked_by_reclaimables": "Trees, rocks and wrecks block sight",
     "switch_sight_blocked_by_reclaimables_tip": "Standing trees, rocks and wrecks block the view like small hills. Off: sight passes through them (they still soak up shots as cover).",
     "switch_sight_blocked_by_buildings": "Buildings block sight",
+    "switch_rubble_blocks_paths": "Rubble blocks paths (lobby default)",
+    "switch_rubble_blocks_paths_tip": "Whether the lobby option 'Rubble blocks paths' starts ticked with this data: wrecks, ruins and big pieces of debris then stand in the way of land units until they are reclaimed. The host can still change it in the lobby.",
     "switch_sight_blocked_by_buildings_tip": "Finished buildings (yours, enemy and map buildings) block the view behind them up to their height. Infantry inside a building still look out from its roof, and a building never hides itself. Off: sight passes through buildings.",
     "switch_radar_blocked_by_terrain": "Hills block radar",
     "switch_radar_blocked_by_terrain_tip": "Radar needs a clear line over the terrain, looking from 'Radar eye height' above the unit. Off: radar sees through hills.",
@@ -1179,8 +1219,8 @@
     "wrecks_wreck_mass_fraction_tip": "A wreck holds this share of the unit's mass cost (a building taken apart gives the same).",
     "wrecks_max_wrecks": "Most wrecks on the map",
     "wrecks_max_wrecks_tip": "At most this many wrecks lie on the map at once; the oldest disappear first.",
-    "wrecks_wreck_hp": "Wreck hit points",
-    "wrecks_wreck_hp_tip": "A wreck's hit points as a share of the unit's. Shells and blasts wear wrecks down; the mass goes with the hit points.",
+    "wrecks_rubble_push": "Blasts shove rubble",
+    "wrecks_rubble_push_tip": "Weapons never destroy wrecks, debris, trees or rocks (only reclaiming removes them). Blasts and shots passing through shove wrecks and debris instead: speed gained per point of damage, divided by the square root of the mass still in it. Small pieces are thrown, the rest slide; wrecks of buildings stay put. 0: nothing moves.",
     "wrecks_revive_cooldown": "Revive cooldown",
     "wrecks_revive_cooldown_tip": "Seconds before the wreck of a revived unit, or of a revival site destroyed unfinished, can be revived again.",
     "wrecks_wreck_cover": "Wreck cover",
@@ -1236,7 +1276,7 @@
     "feature_size": "Size",
     "feature_size_tip": "Scale of the model (1 = a pine about 3 units tall, a rock about 1 unit across).",
     "feature_hp": "Hit points",
-    "feature_hp_tip": "Weapon damage that destroys it (times the map's scale for it). 0 = a default by shape and size.",
+    "feature_hp_tip": "How sturdy it is (times the map's scale for it): one hit of the 'Felling and shattering' share of this throws the tree down or shatters the rock. Weapons never destroy it. 0 = a default by shape and size.",
     "feature_cover": "Cover",
     "feature_cover_tip": "Share of a shot's damage it soaks up when the shot passes through it. Unticked: by shape (pine 0.3, broadleaf 0.35, bush 0.15, rock 0.65).",
     "feature_weight": "Generator weight",
@@ -1269,7 +1309,49 @@
     "neutral": "Neutral",
     "neutral_tip": "Colour of neutral map buildings.",
     "hostile": "Hostile",
-    "hostile_tip": "Colour of the hostile side's units and buildings."
+    "hostile_tip": "Colour of the hostile side's units and buildings.",
+    "weather": "Weather",
+    "weather_hint": "Weather the lobby offers. Multipliers: 1 = no change. Vision, binoculars, radar, spotting, spread and speed change the fight; the rest is how it looks.",
+    "weather_copy_tip": "Add a copy of this weather (give it its own id).",
+    "weather_remove_tip": "Remove this weather (the last one stays).",
+    "weather_id": "Id",
+    "weather_id_tip": "Name for LR_WEATHER and the translations.",
+    "weather_name": "Name",
+    "weather_name_tip": "Shown in the lobby.",
+    "weather_desc": "Description",
+    "weather_desc_tip": "Tooltip in the lobby.",
+    "weather_vision": "Vision",
+    "weather_vision_tip": "Vision range of every unit, times this.",
+    "weather_binoculars": "Binoculars",
+    "weather_binoculars_tip": "Binocular range, times this.",
+    "weather_radar": "Radar",
+    "weather_radar_tip": "Radar range (every level), times this.",
+    "weather_spotting": "Spotting delay",
+    "weather_spotting_tip": "Spotting delay of units that have one (troopers), times this: above 1 they take longer to make out.",
+    "weather_spread": "Spread",
+    "weather_spread_tip": "Spread of every weapon, times this.",
+    "weather_speed": "Land speed",
+    "weather_speed_tip": "Top speed of land units, times this (mud, snow).",
+    "weather_tracks": "Track depth",
+    "weather_tracks_tip": "How deep the tracks of land units are drawn, times this (view only).",
+    "weather_track_secs": "Track time",
+    "weather_track_secs_tip": "Seconds a full-depth track takes to fade (view only).",
+    "weather_sky": "Sky",
+    "weather_sky_tip": "Sky id (clear, hazy, overcast, sunset, night, arctic); empty = the map's.",
+    "weather_light": "Sunlight",
+    "weather_light_tip": "Sunlight, times this.",
+    "weather_haze": "Haze",
+    "weather_haze_tip": "Distance over which the haze thickens beyond the ground in view; 0 = the usual far haze.",
+    "weather_rain": "Rain",
+    "weather_rain_tip": "How much rain falls (0-1).",
+    "weather_snow": "Snowfall",
+    "weather_snow_tip": "How much snow falls (0-1).",
+    "weather_wind": "Wind",
+    "weather_wind_tip": "Slants and drives the rain and snow (0-1).",
+    "weather_wet": "Wet ground",
+    "weather_wet_tip": "Ground darker and shinier (0-1).",
+    "weather_cover": "Snow cover",
+    "weather_cover_tip": "Snow on the ground (0-1); above 0.5 it also buries the grass."
   },
   "preset_units": {
     "general_id": "Id",
@@ -1558,7 +1640,38 @@
     "add_layer": "+ Layer",
     "ground_brush_hint": "Radius and strength above set the brush. Left mouse paints the selected layer, right mouse takes it away. On layer 0 it takes away every layer above.",
     "width": "width",
+    "sidewalk": "sidewalks",
     "road_hint": "Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.",
     "remove_all_roads": "Remove all roads"
+  },
+  "weather": {
+    "clear": {
+      "name": "Clear",
+      "desc": "No effect on the fight."
+    },
+    "overcast": {
+      "name": "Overcast",
+      "desc": "Grey sky: vision a little shorter."
+    },
+    "rain": {
+      "name": "Rain",
+      "desc": "Vision and binoculars shorter, guns a little less accurate, the ground soft: tracks stay longer."
+    },
+    "storm": {
+      "name": "Storm",
+      "desc": "Heavy rain and wind: far less vision, radar weakened by the rain, guns scatter, the ground turns to mud."
+    },
+    "snow": {
+      "name": "Snow",
+      "desc": "Snow on the ground: vision shorter, vehicles slower, deep tracks that give away where units went."
+    },
+    "blizzard": {
+      "name": "Blizzard",
+      "desc": "Driving snow: very short vision, radar weakened, guns scatter, vehicles crawl; fresh snow soon covers the tracks."
+    },
+    "fog": {
+      "name": "Fog",
+      "desc": "Thick fog: vision halved, binoculars nearly useless, units hard to make out. Radar works as ever."
+    }
   }
 }

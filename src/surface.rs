@@ -6,8 +6,17 @@ use serde::{Deserialize, Serialize};
 
 /// Most layers a map can have: the base layer plus eight painted ones (two RGBA mask textures).
 pub const MAX_LAYERS: usize = 9;
-/// Most road kinds one map can show (one channel of the road texture each).
-pub const MAX_ROAD_KINDS: usize = 4;
+/// Most road kinds one map can show (one channel of the two road textures each; the sidewalks
+/// take one when a road has them).
+pub const MAX_ROAD_KINDS: usize = 8;
+/// Centre lines: roads of a `lines` kind at least this wide get a dashed one ...
+pub const CENTRE_MIN: f32 = 3.5;
+/// ... and at least this long (shorter ones are the links of big junctions).
+pub const CENTRE_MIN_LEN: f32 = 15.0;
+/// Distance along a road kept in the centre-line raster (a multiple of the dash period, 4).
+pub const CENTRE_WRAP: f32 = 16.0;
+/// Ground kind of the sidewalks along roads with `Road::sidewalk`.
+pub const SIDEWALK: &str = "sidewalk";
 /// Road raster: the field falls from 1 to 0 over this many world units across the road's edge
 /// (0.5 on the edge itself), so bilinear filtering of a coarse texture still gives a crisp line.
 pub const ROAD_RAMP: f32 = 2.0;
@@ -23,12 +32,25 @@ pub struct Layer {
     pub scale: f32,
 }
 
-/// A road: a line of points with a width, drawn as a texture of its own kind (asphalt, dirt...).
+/// A road: a line of points with a width, drawn as a texture of its own kind (asphalt, dirt...),
+/// with sidewalks `sidewalk` wide on both sides (0 = none; kind `SIDEWALK`, drawn under every road).
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Road {
     pub kind: String,
     pub width: f32,
     pub points: Vec<V2>,
+    #[serde(default)]
+    pub sidewalk: f32,
+}
+
+impl Road {
+    pub fn new(kind: &str, width: f32, points: Vec<V2>) -> Road {
+        Road { kind: kind.into(), width, points, sidewalk: 0.0 }
+    }
+    /// Half the width it covers, sidewalks included.
+    pub fn reach(&self) -> f32 {
+        self.width * 0.5 + self.sidewalk.max(0.0)
+    }
 }
 
 /// A ground texture: id, name for the editor, default tile size and its average colour (linear
@@ -40,24 +62,31 @@ pub struct Kind {
     pub color: [f32; 3],
     /// Roads of this kind have a hard edge (paved) rather than a frayed one (tracks).
     pub hard: bool,
+    /// Roads of this kind get lane markings: a centre line, and edge lines where they have no
+    /// sidewalk (main roads; `MapData::centre_raster`).
+    pub lines: bool,
 }
 
 pub const KINDS: &[Kind] = &[
-    Kind { id: "grass", name: "Grass", scale: 10.0, color: [0.12, 0.22, 0.06], hard: false },
-    Kind { id: "meadow", name: "Dry meadow", scale: 12.0, color: [0.25, 0.25, 0.10], hard: false },
-    Kind { id: "forest_floor", name: "Forest floor", scale: 9.0, color: [0.13, 0.15, 0.07], hard: false },
-    Kind { id: "dirt", name: "Dirt", scale: 8.0, color: [0.27, 0.19, 0.12], hard: false },
-    Kind { id: "mud", name: "Mud", scale: 7.0, color: [0.14, 0.12, 0.08], hard: false },
-    Kind { id: "sand", name: "Sand", scale: 9.0, color: [0.52, 0.43, 0.27], hard: false },
-    Kind { id: "dunes", name: "Desert sand", scale: 16.0, color: [0.62, 0.45, 0.25], hard: false },
-    Kind { id: "cracked", name: "Cracked earth", scale: 15.0, color: [0.45, 0.32, 0.20], hard: false },
-    Kind { id: "snow", name: "Snow", scale: 14.0, color: [0.80, 0.83, 0.88], hard: false },
-    Kind { id: "ice", name: "Ice", scale: 16.0, color: [0.55, 0.66, 0.76], hard: false },
-    Kind { id: "stone", name: "Stone", scale: 12.0, color: [0.30, 0.28, 0.26], hard: false },
-    Kind { id: "gravel", name: "Gravel", scale: 6.0, color: [0.36, 0.34, 0.31], hard: false },
-    Kind { id: "paving", name: "Paving", scale: 6.0, color: [0.40, 0.39, 0.37], hard: true },
-    Kind { id: "asphalt", name: "Asphalt", scale: 6.0, color: [0.055, 0.055, 0.06], hard: true },
-    Kind { id: "dirt_road", name: "Dirt track", scale: 7.0, color: [0.32, 0.24, 0.15], hard: false },
+    Kind { id: "grass", name: "Grass", scale: 10.0, color: [0.12, 0.22, 0.06], hard: false, lines: false },
+    Kind { id: "meadow", name: "Dry meadow", scale: 12.0, color: [0.25, 0.25, 0.10], hard: false, lines: false },
+    Kind { id: "forest_floor", name: "Forest floor", scale: 9.0, color: [0.13, 0.15, 0.07], hard: false, lines: false },
+    Kind { id: "dirt", name: "Dirt", scale: 8.0, color: [0.27, 0.19, 0.12], hard: false, lines: false },
+    Kind { id: "mud", name: "Mud", scale: 7.0, color: [0.14, 0.12, 0.08], hard: false, lines: false },
+    Kind { id: "sand", name: "Sand", scale: 9.0, color: [0.52, 0.43, 0.27], hard: false, lines: false },
+    Kind { id: "dunes", name: "Desert sand", scale: 16.0, color: [0.62, 0.45, 0.25], hard: false, lines: false },
+    Kind { id: "cracked", name: "Cracked earth", scale: 15.0, color: [0.45, 0.32, 0.20], hard: false, lines: false },
+    Kind { id: "snow", name: "Snow", scale: 14.0, color: [0.80, 0.83, 0.88], hard: false, lines: false },
+    Kind { id: "ice", name: "Ice", scale: 16.0, color: [0.55, 0.66, 0.76], hard: false, lines: false },
+    Kind { id: "stone", name: "Stone", scale: 12.0, color: [0.30, 0.28, 0.26], hard: false, lines: false },
+    Kind { id: "gravel", name: "Gravel", scale: 6.0, color: [0.36, 0.34, 0.31], hard: false, lines: false },
+    Kind { id: "paving", name: "Paving", scale: 6.0, color: [0.40, 0.39, 0.37], hard: true, lines: false },
+    Kind { id: "cobble", name: "Cobblestones", scale: 4.0, color: [0.20, 0.17, 0.14], hard: true, lines: false },
+    Kind { id: "concrete", name: "Concrete slabs", scale: 8.0, color: [0.28, 0.27, 0.25], hard: true, lines: false },
+    Kind { id: "asphalt_worn", name: "Worn asphalt", scale: 7.0, color: [0.10, 0.10, 0.10], hard: true, lines: false },
+    Kind { id: "asphalt", name: "Asphalt", scale: 6.0, color: [0.055, 0.055, 0.06], hard: true, lines: true },
+    Kind { id: "dirt_road", name: "Dirt track", scale: 7.0, color: [0.32, 0.24, 0.15], hard: false, lines: false },
+    Kind { id: "sidewalk", name: "Sidewalk", scale: 3.0, color: [0.31, 0.30, 0.29], hard: true, lines: false },
 ];
 
 pub fn kind(id: &str) -> Option<&'static Kind> {
@@ -295,48 +324,188 @@ impl MapData {
         }
     }
 
-    /// Distinct road kinds in the order of first use, at most `MAX_ROAD_KINDS`.
+    /// Distinct road kinds, at most `MAX_ROAD_KINDS`, in drawing order: sidewalks first, then the
+    /// tracks, then the paved kinds in `KINDS` order (main asphalt last, over the side streets).
     pub fn road_kinds(&self) -> Vec<String> {
         let mut out: Vec<String> = vec![];
+        if self.roads.iter().any(|r| r.sidewalk > 0.0) {
+            out.push(SIDEWALK.into());
+        }
         for r in &self.roads {
             if !out.contains(&r.kind) && out.len() < MAX_ROAD_KINDS {
                 out.push(r.kind.clone());
             }
         }
+        let rank = |id: &str| {
+            let i = KINDS.iter().position(|k| k.id == id).unwrap_or(KINDS.len());
+            let class = if id == SIDEWALK { 0 } else if kind(id).is_some_and(|k| k.hard) { 2 } else { 1 };
+            (class, i)
+        };
+        out.sort_by_key(|k| rank(k));
         out
     }
 
     /// The roads as a raster of `per_unit` texels per world unit (texels across and deep, then
     /// the texels row by row), one channel per road kind (`road_kinds`): 1 inside, 0.5 on the
-    /// edge, 0 beyond `ROAD_RAMP / 2` outside.
-    pub fn road_raster(&self, per_unit: f32) -> ((usize, usize), Vec<[u8; 4]>) {
+    /// edge, 0 beyond `ROAD_RAMP / 2` outside. Sidewalks are a band `sidewalk` wider on both sides
+    /// in the `SIDEWALK` channel. Nothing is drawn under water (sea or lake): the field fades out
+    /// at the waterline.
+    pub fn road_raster(&self, per_unit: f32) -> ((usize, usize), Vec<[u8; MAX_ROAD_KINDS]>) {
         let side = ((self.world_x() * per_unit).round() as usize).max(1);
         let side_y = ((self.world_z() * per_unit).round() as usize).max(1);
-        let mut out = vec![[0u8; 4]; side * side_y];
+        let mut out = vec![[0u8; MAX_ROAD_KINDS]; side * side_y];
         let kinds = self.road_kinds();
+        let walk = kinds.iter().position(|k| k == SIDEWALK);
         let texel = 1.0 / per_unit;
+        // Dryness of every texel, made once: 1 well above the water, 0.5 at the waterline.
+        let mut dry: Vec<u8> = vec![];
+        let mut dry_at = |x: usize, y: usize| -> f32 {
+            if dry.is_empty() {
+                dry = vec![0; side * side_y];
+            }
+            let c = &mut dry[y * side + x];
+            if *c == 0 {
+                let (px, pz) = ((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
+                let v = (0.5 + (self.height(px, pz) - self.water_xz(px, pz) - 0.08) * 2.5).clamp(0.0, 1.0);
+                *c = 1 + (v * 254.0).round() as u8;
+            }
+            (*c - 1) as f32 / 254.0
+        };
         for r in &self.roads {
             let Some(ch) = kinds.iter().position(|k| *k == r.kind) else { continue };
-            let hw = r.width * 0.5;
-            let reach = hw + ROAD_RAMP * 0.5 + texel;
+            let bands: Vec<(usize, f32)> = std::iter::once((ch, r.width * 0.5)).chain(walk.filter(|_| r.sidewalk > 0.0).map(|w| (w, r.reach()))).collect();
+            let reach = r.reach() + ROAD_RAMP * 0.5 + texel;
             for seg in r.points.windows(2) {
                 let (a, b) = (seg[0], seg[1]);
                 let ab = b - a;
                 let l2 = ab.len2().max(1e-6);
                 let x0 = ((a.x.min(b.x) - reach) * per_unit).floor().max(0.0) as usize;
-                let x1 = (((a.x.max(b.x) + reach) * per_unit).ceil() as usize).min(side - 1);
+                let x1 = (((a.x.max(b.x) + reach) * per_unit).ceil().max(0.0) as usize).min(side - 1);
                 let y0 = ((a.y.min(b.y) - reach) * per_unit).floor().max(0.0) as usize;
-                let y1 = (((a.y.max(b.y) + reach) * per_unit).ceil() as usize).min(side_y - 1);
+                let y1 = (((a.y.max(b.y) + reach) * per_unit).ceil().max(0.0) as usize).min(side_y - 1);
+                if x0 > x1 || y0 > y1 {
+                    continue;
+                }
                 for y in y0..=y1 {
                     for x in x0..=x1 {
                         let p = v2((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
                         let t = ((p - a).dot(ab) / l2).clamp(0.0, 1.0);
                         let d = p.dist(a + ab * t);
-                        let v = (0.5 + (hw - d) / ROAD_RAMP).clamp(0.0, 1.0);
-                        let c = &mut out[y * side + x][ch];
-                        *c = (*c).max((v * 255.0).round() as u8);
+                        if d > reach {
+                            continue;
+                        }
+                        let wet = dry_at(x, y);
+                        for &(c, hw) in &bands {
+                            let v = (0.5 + (hw - d) / ROAD_RAMP).clamp(0.0, 1.0).min(wet);
+                            let o = &mut out[y * side + x][c];
+                            *o = (*o).max((v * 255.0).round() as u8);
+                        }
                     }
                 }
+            }
+        }
+        ((side, side_y), out)
+    }
+
+    /// Dashed centre lines of the roads whose kind has `lines` (main asphalt, at least `CENTRE_MIN`
+    /// wide and `CENTRE_MIN_LEN` long), as a raster of `per_unit` texels per world unit: per texel the
+    /// distance along the road modulo `CENTRE_WRAP` (R, 0..1) and the signed distance from the centre
+    /// line (G, -4..4 mapped to 0..1), both linear across a texel so bilinear filtering keeps the line
+    /// exact; whether it is drawn here (B: not under water, not near another marked road: no line
+    /// through junctions, merges or beside a parallel carriageway). A is unused.
+    pub fn centre_raster(&self, per_unit: f32) -> ((usize, usize), Vec<[u8; 4]>) {
+        // Short pieces are the links of big junctions: no markings there.
+        let long = |r: &Road| r.points.windows(2).map(|s| s[0].dist(s[1])).sum::<f32>() >= CENTRE_MIN_LEN;
+        let marked: Vec<&Road> = self.roads.iter().filter(|r| r.width >= CENTRE_MIN && kind(&r.kind).is_some_and(|k| k.lines) && long(r)).collect();
+        if marked.is_empty() {
+            return ((1, 1), vec![[0; 4]]);
+        }
+        let side = ((self.world_x() * per_unit).round() as usize).max(1);
+        let side_y = ((self.world_z() * per_unit).round() as usize).max(1);
+        let texel = 1.0 / per_unit;
+        // Per texel: the nearest marked road (distance to its centre line, road, direction, offset,
+        // arc) and the nearest other one.
+        type Near = (f32, u32, V2, f32, f32);
+        let none: Near = (f32::MAX, u32::MAX, v2(0.0, 0.0), 0.0, 0.0);
+        let mut best = vec![(none, none); side * side_y];
+        // Looked at beyond each road, so texels near another marked road know of it.
+        const BEYOND: f32 = 7.0;
+        for (ri, r) in marked.iter().enumerate() {
+            let hw = r.width * 0.5 + BEYOND;
+            let mut arc = 0.0;
+            for seg in r.points.windows(2) {
+                let (a, b) = (seg[0], seg[1]);
+                let ab = b - a;
+                let len = ab.len();
+                if len < 1e-4 {
+                    continue;
+                }
+                let dir = ab * (1.0 / len);
+                let x0 = ((a.x.min(b.x) - hw) * per_unit).floor().max(0.0) as usize;
+                let x1 = (((a.x.max(b.x) + hw) * per_unit).ceil().max(0.0) as usize).min(side - 1);
+                let y0 = ((a.y.min(b.y) - hw) * per_unit).floor().max(0.0) as usize;
+                let y1 = (((a.y.max(b.y) + hw) * per_unit).ceil().max(0.0) as usize).min(side_y - 1);
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        let p = v2((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
+                        let along = (p - a).dot(dir);
+                        let t = along.clamp(0.0, len);
+                        let d = p.dist(a + dir * t);
+                        if d > hw {
+                            continue;
+                        }
+                        let off = dir.x * (p.y - a.y) - dir.y * (p.x - a.x);
+                        let n: Near = (d, ri as u32, dir, off, arc + along);
+                        let (b0, b1) = &mut best[y * side + x];
+                        if n.1 == b0.1 {
+                            if d < b0.0 {
+                                *b0 = n;
+                            }
+                        } else if d < b0.0 {
+                            *b1 = *b0;
+                            *b0 = n;
+                        } else if n.1 == b1.1 {
+                            if d < b1.0 {
+                                *b1 = n;
+                            }
+                        } else if d < b1.0 {
+                            *b1 = n;
+                        }
+                    }
+                }
+                arc += len;
+            }
+        }
+        let mut out = vec![[0u8; 4]; side * side_y];
+        for y in 0..side_y {
+            for x in 0..side {
+                let i = y * side + x;
+                let (b0, b1) = best[i];
+                // A little beyond the edge too, so filtering does not pull the edge lines out of place.
+                if b0.1 == u32::MAX || b0.0 > marked[b0.1 as usize].width * 0.5 + 1.5 {
+                    continue;
+                }
+                let w = marked[b0.1 as usize].width;
+                let mut drawn = true;
+                if b1.1 != u32::MAX {
+                    let dot = b0.2.dot(b1.2);
+                    let w1 = marked[b1.1 as usize].width;
+                    let sep = (b0.3 - b1.3 * dot.signum()).abs();
+                    // The next way of the same road continues the line; any other marked road this
+                    // near (a crossing, a merge, the other carriageway) leaves it out.
+                    let same = dot.abs() > 0.97 && sep < 0.4 && b1.0 <= w1 * 0.5 + 0.5;
+                    drawn = same || b1.0 > w1 * 0.5 + 2.5;
+                }
+                let (px, pz) = ((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
+                let dry = self.height(px, pz) > self.water_xz(px, pz) + 0.05;
+                // Drawn within half a unit beyond the edge: filtering then keeps the lines whole.
+                let on = b0.0 <= w * 0.5 + 0.5;
+                out[i] = [
+                    ((b0.4.rem_euclid(CENTRE_WRAP) / CENTRE_WRAP) * 255.0).round() as u8,
+                    (((b0.3.clamp(-4.0, 4.0) + 4.0) * 0.125) * 255.0).round() as u8,
+                    if dry && drawn && on { 255 } else { 0 },
+                    0,
+                ];
             }
         }
         ((side, side_y), out)
@@ -349,7 +518,7 @@ impl MapData {
             for s in r.points.windows(2) {
                 let ab = s[1] - s[0];
                 let t = ((p - s[0]).dot(ab) / ab.len2().max(1e-6)).clamp(0.0, 1.0);
-                best = best.min(p.dist(s[0] + ab * t) - r.width * 0.5);
+                best = best.min(p.dist(s[0] + ab * t) - r.reach());
             }
         }
         best
@@ -360,7 +529,7 @@ impl MapData {
         let (n, ny) = self.dims();
         let mut out = vec![false; n * ny];
         for r in &self.roads {
-            let reach = r.width * 0.5 + margin;
+            let reach = r.reach() + margin;
             for s in r.points.windows(2) {
                 let (a, b) = (s[0], s[1]);
                 let ab = b - a;
@@ -400,7 +569,7 @@ impl MapData {
             !road.points.windows(2).any(|s| {
                 let ab = s[1] - s[0];
                 let t = ((p - s[0]).dot(ab) / ab.len2().max(1e-6)).clamp(0.0, 1.0);
-                p.dist(s[0] + ab * t) < r + road.width * 0.5
+                p.dist(s[0] + ab * t) < r + road.reach()
             }) && !road.points.iter().any(|q| q.dist(p) < r)
         });
         self.roads.len() != before
@@ -423,9 +592,10 @@ pub fn winding(a: V2, b: V2, wobble: f32, seed: u64) -> Vec<V2> {
         .collect()
 }
 
-/// Road line format in map.json: "kind width x z x z ...".
+/// Road line format in map.json: "kind width x z x z ...", the width "road+sidewalk" (e.g. "4.00+1.20")
+/// when it has sidewalks.
 pub fn road_line(r: &Road) -> String {
-    let mut s = format!("{} {:.2}", r.kind, r.width);
+    let mut s = if r.sidewalk > 0.0 { format!("{} {:.2}+{:.2}", r.kind, r.width, r.sidewalk) } else { format!("{} {:.2}", r.kind, r.width) };
     for p in &r.points {
         s += &format!(" {:.2} {:.2}", p.x, p.y);
     }
@@ -435,9 +605,13 @@ pub fn road_line(r: &Road) -> String {
 pub fn parse_road(line: &str) -> Result<Road, String> {
     let mut it = line.split_whitespace();
     let kind = it.next().unwrap_or("").to_string();
-    let v: Vec<f32> = it.filter_map(|x| x.parse().ok()).collect();
-    if kind.is_empty() || v.len() < 5 || v.len() % 2 == 0 || !v.iter().all(|x| x.is_finite()) {
+    let w = it.next().unwrap_or("");
+    let (w, walk) = w.split_once('+').unwrap_or((w, "0"));
+    let mut v: Vec<f32> = vec![w.parse().unwrap_or(f32::NAN)];
+    v.extend(it.filter_map(|x| x.parse::<f32>().ok()));
+    let walk: f32 = walk.parse().unwrap_or(f32::NAN);
+    if kind.is_empty() || v.len() < 5 || v.len() % 2 == 0 || !v.iter().all(|x| x.is_finite()) || !walk.is_finite() || walk < 0.0 {
         return Err(format!("map.json: bad road line '{line}'"));
     }
-    Ok(Road { kind, width: v[0], points: v[1..].chunks(2).map(|c| v2(c[0], c[1])).collect() })
+    Ok(Road { kind, width: v[0], points: v[1..].chunks(2).map(|c| v2(c[0], c[1])).collect(), sidewalk: walk })
 }
