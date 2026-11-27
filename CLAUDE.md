@@ -566,11 +566,14 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   LOD: at medium/high detail each chunk has a second, low-detail mesh; `VisibilityRange` crossfades to it at
   `flora::LOD_FADE` camera distance from the chunk centre (chunk meshes are built around that centre).
   Only the low-detail meshes exist map-wide: the detailed ones are streamed in near the camera (`flora::stream_near`, within
-  `NEAR_RANGE`, a vertex budget `NEAR_VERTS`) and dropped when it leaves; all of them at once crashed small GPUs at high detail.
+  `near_range`, a vertex budget `near_budget`) and dropped when it leaves; all of them at once crashed small GPUs at high detail.
+  Chunks in the camera's frustum (`FloraView.frustum`) come first; off-view ones get a detailed mesh only within `OFF_VIEW_KEEP`,
+  lose it beyond `OFF_VIEW_DROP` and are evicted first when the budget is spent. Detailed meshes are built on the compute
+  threads (`flora::Job`, also rebuilds after a tree falls); chunk meshes are indexed (`flora::Packed`: ultra trees ~45% fewer vertices).
   Ultra (`flora_detail` 3, `view/flora/ultra.rs`): real branching trees made in code - a flared bent trunk, limbs that rise and droop,
   twigs, ~700 single leaves per broadleaf (folded kites, soft crown normals, darker inside), conifers with whorls of drooping
   boughs carrying needle sprays, leafy bushes, angular plane-cut rocks with pebbles. Heavy (thousands of triangles), so the
-  detailed ring is small (`lod_fade(3)` 110..140, 1 chunk per streaming step, 10M vertex budget) and drawn double-sided
+  detailed ring is a little shorter (`lod_fade(3)` 165..200 vs 180..220, at most 3 chunks building at once, 9M vertex budget) and drawn double-sided
   (`FloraView::material_ds`). Ultra grass (`grass_detail` 2): bent three-triangle blades and scattered wildflowers.
   `cargo test --lib ultra_models` checks them (`LR_OBJ_DIR=dir` also writes OBJ files).
   Editor: Brush tool (left paints, right removes trees or rocks), Erase (held: deposits, props, trees, rocks), Scatter, Clear all.

@@ -548,13 +548,14 @@ fn editor_ui(
     time: Res<Time>,
     mut gizmos: Gizmos,
     mut camera: Query<&mut Transform, (With<MainCamera>, Without<WaterPlane>, Without<GroundSnap>)>,
-    (chunks, mut water, mut snapped, mut fchunks, mut flora, mut surface): (
+    (chunks, mut water, mut snapped, mut fchunks, mut flora, mut surface, frusta): (
         Query<(&TerrainChunk, &Mesh3d)>,
         Query<&mut Transform, (With<WaterPlane>, Without<MainCamera>, Without<GroundSnap>)>,
         Query<(&mut Transform, &GroundSnap), (Without<MainCamera>, Without<WaterPlane>)>,
         FloraChunks,
         ResMut<FloraView>,
         Option<ResMut<SurfaceView>>,
+        Query<&bevy::camera::primitives::Frustum, With<MainCamera>>,
     ),
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
@@ -1042,6 +1043,7 @@ fn editor_ui(
         rebuild(&mut commands, ed, map, &defs, &old, &mut cache, &mut meshes, &mut materials, &mut images, &mut flora);
     } else {
         flora.cam = camera.iter().next().map(|t| t.translation);
+        flora.frustum = frusta.iter().next().copied();
         rebuild_flora(&mut commands, map, &defs, &mut flora, &mut fchunks, &mut meshes);
     }
     Ok(())
