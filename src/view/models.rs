@@ -484,10 +484,35 @@ fn saturation(c: [f32; 3]) -> f32 {
 const BUILDING_VARIANTS: u32 = 6;
 
 /// Which texels of a model's albedo belong to roofs (255, faces turned up) and which to walls (120),
-/// by rasterising its triangles in UV space; 0 where nothing is drawn.
-fn roof_mask(parts: &[ModelPart], meshes: &Assets<Mesh>, w: u32, h: u32) -> Vec<u8> {
+/// by rasterising its triangles in UV space; 0 where nothing is drawn. Upright faces textured like the
+/// roof and standing on it count as roof too: dormer cheeks carry strips of tiles.
+fn roof_mask(parts: &[ModelPart], meshes: &Assets<Mesh>, albedo: &image::RgbaImage) -> Vec<u8> {
     use bevy::mesh::VertexAttributeValues as V;
+    let (w, h) = albedo.dimensions();
     let mut mask = vec![0u8; (w * h) as usize];
+    // Texels inside a triangle given by its UV corners (in texels).
+    let texels = |q: &[Vec2], out: &mut Vec<u32>| {
+        out.clear();
+        let (lo, hi) = (q[0].min(q[1]).min(q[2]), q[0].max(q[1]).max(q[2]));
+        let den = (q[1].y - q[2].y) * (q[0].x - q[2].x) + (q[2].x - q[1].x) * (q[0].y - q[2].y);
+        if den.abs() < 1e-6 {
+            return;
+        }
+        for y in (lo.y.floor().max(0.0) as u32)..=(hi.y.ceil().max(0.0) as u32).min(h - 1) {
+            for x in (lo.x.floor().max(0.0) as u32)..=(hi.x.ceil().max(0.0) as u32).min(w - 1) {
+                let c = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                let a = ((q[1].y - q[2].y) * (c.x - q[2].x) + (q[2].x - q[1].x) * (c.y - q[2].y)) / den;
+                let b = ((q[2].y - q[0].y) * (c.x - q[2].x) + (q[0].x - q[2].x) * (c.y - q[2].y)) / den;
+                let g = 1.0 - a - b;
+                if a >= -0.03 && b >= -0.03 && g >= -0.03 {
+                    out.push(y * w + x);
+                }
+            }
+        }
+    };
+    let mut upright: Vec<([Vec2; 3], f32, f32)> = Vec::new();
+    let (mut roof_lo, mut roof_hi) = (f32::MAX, f32::MIN);
+    let mut buf = Vec::new();
     for part in parts {
         let Some(mesh) = part.mesh.as_ref().and_then(|m| meshes.get(m)) else { continue };
         let (Some(V::Float32x3(pos)), Some(V::Float32x2(uv)), Some(idx)) = (mesh.attribute(Mesh::ATTRIBUTE_POSITION), mesh.attribute(Mesh::ATTRIBUTE_UV_0), mesh.indices()) else { continue };
@@ -499,23 +524,70 @@ fn roof_mask(parts: &[ModelPart], meshes: &Assets<Mesh>, w: u32, h: u32) -> Vec<
             let p: Vec<Vec3> = t.iter().map(|&i| Vec3::from_array(pos[i as usize])).collect();
             let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
             // Steep roofs count too: a mansard's hipped corners and church spires lean ~65 deg (n.y ~0.43).
-            let val = if n.y.abs() > 0.3 { 255 } else { 120 };
+            let roof = n.y.abs() > 0.3;
             let q: Vec<Vec2> = t.iter().map(|&i| Vec2::new(uv[i as usize][0] * w as f32, uv[i as usize][1] * h as f32)).collect();
-            let (lo, hi) = (q[0].min(q[1]).min(q[2]), q[0].max(q[1]).max(q[2]));
-            let den = (q[1].y - q[2].y) * (q[0].x - q[2].x) + (q[2].x - q[1].x) * (q[0].y - q[2].y);
-            if den.abs() < 1e-6 {
-                continue;
-            }
-            for y in (lo.y.floor().max(0.0) as u32)..=(hi.y.ceil().max(0.0) as u32).min(h - 1) {
-                for x in (lo.x.floor().max(0.0) as u32)..=(hi.x.ceil().max(0.0) as u32).min(w - 1) {
-                    let c = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
-                    let a = ((q[1].y - q[2].y) * (c.x - q[2].x) + (q[2].x - q[1].x) * (c.y - q[2].y)) / den;
-                    let b = ((q[2].y - q[0].y) * (c.x - q[2].x) + (q[0].x - q[2].x) * (c.y - q[2].y)) / den;
-                    let g = 1.0 - a - b;
-                    if a >= -0.03 && b >= -0.03 && g >= -0.03 {
-                        mask[(y * w + x) as usize] = val;
-                    }
+            let (low, high) = (p[0].y.min(p[1].y).min(p[2].y), p[0].y.max(p[1].y).max(p[2].y));
+            if roof {
+                // Pitched faces only: floors and flat slabs lie at every height.
+                if n.y.abs() < 0.97 {
+                    roof_lo = roof_lo.min(low);
+                    roof_hi = roof_hi.max(high);
                 }
+            } else {
+                upright.push(([q[0], q[1], q[2]], low, high));
+            }
+            texels(&q, &mut buf);
+            for &i in &buf {
+                mask[i as usize] = if roof { 255 } else { 120 };
+            }
+        }
+    }
+    // Colour of the roof (its coloured texels) and of the walls below it.
+    let rgb = |i: u32| -> Vec3 {
+        let px = &albedo.as_raw()[i as usize * 4..];
+        Vec3::new(px[0] as f32, px[1] as f32, px[2] as f32) / 255.0
+    };
+    let coloured = |c: Vec3| c.max_element() - c.min_element() > 0.15 * c.max_element();
+    let (mut roof_sum, mut roof_sq, mut roof_n) = (Vec3::ZERO, 0.0f32, 0u32);
+    for i in 0..w * h {
+        let c = rgb(i);
+        if mask[i as usize] == 255 && coloured(c) {
+            roof_sum += c;
+            roof_sq += c.length_squared();
+            roof_n += 1;
+        }
+    }
+    let (mut wall_sum, mut wall_n) = (Vec3::ZERO, 0u32);
+    for (q, low, _) in &upright {
+        if *low < roof_lo - 0.05 {
+            texels(q, &mut buf);
+            for &i in &buf {
+                wall_sum += rgb(i);
+                wall_n += 1;
+            }
+        }
+    }
+    if roof_n < 50 || wall_n < 50 {
+        return mask;
+    }
+    let roof = roof_sum / roof_n as f32;
+    let spread = (roof_sq / roof_n as f32 - roof.length_squared()).max(0.0).sqrt().max(0.03);
+    let wall = wall_sum / wall_n as f32;
+    // An upright face up on the roof (a dormer's cheek: not the wall below, not a gable reaching the
+    // ridge) of which most texels have the roof's colour rather than the walls' is roof.
+    let ridge = roof_hi - 0.08 * (roof_hi - roof_lo);
+    for (q, low, high) in upright {
+        if low < roof_lo - 0.05 || high > ridge {
+            continue;
+        }
+        texels(&q, &mut buf);
+        let like = buf.iter().filter(|&&i| {
+            let c = rgb(i);
+            coloured(c) && c.distance(roof) < (1.5 * spread).min(c.distance(wall))
+        });
+        if !buf.is_empty() && like.count() * 10 >= buf.len() * 7 {
+            for &i in &buf {
+                mask[i as usize] = 255;
             }
         }
     }
@@ -833,7 +905,7 @@ impl ModelCache {
             .iter()
             .map(|p| {
                 let src = p.mesh.as_ref().and_then(|h| meshes.get(h))?;
-                let walls = roof_mask(std::slice::from_ref(p), meshes, albedo.as_ref()?.width(), albedo.as_ref()?.height());
+                let walls = roof_mask(std::slice::from_ref(p), meshes, albedo.as_ref()?);
                 detail_mesh(src, albedo.as_ref()?, &walls, defs.get(def).model.brightness)
             })
             .collect();
@@ -965,12 +1037,12 @@ impl ModelCache {
                 let d = defs.get(def);
                 let vehicle = !d.is_structure() && !d.is_infantry();
                 // Buildings: only texels on walls can be windows (slate roofs are blue-grey too).
-                let surfaces = if d.is_structure() { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
+                let surfaces = if d.is_structure() { roof_mask(parts, meshes, &albedo) } else { vec![] };
                 gloss = Some(gloss_map(&albedo, vehicle, &surfaces));
             }
             let width = albedo.width();
             let themed = defs.get(def).has_category("themed");
-            let roofs = if var > 0 && !themed { roof_mask(parts, meshes, albedo.width(), albedo.height()) } else { vec![] };
+            let roofs = if var > 0 && !themed { roof_mask(parts, meshes, &albedo) } else { vec![] };
             let wall_paint = self.theme.walls[(var as usize * 3 + def as usize) % self.theme.walls.len()];
             let roof_paint = self.theme.roofs[(var as usize * 5 + def as usize * 2 + 1) % self.theme.roofs.len()];
             // Mean brightness of this model's coloured roof tiles and of its plaster: the paints replace the
@@ -1665,10 +1737,25 @@ mod detail_tests {
             let albedo = read_rgba(&format!("models/{name}_albedo.png")).unwrap();
             let p = parts.iter().find(|p| p.mesh.is_some()).unwrap();
             let before = meshes.get(p.mesh.as_ref().unwrap()).unwrap().count_vertices();
-            let walls = roof_mask(std::slice::from_ref(p), &meshes, albedo.width(), albedo.height());
+            let walls = roof_mask(std::slice::from_ref(p), &meshes, &albedo);
             let m = detail_mesh(meshes.get(p.mesh.as_ref().unwrap()).unwrap(), &albedo, &walls, 1.0).unwrap();
             println!("{name}: {} -> {} vertices", before, m.count_vertices());
             assert!(m.count_vertices() > before, "{name}: no sills found");
         }
     }
+
+    /// Dormer cheeks are upright but textured with tiles: they take the roof's paint, the gable keeps the walls'.
+    #[test]
+    fn dormer_cheeks_are_roof() {
+        let mut meshes = Assets::<Mesh>::default();
+        for name in ["civ_corner_house1", "civ_old_house1"] {
+            let (parts, _) = load_glb(&asset_root().join(format!("models/{name}.glb")), &mut meshes, false, true).unwrap();
+            let albedo = read_rgba(&format!("models/{name}_albedo.png")).unwrap();
+            let mask = roof_mask(&parts, &meshes, &albedo);
+            let at = |u: f32, v: f32| mask[((v * albedo.height() as f32) as u32 * albedo.width() + (u * albedo.width() as f32) as u32) as usize];
+            assert_eq!(at(370.0 / 512.0, 190.0 / 512.0), 255, "{name}: dormer cheek");
+            assert_eq!(at(450.0 / 512.0, 300.0 / 512.0), 120, "{name}: gable");
+        }
+    }
 }
+
