@@ -316,19 +316,20 @@ fn tick_sync(mut view: ResMut<ViewState>, game: Res<Game>, time: Res<Time>, mut 
     }
 }
 
-/// A building on a slope: its model reaches `depth` below its base (stretched by `k` in height).
+/// A building on a slope: the lowest ground under its footprint lies `depth` below its base.
 #[derive(Component)]
 struct Foundation {
     depth: f32,
-    k: f32,
 }
 
-/// Stretches the new model of a building on a slope down to the ground (top stays where it was).
-fn foundation_fit(mut roots: Query<(&ChildOf, &mut Transform), Added<ModelRoot>>, found: Query<&Foundation>) {
-    for (c, mut t) in &mut roots {
-        if let Ok(f) = found.get(c.parent()) {
-            t.scale.y *= f.k;
-            t.translation.y = -f.depth;
+/// Shows the skirt of a new building model on a slope, stretched from the model's base down to the ground
+/// (`models::Skirt`): its walls run on down as they are, the model itself is not stretched.
+fn foundation_fit(mut skirts: Query<(&ChildOf, &mut Transform, &mut Visibility), Added<models::Skirt>>, roots: Query<(&ChildOf, &Transform), Without<models::Skirt>>, found: Query<&Foundation>) {
+    for (c, mut t, mut vis) in &mut skirts {
+        let Ok((unit, rt)) = roots.get(c.parent()) else { continue };
+        if let Ok(f) = found.get(unit.parent()) {
+            t.scale.y = f.depth / rt.scale.y.max(1e-3);
+            *vis = Visibility::Inherited;
         }
     }
 }
@@ -362,8 +363,8 @@ fn unit_visuals(
             .entity(e)
             .insert((Interp { prev: s, cur: s, pos: b.pos, y: b.y, yaw: b.yaw }, Transform::from_translation(b.p3()).with_rotation(yaw_quat(b.yaw)), Visibility::Hidden))
             .add_child(root);
-        // On a slope the low side of a building would hang in the air: its model is stretched down to the lowest
-        // ground under the footprint (`foundation_fit`), so the walls run on to the ground.
+        // On a slope the low side of a building would hang in the air: its walls are carried down to the lowest
+        // ground under the footprint (`foundation_fit`).
         let d = defs.get(u.def);
         if d.is_structure() && d.footprint > 0 && !d.is_fieldwork() && d.height() > 0.0 {
             let f = d.footprint;
@@ -374,9 +375,9 @@ fn unit_visuals(
                     lo = lo.min(map.vertex(x.clamp(0, map.nx as i32) as usize, y.clamp(0, map.ny as i32) as usize));
                 }
             }
-            let depth = (b.y - lo + 0.1).min(d.height() * 0.5);
+            let depth = (b.y - lo + 0.1).min(d.height() * 2.0);
             if depth > 0.15 {
-                commands.entity(e).insert(Foundation { depth, k: (d.height() + depth) / d.height() });
+                commands.entity(e).insert(Foundation { depth });
             }
         }
         if let Some(a) = Animator::new(cache.model(&defs, u.def, &mut meshes)) {
