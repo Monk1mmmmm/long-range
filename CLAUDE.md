@@ -592,10 +592,10 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   patched), `concrete` (slab roads), `cobble` (old centres), `gravel`, `dirt_road`, `sidewalk` (the `SIDEWALK` slot; the
   shader cuts a kerb + gutter from the road field where a sidewalk runs beside a hard road). Lane markings
   (`MapData::centre_raster`, own RGBA8 texture): per texel the distance along the road mod 16 and the signed offset from
-  the centre line (both linear, so bilinear filtering keeps the lines exact), drawn/solid flags and half width; dashed centre
-  line (2 on, 2 off), solid from `CENTRE_SOLID` (6.5) and between the two ways of a divided road, edge lines where no sidewalk
-  runs; only on `lines` kinds at least `CENTRE_MIN` (3.5) wide and `CENTRE_MIN_LEN` (15) long (short ways are junction links),
-  none where marked roads cross. `--editor --roads NAME..` restyles a map's roads (`editor::restyle_roads`; only the
+  the centre line (both linear, so bilinear filtering keeps the line exact) and a drawn flag; only a dashed centre line
+  (2 on, 2 off; edge and solid lines were removed on request: simpler, no glitches), on `lines` kinds at least `CENTRE_MIN`
+  (3.5) wide and `CENTRE_MIN_LEN` (15) long (short ways are junction links), none within 2.5 of another marked road
+  (crossings, merges, divided carriageways). `--editor --roads NAME..` restyles a map's roads (`editor::restyle_roads`; only the
   roads block of map.json changes): OSM widths say the class, the built-up share round a road says town / old centre
   (buildings are 2x scale: shares run high, villages get no sidewalks), sidewalks only as wide as the gap to the
   buildings, pieces under water cut off; run it after `tools/osm_map.py`. The shipped OSM maps have been through it. Trees and
