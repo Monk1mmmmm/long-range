@@ -807,9 +807,10 @@ fn replays_ui(ui: &mut egui::Ui, l: &mut ReplayList, message: &str, width: f32, 
             act = Some(ReplayAction::Back);
         }
     });
-    if let Some(k) = sel {
-        if !l.items[k].same_version() {
-            ui.colored_label(Color32::from_rgb(255, 170, 90), tr!("replays.other_version", &l.items[k].info.version));
+    // Delete / Refresh above may have shrunk the list: look the selection up again.
+    if let Some(r) = l.selected.and_then(|k| l.items.get(k)) {
+        if !r.same_version() {
+            ui.colored_label(Color32::from_rgb(255, 170, 90), tr!("replays.other_version", &r.info.version));
         }
     }
     if !message.is_empty() {
