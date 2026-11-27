@@ -932,7 +932,7 @@ fn think(
             let m = mover.as_mut()?;
             let keep = m.cover.filter(|c| c.dist(pos) > 0.5 && c.dist(pos) < 25.0);
             if keep.is_none() || (game.tick + id) % 10 == 0 {
-                m.cover = firing_spot(&defs, &census, &map, &nav, id, team, df, pos, ws, keep, game.weather);
+                m.cover = firing_spot(&defs, &census, &features, &wrecks, &map, &nav, id, team, df, pos, ws, keep, game.weather);
             }
             m.cover.filter(|c| c.dist(pos) > 0.5)
         };
@@ -1831,7 +1831,7 @@ fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
 /// growing radius round the unit, the spot picked last time first (`keep`), so a unit does not
 /// dither between two spots.
 #[allow(clippy::too_many_arguments)]
-fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>, weather: u8) -> Option<V2> {
+fn firing_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckList, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>, weather: u8) -> Option<V2> {
     let lane = Lane {
         census,
         map,
@@ -1842,6 +1842,9 @@ fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, 
         host: 0,
         g: defs.rules.gravity,
         spread: defs.rules.weather_of(weather).spread,
+        features,
+        wrecks,
+        defs,
     };
     let jobs: Vec<(&WeaponDef, &Cen)> = df
         .weapons
@@ -2713,7 +2716,14 @@ struct Lane<'a> {
     g: f32,
     /// Weather's multiplier of every weapon's spread.
     spread: f32,
+    /// Trees, rocks and wrecks: shells fly through them but lose damage, so guns aim round them.
+    features: &'a Features,
+    wrecks: &'a WreckList,
+    defs: &'a Defs,
 }
+
+/// Least cover share for a tree, rock or wreck to count as in the way of a shot (bushes do not).
+const COVER_BLOCK: f32 = 0.25;
 
 /// A cylinder a shell must stay out of: (centre, radius, bottom, top).
 type Obstacle = (V2, f32, f32, f32);
@@ -2741,6 +2751,29 @@ impl Lane<'_> {
                 list.push((c.pos, c.hit_r, c.y - HIT_BELOW, c.y + c.hit_h));
             }
         });
+        // Reclaimables (trees, rocks, wrecks, debris) soak a share of the damage: no aim through them.
+        let (mid, reach) = ((from2 + to) * 0.5, from2.dist(to) * 0.5 + 4.0);
+        let rules = &self.defs.rules;
+        let mut soft = |pos: V2, r: f32, top: f32| {
+            if pos.dist(from2) - r >= self.grace {
+                let ground = self.map.h(pos);
+                list.push((pos, r, ground - 0.3, ground + top + 0.2));
+            }
+        };
+        self.features.near(mid, reach, |_, s| {
+            if rules.features.get(s.def as usize).map_or(0.0, |d| d.cover()) >= COVER_BLOCK {
+                soft(s.pos, s.radius, s.height);
+            }
+        });
+        if rules.wreck_cover >= COVER_BLOCK {
+            let r2 = reach * reach;
+            for &(_, pos, mass, def, piece, _) in &self.wrecks.0 {
+                if mass > 0.0 && (pos - mid).len2() <= r2 {
+                    let (r, top) = Wreck::shape(self.defs, def, piece);
+                    soft(pos, r, top);
+                }
+            }
+        }
         list
     }
 
@@ -2851,6 +2884,7 @@ fn weapons(
     mut fx: ResMut<FxLog>,
     mut effects: ResMut<Effects>,
     mut commands: Commands,
+    (features, wreck_list): (Res<Features>, Res<WreckList>),
 ) {
     let g = defs.rules.gravity;
     let tick = game.tick;
@@ -2910,6 +2944,9 @@ fn weapons(
             host: hosted.map_or(0, |h| h.0),
             g,
             spread: wx_spread,
+            features: &features,
+            wrecks: &wreck_list,
+            defs: &defs,
         };
         for (wi, w) in df.weapons.iter().enumerate() {
             let Some(st) = ws.list.get_mut(wi) else { continue };
