@@ -11,7 +11,6 @@ def block(k, x, y, w, l, floors, fh=1.45, mat="panel_block", roof="roof_tar", pa
     h = floors * fh
     k.box((w, l, h), (x, y, h / 2), mat, faces={"top": roof})
     k.box((w + 0.08, l + 0.08, parapet), (x, y, h + parapet / 2 - 0.05), "concrete", faces={"top": "concrete"})
-    k.box((w + 0.1, l + 0.1, 0.35), (x, y, 0.17), "concrete_d")  # plinth
     sides = {"front": ((x, y - l / 2, h / 2), (0, -1, 0), w), "back": ((x, y + l / 2, h / 2), (0, 1, 0), w),
              "left": ((x - w / 2, y, h / 2), (-1, 0, 0), l), "right": ((x + w / 2, y, h / 2), (1, 0, 0), l)}
     for i, f in enumerate(faces):
@@ -81,7 +80,6 @@ def admin_building():
         k.box((7.9, 7.9, 0.06), (0, 0, 0.03), "concrete")
     w, l, h = 6.4, 4.2, 2.8
     k.box((w, l, h), (0, 0.4, h / 2), "plaster_y", faces={"top": "roof_tar"})
-    k.box((w + 0.1, l + 0.1, 0.35), (0, 0.4, 0.17), "concrete_d")
     k.box((w + 0.16, l + 0.16, 0.12), (0, 0.4, h - 0.06), "plaster_w")  # cornice
     roof = [(-w / 2 - 0.15, h), (w / 2 + 0.15, h), (w / 2 - 1.0, h + 0.85), (-w / 2 + 1.0, h + 0.85)]
     k.prism(roof, "y", 0.4 - l / 2 - 0.15, 0.4 + l / 2 + 0.15, "roof_tile", scale1=1.0, caps={0: "roof_tile", 1: "roof_tile"})
@@ -111,7 +109,6 @@ def admin_hall():
     w, l, h = 11.0, 6.4, 4.4
     k.box((w, l, h), (0, 0.4, h / 2), "brick_y", faces={"top": "roof_tar"})
     k.box((w + 0.12, l + 0.12, 0.3), (0, 0.4, h + 0.1), "plaster_w")
-    k.box((w + 0.12, l + 0.12, 0.45), (0, 0.4, 0.22), "concrete_d")
     for s in (-1, 1):
         k.windows((s * w / 2, 0.4, h / 2), (s, 0, 0), l, h, 2, 5, win=(0.5, 1.1), sill=0.5, seed=5 + s)
         k.windows((s * 3.4, 0.4 - l / 2, h / 2), (0, -1, 0), 4.0, h, 2, 4, win=(0.5, 1.1), sill=0.5, seed=8 + s)
@@ -341,11 +338,11 @@ def bunker():
 
 # ---------------------------------------------------------------- small village houses (one cell, 2 x 2)
 
-def small_house(k, w, l, wall_h, roof_h, wall, roof, door_x=0.0, chimney=None, win_n=2, plinth=0.22, overhang=0.14, trim="white"):
+def small_house(k, w, l, wall_h, roof_h, wall, roof, door_x=0.0, chimney=None, win_n=2, overhang=0.14, trim="white"):
     """Gable-roofed cottage, ridge along y: the door in the front gable, windows along both long sides."""
     from models_buildings import shed
-    shed(k, w, l, wall_h, roof_h, wall=wall, roof=roof, plinth=plinth, gable=wall, overhang=overhang)
-    k.door((door_x, -l / 2, plinth), (0, -1, 0), 0.42, 0.8, "door", frame=trim)
+    shed(k, w, l, wall_h, roof_h, wall=wall, roof=roof, gable=wall, overhang=overhang)
+    k.door((door_x, -l / 2, 0.0), (0, -1, 0), 0.42, 0.9, "door", frame=trim)
     k.box((0.7, 0.3, 0.05), (door_x, -l / 2 - 0.15, 0.95), "wood")  # little porch roof
     for sx in (-1, 1):
         k.windows((sx * w / 2, 0.0, wall_h / 2), (sx, 0, 0), l - 0.5, wall_h - 0.05, 1, win_n, win=(0.34, 0.4), sill=0.22, frame=trim, lit=0.0)
@@ -358,9 +355,9 @@ def small_house(k, w, l, wall_h, roof_h, wall, roof, door_x=0.0, chimney=None, w
 
 @model
 def khata():
-    """Whitewashed village hut with a thatched roof and a clay plinth."""
+    """Whitewashed village hut with a thatched roof."""
     k = Kit("khata")
-    small_house(k, 1.5, 1.9, 0.95, 0.75, "plaster_w", "thatch", door_x=0.0, chimney=(0.35, 0.4), plinth=0.28, overhang=0.18, trim="plaster_b")
+    small_house(k, 1.5, 1.9, 0.95, 0.75, "plaster_w", "thatch", door_x=0.0, chimney=(0.35, 0.4), overhang=0.18, trim="plaster_b")
     return k
 
 
@@ -397,7 +394,7 @@ def outbuilding():
     """Barn-like outbuilding of boards and corrugated sheet."""
     k = Kit("outbuilding")
     from models_buildings import shed
-    shed(k, 1.6, 1.8, 0.8, 0.5, wall="barn", roof="corr_d", plinth=0.12, gable="barn", overhang=0.1)
+    shed(k, 1.6, 1.8, 0.8, 0.5, wall="barn", roof="corr_d", gable="barn", overhang=0.1)
     k.box((0.7, 0.04, 0.65), (0, -0.92, 0.45), "wood")
     k.box((0.5, 0.04, 0.5), (0, 0.92, 0.5), "black")
     return k
@@ -408,8 +405,8 @@ def farmhouse():
     """Larger country house: two brick wings under tiled roofs, a chimney and a fence post gateway."""
     k = Kit("farmhouse")
     from models_buildings import shed
-    shed(k, 2.4, 3.4, 1.15, 0.9, wall="brick_y", roof="roof_tile", plinth=0.25, gable="brick_y", loc=(-0.5, 0.0), overhang=0.16)
-    shed(k, 1.5, 1.8, 0.95, 0.6, wall="plaster_w", roof="roof_tile", plinth=0.2, gable="plaster_w", loc=(1.1, 0.7), overhang=0.12)
+    shed(k, 2.4, 3.4, 1.15, 0.9, wall="brick_y", roof="roof_tile", gable="brick_y", loc=(-0.5, 0.0), overhang=0.16)
+    shed(k, 1.5, 1.8, 0.95, 0.6, wall="plaster_w", roof="roof_tile", gable="plaster_w", loc=(1.1, 0.7), overhang=0.12)
     k.door((-0.5, -1.7, 0.25), (0, -1, 0), 0.5, 0.85, "door")
     for sx in (-1, 1):
         k.windows((-0.5 + sx * 1.2, 0.0, 0.575), (sx, 0, 0), 2.8, 1.1, 1, 3, win=(0.42, 0.48), sill=0.3)

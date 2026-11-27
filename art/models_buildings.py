@@ -56,12 +56,11 @@ def upgrade_rig(k, x, y, h):
     return rig
 
 
-def shed(k, w, l, wall_h, roof_h, wall="corr_team", roof="corr", plinth=0.5, gable=None, loc=(0, 0), overhang=0.12):
-    """Industrial shed: walls w (x) by l (y), a concrete plinth, a pitched roof with its ridge along y."""
+def shed(k, w, l, wall_h, roof_h, wall="corr_team", roof="corr", gable=None, loc=(0, 0), overhang=0.12):
+    """Shed: walls w (x) by l (y) from the ground, a pitched roof with its ridge along y."""
     x, y = loc
     gable = gable or wall
-    k.box((w, l, wall_h - plinth), (x, y, plinth + (wall_h - plinth) / 2), wall, faces={"top": "steel_d", "bottom": "steel_d"})
-    k.box((w + 0.06, l + 0.06, plinth), (x, y, plinth / 2), "concrete")
+    k.box((w, l, wall_h), (x, y, wall_h / 2), wall, faces={"top": "steel_d", "bottom": "steel_d"})
     tri = [(x - w / 2, wall_h), (x + w / 2, wall_h), (x, wall_h + roof_h)]
     k.prism(tri, "y", y - l / 2, y + l / 2, gable, caps={0: gable, 1: gable})
     a = math.atan2(roof_h, w / 2)
@@ -245,7 +244,7 @@ def power_plant():
     with k.nohit_():
         slab(k, 5.8, 5.8, 0.12)
         hazard_edge(k, 5.8, 5.8, t=0.14)
-    shed(k, 2.6, 3.4, 1.4, 0.4, wall="corr_team", roof="corr", plinth=0.35, loc=(-0.9, 0.3))
+    shed(k, 2.6, 3.4, 1.4, 0.4, wall="corr_team", roof="corr", loc=(-0.9, 0.3))
     rollup_door(k, -0.9, -1.4, 0.12, 1.0, 0.9)
     for i, y in enumerate((-0.5, 0.6)):
         stack(k, 0.75, y, 0.28, 3.0, 0.12)

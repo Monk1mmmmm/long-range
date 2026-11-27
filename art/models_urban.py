@@ -111,7 +111,6 @@ def shop_adriatic():
     k = Kit("shop_adriatic")
     w, l, h = 3.5, 3.0, 1.7
     k.box((w, l, h), (0, 0, h / 2), "stone", faces={"top": "stone_d"})
-    k.box((w + 0.1, l + 0.1, 0.2), (0, 0, 0.1), "stone_d")
     hip(k, 0, 0, w, l, h + 0.02, 0.6, "terracotta", over=0.25)
     k.box((1.9, 0.05, 1.0), (-0.3, -l / 2 - 0.01, 0.8), "glass")
     k.cyl(0.95, 0.05, (-0.3, -l / 2 - 0.02, 1.3), "glass", axis="y", seg=14)
@@ -133,7 +132,6 @@ def shop_central():
     w, l = 3.4, 3.1
     k.box((w, l, 1.2), (0, 0, 0.6), "plaster_cream", faces={"top": "stone"})
     k.box((w, l, 1.15), (0, 0, 1.2 + 0.575), "plaster_pink", faces={"top": "concrete"})
-    k.box((w + 0.1, l + 0.1, 0.15), (0, 0, 0.075), "stone_d")
     k.box((w - 0.4, 0.06, 0.9), (-0.1, -l / 2 - 0.01, 0.65), "glass")
     for x in (-1.0, -0.1, 0.8):
         k.box((0.06, 0.08, 0.95), (x, -l / 2 - 0.03, 0.65), "white")
@@ -172,8 +170,7 @@ def shop_village():
     """Village shop: a whitewashed house with a green sheet roof, a porch and a painted sign."""
     k = Kit("shop_village")
     w, l, h = 3.2, 3.0, 1.35
-    k.box((w, l, h), (0, 0, 0.2 + h / 2), "plaster_w")
-    k.box((w + 0.08, l + 0.08, 0.3), (0, 0, 0.15), "plaster_b")
+    k.box((w, l, h + 0.2), (0, 0, (h + 0.2) / 2), "plaster_w")
     gable(k, 0, 0, w, l, 0.2 + h, 0.95, "corr_green", "plaster_w", over=0.28, ridge="x")
     front_windows(k, 0, -l / 2, w - 0.6, 0.3, 1, 1.3, 2, win=(0.7, 0.55), shutter="shutter_b", trim="trim_blue", skip=((0, 1),), seed=13)
     k.door((0.9, -l / 2, 0.2), (0, -1, 0), 0.6, 1.0, "door", frame="trim_blue")
@@ -214,7 +211,6 @@ def ce_tenement():
     w, l, sh = 3.7, 3.3, 1.0
     h = 4 * sh + 0.3
     k.box((w, l, h), (0, 0, h / 2), "plaster_g", faces={"top": "roof_tar"})
-    k.box((w + 0.1, l + 0.1, 0.3), (0, 0, 0.15), "stone_d")
     k.box((w + 0.18, l + 0.18, 0.14), (0, 0, h + 0.05), "plaster_cream")
     k.box((w + 0.08, l + 0.08, 0.06), (0, 0, 0.3 + sh), "plaster_cream")  # string courses
     k.box((w + 0.08, l + 0.08, 0.06), (0, 0, 0.3 + 3 * sh), "plaster_cream")
@@ -243,7 +239,6 @@ def adr_apartment_block():
     with k.nohit_():
         k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete_d")
     k.box((w, l, h), (0, 0, h / 2), "plaster_ochre", faces={"top": "concrete"})
-    k.box((w + 0.1, l + 0.1, 0.5), (0, 0, 0.25), "stone")
     k.box((w + 0.2, l + 0.2, 0.14), (0, 0, h + 0.05), "stone")
     hip(k, 0, 0, w, l, h + 0.12, 1.0, "terracotta", over=0.3)
     front_windows(k, 0, -l / 2, w - 0.8, 0.5, 4, sh, 7, win=(0.36, 0.56), shutter="shutter_g", trim="stone", skip=((0, 3),), seed=16)
@@ -269,7 +264,6 @@ def ce_apartment_block():
         k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete_d")
     for (x, y, w, l) in ((0.0, -2.2, 7.4, 2.8), (-2.3, 1.4, 2.8, 4.4)):
         k.box((w, l, h), (x, y, h / 2), "plaster_cream", faces={"top": "roof_tar"})
-        k.box((w + 0.1, l + 0.1, 0.4), (x, y, 0.2), "stone_d")
         k.box((w + 0.16, l + 0.16, 0.14), (x, y, h + 0.04), "plaster_w")
         k.box((w + 0.06, l + 0.06, 0.07), (x, y, 0.4 + sh), "plaster_w")
         k.box((w, l, 0.8), (x, y, h + 0.45), "roof_slate", taper=(0.9, 0.86))
@@ -413,8 +407,7 @@ def hotel():
         k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "asphalt")
     sh = 1.05
     h = 6 * sh
-    k.box((6.4, 3.4, 0.9), (0, -1.0, 0.45), "stone")
-    k.box((5.6, 3.4, h), (0, 0.0, h / 2 + 0.9), "plaster_w", faces={"top": "roof_tar"})
+    k.box((5.6, 3.4, h + 0.9), (0, 0.0, (h + 0.9) / 2), "plaster_w", faces={"top": "roof_tar"})
     k.box((5.7, 3.5, 0.14), (0, 0, h + 0.97), "concrete")
     front_windows(k, 0, -1.7, 4.8, 1.0, 6, sh, 5, win=(0.4, 0.58), trim="steel", lit=0.25, seed=20)
     for f in range(1, 6):
@@ -423,7 +416,7 @@ def hotel():
     k.box((4.0, 1.8, 0.14), (0, -2.8, 1.8), "concrete")
     for x in (-1.7, -0.6, 0.6, 1.7):
         k.cyl(0.1, 1.7, (x, -3.5, 0.1), "white", axis="z", seg=8)
-    k.door((0, -1.7, 0.9), (0, -1, 0), 1.4, 1.2, "glass", frame="steel")
+    k.door((0, -1.7, 0.0), (0, -1, 0), 1.4, 1.6, "glass", frame="steel")
     k.box((3.0, 0.2, 0.8), (0, 0.0, h + 1.45), "red")
     k.windows((0, 1.7, 3.8), (0, 1, 0), 4.8, 6 * sh, 6, 5, win=(0.4, 0.58), sill=0.3, frame="steel", lit=0.2, seed=21)
     return k
@@ -561,7 +554,6 @@ def police_station():
     w, l, sh = 3.5, 3.2, 1.2
     h = 2 * sh + 0.2
     k.box((w, l, h), (0, 0, h / 2), "plaster_sky", faces={"top": "roof_tar"})
-    k.box((w + 0.1, l + 0.1, 0.25), (0, 0, 0.12), "stone_d")
     k.box((w + 0.14, l + 0.14, 0.12), (0, 0, h + 0.03), "concrete")
     front_windows(k, 0, -l / 2, w - 0.6, 0.3, 2, sh, 3, win=(0.4, 0.5), trim="white", skip=((0, 1),), seed=22)
     k.box((1.8, 0.06, 0.3), (0, -l / 2 - 0.04, 1.45), "trim_blue")
