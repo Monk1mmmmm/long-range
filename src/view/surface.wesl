@@ -33,6 +33,11 @@ struct SurfaceParams {
     // Weather: wet ground (darker, shinier) and snow cover, 0-1.
     wet: f32,
     snow: f32,
+    // 1: the land beyond the border. Masks and roads mirrored at the border (the mesh is the map
+    // mirrored), no scorch or tracks; textured at the edge, fading over `fade` units into the
+    // mesh's blurred vertex colours (rgb; alpha is the chunks' brightness tint).
+    apron: u32,
+    fade: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> params: SurfaceParams;
@@ -99,7 +104,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let p = in.world_position.xz;
     let dx = dpdx(p);
     let dy = dpdy(p);
-    let uv = p / params.world;
+    let raw_uv = p / params.world;
+    // Apron: how far outside the map, and how much of the blurred colour shows (0 at the border).
+    let outside = max(max(-p, p - params.world), vec2<f32>(0.0));
+    let blur_w = select(0.0, smoothstep(0.0, params.fade, length(outside)), params.apron != 0u);
+    let inside = select(1.0, 0.0, params.apron != 0u);
+    // Mirrored back into the map (period 2): 1 - |1 - (uv mod 2)|.
+    let folded = vec2<f32>(1.0) - abs(vec2<f32>(1.0) - (raw_uv - 2.0 * floor(raw_uv * 0.5)));
+    let uv = select(raw_uv, folded, params.apron != 0u);
 
     let base = layer_sample(0u, p, dx, dy);
     var col = base.rgb;
@@ -116,7 +128,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         if j < 4u {
             m = m0[j];
         }
-        if m > 0.002 {
+        if m > 0.002 && blur_w < 0.999 {
             let l = layer_sample(i, p, dx, dy);
             let w = cover(m, l.a, hc, fract(wob + f32(i) * 0.37));
             col = mix(col, l.rgb, w);
@@ -166,7 +178,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var road_cover = 0.0;
     for (var k = 0u; k < params.roads; k++) {
         let v = select(rv2[k % 4u], rv[k % 4u], k < 4u);
-        if v > 0.002 {
+        if v > 0.002 && blur_w < 0.999 {
             let l = layer_sample(params.layers + k, p, dx, dy);
             let soft = params.road_soft[k / 4u][k % 4u];
             // 0 beyond the edge whatever the heights (road_soft >= 2), 1 well inside.
@@ -218,7 +230,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // earth the blast threw out and singed, a ring round it lighter than the char but still darker than
     // the untouched ground. Noise from the ground's own height
     // texture breaks both edges into ragged flecks.
-    let sc = textureSampleLevel(scorch, scorch_sampler, uv, 0.0).rg;
+    let sc = textureSampleLevel(scorch, scorch_sampler, uv, 0.0).rg * inside;
     let s = sc.r;
     if s > 0.004 || sc.g > 0.004 {
         let n1 = textureSampleGrad(albedo, albedo_sampler, p * 0.22 + vec2<f32>(0.37, 0.71), 0u, dx * 0.22, dy * 0.22).a;
@@ -238,7 +250,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Weather. Rain darkens the ground and makes it shine; snow covers the flat ground (thinner on
     // slopes and roads, broken up by the ground texture's height); tracks press through both: dark
     // ruts in the soil, slush through the snow, puddles in the rain.
-    let tr = textureSampleLevel(tracks, tracks_sampler, uv, 0.0).r;
+    // Apron: the textured ground gives way to the blurred colours (as the chunks' tint divides them
+    // at the end, so the border matches the chunks exactly).
+    let vtint = pbr_input.material.base_color;
+    if params.apron != 0u {
+        let k = max(vtint.a, 0.05);
+        col = mix(col, vtint.rgb / k, blur_w);
+        hc = mix(hc, 0.5, blur_w);
+        road_cover = road_cover * (1.0 - blur_w);
+    }
+    let tr = textureSampleLevel(tracks, tracks_sampler, uv, 0.0).r * inside;
     let n3 = textureSampleGrad(albedo, albedo_sampler, p * 0.31 + vec2<f32>(0.71, 0.23), 0u, dx * 0.31, dy * 0.31).a;
     let rut = saturate(tr * (0.8 + 0.4 * n3));
     if params.wet > 0.001 {
@@ -277,7 +298,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.N = normalize(v);
     }
 
-    let tint = pbr_input.material.base_color.rgb;
+    let tint = select(vtint.rgb, vec3<f32>(vtint.a), params.apron != 0u);
     pbr_input.material.base_color = vec4<f32>(tint * col, 1.0);
     var out: FragmentOutput;
     if params.debug != 0u {

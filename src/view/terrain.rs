@@ -247,6 +247,10 @@ impl BlurLevels {
     }
 }
 
+/// The land beyond the border (`apron_mesh`), drawn with the ground material's apron mode.
+#[derive(Component)]
+pub struct Apron;
+
 /// Folds a coordinate back into `0..=world` the way a mirror would, again and again.
 fn mirror(x: f32, world: f32) -> f32 {
     let p = x.rem_euclid(2.0 * world);
@@ -257,7 +261,7 @@ fn mirror(x: f32, world: f32) -> f32 {
 const APRON_BLUR: f32 = 0.1;
 
 /// The land beyond the playable area, like BAR's: the map mirrored at its border on all four sides,
-/// sharp at the edge and blurred more the further out it lies, a little darker and hazier with
+/// sharp (and textured, fading out over `surface::APRON_FADE`) at the edge and blurred more the further out it lies, a little darker and hazier with
 /// distance, sinking into the sea at the far end. Its inner rim is the map border vertex for vertex.
 fn apron_mesh(map: &MapData) -> Mesh {
     let (n, ny) = map.dims();
@@ -310,7 +314,8 @@ fn apron_mesh(map: &MapData) -> Mesh {
         pos.push([x, s[0], z]);
         nrm.push(n.to_array());
         uv.push([x / 12.0, z / 12.0]);
-        col.push([out[0], out[1], out[2], 1.0]);
+        // Alpha: the brightness variation the chunks have, for the textured band at the edge.
+        col.push([out[0], out[1], out[2], ground_tint(map, x, z)]);
         pos.len() as u32 - 1
     };
     let rows = dist.len();
@@ -406,8 +411,9 @@ pub fn spawn_scene(commands: &mut Commands, map: &MapData, meshes: &mut Assets<M
     }
     // Beyond the border: the map mirrored and blurred, sinking into the sea further out. No
     // textures there, so it looks soft next to the playable ground.
-    let soft = materials.add(StandardMaterial { perceptual_roughness: 1.0, reflectance: 0.1, ..default() });
-    commands.spawn((Mesh3d(meshes.add(apron_mesh(map))), MeshMaterial3d(soft), Transform::IDENTITY, NotShadowCaster, GameScene));
+    // The ground material in its apron mode (`surface::surface_sync`): textured at the border,
+    // fading into these soft colours, and the weather (snow) on both.
+    commands.spawn((Mesh3d(meshes.add(apron_mesh(map))), Transform::IDENTITY, NotShadowCaster, Apron, GameScene));
     // The map border as a dashed line (its width follows the camera, see `map_edge_sync`).
     commands.spawn((
         Mesh3d(meshes.add(edge_mesh(map, 1.0))),

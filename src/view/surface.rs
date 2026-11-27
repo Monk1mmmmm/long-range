@@ -53,7 +53,14 @@ pub struct SurfaceParams {
     /// Weather: wet ground (0-1: darker, shinier) and snow cover (0-1).
     pub wet: f32,
     pub snow: f32,
+    /// 1 = the land beyond the border (`terrain::Apron`): masks and roads mirrored at the border,
+    /// fading from the textured ground into the mesh's blurred vertex colours over `fade` units.
+    pub apron: u32,
+    pub fade: f32,
 }
+
+/// How far beyond the border the textured ground fades into the blurred land.
+pub const APRON_FADE: f32 = 48.0;
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct SurfaceExt {
@@ -109,6 +116,8 @@ pub struct TextureCache(HashMap<String, std::sync::Arc<Vec<u8>>>);
 #[derive(Resource)]
 pub struct SurfaceView {
     pub material: Handle<SurfaceMaterial>,
+    /// The same textures for the land beyond the border (`SurfaceParams::apron`).
+    apron: Handle<SurfaceMaterial>,
     albedo: Handle<Image>,
     masks: Handle<Image>,
     roads: Handle<Image>,
@@ -266,7 +275,7 @@ fn params(map: &MapData) -> SurfaceParams {
     let sidewalk = roads.iter().position(|k| k == SIDEWALK).map_or(99, |i| i as u32);
     let marked = roads.iter().position(|k| kind(k).is_some_and(|k| k.lines)).map_or(99, |i| i as u32);
     let debug = std::env::var("LR_SURFACE_DEBUG").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, sidewalk, marked, debug, quality: 1, water: map.water, wet: 0.0, snow: 0.0 }
+    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, sidewalk, marked, debug, quality: 1, water: map.water, wet: 0.0, snow: 0.0, apron: 0, fade: APRON_FADE }
 }
 
 fn sampler(repeat: bool, aniso: bool) -> ImageSampler {
@@ -376,8 +385,12 @@ impl SurfaceView {
             base: StandardMaterial { perceptual_roughness: 0.95, reflectance: 0.15, ..default() },
             extension: SurfaceExt { params: params(map), albedo: albedo.clone(), masks: masks.clone(), roads: roads.clone(), scorch: scorch.clone(), roads2: roads2.clone(), centre: centre.clone(), tracks: tracks.clone() },
         });
+        let mut ext = mats.get(&material).unwrap().clone();
+        ext.extension.params.apron = 1;
+        let apron = mats.add(ext);
         SurfaceView {
             material,
+            apron,
             albedo,
             masks,
             roads,
@@ -415,6 +428,7 @@ fn surface_sync(
     map: Option<Res<MapData>>,
     view: Option<ResMut<SurfaceView>>,
     bare: Query<Entity, (With<super::terrain::TerrainChunk>, Without<MeshMaterial3d<SurfaceMaterial>>)>,
+    bare_apron: Query<Entity, (With<super::terrain::Apron>, Without<MeshMaterial3d<SurfaceMaterial>>)>,
     mut images: ResMut<Assets<Image>>,
     mut mats: ResMut<Assets<SurfaceMaterial>>,
     mut cache: ResMut<TextureCache>,
@@ -429,11 +443,17 @@ fn surface_sync(
         for e in &bare {
             commands.entity(e).insert(MeshMaterial3d(v.material.clone()));
         }
+        for e in &bare_apron {
+            commands.entity(e).insert(MeshMaterial3d(v.apron.clone()));
+        }
         commands.insert_resource(v);
         return;
     }
     let Some(mut v) = view else { return };
     let v = &mut *v;
+    for e in &bare_apron {
+        commands.entity(e).insert(MeshMaterial3d(v.apron.clone()));
+    }
     let mut touched = false;
     if mats.get(&v.material).is_some_and(|m| m.extension.params.quality != quality || m.extension.params.wet != v.wet || m.extension.params.snow != v.snow) {
         touched = true;
@@ -478,11 +498,14 @@ fn surface_sync(
     }
     if touched {
         // The material's bind group points at the old textures until the material changes too.
-        if let Some(mut m) = mats.get_mut(&v.material) {
-            m.extension.params = params(&map);
-            m.extension.params.quality = quality;
-            m.extension.params.wet = v.wet;
-            m.extension.params.snow = v.snow;
+        for (h, apron) in [(&v.material, 0), (&v.apron, 1)] {
+            if let Some(mut m) = mats.get_mut(h) {
+                m.extension.params = params(&map);
+                m.extension.params.quality = quality;
+                m.extension.params.wet = v.wet;
+                m.extension.params.snow = v.snow;
+                m.extension.params.apron = apron;
+            }
         }
     }
 }
