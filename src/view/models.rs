@@ -479,7 +479,8 @@ fn roof_mask(parts: &[ModelPart], meshes: &Assets<Mesh>, w: u32, h: u32) -> Vec<
         for t in idx.chunks_exact(3) {
             let p: Vec<Vec3> = t.iter().map(|&i| Vec3::from_array(pos[i as usize])).collect();
             let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
-            let val = if n.y.abs() > 0.55 { 255 } else { 120 };
+            // Steep roofs count too: a mansard's hipped corners and church spires lean ~65 deg (n.y ~0.43).
+            let val = if n.y.abs() > 0.3 { 255 } else { 120 };
             let q: Vec<Vec2> = t.iter().map(|&i| Vec2::new(uv[i as usize][0] * w as f32, uv[i as usize][1] * h as f32)).collect();
             let (lo, hi) = (q[0].min(q[1]).min(q[2]), q[0].max(q[1]).max(q[2]));
             let den = (q[1].y - q[2].y) * (q[0].x - q[2].x) + (q[2].x - q[1].x) * (q[0].y - q[2].y);
