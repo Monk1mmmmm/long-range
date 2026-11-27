@@ -817,9 +817,9 @@
    "hp": 300,
    "armor": "LightTank",
    "cost": {
-    "mass": 320,
-    "energy": 1000,
-    "time": 450
+    "mass": 240,
+    "energy": 750,
+    "time": 340
    },
    "size": [
     1.5,
