@@ -9,6 +9,10 @@ Detached houses (house*, old_house*) are replaced by SHARE of them; with --all-s
 (corner_house*, row_house) and half of the little apartment buildings go too. Positions and yaw stay; the choice is a
 seeded draw, so running it twice on a fresh map gives the same result (and nothing happens to a map twice: the
 replaced buildings are not in the lists any more)."""
+# **Small village houses** (requested; `khata`, `khata_slate`, `cottage`, `dacha`, `farmhouse` garrisons for 2-4, `outbuilding` not
+# garrisonable; own models `art/models_civilian.py`, footprint 1 = 2x2 units, farmhouse 2): `tools/small_houses.py` swaps share
+# of detached houses (`house*`, `old_house*`) of real-life maps for them, on Tokmachka nearly every residential building
+# (also town houses and most small apartment buildings), so it is village; `osm_map.py` draws them among its houses.
 import json, os, random, sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "maps")

@@ -503,6 +503,13 @@ impl MapData {
         }
         self.water_cell((x / CELL).max(0.0) as usize, (z / CELL).max(0.0) as usize)
     }
+    // **Water levels**: `MapData.water` is sea; lakes above it are `MapData.lakes` (levels, at most 255) +
+    // `lake_of` (one byte per cell: 0 = sea, k = `lakes[k - 1]`; map.json `lakes` + `lakes.png`). A lake covers the
+    // cells with ground below its level (`flood_lake`; editor's Lake tool: left fills hollow under pointer
+    // to "lake depth" slider, right drains; `osm_map.py` makes them from OSM lakes). Never read `map.water` for
+    // position: use `water_at` / `water_xz` / `water_cell`, `water_vertex` (craters), `surface(p)` (ground or water
+    // top: hover, markers), `water_near` (looks only). Levels fixed during game: pit dug beside lake stays
+    // dry. View: `terrain::lake_mesh` (one mesh, all lake cells), sea plane as before.
     pub fn water_at(&self, p: V2) -> f32 {
         self.water_xz(p.x, p.y)
     }
@@ -1342,6 +1349,16 @@ impl MapData {
         m
     }
 
+    // **Adaptive maps** (SupCom style; `frankivsk_mini`, `frankivsk`, `liberec`, made by `tools/merge_variants.py` from former
+    // per-player-count maps): `map.json` holds union of starts plus `variants` (`{starts: [indices in slot order], points}`:
+    // one way to play per player count) and `attached` (`{pos, start}` / `{pos, variant}` per deposit, matched by position).
+    // Lobby lists map with variants once, as its variant with most starts (`folder#k`, `data::map_entries` / `split_map` / `load_map`; smaller player counts are played by leaving slots empty, `adapt` then drops those starts' deposits, and `LR_MAP=folder#k` still loads any variant in headless tests;
+    // `MapData::variant(k)` makes plain map: that variant's starts, deposits, slot props renumbered, trees, rocks and
+    // buildings cleared round its starts, its points). A deposit attached to start is only there when that slot is played:
+    // `MapData::adapt` (called by host in `start_game` before map is sent, and again in `setup_game`, where it does
+    // nothing once done) drops others, so clients, joiners and replays hold same trimmed map. Maps without
+    // variants play as before. Map editor edits raw union map and keeps both lists (deposits matched by position:
+    // moved deposit loses its attachment).
     /// Takes out the deposits attached to starts nobody plays on (`slots` = the occupied lobby
     /// slots), the way adaptive SupCom maps leave out the extractors of empty spawns. Done once:
     /// the attachments are dropped afterwards.

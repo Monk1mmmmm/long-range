@@ -67,6 +67,16 @@ pub struct Kind {
     pub lines: bool,
 }
 
+// **Ground textures** (`surface.rs`, purely visual, never in sim or its hash): SupCom-style strata. `MapData.layers`
+// (kind + tile size; at most 9), layer 0 covers map, each further layer drawn over those below by its mask
+// (`MapData.masks`, one byte per cell per layer, saved as `layerN.png`). Shader blends with textures' height
+// (alpha), broad noise wobble and smooth (quintic) mask step, so borders are ragged, not cell-shaped; also
+// takes little relief from height. Textures: `KINDS` (grass, meadow, forest floor, dirt, mud, sand, desert sand,
+// cracked earth, snow, ice, stone, gravel, paving, asphalt, dirt track), made in code (`view::surface::texel`) unless
+// `assets/textures/terrain/<kind>.png` exists (alpha or brightness = height). Keep big blotches out of texture:
+// they show its tiling. `KINDS.color` must match texture's average (`--ground` prints both): minimap, lobby
+// picture and land beyond border use it. Maps saved without layers are painted at load
+// (`paint_ground(Temperate)`); random maps get biome (lobby "Terrain": random from seed, or chosen) and dirt
 pub const KINDS: &[Kind] = &[
     Kind { id: "grass", name: "Grass", scale: 10.0, color: [0.12, 0.22, 0.06], hard: false, lines: false },
     Kind { id: "meadow", name: "Dry meadow", scale: 12.0, color: [0.25, 0.25, 0.10], hard: false, lines: false },
@@ -345,6 +355,21 @@ impl MapData {
         out
     }
 
+    // tracks along lanes. **Roads** (`MapData.roads`: kind, width, points, `sidewalk`; map.json lines "kind width x z
+    // x z ...", width "4.00+1.20" with sidewalks that wide on each side; at most 8 kinds per map, sidewalks included:
+    // two RGBA textures) are distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; nothing drawn
+    // under water (field fades out at waterline). Kinds (`road_kinds` sorts them into drawing order: sidewalk, tracks,
+    // then paved in `KINDS` order, main asphalt last): `asphalt` (main roads, `Kind::lines`), `asphalt_worn` (side streets,
+    // patched), `concrete` (slab roads), `cobble` (old centres), `gravel`, `dirt_road`, `sidewalk` (`SIDEWALK` slot; shader
+    // cuts kerb + gutter from road field where sidewalk runs beside hard road). Lane markings
+    // (`MapData::centre_raster`, own RGBA8 texture): per texel distance along road mod 16 and signed offset from
+    // centre line (both linear, so bilinear filtering keeps line exact) and drawn flag; only dashed centre line
+    // (2 on, 2 off; edge and solid lines removed on request: simpler, no glitches), on `lines` kinds at least `CENTRE_MIN`
+    // (3.5) wide and `CENTRE_MIN_LEN` (15) long (short ways are junction links), none within 2.5 of another marked road
+    // (crossings, merges, divided carriageways). `--editor --roads NAME..` restyles map's roads (`editor::restyle_roads`; only the
+    // roads block of map.json changes): OSM widths say class, built-up share round road says town / old centre
+    // (buildings are 2x scale: shares run high, villages get no sidewalks), sidewalks only as wide as gap to
+    // buildings, pieces under water cut off; run it after `tools/osm_map.py`. Shipped OSM maps have been through it. Trees and
     /// The roads as a raster of `per_unit` texels per world unit (texels across and deep, then
     /// the texels row by row), one channel per road kind (`road_kinds`): 1 inside, 0.5 on the
     /// edge, 0 beyond `ROAD_RAMP / 2` outside. Sidewalks are a band `sidewalk` wider on both sides

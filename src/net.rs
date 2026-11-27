@@ -76,6 +76,11 @@ pub struct LobbyInfo {
     pub data_hash: u64,
 }
 
+// **Game browser** (main menu "Join game" -> `Screen::Browse`, `main.rs::browser_ui`): table of games found by UDP
+// discovery (`net::Discovery`, broadcast + localhost once second, Refresh/F5 asks again, hosts silent 4 s drop off).
+// A host answers with version and `net::GameAd` (host name, map folder or random size, 48x48 RGB picture + starts,
+// players/AIs/slots/observers, mode, preset, data hash, started), set by `Host::advertise` whenever lobby is dirty
+// (`HostLobby::ad`); another version shows as such and cannot be joined. Joining by address is on same screen.
 /// What a host tells the game browser about its game (UDP discovery reply). Texts that need
 /// translating travel as data (map size, mode, preset name), the browser words them.
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq)]

@@ -151,6 +151,12 @@ impl SurfaceView {
     pub fn scorch(&self) -> Handle<Image> {
         self.scorch.clone()
     }
+    // rocks are kept off roads and sidewalks (`scatter_features`, `clear_features_on_roads`, `Road::reach`). **Scorch**: blasts and deaths near the
+    // ground darken view-side map (`SurfaceView::burn` from `fx::spawn_fx`, also unseen ones), permanent, lost when the
+    // view restarts. Two channels: R char (darkest at centre, gradient), G singed ring round it (darker than
+    // ground, lighter than char); grass shader reads same texture. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
+    // selected layer, right removes it, on layer 0 it clears all layers above; Road tool: left adds points, right finishes
+    // or deletes road under pointer). `--generate` towns get paving/gravel around buildings and asphalt roads.
     /// Darkens the ground around `p` after a blast of size `size` (about its radius).
     pub fn burn(&mut self, p: Vec2, size: f32) {
         // A crater-like decal: char fading out from the middle over 0.65 of the reach, a ring of

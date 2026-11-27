@@ -40,6 +40,11 @@ impl Shown {
     }
 }
 
+// **Pings and drawings** (`view/marks.rs`): with nothing selected, right double-click on map or minimap pings, right-drag
+// draws line (`ViewState.pathing == Some(3)` while drawing); shown in maker's player colour to their
+// team (observers see all, make none; none in replays), pings 8 s with `ping` UI sound, lines 45 s, fading out.
+// Not commands: `C2S::Mark` to host, which passes them on as `S2C::Mark(player, ..)` to everyone else
+// (`main.rs::session_frame`), so they skip sim, its hash and replay, and work while paused.
 #[derive(Resource, Default)]
 pub struct Marks {
     /// Made by the local player this frame, for the session to send.

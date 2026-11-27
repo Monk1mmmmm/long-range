@@ -525,6 +525,9 @@ fn drive_anims(
 /// the model is smaller than this on screen (diameter in pixels).
 pub const SPECK_PX: f32 = 5.0;
 
+// **Model LOD** (setting `model_lod`, default on): unit and ghost models are hidden wherever HUD draws the
+// strategic icon instead (`view::as_icon`: icon zoom, or under `SPECK_PX` on screen; `view::model_lod`). Neutral
+// buildings keep models while `neutral_icons` is off. Wrecks have no icons and always keep theirs.
 /// Whether the HUD shows a unit as its strategic icon rather than its model; `rpx` is the unit's
 /// radius on screen (pixels).
 pub fn as_icon(view: &ViewState, settings: &crate::settings::Settings, rpx: f32) -> bool {
@@ -654,6 +657,14 @@ struct GhostVisual {
     dim: bool,
 }
 
+// **Contact memory** (client side, `intel.rs`): radar blips of mobile units fade over `radar_fade_secs`;
+// buildings once detected stay as ghosts until spot is seen again and found empty. A ghost of building
+// that was seen keeps its model (as last seen: type, owner, facing, construction height) out of sight
+// (`view::ghost_visuals`), also after it was destroyed unseen: then, with preset switch
+// `rules.ghosts_show_destroyed` (default on), its model is drawn dark (`ModelCache::dim_mat`) and icon faded. Graphics
+// setting "Remembered buildings: Show models in fog" (`Settings::ghost_models`, default on) turns these models off:
+// out of sight only icons remain. Right-clicking a
+// ghost issues ground fire at its position.
 #[allow(clippy::too_many_arguments)]
 fn ghost_visuals(
     mut commands: Commands,

@@ -353,6 +353,91 @@ enum Phase {
     Retreat(u32),
 }
 
+// **AI types** (`ai::AiKind`, picked per lobby slot; ideas taken from FA AI mods M27, M28 and RNG, no code):
+// Simple (old one), Overseer (M27: switches strategy - rush, main, eco and tech, air, turtle, commander
+// kill - from balance of forces), Zones (M28: zone by zone, scouts everything, defends allies), Adaptive
+// (RNG: wide expansion, raiders, production counters what enemy fields), Rusher, Turtle. All but Simple
+// share `brain.rs` and differ by `Profile`. How engine works:
+// - map is cut into zones (starts, control points, deposit groups, filler); each keeps both sides'
+// strength, its worth, when last seen. Armies gather at rally zone (our safe zone nearest the
+// enemy), attack zone with best worth / distance / defence that force at rally can take
+// (`pick_target`), travel zone by zone as one body with reinforcements following in groups, retreat when
+// outmatched (`Phase`). Waiting makes impatient (`nerve`), stand-off without progress ends in push or in
+// leaving zone alone (`avoid`), so do three fall-backs in row from same zone (`lost`), and after a
+// fall-back next attack waits 20 s (`calm`). Local fight (`enemy_near`) counts turrets only within the
+// radius looked at, not every battery whose range reaches (heavy battery covers half map: attacks used to
+// turn back at rally point for hours). Units far from rally standing still without firing get plain
+// Move back (attack-move would wait for ever at target they have no line of fire to); units shelling something
+// far off do not hold next attack up;
+// - zone `front` and `fwd` are worked out from enemies still alive (`set_front`), so defeated player's half
+// of map becomes ground to expand into;
+// - it only knows what its team sees or has on radar plus `Brain::memory` (buildings until destroyed, units for
+// 30 s); unscouted enemy start is assumed to hold base with army that grows with time (`Zone::guess`);
+// - mass discipline: factories and upgrades only add spending while `spend_m` stays below multiple of
+// income (stall slows extractors too); planned generators count (`coming_e`), or every engineer starts one;
+// - engineers that only assist or reclaim are free for real jobs (Assist order never ends by itself);
+// - attack moves in bounds (`Brain::step`, `BOUND`): body's formation stands round step, next step is taken once 60% of
+// marching units (those not firing) are there, or after 30 s from where they are; so fast units wait for slow ones. Spotters (binoculars/vision well beyond their own guns) walk
+// 16 ahead (muster point for zone defence was tried and made duels against Simple slower: removed). March centre is plain mean of marching non-artillery units (weighted by worth, one
+// idle Bohdana far behind dragged it back). It counts as fight only when known enemies within reach of
+// most of body's guns (75th percentile, 30-90) add up to 10% of its strength or one is within 45: lone
+// scout no longer stops march. In fight body forms crescent round enemy's centre (every unit at
+// 0.8 of its range, sorted by side so nobody crosses, up to ~90 deg: wings hit side armor; direct-fire
+// tanks drive there with Move, infantry and set-up weapons stop at first target), and direct-fire guns in
+// reach focus fire (`Order::Attack`) greedily on target they kill fastest for its worth, only as many
+// guns as kill it in ~3 s;
+// - production counters what enemy fields (`Brain::counter`, from `mix`/`emix`/`missiles`, decaying
+// memories of enemy's mobile mass by armor class, its damage by type, its missile share): type's weight
+// scales with its damage against those armor classes (rules armor table), inversely with enemy damage its
+// own armor takes, and up with reactive armor while enemy uses missiles. `Profile.infantry` is share
+// of army that is infantry; one field engineer (`Info.works`: builds field works) digs `Profile.works`
+// trench pieces across rally point (+ sandbags at ends, bunker behind); idle infantry there drops into
+// them by itself (`cover_spot` prefers trenches). Land carriers (`Role::Carrier`, armed or not, one per 6 infantry,
+// at most 3) ferry infantry waiting at rally point to attacking body. Infantry share is scaled by
+// how well infantry types answer enemy compared with vehicles (0.2-1.5x). Direct guns up to range 110 are tanks (Bastion, Robin, AT trooper), not artillery. No extractor
+// upgrades while enemy army is far bigger than ours;
+// - storming: infantry with `assault` attacks (= storms) enemy-held building or enemy infantry's trench
+// piece within 45 when its summed assault beats holders' x `garrison_defense` x 1.5; suicide drones get
+// `Attack` on dearest known enemy vehicles near army or our zones, as many as kill each;
+// - micro: longer guns back off from shorter ones, indirect artillery ground-fires remembered buildings, mobile radar
+// follows army;
+// - scavengers (`Profile.scav`, built while whole wrecks lie in safe zones): `ReviveArea` on dearest
+// wreck, then `ReclaimArea` for what cannot come back;
+// - garrisons (`Profile.garrison`): infantry waiting near rally point (70) or start (50) walks into
+// buildings there (`Order::Load`), body's infantry into buildings within 45 of step it passes (towns
+// stand between bases: only looking near rally point, AI never garrisoned anything on most maps);
+// buildings neither near rally point nor attack are emptied (`Unload` on building);
+// - lifts (requested: transports stood idle at rally point most of game): transport (air or land carrier)
+// with no other job picks up group of our units walking more than 80 (air: 110) to their goal - new units on
+// their way to rally point, reinforcements to attack, defenders, raiders - sets them down 12 (18) short of
+// it and returns; they carry on with their own order. Air transports skip drops and routes covered by known
+// anti-air (`aa_on_route`). Counted in report's `ferries`. A transport whose only order is move to where it
+// stands counts as free (`parked`: crowded rally points left APCs step short of their goal for ever);
+// - air transports: zones carry number of their land mass (`Zone::comp`). Jobs of idle transport, in
+// order: engineer to land mass with free deposits (it then builds extractors there only), army units
+// from rally point to enemy that cannot be reached by land (they fight on their own over there,
+// "abroad"), raiders to raid zone far away. Passengers get `Load(transport)` and are left alone while in
+// `Brain::boarding`. An AI cut off by water builds more air, and techs its air factory for transport.
+// - shelter: infantry outnumbered 1.5:1 near it, hurt with enemies about, or in reach of known enemy artillery walks
+// into nearest garrisonable building within 25 (`Brain::held` keeps it there at least 60 s; building is never
+// emptied while enemies or enemy guns are near it);
+// - landings (`Profile.landing`, Rusher 1.0, Adaptive 0.7, Zones 0.6, Overseer 0.4 / air 0.8, Turtle 0.15): party of
+// infantry (`Brain::party`, as many as transports lift, up to ~12) waits at rally point; idle air transports or
+// land carriers (amphibious ones count zones reachable through shallow water, `Zone::acomp/areach`) take it to group of
+// neutral or own buildings near enemy or ahead of attack (scored by enemy buildings near, front, attack
+// target, river crossing for amphibious carriers; rejected when known enemies or anti-air there are too strong).
+// Riders get `[Load(carrier), Load(house)]`: set down beside town they walk in. One at time, every 2-5 min.
+// `Brain::wet` (water between starts) makes first carrier amphibious one (Slavuta);
+// - artillery hunts: known enemy indirect-fire units reaching our zones, rally point or march get zone-defence
+// detachment (up to 40% of free force), nearest units first;
+// - build spots (`ai::Tries`, also used by Simple): build order whose engineer could not build at spot, died there,
+// did not get there within 3 min, or whose site was destroyed unfinished bans spot for 90 s, doubling per further
+// failure (`find_spot_where`); engineer is called off;
+// - `LR_AIOFF=landing,tries,...` (also infantry, works, carrier, crescent, focus, bounds, outgunned) switches parts off for tests.
+// Report line ends with `landings N (air/amphibious/land) shelters N hunts N`. Premade maps have towns
+// (`LR_MAP=frankivsk_mini#1`); generated `--selftest` maps have no buildings.
+// Test change with duels against `simple` on few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); new
+// types should win all of them.
 #[derive(Default)]
 pub struct Brain {
     info: Vec<Info>,

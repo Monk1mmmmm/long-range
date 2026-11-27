@@ -27,6 +27,12 @@ fn facing(n: [f32; 3]) -> i32 {
     k as i32 * 2 + (n[k] < 0.0) as i32
 }
 
+// **Far meshes** (`view/decimate.rs`, `models::LodMesh` / `model_lod_swap`): every model part (units and buildings) with at
+// least 60 triangles gets simplified mesh made once per model by vertex clustering (12 cells along part's longest side;
+// vertices merge only within UV cell and facing, so seams and hard edges stay and same texture/material fits). Parts show
+// it beyond `clamp(30 x radius, 60, 260)` camera distance (7 % hysteresis); kept only when at most 70 % of triangles remain.
+// Hand-made `mesh_low` models of civilian buildings are still building-detail setting's, not distance LOD.
+// `cargo test --lib far_meshes_are_valid` prints saving over all models.
 /// A coarser copy of `mesh` (triangle list with positions, normals and UVs), or `None` when it is small
 /// already or would not get much smaller.
 pub fn simplify(mesh: &Mesh) -> Option<Mesh> {

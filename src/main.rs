@@ -165,6 +165,14 @@ impl HostLobby {
         let random = self.map_choice < SIZES.len();
         (self.map_choice, if random { self.players } else { 0 }, if random { self.seed } else { 0 }, defs.hash, if random { self.biome } else { 0 })
     }
+    // **Lobby**: players on left, observers under them (up to 8: "Watch instead" / "Take slot", `C2S::Observe`; joiners
+    // find no open slot and players whose slot smaller map removes become observers). Observer plays as `sim::OBSERVER`
+    // (no player: sees everything, gives no commands, not in `S2C::Peers`, so never takes over as host); on right map preview (`terrain::map_preview`, start numbers drawn
+    // on top) and tabs Game options (mode, points, data preset, players / re-roll for random maps, "AI
+    // reclaims trees and rocks" -> `Ai.reclaim`, "Neutral and hostile buildings known from start" -> `Game.reveal_props`: `intel.rs` puts
+    // them into contact memory once as remembered (stale) buildings, view only) and Map (list with thumbnails). Random map is made when
+    // chosen (`HostLobby::ensure_map`, seed `HostLobby.seed`), so game uses previewed map; clients get
+    // picture in `LobbyInfo.preview`.
     /// Makes (or loads) the chosen map if the choice changed, with its preview picture.
     fn ensure_map(&mut self, defs: &Defs) -> Result<(), String> {
         let key = self.map_key(defs);
@@ -385,6 +393,11 @@ fn keep_preset(pack: &DataPack) -> Result<Option<String>, String> {
     Err("too many presets of that name".into())
 }
 
+// **Downloads**: host's map and data already travel in `S2C::Start`; client then keeps them
+// (`keep_downloads`, background thread): premade map goes to `assets/maps/<folder>` (or `<folder>_2`... when a
+// different map has that name, `same_map`), named preset to presets (`name 2`... likewise), model/icon files via
+// `store_assets` as before. Client lobby says whether map and data are here or will be downloaded
+// (`LobbyInfo.map_file/preset/data_hash`).
 /// Saves what the host sent for this game (its premade map, its data preset) so this player has
 /// them from now on, in the background.
 fn keep_downloads(map: Option<(MapData, String)>, pack: Option<DataPack>) {

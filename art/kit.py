@@ -8,6 +8,24 @@ Surfaces get materials made of seamless tile textures (painted here with numpy, 
 Tank mod's units and the Mining Town buildings) projected onto the faces; `finish()` unwraps every part into one
 UV atlas and bakes the albedo and the team mask (white = owner's colour) with Cycles, then gives all parts one
 textured material, which is what tools/blend_export.py exports."""
+# **Our own models** (`art/`, replacing stock Supreme Commander models game used to borrow, on request: "in the
+# style of Mining Town buildings and Long Range Tank units") are Python scripts run with Blender as module
+# (`bpy` from PyPI in `.venv`, no Blender install; `.venv/bin/python art/build.py [NAME..]`): `art/kit.py` places
+# pieces (boxes, extrusions, cylinders, windows, doors) in world units (Blender: front -Y, Z up), joins them into one
+# object per part (one entity per part in game: keep parts few), paints them with seamless numpy tiles (light grey
+# steel with panel lines, team panels, corrugated sheet, concrete, plaster, panel-block, brick, roof tiles, reactive
+# armour bricks...) box-projected, unwraps all parts into one 512 atlas and bakes albedo + team mask with Cycles, then
+# exports through `tools/blend_export.py`. `Kit.key` makes animations (`work` pumpjacks, `open` engineer arms,
+# `rolloff` hangar doors, `doors` crane jib, `land` Stork gear, `upgrade` scaffold rising from under ground).
+# `k.nohit_()` / `k.nohit` keep aprons, antennas, rotors and arms out of printed hit box (unit's `hit_box`;
+# centred, so buildings are capped at their footprint). Files: `models_buildings.py` (factories, pumpjacks, power,
+# storage, AA, eng station), `models_defence.py` (Faust SAM, radar towers, watch tower, sandbags, trench, field bunker), `models_vehicles.py` (APCs/IFVs, engineers, scavenger), `models_air.py`,
+# `models_civilian.py` (former stock UEF civilian buildings: panel block, institute, town hall, palace of culture,
+# office tower, farm, brick works; refinery, fuel tank, pylon, comm tower, water tower, bunker), `models_variants.py` (`variant.py`: mod GLB imported unchanged plus new parts,
+# its 512 texture set extended to 512x1024; exported with front +y so mod's nodes stay as they were): Bastion
+# (Crony + reactive armour bricks), Hailstorm, Skylance, UC-02R/03R, AT/Sniper/SAM Trooper, Commander. Units with
+# `reactive` armour show it as bolted bricks (Bastion, Hetman). `--blend` saves `art/blend/NAME.blend` (ignored by git)
+# to open in Blender; `art/render.py` renders exports for look (Workbench, team areas blue).
 import math
 
 import bmesh

@@ -146,6 +146,11 @@ pub struct Upgrading(pub f32);
 #[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Orders(pub Vec<Order>);
 
+// **Ammunition** (weapon `ammo`, rounds; 0 = unlimited): `WeaponState.fired` counts rounds missing (snapshotted);
+// weapon with rounds spent stops firing (AT Trooper 3, SAM Trooper 4). A salvo is cut to rounds left.
+// Rearming, SupCom tactical missile style (`rearm` s per round, `rearm_mass` per round; troopers 60 s, 25 / 20 mass):
+// one round at time (`WeaponState.rearm` progress), paid as mass flow at top of `weapons` in id order, slowed
+// by mass stall, stopped while paused. HUD shows rounds left; `--combattest` infantry "Ammunition" line.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Default)]
 pub struct WeaponState {
     /// World yaw and pitch the weapon currently points at.
@@ -269,6 +274,9 @@ pub struct Paused;
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Structure;
 
+// **Hold** (weapon `hold`, seconds; Pike Mortar 3, Bohdana 5, AT Trooper 3): weapon fires only while its unit has no movement goal
+// and is stopped, its `aim_time` counts only from then (set-up time; AT Trooper 3 s), each shot sets `Mover.hold`, during which `locomotion` keeps land/hover unit in place
+// (move order given meanwhile starts when hold runs out).
 /// Movement state.
 #[derive(Component, Clone, Serialize, Deserialize, Default)]
 pub struct Mover {
@@ -306,6 +314,15 @@ pub struct Mover {
     pub pace_accel: f32,
 }
 
+// **Debris** (`rules.debris`): single hit of at least `min_hit` of finished building's hp, and its
+// destruction, drop debris pieces. A piece is `Wreck` with `piece` > 0 (its size; never revived) that
+// first falls (`falling`, `vel`, moved by `systems::rubble_motion`; not in `WreckList` until it lands, then it
+// hurts units it lands on). Mass comes out of building's wreck value: unit's `Shed`
+// component (snapshot field `shed`) counts what it dropped, wreck and reclaiming standing building
+// give that much less, so damage + repair makes no mass. Pieces have own cap (`debris.max`), are thrown and
+// shoved by blasts like wrecks, and those at least `sight_size` big block sight (`Wreck::shape`).
+// View: `Settings::effects` 0 low (pieces appear on landing, boxes without shadows, fewer explosion
+// puffs, no flash lights), 1 medium, 2 high (dust where pieces land, `FX_DEBRIS`).
 /// A unit's wreck, or a piece of debris a building dropped (`piece` > 0).
 #[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Wreck {
@@ -340,6 +357,13 @@ impl Wreck {
     }
 }
 
+// **Reactive armor** (`reactive: {charges, block}` in unit JSON; T3 Bastion: 4, 0.75): missile hitting the
+// unit directly (`projectiles`, `PROJ_MISSILE`) uses up charge and loses `block` of its damage, with small blast.
+// Charges left are `Reactive` component (in `unit_state!`); `build_progress` restores all when repair
+// brings unit to full health. `--combattest` infantry "Reactive armor" line. Bastion (requested T3 tank against
+// AT infantry) = Crony with reactive armor and marginally better stats (Crony mesh at 1.1x, 680 hp vs 530, 220 damage
+// at 85 vs 200 at 80, same speed and turret), about Crony's mass (620 vs 560) but 4x its energy (6000), MediumTank armor.
+// Robin's 900-damage missile kills Crony or Overtaker head on in one hit; Bastion's charges stop that.
 /// Reactive armor charges left (units whose type has `reactive`).
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Reactive(pub u8);
@@ -647,12 +671,29 @@ pub fn carriable(d: &crate::data::UnitDef) -> bool {
     !d.is_structure() && !d.is_air() && d.cargo > 0 && d.transport.is_none()
 }
 
+// **Transports** (`transport: {capacity}` in unit JSON; `cargo` = slots unit takes, 0 = not carriable):
+// land transports (APCs) take infantry only; air transports take any land unit, but vehicle (engineers, commander,
+// tanks, cars: `cargo` 4 in JSON) takes 4 slots where trooper takes 1, so Stork (8) lifts 2 vehicles or 8 men
+// (`sim::fits(host, rider)` decides who may get in, `carriable` only whether unit can ride at all);
+// riders get `Hosted(transport)`, same as units inside factory, so every system
+// already skips them. Orders: `Load(id)` (transport fetches that unit / unit boards that transport),
+// `LoadArea`, `Unload`. Riders die with their transport (commander inside: its side is defeated), except infantry in
+// land transport (Tavria APC): `deaths` throws them out like garrison's (`garrison_eject_damage`).
+// Riders keep their orders: what is queued behind boarding is carried out after they are set down (`carry` only
+// drops `Load` of their own transport and leading `Ferry`).
 /// Can `rider` get into the transport `host`? Land transports (APCs) take infantry only; air
 /// transports take any carriable unit (vehicles cost more slots through their `cargo`).
 pub fn fits(host: &crate::data::UnitDef, rider: &crate::data::UnitDef) -> bool {
     carriable(rider) && (host.is_air() || rider.is_infantry())
 }
 
+// **Loaded carriers** (requested): clicking land transport in factory's build menu opens loadout picker above
+// queue (`ViewState.loadout`, `hud::loadout_options`: infantry that factory builds that fit; left-click adds,
+// Shift fills, right-click removes, Queue / Shift+Queue x5, stays open to queue more, last loadout per type remembered).
+// It sends `Command::ProduceLoaded { cargo }` (checked by `sim::loadout_ok`); queue holds `Job { def, cargo }`.
+// `factories` builds transport, keeps it inside (`Factory.carrier`), builds each rider (`Factory.cargo` left)
+// at its own price straight into it (`Hosted(carrier)`), then releases it; Stop sends it out with whoever is aboard.
+// `--combattest` (`LR_TEST=apc`) "queued with N riflemen" line.
 /// Can the factory `fac` turn out its land transport `host` filled with `cargo`? Every rider must be
 /// something the factory builds and that fits, within the transport's capacity.
 pub fn loadout_ok(defs: &Defs, fac: DefId, host: DefId, cargo: &[DefId]) -> bool {
@@ -847,6 +888,11 @@ impl Census {
     pub fn valid_target(&self, c: &Cen, team: u8, land: bool, air: bool) -> bool {
         c.hp > 0.0 && !c.hosted && !c.fieldwork && hostile(team, c.team) && c.known_to(team) && if c.air { air } else { land }
     }
+    // **Engineers before buildings**: while enemy engineer (any mobile builder: engineers, commander, scavengers;
+    // `Cen::engineer`) is in weapon's reach, enemy buildings rank below every other enemy (`Census::pick_enemy`,
+    // `Lane::pick`, bomber's line-up choice), and gun on building drops it every 5 ticks for one. A weapon's
+    // `prefer` class still comes first, attack order still wins, and building in clear still beats engineer
+    // with no line of fire. `--combattest` "Engineers first" line.
     /// Like `nearest_enemy`, but an enemy for which `preferred` holds beats any other, however far,
     /// and while an engineer is among the candidates, every other enemy beats a building.
     pub fn pick_enemy(&self, pos: V2, team: u8, range: f32, min_range: f32, land: bool, air: bool, preferred: impl Fn(&Cen) -> bool) -> Option<&Cen> {
@@ -1029,6 +1075,14 @@ pub fn sight_block<'a>(features: &'a Features, wrecks: &WreckList, buildings: im
 /// Size of a cell of the features' spatial grid, in world units.
 const FEATURE_GRID: f32 = 16.0;
 
+// **Trees and rocks** (map "features"): types in `rules.json: features` (class tree/rock, shape, mass,
+// energy, size, weight); map holds `feature_kinds` + `features` (saved as one line each, "kind x z yaw
+// scale"). Random lobby maps, `--generate` and editor's Scatter call `MapData::scatter_features`
+// (symmetric, keeps bases/deposits/water clear). In sim, `sim::Features` keeps share left of each
+// one (snapshot field `features` is diff against map); feature `i` has id `FEATURE_ID0 + i`, so
+// `Reclaim(id)` and `ReclaimArea` take them (engineers and scavengers). A new building site
+// flattens what stands on its footprint. They never block movement or shots. Reclaim work =
+// mass + energy / `reclaim_energy_factor`. Idle AI engineers reclaim nearby rocks/trees when low.
 /// The map's reclaimable trees and rocks. The map lists them; this keeps what reclaiming and
 /// building took of them as the difference to the map (`changed`), which is what a snapshot holds.
 #[derive(Resource, Default)]
@@ -1121,6 +1175,11 @@ impl Features {
             self.changed.insert(idx as u32, left);
         }
     }
+    // **Felling** (`rules.tree_fall`, 0.25): one hit (blast, or shot through it soaking that much) doing that share of a
+    // tree's (not bush's) or rock's `hp` (`rules.json: features`, times map scale) calls `Features::fell`:
+    // `FeatureState.fall` (1 + direction in 255 steps, `sim::fall_yaw`; snapshot field `fallen`) and height drops to
+    // `FALLEN_HEIGHT`; it keeps its value. View: `flora::ruin` / `fallen_pose` (charred log along fall, rocks rubble heap),
+    // `flora::launch` / `fly` (tree flies and topples, rock splinters), only for falls seen happening.
     /// Throws a standing tree down towards `dir` (from where the blast came), or shatters a rock into
     /// rubble thrown that way; it keeps `left` of
     /// its value, at least `FALLEN_KEEP`.
@@ -1353,6 +1412,10 @@ fn ground_circle(map: &MapData, occ: &[u8], pos: V2, radius: f32) -> Vec<(usize,
     out
 }
 
+// **Terrain**: ground hits of `crater_min_damage` or more dig craters; `Order::Terraform {pos, radius, height}`
+// moves circle towards `height` for energy. Vertices under buildings and on map border are locked.
+// Craters are limited so they never block cell or dig below water (`sim::dig_crater`), which keeps
+// pathfinding and AI out of trouble. Terraforming may build walls and pits.
 /// Digs a bowl-shaped hole, never deeper than `max_depth` below the original ground.
 ///
 /// Craters dent the ground but never close it to traffic: a vertex is not lowered further than

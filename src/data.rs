@@ -428,6 +428,10 @@ pub struct Rules {
     pub armor_side: f32,
     #[serde(default = "armor_rear")]
     pub armor_rear: f32,
+    // **Splash** (`rules.splash_direct` 0.4, `rules.splash_armored` 0.5, weapon `splash`): shell with blast radius does all
+    // its damage to unit it hits directly; units it did not hit take `splash` of it at blast centre, fading linearly to
+    // none at edge. `splash` defaults to `splash_direct` for `direct` weapons, 1 for artillery, bombs, missiles.
+    // Armored units (not structures) take `splash_armored` of any splash, death blasts included. `--combattest` "Splash" line.
     /// Splash of direct-fire guns (weapons of kind `direct` without their own `splash`): the share
     /// of the shell's damage a unit it did not hit takes at the centre of the blast (fading to
     /// nothing at the edge). The unit hit directly always takes all of it.
@@ -572,6 +576,9 @@ impl Rules {
     pub fn craters_on(&self) -> bool {
         self.craters && self.crater_scale > 0.0
     }
+    // **Switches** (`rules.json`, form's "Switches" section): `terraforming`, `craters`, `wrecks`,
+    // `sight_blocked_by_terrain`, `sight_blocked_by_reclaimables`, `sight_blocked_by_buildings`, `radar_blocked_by_terrain`, `counter_battery` (all default on),
+    // `near_sight` (6: always seen within it). Lobby lists those switched off (`Rules::switched_off`).
     /// The game features this data switches off (for the lobby).
     pub fn switched_off(&self) -> Vec<&'static str> {
         let mut out = vec![];
@@ -627,6 +634,15 @@ pub struct Move {
     pub turn: f32,
     #[serde(default)]
     pub altitude: f32,
+    // **Armoured carriers** (requested; Tavria and Slavuta are ZAZ cars, `built_by` land): T1 Tavria (`apc`: 220 hp
+    // LightTank, fast 5.8, 4 slots, unarmed), T2 Slavuta (`apc_amph`: 300 hp LightTank, 5.2, 6 slots, amphibious, unarmed),
+    // T2 Zaporozhets (`apc_heavy`, infantry fighting vehicle - БМП: 700 hp, `MediumTank`, slow 3.4, 8 slots, roof machine gun ~11 dps), T3 Hetman (`apc_heavy3`, heavy БМП, its "evolution" as separate T3 unit -
+    // mobile units do not upgrade in place: close to Zaporozhets but little dearer (330 mass / 4000 energy), 750 hp MediumTank,
+    // reactive armor 4 x 0.75 like Bastion, twin machine gun ~15 dps). Zone AI uses them (`Role::Carrier`) to ferry infantry to its attacking army. `move.amphibious: true` (land units only): also floats over water of any
+    // depth, on surface (`map.surface`), at full speed. `map.blocked` marks such
+    // cells `map::OCC_DEEP` (other land units treat them as blocked; `passable_for`, `find_path(.., amph, ..)`);
+    // `--combattest` carrier and "River" lines
+    // (alone: `LR_TEST=apc`).
     /// Land units only: also floats over water of any depth (on its surface, at full speed).
     #[serde(default)]
     pub amphibious: bool,
@@ -872,6 +888,15 @@ pub struct SpinDef {
     pub speed: f32,
 }
 
+// **Model scale**: mod's own models (UEX/ULX/UXA/UBX: tanks, trooper/commander,
+// buggy, radar car, delivery boy, windmill, solar, heavy battery, HMG/gauss turrets) use 2.5x blueprint's
+// `UniformScale`, sizes and footprints to match; buggy enlarged further x1.75 on request. Our own models
+// (`art/`) are made in world units at `scale` 1, at sizes replaced stock models had been enlarged to
+// (engineers about length of their tier's tanks). Civilian map buildings doubled
+// on request (Mining Town 5x; box models, sizes and footprints too: house takes 2x2
+// cells). Towns are dense: one free cell (street ~1.5 tanks wide) between footprints, never touching
+// (footprints block movement) - editor's `add_settlements` packs lots nearest town centre, `osm_map.py`
+// places with `margin=1`.
 /// Either a glTF mesh (with optional textures) or a list of coloured boxes.
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct ModelDef {
@@ -914,6 +939,11 @@ impl ModelDef {
     }
 }
 
+// **Icons**: `icon: {shape, glyphs, no_tier}` plus one vertical tick per tier under body (SupCom style);
+// loader rejects two units with same icon (playable factions only; map buildings share icons by kind). Shapes: land (diamond), bot, air (triangle), structure
+// (square), factory (wide block), commander, civilian. Glyphs: plus = direct fire, dot = artillery,
+// arc = anti-air, chevron = missile (anti-air, drones), line = anti-tank missile, ring = scout, wave = radar, eng (wrench; beside second glyph it sits on left), mass (funnel), bolt, store (tray under a
+// stored resource), cargo (transports), frame, bar, land / tri (outlines of what factory builds).
 /// Strategic icon: a base shape plus overlaid glyphs; the tier adds pips underneath.
 /// Every unit must have a unique combination (checked at load).
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
@@ -932,6 +962,19 @@ pub struct UnitDef {
     pub name: String,
     #[serde(default)]
     pub desc: String,
+    // **Tiers**: `tier` on unit, `build.tier` on builder. Factories and pumps upgrade in place (`upgrade`).
+    // Assignment follows mod's blueprint TechLevel where it differs from Basic (engineers, factories, pumps,
+    // gunship, solar); mod's all-T1 custom land roster was spread out: T1 Buggy/Trooper/Pike/MBFAG/
+    // radar car, T2 Overtaker/Dragoon/Robin, T3 Bohdana (Overtaker moved from T1 on request; Crony moved to T1 on request). Change `tier` in JSON to move unit.
+    // Our own additions (not in mod; reuse trooper model): T2 AT Trooper (guided missile) and
+    // SAM Trooper (homing AA missile). Also ours: Radar Tower Mk2/Mk3 (lattice masts), UC-02R/03R mobile radars
+    // (radar car mesh with raised dish / radome), T3 Swift airdrop transport plane (winged cargo plane with turboprops, real `plane`: 2x Stork speed, 8 slots like Stork; moved from T2 on request; see **Airdrops**). T3 Cyclone interceptor (stealth fighter model, stealth 2, own
+    // T3 radar 80 so it finds stealthed aircraft) and T3 Phalanx Railgun Battery (own model, own T3 radar 120). (A T1 Flak Trooper existed and was removed on request.)
+    // Mobile anti-air beyond T1 MBFAG (requested; no T3 SAM trooper, only T2 one): T2 Hailstorm
+    // (`flak_carrier`, Dragoon mesh + twin flak guns, airburst flak, air only) and T3 Skylance (`mobile_sam`, Robin mesh + missile box, own level-2
+    // radar, heavy homing missile, air only). `--combattest` air: 2 Hornets beat MBFAG and narrowly Hailstorm, Skylance downs both.
+    // T1 Porter interceptor weakened on request (damage 25 -> 22, turn 85 -> 80) so T2 Harrier fighter-bombers
+    // beat as many Porters (`--combattest` air: 1v1 to 4v4, all won), while 3 Porters (same mass) still beat 2 Harriers.
     #[serde(default)]
     pub tier: u8,
     pub hp: f32,
@@ -1084,6 +1127,16 @@ impl UnitDef {
     pub fn hit_box(&self) -> [f32; 3] {
         self.hit_box.unwrap_or(self.size)
     }
+    // **Radar levels and stealth**: unit has up to three radar ranges, `radar` (level 1), `radar2`, `radar3`, and a
+    // `stealth` level 0-3 (`radar_stealth: true` is old form of 3). Radar of level L finds stealth below L, so a
+    // unit of stealth s shows within `UnitDef::radar_vs(s)` = largest range of levels above s; stealth 3
+    // (infantry) never shows. T2 aircraft (Harrier, Hornet, Stork) and T3 Swift are stealth 1, Delivery Boy 2. Radar
+    // towers T1 160 / T2 250+160 / T3 360+250+150 (upgrade in place, U), mobile radars UC-01R/02R/03R; build cost
+    // rises ~4x and upkeep ~3x per tier. Faust SAM's own radar is level 2. Rings drawn per level
+    // (blue, violet, orange); fog shows furthest reach. `--combattest` prints radar-vs-stealth matrix. Vision needs it too and is also blocked by standing trees, rocks and wrecks and by finished buildings
+    // (`sim::sight_block` -> `map::SightBlock`: per-cell blocker height plus building standing there; `map.sight_line`;
+    // end cells never block, nor building viewer looks out of or at, so garrisons see from roof). Within 6
+    // units everything is seen. Fog view (`intel.rs`) uses same blockers.
     /// How far its radar finds a unit of this stealth level (0 = none): the largest range among
     /// the radar levels above it.
     pub fn radar_vs(&self, stealth: u8) -> f32 {

@@ -102,6 +102,19 @@ fn mark<const I: usize>(p: Option<ResMut<SimProfile>>) {
     p.last = now;
 }
 
+// **Reclaim**: `Order::Reclaim(id)` takes wreck id or id of standing building (ids never collide);
+// building gives `wreck_mass_fraction` of its cost in step with hit points and leaves no wreck.
+// `ReclaimArea` collects wrecks, debris, trees, rocks, not buildings. Scavengers reclaim
+// every reclaimable and revive whole wrecks (`Revive(wreck)` / `ReviveArea`; debris cannot come back). A revived wreck
+// becomes construction site with `Revival(wreck id)` component (snapshot `revival`, `Cen::reviving`): only
+// scavengers build it (`apply_commands`, `think`'s Assist, stations and `build_progress` keep engineers off it).
+// Scavengers take `Assist`: on revival site, or on scavenger/engineer to revive or reclaim what it works on
+// (any assister reclaims tree/rock/wreck assisted unit reclaims). On `ReclaimArea` / `ReviveArea` target
+// side already works on (or own unfinished revival in circle) counts `systems::TEAMWORK` (12) nearer,
+// so group works together; `Revive` whose wreck teammate already revived helps build that site. A revived unit keeps `Revival` when finished; its wreck, or that of revival site killed unfinished,
+// cannot be revived for `rules.revive_cooldown` (60 s, `Wreck.revive_at`, `sim::revivable`), so scavengers do not bring same
+// unit back over and over where it keeps dying (`ReclaimArea` still takes it). While a
+// reclaim or revive order is being given, HUD shows what circle (or thing under pointer) yields or costs.
 /// How much farther (world units) a worker on an area reclaim or revive order goes to help a
 /// teammate with its target than to the nearest one of its own.
 const TEAMWORK: f32 = 12.0;
@@ -149,6 +162,12 @@ fn begin_tick(
     }
 }
 
+// **Rubble blocks paths** (lobby option, `Game.rubble_blocks`; ticked by default from `rules.rubble_blocks_paths`,
+// on in built-in data, off in Relaxed; lobby resets it when data preset changes): `begin_tick` marks the
+// free cells under unit wrecks (cells their `Wreck::shape` radius covers, at least their own), building ruins
+// (footprint) and debris pieces of at least `debris.sight_size` as `map::OCC_RUBBLE` in `Nav.occ` (`rubble_cells`,
+// `Nav.rubble` remembers them; derived, not state), so land units path round them (infantry too) until reclaimed or
+// shoved away. `can_place` treats them as free: buildings may go on rubble. `--combattest` "Rubble blocks paths" line.
 /// The cells rubble lies on (sorted, each once): the footprint of a building's ruin, the cells a
 /// unit's wreck covers (at least its own), the cell of a piece of debris big enough to block sight.
 fn rubble_cells(defs: &Defs, map: &MapData, wrecks: &Query<&Wreck>) -> Vec<u32> {
@@ -589,6 +608,24 @@ fn ferry_state(d: &crate::data::UnitDef, orders: &[Order]) -> (Option<V2>, Optio
     }
 }
 
+// **Counter-battery radar** (`rules.counter_battery`): in `visibility`, artillery shell in flight (`PROJ_SHELL` whose
+// shooter has `arc`/`high_arc` land weapon) within hostile team's level-1 radar range (no line of sight: shells fly
+// high) sets shooter's `radar` bit for that team that tick, so it shows as radar contact while its shells fly and
+// long guns (and AI) can answer. No new state: worked out from projectiles each tick. `--combattest` infantry
+// "Counter-battery" line. Answer to mortar spam: Pikes out-range tanks (realistic: 120 mm mortar reaches
+// 7 km), but every volley gives them away.
+// **Spotting delay** (unit JSON `spot_time` / `spot_time_moving`, seconds; 0 = seen at once, default: tanks,
+// buildings; three troopers: 5 / 0.5): unit with either is only `seen` by team once that team has had it in
+// view (range + line of sight) that long. `Intel.spot[team]` (snapshotted) counts up to `sim::SPOTTED`
+// in `visibility`: at moving rate while it moves or weapon is reloading (`Cen::firing`), at hiding rate
+// while still; out of view it drains over `rules.spot_forget` (3 s). Within `rules.near_sight` seen at
+// once. Once spotted it stays seen while in view. `--combattest` "Spotting" line (with `LR_TEST=binoculars`).
+// **Visibility cost** (`systems::visibility`, costliest tick system on town maps): viewers found through grid
+// (`VIEW_CELL`/`VIEW_NEAR`, longer-reaching ones checked by every unit); radar rays between two ends that both stand still
+// are kept in `RadarLosCache` (exact ends + `Ground.hash` must match, two generations swapped every 300 ticks; not state:
+// hit is what `map.los` would say); `map.los_top` skips ray samples above `Ground.top` (highest vertex per 8x8-cell
+// block, only ever raised by `Ground::set`); who sees neutral building is redone every `NEUTRAL_EVERY` (5) ticks,
+// staggered by id. `Census` index/grid use bevy's (foldhash) `HashMap`: lookups only, never iterated.
 /// Who sees whom. Both sight and radar need a clear line over the terrain; radar looks from higher
 /// up and reaches further, sight tells what the contact is.
 #[allow(clippy::too_many_arguments)]
@@ -863,6 +900,14 @@ impl RadarLosCache {
     pub const KEEP: u32 = 300;
 }
 
+// **Binoculars** (`binoculars: {range, angle, turn, scan}` in unit JSON; Trooper and Sniper Trooper: 140, 20 deg):
+// narrow view cone on top of round `vision`, same line-of-sight rules. `systems::aim_binoculars` (inside
+// `visibility`) keeps direction and target in `Intel.look` / `Intel.lock` (snapshotted): follows the
+// locked enemy while in range and known to team, else takes best known mobile enemy in range
+// (radar-only contacts first, ground before air, nearest), else scans to and fro +-`scan` around body
+// facing at half turn rate (all round from garrison roof). Fog view: `FogGrid.cone` (`covered_cone`);
+// HUD draws cone of selected units (brighter while locked). `--combattest` checks scan, lock, tracking
+// (alone: `LR_TEST=binoculars`).
 /// Where a unit's binoculars look this tick, and what they follow. They keep following their
 /// enemy while it stays in range and known to the team; else they take the best known enemy in
 /// range (radar contacts nobody has identified first, ground before air, then the nearest);
@@ -1835,6 +1880,16 @@ const AIRDROP_MARGIN: f32 = 4.0;
 /// A transport plane picks units up within this much more than a hovering transport does.
 const PLANE_SCOOP: f32 = 5.0;
 
+// **Airdrops** (Swift, `MoveKind::Plane` with `transport` block; `systems.rs`, `Order::Unload`): transport plane cannot stop, so
+// never lands. *Unloading*: it flies at circle (click is circle of 3), and once within `AIRDROP_MARGIN` of it flies straight on
+// through, letting each rider go when it passes over his spot (`drop_spot(id, c, r)`: golden-ratio angle and radius from id alone, so
+// spread does not depend on who is already out); riders left when it flies out of circle are dropped on next pass. A released rider gets
+// `Mover.drop` (`DROP_SECS` 2.5, snapshotted with Mover): `locomotion` glides it from plane to its spot, `drop_h` above ground at
+// first (`h (1 - t^2)`), and `think` / `weapons` leave it alone until it lands - for gameplay fall is mostly visual, but he is helpless for
+// 2.5 s. *Loading*: it scoops up what it flies within `PLANE_SCOOP` (5) more than hovering transport would (`Load`, `LoadArea`, ferry beacons: it
+// circles round beacon). `Unload.occupy` (set by HUD for dragged circle, also for APCs and Stork): infantry set down get
+// `Order::Load(building)` for nearest free garrisonable building in circle (capacity and `may_board` counted), rest stay spread out.
+// `--combattest` "Swift airdrop" line (scoops 8 troopers, drops them over circle with house in it, never slows down, they land 2-4 s later).
 /// Where rider `id` of an airdrop over the circle (`c`, `r`) lands: a spread that depends on the id
 /// alone (golden-ratio angle and radius), so every tick agrees however many are already out.
 fn drop_spot(id: u32, c: V2, r: f32) -> V2 {
@@ -1882,6 +1937,12 @@ fn trench_holders(census: &Census, defs: &Defs, piece: &Cen, team: u8) -> Vec<u3
     ids
 }
 
+// **Trenches are stormed same way**: attack order by such infantry on enemy infantry standing in trench piece, or on
+// piece they hold, becomes `Load(piece)` (`systems::trench_to_storm`); `think` runs them to its edge and queues them in
+// `Effects.assault`, `assaults` takes piece's holders (`trench_holders`) as defenders (trench cover does not
+// soften close-quarters damage), holders do not fire out while stormed, and once clear one attacker steps in.
+// Before this trench could only be shot out: 6 riflemen on attack-move lost to 4 in trench. `--combattest` fieldworks
+// "Trench fight": 6 storming riflemen take trench 4 hold, even fight goes to defenders.
 /// The trench piece a unit of type `df` (on `team`) told to attack `t` storms instead: `t` itself if
 /// it is a piece enemy infantry hold, or the piece the enemy infantry `t` stands in. Only infantry
 /// with an `assault` value storm.
@@ -1969,6 +2030,17 @@ fn firing_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &Wreck
     })
 }
 
+// **Infantry** (`"categories": ["infantry"]`, `UnitDef::is_infantry`: Trooper, AT/SAM Trooper): idle or
+// engaged on attack-move/patrol, `think` sends them to `cover_spot`: behind nearest tree/rock/wreck (at
+// least 0.7 tall) on far side from closest known armed enemy within `cover_threat_range`, within
+// `cover_search` of `Mover.anchor` (0.6x of it around themselves when fighting). Re-chosen every 5 ticks,
+// kept in `Mover.cover`; new order or Stop clears it (Stop also moves anchor to where they stand).
+// Field works are cover for every side (finished ones belong to `NEUTRAL`, `build_progress`): anybody's sandbags soak shots from anybody (`soak_works`, except within
+// `cover_grace` of shooter), infantry hide behind any sandbags; any trench shelters whoever stands in it.
+// Hovering transport or garrison in sight shows slots taken (`hud_map.slots_taken`).
+// Right-clicking trench piece no enemy infantry hold (`hud::Frame::trench_spots`) spreads selected infantry
+// over whole joined trench, one per piece (`hud::spread`: evenly when fewer men than pieces, pieces our other
+// men hold left to them); rest of selection moves to click.
 fn cover_spot(defs: &Defs, census: &Census, features: &Features, wrecks: &WreckList, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, anchor: V2, search: f32) -> Option<V2> {
     let rules = &defs.rules;
     let mut threat: Option<(f32, V2)> = None;
@@ -2080,6 +2152,15 @@ fn trench_of(census: &Census, defs: &Defs, c: &Cen) -> Option<(u32, f32, V2)> {
     best
 }
 
+// **Storming**: `Order::Load` on building enemy infantry hold (right-click with infantry selected; `hud::Frame::stormers`)
+// sends infantry with `assault` > 0 (unit JSON: close-quarters dps; Trooper 10, AT 3, SAM 2.5) to its door (`Order::Attack` on such building
+// becomes that `Load` for them in `apply_commands`, `systems::storms`; other units still shoot it), where `think`
+// queues them in `Effects.assault` and `systems::assaults` trades damage: attackers' summed assault -> lowest-id
+// defender, defenders' summed assault x `rules.garrison_defense` (1.25) -> lowest-id attacker. Defenders of stormed
+// building (`Effects.stormed`) do not fire out. When nobody is left inside, `may_board` lets them in (map building
+// whose riders all died counts as empty before `garrisons` makes it neutral); emptied `HOSTILE` building keeps
+// owner and cannot be entered (with infantry capture on, armed one is captured instead). Riders die inside at hp <= 0 (no wreck);
+// death blasts skip hosted units. `--combattest` "Storm" lines (1 trooper beats 1 AT inside, even trooper fight goes to defender).
 /// The fight for an occupied building or trench piece: infantry at its door or edge (queued by
 /// `think` in `Effects.assault`) and the enemy infantry inside trade close-quarters damage (a
 /// trench's cover does not soften it), `assault` per second each (the
@@ -2117,6 +2198,21 @@ fn assaults(census: Res<Census>, defs: Res<Defs>, mut effects: ResMut<Effects>) 
     }
 }
 
+// **Garrisons**: structure with `transport` block (`UnitDef::is_garrison`; most civilian houses, civic and
+// industrial buildings, bunker) takes infantry only (`Order::Load(building)`, right-click neutral or own
+// building). Riders keep `Hosted`, can't be targeted, fire from roof (`weapons` takes hosted riders of a
+// garrison, origin at building top) and see from it (`visibility`, `intel.rs`), vision and binocular
+// range x `rules.garrison_vision` (1.3). Every hit on building also costs each rider
+// `rules.garrison_damage` (0.04) x raw damage, their armor applied (`deaths`). `systems::garrisons`
+// gives garrison to owner of its lowest-id rider and back to `NEUTRAL` when empty - map buildings, field
+// bunkers and watch towers alike (requested: act like map's buildings, entered when empty, stormed when
+// held); `HOSTILE` ones keep owner, and with infantry capture on so do armed ones (map's bunker).
+// `Unload` from building sets them down at its side and walks them to spot. Move-type orders (move,
+// attack-move, patrol) given to riders take them out of side facing goal first
+// (`apply_commands`, `garrison_door`); HUD sends selected own building's move orders to its riders
+// (`hud::Frame::garrison_riders`), so right-clicking ground with occupied house selected empties it there. When building dies,
+// `deaths` throws riders out with `rules.garrison_eject_damage` x max hp damage (none if reclaimed);
+// riders of mobile transport still die with it.
 /// Occupied buildings (the map's and field bunkers / watch towers alike) belong to the side inside
 /// (they can be shot at and the side sees from them); once empty they are neutral again. The
 /// hostile side's keep their owner, and so, with infantry capture on, do armed ones (bunkers).
@@ -2288,6 +2384,10 @@ fn factories(
     }
 }
 
+// **Energy stall**: upkeep and construction share energy proportionally (`build_progress`, `Player.power`);
+// pumps produce at that fraction, radars cut out below 0.5. `Paused` (Tab / `Command::Pause`) switches a
+// unit's build work, production, upkeep and radar off. An earlier version subtracted upkeep first, which
+// dead-locked base whose upkeep exceeded income.
 /// Flow economy: every builder requests resources for its job; if a player cannot pay,
 /// all of that player's jobs slow down together.
 #[allow(clippy::type_complexity)]
@@ -2440,6 +2540,11 @@ fn build_progress(
     }
 }
 
+// **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
+// turn time + travel time for both (`systems.rs::locomotion`).
+// Orders given with Ctrl held (`hud`: any non-build order, not Ctrl+key shortcut) are followed by `Command::Pace`:
+// land and hover units in it get `Mover.pace` / `pace_accel` = slowest one's speed and acceleration, cleared by a
+// new order, Stop or running out of orders. `--combattest` (`LR_TEST=apc`) "Pace" line.
 #[allow(clippy::type_complexity)]
 fn locomotion(
     mut q: Query<(&Unit, &mut Body, &mut Mover, &mut Orders), (Without<UnderConstruction>, Without<Hosted>)>,
@@ -2728,6 +2833,14 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
     }
 }
 
+// **Ferry** (SupCom, `Order::Ferry { pos, pick }`, HUD key F): mobile transport's route is loop of `Ferry` orders
+// rotated like patrol: `pick` one is beacon (where transports stood when ordered), one before it on
+// loop drop point (set down there with inserted `Unload`), any between are waypoints (Shift adds points
+// after drop point, `apply_commands` inserts them before beacon). Other units given `Ferry` (right-click a
+// beacon, or F + click) wait at beacon (`Cen::ferry_wait`); transports there load them nearest first and leave
+// when full or when nobody who fits is waiting within `FERRY_PICK` or still coming within `FERRY_COMING`. A waiting
+// unit gives up when no own transport has that beacon (`Cen::beacon`; `apply_commands` refreshes both fields after
+// new orders). `--combattest` "Ferry" line: 6 tanks across in 3 trips, then on to their queued goal.
 /// Units riding in a transport (or waiting inside a factory) travel with it. They keep the rest of
 /// their orders for when they are set down; only an order to board the transport they are in is done.
 fn carry(census: Res<Census>, mut riders: Query<(&Hosted, &mut Body, &mut Orders)>, hosts: Query<&Body, Without<Hosted>>) {
@@ -2807,6 +2920,16 @@ fn solve(w: &WeaponDef, origin: Vec3, target: Vec3, tvel: V2, g: f32) -> Solutio
     best
 }
 
+// **Line of fire** (direct fire, `systems::Lane`): gun follows shell's real arc (with spread allowance)
+// and fires only if it reaches target before ground, water, building other than target, own
+// (with friendly fire) or neutral unit, or reclaimable with at least `COVER_BLOCK` (0.25) cover (trees, rocks,
+// wrecks, debris; bushes do not count; nothing within `cover_grace` of shooter). A hull-down target is aimed at
+// higher (`WeaponState.lift`, up to 0.6 of its height); with no clear shot (`WeaponState.blocked`) gun takes
+// another enemy in clear (not ordered one), and ground unit whose guns are all blocked - idle, attack-move or
+// Attack - steps aside to nearest spot with clear line (`firing_spot`: rings up to 26 round
+// it, kept in `Mover.cover` until reached); on Attack with no such spot it closes in, but not nearer than half its
+// range (requested: try to shoot round boulder, move little, not drive up to target). `fire` adds half tick of gravity so shells fly the
+// arc they were laid for. `--combattest` "Line of fire" lines.
 /// Who fires a direct-fire shot, for working out what it would run into on the way.
 struct Lane<'a> {
     census: &'a Census,
@@ -3310,6 +3433,11 @@ fn weapons(
     }
 }
 
+// **Armor angle** (`rules.armor_front/side/rear`, 0.6 / 1.0 / 1.5): projectile hitting armored unit (category
+// `armored`, not structures) is scaled by where it comes from against hull's facing, blended linearly by angle,
+// and by how flat it flies (`systems::armor_angle`: squared cosine of descent angle, so steep mortar rounds
+// count angle little, one falling straight down not at all). Applied to `p.damage` at hit, before blast.
+// `--combattest` infantry "Armor angle": Crony on Overtaker does 481 head on, 801 side, 1199 from behind.
 /// The share of a hit an armored unit takes for the way it comes in (`rules.armor_front/side/rear`):
 /// head on, from the side or from behind, blended linearly by the angle between the shot and the
 /// hull's facing. The steeper the shot falls the less that counts (it lands on top): a mortar
@@ -3347,6 +3475,14 @@ struct Drop {
     tol: f32,
 }
 
+// **Bombers** (SupCom style, `systems.rs::bomb_drop`): bomb weapon's reach is at least forward
+// throw (speed x fall time) + 12, whatever its JSON `range`. stick is released so its middle
+// bomb lands on target (moving targets led) and every bomb gets same small sideways push
+// (`WeaponState.fix`) onto it; without attack order bomber drops on target it is best lined up
+// with. Locomotion keeps bomber flying on until it has run-in as long as its throw, then it comes
+// round. A bomber must detect targets beyond its throw, hence radar on bombers. Planes on
+// attack-move go for ground targets first when they carry bombs (fighter-bomber), else aircraft first.
+// Missiles lead their target; `launch_pitch` (deg) makes SAM launch near-vertically.
 fn bomb_drop(w: &WeaponDef, body: &Body, cruise: f32, tp: Vec3, tv: V2, g: f32) -> Drop {
     let vel = if body.vel.len() > 0.5 { body.vel } else { V2::from_angle(body.yaw) * cruise };
     let speed = vel.len().max(0.1);
@@ -3361,6 +3497,11 @@ fn bomb_drop(w: &WeaponDef, body: &Body, cruise: f32, tp: Vec3, tv: V2, g: f32) 
     Drop { miss, along: miss.dot(dir), cross: miss.dot(dir.perp()), fall, half, speed, tol: 3.5 + w.radius * 0.5 }
 }
 
+// **Suicide drones** (weapon `suicide: true`, with `ammo: 1`; T2 Dove): when weapon fires, unit itself is
+// launched at target as homing missile (straight dive from where it flies, `solve`/`fire`) and removed
+// quietly (`Effects.reclaimed`: no wreck, no death blast). Dove: 70 mass, 40 hp, speed 5.5, altitude 6, 180
+// Explosive / radius 4 warhead, range 14; AI treats it as bomber. `--combattest` air "Doves" lines: 4 kill an
+// Overtaker unopposed; with radar tower MBFAG downs 4 of 6, T1 AA turret all 6.
 #[allow(clippy::too_many_arguments)]
 fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &mut WeaponState, g: f32, wx_spread: f32) {
     st.fired = st.fired.saturating_add(1);
@@ -3420,6 +3561,16 @@ fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog,
     spawn_projectile(commands, shot);
 }
 
+// **Ballistics**: every shot is projectile entity with 3D position/velocity under gravity
+// (`rules.json: gravity`). Weapon kinds: `direct` (needs clear line of fire, leads target), `arc`,
+// `high_arc` (indirect, raise charge to reach), `missile` (homing, limited turn rate), `bomb`.
+// Hits resolve against terrain and unit hit boxes, so shots miss, fall short or hit hills. Hit box
+// (`hit_box: [w, h, l]` in unit JSON, default `size`) turns with unit and stands on its base (reaching
+// `sim::HIT_BELOW` under it for slopes); numbers are model's bounds without gun barrels
+// (`python3 tools/model_bounds.py` prints them next to JSON; troopers, commander, watch tower and Stork set by
+// hand; aircraft at least 0.6 in every direction, on request, so guns still hit them). Shells: `Cen::hit_seg`; blasts and missile fuzes: `Cen::hit_dist`; line-of-fire obstacles use circle
+// `Cen::hit_r` around box.
+// Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 /// Moves projectiles under gravity and resolves hits against terrain and unit volumes.
 #[allow(clippy::too_many_arguments)]
 fn projectiles(
@@ -3593,6 +3744,11 @@ fn projectiles(
     push_wrecks(&pushes, &mut wq, &defs);
 }
 
+// **Cover** (`systems::soak_cover`, called in `projectiles` for every flight segment): each tree, rock or wreck
+// shot passes through (closest approach to its axis inside this tick's segment, so each counts once) takes
+// its share of damage: `features[].cover` (default by shape: pine 0.3, broadleaf 0.35, bush 0.15, rock
+// 0.65) or `rules.wreck_cover`; shot flies on with rest. Cover within `rules.cover_grace` of shooter
+// (`Projectile.from`) does not count, so units fire out from behind their own. Cover is never used up.
 /// A shot flying from `a` to `b` this tick passes trees, rocks and wrecks: each one whose axis it
 /// passes closest to within this stretch (so every one counts once over the flight) and that it
 /// goes through soaks up its `cover` share of the shot's damage, which the shot loses. Cover is
@@ -3734,6 +3890,17 @@ fn fall_dir(dir: V2, idx: usize) -> V2 {
     v2(fm::cos(a), fm::sin(a))
 }
 
+// **Reclaimables** (user's word for trees, rocks and wrecks together): **weapons never destroy them** (requested;
+// only reclaiming, building site on tree/rock and wreck caps remove them). Shells do not stop at them, but a
+// shell flying through one loses its `cover` share of damage to it (cover, below); shell landing on one or a
+// blast (radius, death blasts; `systems::hurt_reclaimables`) fells trees and shatters rocks (below) and shoves wrecks
+// and debris (`push_wrecks`: impulse = damage away from blast, or along shot for cover passes; speed +=
+// `rules.rubble_push` (0.25) x impulse / sqrt(mass still in it); piece shoved at least `RUBBLE_THROW` (2.5) fast is
+// thrown (falling again, up to 10), others slide (whole unit wrecks up to 2); building wrecks never move).
+// `rubble_motion` (was `debris_fall`) moves them: falling pieces as before (keeping 0.3 of ground speed on
+// landing), sliding ones with friction 0.8 g and slope's pull, stopped by building's footprint. `Wreck.vel` and
+// `falling` are snapshotted. View: wrecks follow slide (`wreck_visuals`), debris rolls (`debris_visuals`).
+// Unfinished buildings are ordinary targets (5% hp at placement, hp grows with progress).
 /// Weapon damage to the reclaimables around an impact at `at`: a shell (`radius` 0) acts on what
 /// it lands on, a blast on everything within its radius, with the same fall-off as for units.
 /// Reclaimables are never destroyed by weapons (only reclaimed): a hit of `rules.tree_fall` of a
@@ -3954,6 +4121,18 @@ fn guarded(census: &Census, defs: &Defs, t: &Cen) -> bool {
     any
 }
 
+// **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, on by default (requested; headless tests: Game default off, `--selftest` on); Cossacks
+// style): infantry may take `Order::Capture` (right-click enemy or neutral building, or Capture button) on any
+// building `sim::seizable` (every turret; not factories or field works; of garrisons only bunkers and other
+// military ones - armed, or built by side - and only once empty, `systems::can_seize`: held ones are stormed). At building it queues
+// `Effects.seize`; `apply_capture` adds `DT / rules.infantry_capture_secs` (20) per man, free of energy, but nothing
+// while armed finished mobile unit of building's side is within `rules.infantry_capture_guard` (15,
+// `systems::guarded`). With infantry and other units selected, infantry capture and rest attack. Zone AI
+// sends up to 4 infantry (6 at turret) within 40 at known unguarded enemy building nobody holds (report: `captures`). **No order needed**: idle infantry, and infantry
+// on Move, AttackMove or Patrol (not engaged), take nearest unguarded `seizable` building within
+// `rules.infantry_capture_reach` (12; `systems::seize_target`, in `think`) - walk up and capture, then go on
+// with order. Houses, factories and field works (trenches) are never taken this way (own behaviour: entered, stormed, cover). `--combattest` infantry "Infantry capture" lines (ordered, idle, moving,
+// attack-moving, garrison/factory refused).
 /// Capture work queued by engineers (and infantry, `Effects.seize`) this tick. A unit nobody
 /// works on slowly shakes it off.
 #[allow(clippy::type_complexity)]
@@ -4370,6 +4549,11 @@ fn apply_ground(
     nav.dirty = true;
 }
 
+// **Control points** (`Game.mode == MODE_POINTS`): positions come from map (`MapData.points`, map.json
+// `points`, placed with editor's "Control point" tool like starts; `MapData::generate` and premade maps have them);
+// map without any gets `MapData::auto_points` (`MapData::control_points` picks). `Game.points` / `Game.scores` (points
+// left per team, start `Game.cp_start`: typed in lobby, else `rules.cp_start_points`, default 8000). A team holding fewer points than its strongest opponent loses
+// `cp_bleed` per second per point of difference, equal holdings change nothing, team at 0 is defeated. Rules `cp_*`.
 /// Control points mode: a team alone at a point takes it over. A team that holds fewer points
 /// than its strongest opponent loses score for every point of difference (nothing moves while
 /// they hold equally many); a team that runs out is defeated.

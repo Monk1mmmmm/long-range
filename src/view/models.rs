@@ -34,6 +34,16 @@ pub struct Model {
     pub anims: Vec<Arc<Anim>>,
 }
 
+// `models::AnimKind` (one per name, in precedence order) says what plays each, `view::drive_anims` drives unit's
+// `Animator` from sim state, `AnimPart::pose` picks first playing animation per part, `animate_parts` layers
+// turret aim on top: `walk` (trooper; cycles with ground speed at mod's rate at full speed, slower where feet would
+// slide - commander - backwards when reversing), `upgrade` (factories, pumps: follows `Upgrading` progress),
+// `work` (pumps: loops at owner's `power`, frozen when paused), `open` (engineers: folded = first frame when idle,
+// unfold while `Builder.work`), `doors` (eng station: open to middle while working, then on to end), `unpack`
+// (Bohdana: target and standing), `land` (Stork: gear out when hovering still, folded when flying - it never lands),
+// `water` (ground under unit below water level; no current model has one), `rolloff` (air factory platform: out, hold,
+// back when `Factory.building` changes; SupCom only does it for land units). `models::tests` loads every GLB.
+// Wrecks (`spawn_model` with wreck material) get no animated, aimed or spinning parts: rest pose, still.
 /// What plays an animation (`view::drive_anims`), from its glTF name (tools/convert_assets.py `ANIMS`).
 /// In order of precedence: a part that several playing animations move follows the first.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -138,6 +148,7 @@ impl Anim {
     }
 }
 
+// **Glass and metal reflections** (ultra building detail, requested close up only): `models::gloss_map` (from stored albedo: blue-tinted texels not on roofs = glass, vehicle's grey = steel) gives glossy material with metallic-roughness map and lightened panes; `gloss_sync` swaps every model between it and plain one when `cam_dist` crosses `GLOSS_NEAR`/`GLOSS_FAR` (38/46; `ModelCache::pair`, `set_close`). Flat "metal" parts likewise.
 /// Roughness (green) and metalness (blue) per texel of an albedo map as stored (ultra building detail):
 /// window glass (blue-tinted texels: the art kit's blue-grey panes and canopies, the mod's pale panes)
 /// is smooth and mirror-like, a vehicle's bare grey steel is semi-polished metal, everything else keeps
@@ -210,6 +221,12 @@ pub struct ModelCache {
     pub ghost_queued: Handle<StandardMaterial>,
 }
 
+// Models made in Blender go through `tools/blend.py` (`blend_export.py` runs inside Blender): objects are parts,
+// actions named like `AnimKind`s are animations, materials named team/light/dark/metal take that flat colour
+// (`models::prim_mat`; other materials keep their colour when unit has no albedo texture), object with several
+// materials becomes one part per primitive. `ModelDef.brightness` multiplies albedo (2.1 default for mod's dark
+// textures, 1 for ours). mod ships no commander or radar tower model: commander is trooper mesh at 3x scale
+// (with radio pack and pauldrons). No unit uses JSON box models any more (format remains).
 /// How a glTF primitive is drawn. Materials named "team", "light", "dark" or "metal" take that flat colour
 /// (as box models do); with an albedo texture (`textured`) everything else uses the unit's baked texture;
 /// without one a material's base colour is used, except the converter's placeholder material "unit".

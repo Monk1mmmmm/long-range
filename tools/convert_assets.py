@@ -38,6 +38,11 @@ UNITS = {
 }
 # blueprint Display key -> (animation name, key of its rate, default rate, loops). How SupCom plays them and
 # what the game does with each name: view::drive_anims.
+# `tools/convert_assets.py` reads mod's `.scm` models (`tools/scm.py`) and `.bp` blueprints (`tools/bp.py`)
+# and writes `assets/models/<name>.glb` (one node per bone, so turret/barrel bones named in weapon's
+# `turret` block can be rotated), `<name>_albedo.png`, `<name>_team.png` (team mask from SpecTeam alpha),
+# `<name>_normal.png`, and `assets/icons/units/<name>.png` portraits. Blueprint's `.sca` animations (`tools/sca.py`,
+# table `ANIMS`) become named glTF animations, times divided by blueprint's rate; only bones that move get tracks.
 ANIMS = {
     "AnimationWalk": ("walk", "AnimationWalkRate", 1.0, True),      # cycle while moving
     "AnimationUpgrade": ("upgrade", None, 1.0, False),              # follows the upgrade's progress
