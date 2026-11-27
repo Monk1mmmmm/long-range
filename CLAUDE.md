@@ -53,6 +53,7 @@ scripts/exe_updates.sh vX              # in-game updater files in dist/: whole e
 python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/models/NAME.glb + textures (needs Blender; tools/README.md)
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
 .venv/bin/python art/build.py [NAME ...] [--blend]   # our own models (factories, engineers, aircraft, carriers, city buildings, variants) -> assets/models (needs bpy: .venv/bin/pip install bpy)
+.venv/bin/python art/menu_background.py [--size WxH]   # main-menu backdrop (steppe, tanks on a ridge) -> assets/ui/menu_bg.png (Cycles, ~1.5 min)
 .venv/bin/python art/render.py out.png NAME ...     # contact sheet of exported models rendered by Blender (--anim open:1, --yaw 35)
 python3 tools/dump_mod.py "<mod folder>"                  # print blueprint stats (source of the JSON numbers)
 python3 tools/relaxed_preset.py                           # remake the Relaxed preset from the built-in data (after data changes)
@@ -74,7 +75,7 @@ what every player owns), `LR_MOAT=1` (water around the second start: tests trans
 (report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
 distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist[,shore|x:z]`
-(screenshot of a running game after `secs` of game time, then quit; `shore` looks at a steep shore near the map centre, `x:z` at that point). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
+(screenshot of a running game after `secs` of game time, then quit; `file.png,secs,menu`: the menu screen after `secs`; `shore` looks at a steep shore near the map centre, `x:z` at that point). `LR_PROFILE=1` (`--selftest` prints the time of every tick system: per report interval, then over the whole game; in a
 windowed game a `profile:` line goes to the log every 30 s: fps, frame / main / render CPU / GPU ms, the costliest view
 systems and sim systems, `view::perf::FrameProfile`), `LR_THREADS=n` (compute threads of the headless tests; 1 runs `par_map` inline - the hashes must not change).
 
@@ -282,6 +283,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
 | `src/update.rs`, `scripts/exe_updates.sh` | in-game updater: changed assets via the tag's git tree + raw downloads, exe via zstd patch, curl, install + restart |
+| `src/theme.rs`, `assets/fonts/` | interface look (game, menus, editor): Play (all text, Cyrillic) and Michroma (title only, Latin) embedded, flat egui style (square, 1 px lines, no shadows, gradients or glows: requested), menu plates/buttons with cut corners, backdrop `assets/ui/menu_bg.png` |
 | `src/i18n.rs`, `assets/lang/` | localisation: `tr!` / `tx!` / `tr`, language files, completeness test |
 | `src/preset_form.rs` | the preset editor's form view: one `Field` (JSON path, label, kind + default, tooltip) per setting of rules.json, units and weapons; edits a `serde_json::Value`, keys it does not know stay |
 | `src/editor.rs` | map editor and map generation CLI (`longrange --editor`) |
