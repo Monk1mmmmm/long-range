@@ -356,6 +356,58 @@ impl Frame<'_> {
     fn d(&self, id: DefId) -> &UnitDef {
         self.defs.get(id)
     }
+    /// An attack circle, Ctrl+R style: the known enemies in it (seen or on radar) are shared out among
+    /// the armed non-artillery units of `ids`, each taking a run of nearby targets, about as many as
+    /// the others, then the rest of what it can hit nearest first (so it fights on until the circle is
+    /// clear). Returns (unit, orders); units left out (artillery, nothing to hit) shell the circle.
+    fn spread_attack(&self, ids: &[u32], c: V2, r: f32) -> Vec<(u32, Vec<Order>)> {
+        use crate::data::WeaponKind as K;
+        let mut units: Vec<&Info> = ids
+            .iter()
+            .filter_map(|id| self.infos.get(id))
+            .filter(|u| {
+                let d = self.d(u.def);
+                u.host == 0 && d.armed() && !d.is_scavenger() && !d.is_structure() && !d.weapons.iter().any(|w| matches!(w.kind, K::Arc | K::HighArc))
+            })
+            .collect();
+        units.sort_by_key(|u| u.id);
+        let mut targets: Vec<(u32, V2, Option<bool>)> = self
+            .seen
+            .iter()
+            .filter(|s| s.enemy && s.contact != Contact::Stale && s.pos.dist(c) <= r)
+            .map(|s| (s.id, s.pos, s.def.map(|d| self.d(d).is_air())))
+            .collect();
+        targets.sort_by_key(|t| t.0);
+        let hits = |u: &Info, air: Option<bool>| self.d(u.def).weapons.iter().any(|w| if air == Some(true) { w.hits_air } else { w.hits_land });
+        units.retain(|u| targets.iter().any(|t| hits(u, t.2)));
+        if units.is_empty() || targets.len() < 2 {
+            return vec![];
+        }
+        let cap = targets.len().div_ceil(units.len());
+        let mut lists: Vec<Vec<usize>> = vec![vec![]; units.len()];
+        let mut ends: Vec<V2> = units.iter().map(|u| u.pos).collect();
+        for (t, (_, pos, air)) in targets.iter().enumerate() {
+            let best = (0..units.len()).filter(|k| hits(units[*k], *air)).min_by(|a, b| {
+                let key = |k: usize| (lists[k].len() >= cap, ends[k].dist(*pos));
+                let (ka, kb) = (key(*a), key(*b));
+                ka.0.cmp(&kb.0).then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
+            });
+            if let Some(k) = best {
+                ends[k] = *pos;
+                lists[k].push(t);
+            }
+        }
+        (0..units.len())
+            .map(|k| {
+                let mut list = lists[k].clone();
+                let mut rest: Vec<usize> = (0..targets.len()).filter(|t| !list.contains(t) && hits(units[k], targets[*t].2)).collect();
+                let from = ends[k];
+                rest.sort_by(|a, b| targets[*a].1.dist(from).partial_cmp(&targets[*b].1.dist(from)).unwrap_or(std::cmp::Ordering::Equal));
+                list.extend(rest);
+                (units[k].id, list.into_iter().map(|t| Order::Attack(targets[t].0)).collect())
+            })
+            .collect()
+    }
     /// Those of `units` that can storm `s`, a visible building with enemy infantry inside.
     fn stormers(&self, units: &[&Info], s: &Seen) -> Vec<u32> {
         let Some(hd) = s.def.map(|d| self.d(d)).filter(|d| d.is_garrison() && s.enemy && s.contact == Contact::Visible) else { return vec![] };
@@ -1562,6 +1614,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
                             for (b, ids, _) in fr.occupy_area(&fr.selected(view), start, radius, true) {
                                 rest.retain(|id| !ids.contains(id));
                                 fr.send_in(b, ids, start, shift, out);
+                            }
+                            // Direct-fire units, missiles and planes share out the enemies in it.
+                            for (id, orders) in fr.spread_attack(&rest, start, radius) {
+                                rest.retain(|r| *r != id);
+                                out.push(Command::Orders { ids: vec![id], orders, queue: shift });
                             }
                         }
                         if !rest.is_empty() {
