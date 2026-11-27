@@ -3707,8 +3707,10 @@ const REPLAY_SPEED: (f32, f32) = (0.25, 32.0);
 
 /// A playback speed rounded to a value that reads well: x0.35, x1.75, x6.
 fn round_speed(v: f32) -> f32 {
-    let step = if v < 1.0 { 0.05 } else if v < 4.0 { 0.25 } else { 1.0 };
-    ((v / step).round() * step).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
+    // Steps per unit (1/20, 1/4, 1): dividing by a whole number gives the nearest float to
+    // 0.9, where multiplying by 0.05 printed 0.90000004.
+    let per = if v < 1.0 { 20.0 } else if v < 4.0 { 4.0 } else { 1.0 };
+    ((v * per).round() / per).clamp(REPLAY_SPEED.0, REPLAY_SPEED.1)
 }
 
 /// Replay controls at the bottom, right of the minimap, with `bottom` the lowest y they may take:
