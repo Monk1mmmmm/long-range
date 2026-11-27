@@ -44,8 +44,7 @@ struct SurfaceParams {
 @group(constants::MATERIAL_BIND_GROUP) @binding(109) var roads2: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(110) var roads2_sampler: sampler;
 // Lane markings (`MapData::centre_raster`): r distance along the road mod 16, g signed offset from
-// the centre line (-4..4 -> 0..1), b drawn here, a half the road's width (low 7 bits, 0..4) + 128 for
-// a solid centre line.
+// the centre line (-4..4 -> 0..1), b drawn here. One dashed centre line, nothing else.
 @group(constants::MATERIAL_BIND_GROUP) @binding(111) var centre: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(112) var centre_sampler: sampler;
 
@@ -135,14 +134,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let cl = textureSampleLevel(centre, centre_sampler, uv, 0.0);
     let arc = cl.r * 16.0;
     let off = cl.g * 8.0 - 4.0;
-    // The width and solid flag are not filtered (texels of different roads meet).
-    let a8 = textureLoad(centre, vec2<i32>(uv * vec2<f32>(textureDimensions(centre))), 0).a * 255.0;
-    let solid = select(0.0, 1.0, a8 > 127.5);
-    let half_w = (a8 - solid * 128.0) / 127.0 * 4.0;
     let fw_arc = fwidth(arc);
     let fw_off = max(fwidth(off), 1e-4);
     var centre_line = 0.0;
-    var edge_line = 0.0;
     var on_marked = 0.0;
     // A jump in either field (seams between roads) shows as a large screen-space width: no line there.
     if cl.b > 0.5 && fw_arc < 3.0 && fw_off < 0.6 {
@@ -150,11 +144,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let half = 0.07;
         let across = saturate((half - abs(off)) / fw_off + 0.5) * min(1.0, 2.0 * half / fw_off);
         let ph = fract(arc * 0.25);
-        let dash = max(solid, saturate((ph - 0.25) / max(fw_arc * 0.25, 1e-3) + 0.5) * saturate((0.75 - ph) / max(fw_arc * 0.25, 1e-3) + 0.5));
+        let dash = saturate((ph - 0.25) / max(fw_arc * 0.25, 1e-3) + 0.5) * saturate((0.75 - ph) / max(fw_arc * 0.25, 1e-3) + 0.5);
         centre_line = across * dash * saturate((cl.b - 0.5) * 4.0);
-        // Edge lines 0.45 inside each edge, 0.12 wide.
-        let edge = abs(abs(off) - (half_w - 0.45));
-        edge_line = saturate((0.06 - edge) / fw_off + 0.5) * min(1.0, 0.12 / fw_off) * saturate((cl.b - 0.5) * 4.0);
     }
     for (var k = 0u; k < params.roads; k++) {
         let v = select(rv2[k % 4u], rv[k % 4u], k < 4u);
@@ -186,9 +177,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         }
     }
 
-    // Edge lines only where no sidewalk runs beside the road (towns have kerbs instead).
-    let paint = max(centre_line, edge_line * (1.0 - smoothstep(0.55, 0.8, walk)));
-    col = mix(col, vec3<f32>(0.62, 0.62, 0.58), paint * on_marked * 0.9);
+    col = mix(col, vec3<f32>(0.62, 0.62, 0.58), centre_line * on_marked * 0.9);
 
     if params.quality > 0u {
         // Broad variation of the colour, so large fields of one texture are not flat.

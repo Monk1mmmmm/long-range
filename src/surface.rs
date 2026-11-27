@@ -9,10 +9,8 @@ pub const MAX_LAYERS: usize = 9;
 /// Most road kinds one map can show (one channel of the two road textures each; the sidewalks
 /// take one when a road has them).
 pub const MAX_ROAD_KINDS: usize = 8;
-/// Centre lines: roads of a `lines` kind at least this wide get one, dashed ...
+/// Centre lines: roads of a `lines` kind at least this wide get a dashed one ...
 pub const CENTRE_MIN: f32 = 3.5;
-/// ... and solid from this width on.
-pub const CENTRE_SOLID: f32 = 6.5;
 /// ... and at least this long (shorter ones are the links of big junctions).
 pub const CENTRE_MIN_LEN: f32 = 15.0;
 /// Distance along a road kept in the centre-line raster (a multiple of the dash period, 4).
@@ -409,15 +407,12 @@ impl MapData {
         ((side, side_y), out)
     }
 
-    /// Lane markings of the roads whose kind has `lines` (main asphalt, at least `CENTRE_MIN` wide and
-    /// `CENTRE_MIN_LEN` long),
-    /// as a raster of `per_unit` texels per world unit: per texel the distance along the road modulo
-    /// `CENTRE_WRAP` (R, 0..1) and the signed distance from the centre line (G, -4..4 mapped to 0..1),
-    /// both linear across a texel so bilinear filtering keeps the lines exact; whether lines are drawn
-    /// here (B: not under water, not where two marked roads cross); A: half the road's width (low 7
-    /// bits, 0..4) and in the top bit whether the centre line is solid (the widest roads, and the
-    /// divide of a road drawn as two parallel carriageways) rather than dashed. The shader draws the
-    /// centre line and the edge lines from it.
+    /// Dashed centre lines of the roads whose kind has `lines` (main asphalt, at least `CENTRE_MIN`
+    /// wide and `CENTRE_MIN_LEN` long), as a raster of `per_unit` texels per world unit: per texel the
+    /// distance along the road modulo `CENTRE_WRAP` (R, 0..1) and the signed distance from the centre
+    /// line (G, -4..4 mapped to 0..1), both linear across a texel so bilinear filtering keeps the line
+    /// exact; whether it is drawn here (B: not under water, not near another marked road: no line
+    /// through junctions, merges or beside a parallel carriageway). A is unused.
     pub fn centre_raster(&self, per_unit: f32) -> ((usize, usize), Vec<[u8; 4]>) {
         // Short pieces are the links of big junctions: no markings there.
         let long = |r: &Road| r.points.windows(2).map(|s| s[0].dist(s[1])).sum::<f32>() >= CENTRE_MIN_LEN;
@@ -433,8 +428,7 @@ impl MapData {
         type Near = (f32, u32, V2, f32, f32);
         let none: Near = (f32::MAX, u32::MAX, v2(0.0, 0.0), 0.0, 0.0);
         let mut best = vec![(none, none); side * side_y];
-        // Looked at well beyond each road, so every texel of one carriageway of a divided road also
-        // sees the other (else its lines would jump where that coverage ends).
+        // Looked at beyond each road, so texels near another marked road know of it.
         const BEYOND: f32 = 7.0;
         for (ri, r) in marked.iter().enumerate() {
             let hw = r.width * 0.5 + BEYOND;
@@ -492,30 +486,15 @@ impl MapData {
                     continue;
                 }
                 let w = marked[b0.1 as usize].width;
-                let (mut off, mut solid, mut drawn, mut half) = (b0.3, w >= CENTRE_SOLID, true, w * 0.5);
+                let mut drawn = true;
                 if b1.1 != u32::MAX {
                     let dot = b0.2.dot(b1.2);
-                    let (w0, w1) = (marked[b0.1 as usize].width, marked[b1.1 as usize].width);
-                    let other = b1.3 * dot.signum();
-                    let sep = (b0.3 - other).abs();
-                    let parallel = dot.abs() > 0.97;
-                    if parallel && sep < 0.4 && b1.0 <= w1 * 0.5 + 0.5 {
-                        // The next way of the same road: the same centre line.
-                    } else if parallel && sep > 1.0 && sep < (w0 + w1) * 0.5 + 1.5 {
-                        // The second carriageway of a divided road: one solid line between the two,
-                        // measured the same way on both sides of the divide (texels nearer the other
-                        // way take that one's direction), so it stays linear across it; edge lines
-                        // along the outer edges of the two.
-                        let canon = if b0.2.x > 0.0 || (b0.2.x == 0.0 && b0.2.y > 0.0) { 1.0 } else { -1.0 };
-                        off = (b0.3 + other) * 0.5 * canon;
-                        solid = true;
-                        half = sep * 0.5 + (w0 + w1) * 0.25;
-                    } else if b1.0 > w1 * 0.5 + 0.5 {
-                        // Only near the other road, not on it: this road's lines.
-                    } else {
-                        // A crossing, a junction or roads merging: no lines through it.
-                        drawn = false;
-                    }
+                    let w1 = marked[b1.1 as usize].width;
+                    let sep = (b0.3 - b1.3 * dot.signum()).abs();
+                    // The next way of the same road continues the line; any other marked road this
+                    // near (a crossing, a merge, the other carriageway) leaves it out.
+                    let same = dot.abs() > 0.97 && sep < 0.4 && b1.0 <= w1 * 0.5 + 0.5;
+                    drawn = same || b1.0 > w1 * 0.5 + 2.5;
                 }
                 let (px, pz) = ((x as f32 + 0.5) * texel, (y as f32 + 0.5) * texel);
                 let dry = self.height(px, pz) > self.water_xz(px, pz) + 0.05;
@@ -523,9 +502,9 @@ impl MapData {
                 let on = b0.0 <= w * 0.5 + 0.5;
                 out[i] = [
                     ((b0.4.rem_euclid(CENTRE_WRAP) / CENTRE_WRAP) * 255.0).round() as u8,
-                    (((off.clamp(-4.0, 4.0) + 4.0) * 0.125) * 255.0).round() as u8,
+                    (((b0.3.clamp(-4.0, 4.0) + 4.0) * 0.125) * 255.0).round() as u8,
                     if dry && drawn && on { 255 } else { 0 },
-                    ((half.clamp(0.0, 4.0) / 4.0) * 127.0).round() as u8 + if solid { 128 } else { 0 },
+                    0,
                 ];
             }
         }
