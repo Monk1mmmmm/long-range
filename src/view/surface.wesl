@@ -30,6 +30,9 @@ struct SurfaceParams {
     quality: u32,
     // Sea level.
     water: f32,
+    // Weather: wet ground (darker, shinier) and snow cover, 0-1.
+    wet: f32,
+    snow: f32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> params: SurfaceParams;
@@ -47,6 +50,9 @@ struct SurfaceParams {
 // the centre line (-4..4 -> 0..1), b drawn here. One dashed centre line, nothing else.
 @group(constants::MATERIAL_BIND_GROUP) @binding(111) var centre: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(112) var centre_sampler: sampler;
+// Tracks of units: depth in r (`SurfaceView::track`), fading over the weather's track time.
+@group(constants::MATERIAL_BIND_GROUP) @binding(113) var tracks: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(114) var tracks_sampler: sampler;
 
 fn tile_scale(i: u32) -> f32 {
     return params.scales[i / 4u][i % 4u];
@@ -157,6 +163,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let dash = saturate((ph - 0.25) / max(fw_arc * 0.25, 1e-3) + 0.5) * saturate((0.75 - ph) / max(fw_arc * 0.25, 1e-3) + 0.5);
         centre_line = across * dash * saturate((cl.b - 0.5) * 4.0);
     }
+    var road_cover = 0.0;
     for (var k = 0u; k < params.roads; k++) {
         let v = select(rv2[k % 4u], rv[k % 4u], k < 4u);
         if v > 0.002 {
@@ -164,6 +171,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let soft = params.road_soft[k / 4u][k % 4u];
             // 0 beyond the edge whatever the heights (road_soft >= 2), 1 well inside.
             let w = saturate((v - 0.5) * soft + (l.a - hc) * 0.5 + 0.5);
+            road_cover = max(road_cover, w);
             col = mix(col, l.rgb, w);
             hc = mix(hc, l.a * 0.6 + 0.2, w);
             if k == params.marked {
@@ -225,6 +233,34 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         col = mix(col, dust, ring * 0.85);
         col = mix(col, charred, core * 0.94);
         pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, max(core, ring));
+    }
+
+    // Weather. Rain darkens the ground and makes it shine; snow covers the flat ground (thinner on
+    // slopes and roads, broken up by the ground texture's height); tracks press through both: dark
+    // ruts in the soil, slush through the snow, puddles in the rain.
+    let tr = textureSampleLevel(tracks, tracks_sampler, uv, 0.0).r;
+    let n3 = textureSampleGrad(albedo, albedo_sampler, p * 0.31 + vec2<f32>(0.71, 0.23), 0u, dx * 0.31, dy * 0.31).a;
+    let rut = saturate(tr * (0.8 + 0.4 * n3));
+    if params.wet > 0.001 {
+        col = col * mix(1.0, 0.68, params.wet);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.45, params.wet * 0.8);
+    }
+    if params.snow > 0.001 {
+        let flat_ground = smoothstep(0.55, 0.85, pbr_input.N.y);
+        let paved = saturate(road_cover);
+        let amount = saturate(params.snow * flat_ground * (1.0 - 0.45 * paved) * (0.75 + 0.5 * hc) + (n3 - 0.5) * 0.3 * params.snow);
+        let white = vec3<f32>(0.80, 0.83, 0.88) * (0.9 + 0.12 * hc);
+        // Through the snow, a track shows trodden grey slush.
+        let slush = mix(col * 0.6, vec3<f32>(0.42, 0.43, 0.45), 0.5);
+        col = mix(col, white, amount * (1.0 - rut * 0.8));
+        col = mix(col, slush, amount * rut * 0.8);
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.8, amount);
+    }
+    if rut > 0.004 {
+        let ruts = col * vec3<f32>(0.58, 0.53, 0.48) * (0.9 + 0.2 * n3);
+        col = mix(col, ruts, rut * (0.6 + 0.3 * params.wet) * (1.0 - 0.5 * params.snow));
+        pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 0.3, rut * params.wet * 0.8);
+        hc = hc - rut * 0.25;
     }
 
     // Relief: tilt the normal along the slope of the blended height (surface gradient).

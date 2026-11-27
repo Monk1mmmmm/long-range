@@ -77,6 +77,8 @@ struct HostLobby {
     reveal_props: bool,
     /// Infantry capture enemy buildings other than factories (`Game.infantry_capture`).
     infantry_capture: bool,
+    /// Weather: k = `rules.weather[k]`, the length of the list = random (`Game.weather`).
+    weather: usize,
     /// Start positions of each premade map.
     counts: Vec<usize>,
     /// Ground of random maps: 0 = picked by the seed, k = `surface::BIOMES[k - 1]`.
@@ -100,6 +102,21 @@ impl HostLobby {
     /// Starting points of a control points game: the lobby's choice or the game data's value.
     fn cp_points(&self, defs: &Defs) -> f32 {
         if self.cp_start == 0 { defs.rules.cp_start_points } else { self.cp_start as f32 }
+    }
+    fn weather_label(&self, defs: &Defs) -> String {
+        match defs.rules.weather.get(self.weather) {
+            Some(w) => longrange::i18n::weather_name(w).to_string(),
+            None => tr!("lobby.weather_random").to_string(),
+        }
+    }
+    /// The weather the game is played in (a random choice is made at the start).
+    fn weather_index(&self, defs: &Defs) -> u8 {
+        let n = defs.rules.weather.len().max(1);
+        if self.weather < n {
+            return self.weather as u8;
+        }
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+        ((t ^ self.seed).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 33) as u8 % n as u8
     }
     fn preset_label(&self) -> String {
         match self.preset {
@@ -182,6 +199,7 @@ impl HostLobby {
         if self.infantry_capture {
             t += &tr!("lobby.summary_infantry_capture", tr!("lobby.yes"));
         }
+        t += &tr!("lobby.summary_weather", self.weather_label(defs));
         if self.map_choice < SIZES.len() {
             let b = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k).copied()).unwrap_or(longrange::surface::Biome::from_seed(self.seed));
             t += &tr!("lobby.summary_terrain", longrange::i18n::biome_name(b));
@@ -860,11 +878,22 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         tab: 0,
         reveal_props: true,
         infantry_capture: false,
+        weather: 0,
         counts,
         biome: 0,
     };
     let _ = l.ensure_map(defs);
     Ok(l)
+}
+
+/// `LR_WEATHER=<id>`: the weather of a test or skirmish game, by its id in `rules.weather`.
+fn env_weather(defs: &Defs) -> Option<u8> {
+    let id = std::env::var("LR_WEATHER").ok()?;
+    let k = defs.rules.weather.iter().position(|w| w.id == id);
+    if k.is_none() {
+        eprintln!("LR_WEATHER: no weather '{id}' (have: {})", defs.rules.weather.iter().map(|w| w.id.as_str()).collect::<Vec<_>>().join(", "));
+    }
+    k.map(|k| k as u8)
 }
 
 fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
@@ -913,6 +942,8 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     }
     world.resource_mut::<Game>().reveal_props = l.reveal_props;
     world.resource_mut::<Game>().infantry_capture = l.infantry_capture;
+    let weather = env_weather(world.resource::<Defs>()).unwrap_or_else(|| l.weather_index(world.resource::<Defs>()));
+    world.resource_mut::<Game>().weather = weather;
     for ai in &ais {
         world.resource_mut::<Game>().players[ai.player as usize].ai_kind = ai.kind.id();
     }
@@ -2121,6 +2152,11 @@ fn menu_ui(world: &mut World) {
                                         l.biome = (l.biome + 1) % (longrange::surface::BIOMES.len() + 1);
                                     }
                                 }
+                                let weather_tip = cur.rules.weather.get(l.weather).map_or_else(|| tr!("lobby.weather_random_tip").to_string(), |w| longrange::i18n::weather_desc(w).to_string());
+                                if ui.add_sized([right_w - 20.0, 30.0], egui::Button::new(tr!("lobby.weather_button", l.weather_label(&cur)))).on_hover_text(weather_tip).clicked() {
+                                    l.weather = (l.weather + 1) % (cur.rules.weather.len() + 1);
+                                    l.dirty = true;
+                                }
                                 if ui.checkbox(&mut l.reveal_props, tr!("lobby.reveal_props")).changed() {
                                     l.dirty = true;
                                 }
@@ -2758,6 +2794,10 @@ fn selftest() {
     }
     // LR_INFCAP=1: the lobby option "infantry capture buildings".
     world.resource_mut::<Game>().infantry_capture = std::env::var("LR_INFCAP").is_ok();
+    // LR_WEATHER=rain (an id of `rules.weather`).
+    if let Some(w) = env_weather(world.resource::<Defs>()) {
+        world.resource_mut::<Game>().weather = w;
+    }
     world.insert_resource(Ais((0..n).map(|i| Ai::with_kind(i as u8, 99 + seed, kind(i))).collect()));
     // LR_PROFILE=1 prints how long each tick system took at the end.
     if std::env::var("LR_PROFILE").is_ok() {

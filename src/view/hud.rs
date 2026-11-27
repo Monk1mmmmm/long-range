@@ -1156,9 +1156,10 @@ fn binocular_cone(g: &mut Gizmos, map: &MapData, c: V2, yaw: f32, angle: f32, r:
 }
 
 /// Radar range rings, one per radar level (blue, violet, orange for levels 1-3).
-fn radar_rings(g: &mut Gizmos, map: &MapData, c: V2, d: &UnitDef, alpha: f32) {
+/// `k`: the weather's radar multiplier.
+fn radar_rings(g: &mut Gizmos, map: &MapData, c: V2, d: &UnitDef, alpha: f32, k: f32) {
     let cols = [(0.4, 0.7, 1.0), (0.75, 0.5, 1.0), (1.0, 0.6, 0.3)];
-    for (r, (cr, cg, cb)) in [d.radar, d.radar2, d.radar3].into_iter().zip(cols) {
+    for (r, (cr, cg, cb)) in [d.radar * k, d.radar2 * k, d.radar3 * k].into_iter().zip(cols) {
         if r > 0.0 {
             ring(g, map, c, r, Color::srgba(cr, cg, cb, alpha));
         }
@@ -2123,9 +2124,10 @@ pub fn ui_system(mut p: UiParams) -> Result {
                     ring(g, map, u.pos, minr, Color::srgba(1.0, 0.6, 0.2, 0.4));
                 }
             }
-            radar_rings(g, map, u.pos, d, 0.6);
+            let wx = fr.defs.rules.weather_of(fr.game.weather);
+            radar_rings(g, map, u.pos, d, 0.6, wx.radar);
             if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
-                binocular_cone(g, map, u.pos, u.look, bd.angle.clamp(1.0, 170.0).to_radians(), bd.range, u.lock != 0);
+                binocular_cone(g, map, u.pos, u.look, bd.angle.clamp(1.0, 170.0).to_radians(), bd.range * wx.binoculars, u.lock != 0);
             }
             if d.is_station() {
                 ring(g, map, u.pos, d.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.6));
@@ -2272,7 +2274,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
                 for (r, c) in range_rings(df, 0.8) {
                     ring(g, map, *pt, r, c);
                 }
-                radar_rings(g, map, *pt, df, 0.8);
+                radar_rings(g, map, *pt, df, 0.8, fr.defs.rules.weather_of(fr.game.weather).radar);
                 if df.is_station() {
                     ring(g, map, *pt, df.build_range(), Color::srgba(0.5, 1.0, 0.6, 0.8));
                 }
@@ -2682,6 +2684,11 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     let secs = game.tick / 10;
     let clock = hud.text(Pos2::new(sw - 10.0, 7.0), Align2::RIGHT_TOP, tr!("hud_top_bar.clock", secs / 60, secs % 60), font(14.0), rgba(205, 205, 205, 255));
+    // The weather, unless it is the first (clear) one: it shortens sight, so players should know.
+    if game.weather > 0 {
+        let wx = defs.rules.weather_of(game.weather);
+        hud.text(Pos2::new(clock.min.x - 110.0, 7.0), Align2::RIGHT_TOP, crate::i18n::weather_name(wx), font(14.0), rgba(170, 200, 235, 255));
+    }
     {
         let r = rect(clock.min.x - 100.0, 4.0, 86.0, TOP - 8.0);
         let hov = r.contains(mouse) && !view.menu_open && !view.settings_open;

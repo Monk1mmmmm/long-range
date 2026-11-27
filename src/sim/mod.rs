@@ -435,6 +435,11 @@ pub struct Game {
     /// style: free, while no armed unit of the building's side stands near it.
     #[serde(default)]
     pub infantry_capture: bool,
+    /// Lobby option: the weather (index into `rules.weather`; 0 = the first, clear). It shortens
+    /// vision, binoculars and radar, slows spotting and land units and scatters shots by the
+    /// numbers of `data::WeatherDef`.
+    #[serde(default)]
+    pub weather: u8,
 }
 
 /// A building infantry may capture when `Game.infantry_capture` is on: not a factory or a field

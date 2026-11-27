@@ -4,6 +4,9 @@
 //!
 //! Scorch marks are view-only: every blast near the ground darkens the scorch map a little
 //! (`SurfaceView::burn`, called by `fx::spawn_fx`); marks stay for the rest of the game.
+//! Tracks are view-only too: moving land units press their treads and feet into the track map
+//! (`SurfaceView::track`, from `weather::lay_tracks`), which fades over the weather's `track_secs`.
+//! The weather also wets the ground or covers it with snow (`SurfaceView::wet` / `snow`).
 use crate::map::*;
 use crate::surface::{kind, Kind, KINDS, MAX_LAYERS, MAX_ROAD_KINDS, SIDEWALK};
 use bevy::asset::{embedded_asset, RenderAssetUsages};
@@ -20,6 +23,9 @@ pub type SurfaceMaterial = ExtendedMaterial<StandardMaterial, SurfaceExt>;
 const TEX: usize = 512;
 /// Scorch map texels per world unit.
 const BURN_PER_UNIT: f32 = 2.0;
+/// Track map texels per world unit (at most `TRACK_MAX` across).
+const TRACK_PER_UNIT: f32 = 2.0;
+const TRACK_MAX: f32 = 4096.0;
 /// Road field texels per world unit (the field is distance-like, so this can be coarse).
 const ROAD_PER_UNIT: f32 = 1.0;
 
@@ -44,6 +50,9 @@ pub struct SurfaceParams {
     pub quality: u32,
     /// Sea level (the shoreline darkens just above it).
     pub water: f32,
+    /// Weather: wet ground (0-1: darker, shinier) and snow cover (0-1).
+    pub wet: f32,
+    pub snow: f32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -70,6 +79,10 @@ pub struct SurfaceExt {
     #[texture(111)]
     #[sampler(112)]
     pub centre: Handle<Image>,
+    /// Tracks of units (`SurfaceView::track`).
+    #[texture(113)]
+    #[sampler(114)]
+    pub tracks: Handle<Image>,
 }
 
 impl MaterialExtension for SurfaceExt {
@@ -115,6 +128,22 @@ pub struct SurfaceView {
     pub layers_dirty: bool,
     pub masks_dirty: bool,
     pub roads_dirty: bool,
+    tracks: Handle<Image>,
+    /// Track map on the CPU, one byte per texel (depth), `track_side` across and deep.
+    track: Vec<u8>,
+    track_side: (usize, usize),
+    track_k: f32,
+    /// Rows holding any track (the rest are skipped when tracks fade).
+    track_rows: Vec<bool>,
+    track_dirty: bool,
+    track_wait: f32,
+    /// Depth lost so far that has not made a whole step yet.
+    track_fade: f32,
+    /// Seconds a full-depth track takes to fade (the weather's `track_secs`).
+    pub track_secs: f32,
+    /// Weather: wet ground and snow cover (0-1), sent to the shader.
+    pub wet: f32,
+    pub snow: f32,
 }
 
 impl SurfaceView {
@@ -154,6 +183,61 @@ impl SurfaceView {
         }
         self.burn_dirty = true;
     }
+
+    /// Presses a track from `a` to `b` into the ground: a strip `half` wide on each side, `depth` (0-1)
+    /// deep in the middle, softer at the edge. A deeper track already there stays.
+    pub fn track(&mut self, a: Vec2, b: Vec2, half: f32, depth: f32) {
+        let k = self.track_k;
+        let half = half.max(0.5 / k);
+        let (side, side_y) = (self.track_side.0 as i32, self.track_side.1 as i32);
+        let (x0, x1) = (((a.x.min(b.x) - half) * k).floor() as i32, ((a.x.max(b.x) + half) * k).ceil() as i32);
+        let (y0, y1) = (((a.y.min(b.y) - half) * k).floor() as i32, ((a.y.max(b.y) + half) * k).ceil() as i32);
+        let ab = b - a;
+        let len2 = ab.length_squared().max(1e-6);
+        let v = depth.clamp(0.0, 1.0) * 255.0;
+        for y in y0.max(0)..=y1.min(side_y - 1) {
+            let mut any = false;
+            for x in x0.max(0)..=x1.min(side - 1) {
+                let q = Vec2::new((x as f32 + 0.5) / k, (y as f32 + 0.5) / k);
+                let t = ((q - a).dot(ab) / len2).clamp(0.0, 1.0);
+                let d = q.distance(a + ab * t) / half;
+                if d >= 1.0 {
+                    continue;
+                }
+                let f = (v * (1.0 - d * d)) as u8;
+                let c = &mut self.track[y as usize * self.track_side.0 + x as usize];
+                if f > *c {
+                    *c = f;
+                    any = true;
+                }
+            }
+            if any {
+                self.track_rows[y as usize] = true;
+                self.track_dirty = true;
+            }
+        }
+    }
+
+    /// Fades every track by `secs` of time.
+    fn fade_tracks(&mut self, secs: f32) {
+        self.track_fade += 255.0 * secs / self.track_secs.max(1.0);
+        let step = self.track_fade.floor();
+        if step < 1.0 {
+            return;
+        }
+        self.track_fade -= step;
+        let step = step.min(255.0) as u8;
+        let w = self.track_side.0;
+        for (y, live) in self.track_rows.iter_mut().enumerate().filter(|(_, l)| **l) {
+            let mut left = false;
+            for c in &mut self.track[y * w..(y + 1) * w] {
+                *c = c.saturating_sub(step);
+                left |= *c > 0;
+            }
+            *live = left;
+            self.track_dirty = true;
+        }
+    }
 }
 
 /// Texture slots: the layers first, then one per road kind.
@@ -176,7 +260,7 @@ fn params(map: &MapData) -> SurfaceParams {
     let sidewalk = roads.iter().position(|k| k == SIDEWALK).map_or(99, |i| i as u32);
     let marked = roads.iter().position(|k| kind(k).is_some_and(|k| k.lines)).map_or(99, |i| i as u32);
     let debug = std::env::var("LR_SURFACE_DEBUG").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, sidewalk, marked, debug, quality: 1, water: map.water }
+    SurfaceParams { world: Vec2::new(map.world_x().max(1.0), map.world_z().max(1.0)), layers: layers.len() as u32, roads: roads.len() as u32, bump: 0.05, scales, road_soft, sidewalk, marked, debug, quality: 1, water: map.water, wet: 0.0, snow: 0.0 }
 }
 
 fn sampler(repeat: bool, aniso: bool) -> ImageSampler {
@@ -256,6 +340,12 @@ fn road_images(map: &MapData) -> (Image, Image) {
     (half(0), half(1))
 }
 
+fn track_image(side: (usize, usize), track: &[u8]) -> Image {
+    let mut img = Image::new(Extent3d { width: side.0 as u32, height: side.1 as u32, depth_or_array_layers: 1 }, TextureDimension::D2, track.to_vec(), TextureFormat::R8Unorm, RenderAssetUsages::RENDER_WORLD);
+    img.sampler = sampler(false, false);
+    img
+}
+
 fn scorch_image(side: (usize, usize), burn: &[u8]) -> Image {
     let mut img = Image::new(Extent3d { width: side.0 as u32, height: side.1 as u32, depth_or_array_layers: 1 }, TextureDimension::D2, burn.to_vec(), TextureFormat::Rg8Unorm, RenderAssetUsages::RENDER_WORLD);
     img.sampler = sampler(false, false);
@@ -272,11 +362,42 @@ impl SurfaceView {
         let (roads, roads2) = (images.add(r1), images.add(r2));
         let centre = images.add(centre_image(map));
         let scorch = images.add(scorch_image(side, &burn));
+        let track_k = TRACK_PER_UNIT.min(TRACK_MAX / map.world_x().max(map.world_z()).max(1.0));
+        let track_side = (((map.world_x() * track_k).round() as usize).max(1), ((map.world_z() * track_k).round() as usize).max(1));
+        let track = vec![0u8; track_side.0 * track_side.1];
+        let tracks = images.add(track_image(track_side, &track));
         let material = mats.add(ExtendedMaterial {
             base: StandardMaterial { perceptual_roughness: 0.95, reflectance: 0.15, ..default() },
-            extension: SurfaceExt { params: params(map), albedo: albedo.clone(), masks: masks.clone(), roads: roads.clone(), scorch: scorch.clone(), roads2: roads2.clone(), centre: centre.clone() },
+            extension: SurfaceExt { params: params(map), albedo: albedo.clone(), masks: masks.clone(), roads: roads.clone(), scorch: scorch.clone(), roads2: roads2.clone(), centre: centre.clone(), tracks: tracks.clone() },
         });
-        SurfaceView { material, albedo, masks, roads, roads2, centre, scorch, burn, burn_gen: 0, side, burn_dirty: false, burn_wait: 0.0, layers_dirty: false, masks_dirty: false, roads_dirty: false }
+        SurfaceView {
+            material,
+            albedo,
+            masks,
+            roads,
+            roads2,
+            centre,
+            scorch,
+            burn,
+            burn_gen: 0,
+            side,
+            burn_dirty: false,
+            burn_wait: 0.0,
+            layers_dirty: false,
+            masks_dirty: false,
+            roads_dirty: false,
+            tracks,
+            track_rows: vec![false; track_side.1],
+            track,
+            track_side,
+            track_k,
+            track_dirty: false,
+            track_wait: 0.0,
+            track_fade: 0.0,
+            track_secs: 90.0,
+            wet: 0.0,
+            snow: 0.0,
+        }
     }
 }
 
@@ -308,8 +429,19 @@ fn surface_sync(
     let Some(mut v) = view else { return };
     let v = &mut *v;
     let mut touched = false;
-    if mats.get(&v.material).is_some_and(|m| m.extension.params.quality != quality) {
+    if mats.get(&v.material).is_some_and(|m| m.extension.params.quality != quality || m.extension.params.wet != v.wet || m.extension.params.snow != v.snow) {
         touched = true;
+    }
+    v.track_wait -= time.delta_secs();
+    if v.track_wait <= 0.0 {
+        // Tracks fade and new ones show twice a second.
+        v.fade_tracks(0.5 - v.track_wait.min(0.0));
+        v.track_wait = 0.5;
+        if v.track_dirty {
+            let _ = images.insert(&v.tracks, track_image(v.track_side, &v.track));
+            v.track_dirty = false;
+            touched = true;
+        }
     }
     if v.layers_dirty || v.roads_dirty {
         // Road kinds are texture slots too.
@@ -343,6 +475,8 @@ fn surface_sync(
         if let Some(mut m) = mats.get_mut(&v.material) {
             m.extension.params = params(&map);
             m.extension.params.quality = quality;
+            m.extension.params.wet = v.wet;
+            m.extension.params.snow = v.snow;
         }
     }
 }

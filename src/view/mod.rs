@@ -26,6 +26,7 @@ pub mod sound;
 pub mod surface;
 pub mod terrain;
 pub mod water;
+pub mod weather;
 
 use models::*;
 use perf::vmark;
@@ -854,6 +855,7 @@ impl Plugin for ViewPlugin {
                 (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, model_detail_sync, models::model_lod_swap, gloss_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, foundation_fit, vmark::<6>).chain(),
                 (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
                 (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, blur_sync, vmark::<16>).chain(),
+                (weather::lay_tracks, weather::weather_sync).chain(),
             )
                 .chain()
                 .run_if(in_game),

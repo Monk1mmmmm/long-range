@@ -517,6 +517,8 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     let block = sight_block(&features, &wrecks, standing, &defs, &map);
     let (hills_sight, hills_radar) = (defs.rules.sight_blocked_by_terrain, defs.rules.radar_blocked_by_terrain);
     let near2 = defs.rules.near_sight * defs.rules.near_sight;
+    // Weather shortens vision, binoculars and radar, and makes units slower to spot.
+    let wx = defs.rules.weather_of(game.weather);
     struct Viewer {
         pos: V2,
         eye: Vec3,
@@ -554,10 +556,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         };
         let d = defs.get(c.def);
         let gain = if roof { census.get(c.host).map_or(1.0, |h| defs.get(h.def).roof_vision(&defs.rules)) } else { 1.0 };
-        let vision = d.vision * gain;
+        let vision = d.vision * gain * wx.vision;
         let (mut bin2, mut dir, mut cos2) = (0.0, v2(1.0, 0.0), 1.0);
         if let Some(bd) = d.binoculars.as_ref().filter(|b| b.range > 0.0) {
-            let range = bd.range * gain;
+            let range = bd.range * gain * wx.binoculars;
             let (look, lock) = q.get(c.e).map_or((c.yaw, 0), |i| (i.look, i.lock));
             let (look, lock) = aim_binoculars(&census, c, bd, range, look, lock, roof, game.tick);
             if let Ok(mut i) = q.get_mut(c.e) {
@@ -577,7 +579,10 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
             eye: c.pos.at(c.y + top + defs.rules.radar_los_height),
             look: c.pos.at(c.y + top + defs.rules.vision_los_height),
             vis2: vision * vision,
-            radar2: if radar_on { [0u8, 1, 2].map(|s| d.radar_vs(s) * d.radar_vs(s)) } else { [0.0; 3] },
+            radar2: if radar_on { [0u8, 1, 2].map(|s| {
+                let r = d.radar_vs(s) * wx.radar;
+                r * r
+            }) } else { [0.0; 3] },
             team: c.team,
             bin2,
             dir,
@@ -720,7 +725,7 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
         let d = defs.get(c.def);
         if d.spot_time > 0.0 || d.spot_time_moving > 0.0 {
             let exposed = c.firing || c.vel.len2() > 0.04;
-            let gain = step(if exposed { d.spot_time_moving } else { d.spot_time });
+            let gain = step(if exposed { d.spot_time_moving } else { d.spot_time } * wx.spotting);
             for t in 0..16 {
                 let bit = 1u16 << t;
                 if t == c.team as usize {
@@ -927,7 +932,7 @@ fn think(
             let m = mover.as_mut()?;
             let keep = m.cover.filter(|c| c.dist(pos) > 0.5 && c.dist(pos) < 25.0);
             if keep.is_none() || (game.tick + id) % 10 == 0 {
-                m.cover = firing_spot(&defs, &census, &map, &nav, id, team, df, pos, ws, keep);
+                m.cover = firing_spot(&defs, &census, &map, &nav, id, team, df, pos, ws, keep, game.weather);
             }
             m.cover.filter(|c| c.dist(pos) > 0.5)
         };
@@ -1826,7 +1831,7 @@ fn set_down(map: &MapData, nav: &Nav, p: V2) -> V2 {
 /// growing radius round the unit, the spot picked last time first (`keep`), so a unit does not
 /// dither between two spots.
 #[allow(clippy::too_many_arguments)]
-fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>) -> Option<V2> {
+fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, team: u8, df: &crate::data::UnitDef, pos: V2, ws: &Weapons, keep: Option<V2>, weather: u8) -> Option<V2> {
     let lane = Lane {
         census,
         map,
@@ -1836,6 +1841,7 @@ fn firing_spot(defs: &Defs, census: &Census, map: &MapData, nav: &Nav, id: u32, 
         shooter: id,
         host: 0,
         g: defs.rules.gravity,
+        spread: defs.rules.weather_of(weather).spread,
     };
     let jobs: Vec<(&WeaponDef, &Cen)> = df
         .weapons
@@ -2344,8 +2350,11 @@ fn locomotion(
     defs: Res<Defs>,
     map: Res<MapData>,
     mut nav: ResMut<Nav>,
+    game: Res<Game>,
 ) {
     let (world, world_z) = (map.world_x(), map.world_z());
+    // Mud and snow slow land units down.
+    let wx_speed = defs.rules.weather_of(game.weather).speed;
     let n = map.nx as i32;
     let needs_path = |df: &crate::data::UnitDef, m: &Mover| -> Option<V2> {
         let g = m.goal?;
@@ -2505,7 +2514,7 @@ fn locomotion(
                 let face = if m.reversing { wrap(desired + PI) } else { desired };
                 body.yaw = turn_toward(body.yaw, face, turn * DT);
                 let off = wrap(face - body.yaw).abs();
-                let top = if m.reversing { mv.reverse } else { mv.speed };
+                let top = if m.reversing { mv.reverse } else { mv.speed } * wx_speed;
                 let mut want = if off < 0.35 {
                     top
                 } else if off < 1.0 {
@@ -2702,6 +2711,8 @@ struct Lane<'a> {
     shooter: u32,
     host: u32,
     g: f32,
+    /// Weather's multiplier of every weapon's spread.
+    spread: f32,
 }
 
 /// A cylinder a shell must stay out of: (centre, radius, bottom, top).
@@ -2785,7 +2796,7 @@ impl Lane<'_> {
     /// little off. A target partly behind a crest is aimed at higher up; `None` when no part of it
     /// can be hit.
     fn aim(&self, w: &WeaponDef, origin: Vec3, c: &Cen) -> Option<f32> {
-        let spread = w.spread.to_radians();
+        let spread = w.spread.to_radians() * self.spread;
         let obst = self.obstacles(w, origin, c.pos + c.vel * (c.pos.dist(flat(origin)) / w.speed.max(1.0)), c.id);
         // `Rng::bell` throws up to +-1 x spread in yaw and +-0.6 x spread in pitch: allow for 80%
         // of that (nearly every shot), with no last resort that ignores the spread.
@@ -2843,6 +2854,8 @@ fn weapons(
 ) {
     let g = defs.rules.gravity;
     let tick = game.tick;
+    // Rain, wind and snow scatter the shots.
+    let wx_spread = defs.rules.weather_of(game.weather).spread;
     for (u, body, mut ws, mut mover, hosted) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let mut ground_volleys = 0u16;
         // Still falling from an airdrop.
@@ -2896,6 +2909,7 @@ fn weapons(
             shooter: u.id,
             host: hosted.map_or(0, |h| h.0),
             g,
+            spread: wx_spread,
         };
         for (wi, w) in df.weapons.iter().enumerate() {
             let Some(st) = ws.list.get_mut(wi) else { continue };
@@ -3043,7 +3057,7 @@ fn weapons(
                     if !clear {
                         st.blocked = true;
                     } else {
-                        fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+                        fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g, wx_spread);
                     }
                 }
             }
@@ -3076,7 +3090,7 @@ fn weapons(
                     let fix = d.miss * (1.0 / d.fall.max(0.3));
                     st.fix = if fix.len() > 6.0 { fix.norm() * 6.0 } else { fix };
                     ground_volleys |= gpoint.is_some() as u16;
-                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+                    fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g, wx_spread);
                     if let Some(m) = mover.as_mut() {
                         // Fly on past the target before turning, so the next run starts lined up.
                         m.extend = m.extend.max(2.5 / df.mv.turn.to_radians().max(0.1) + d.half);
@@ -3143,7 +3157,7 @@ fn weapons(
                 m.hold = m.hold.max(w.hold + w.salvo_delay * st.burst as f32);
             }
             ground_volleys |= gpoint.is_some() as u16;
-            fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g);
+            fire(&mut commands, &mut game, &mut rng.0, &mut fx, w, u, body, origin, st, g, wx_spread);
             if w.suicide {
                 // The drone is the warhead: it is gone, quietly (no wreck, no death blast).
                 effects.damage.push((u.id, 1.0e9, 0));
@@ -3207,9 +3221,9 @@ fn bomb_drop(w: &WeaponDef, body: &Body, cruise: f32, tp: Vec3, tv: V2, g: f32) 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &mut WeaponState, g: f32) {
+fn fire(commands: &mut Commands, game: &mut Game, rng: &mut Rng, fx: &mut FxLog, w: &WeaponDef, u: &Unit, body: &Body, origin: Vec3, st: &mut WeaponState, g: f32, wx_spread: f32) {
     st.fired = st.fired.saturating_add(1);
-    let spread = w.spread.to_radians();
+    let spread = w.spread.to_radians() * wx_spread;
     let (vel, kind, pos) = match w.kind {
         WeaponKind::Bomb => ((body.vel + st.fix).at(0.0), PROJ_BOMB, body.pos.at(body.y - 0.3)),
         WeaponKind::Missile => {

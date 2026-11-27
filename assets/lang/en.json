@@ -105,7 +105,11 @@
     "nobody_plays": "Nobody would play: put a player or an AI in a slot.",
     "waiting_for_host": "Waiting for the host to start...",
     "leave": "Leave",
-    "connecting": "Connecting..."
+    "connecting": "Connecting...",
+    "weather_button": "Weather: {}",
+    "weather_random": "Random",
+    "weather_random_tip": "One of the weathers below, picked when the game starts",
+    "summary_weather": "\nWeather: {}"
   },
   "browser": {
     "title": "Multiplayer games",
@@ -1273,7 +1277,49 @@
     "neutral": "Neutral",
     "neutral_tip": "Colour of neutral map buildings.",
     "hostile": "Hostile",
-    "hostile_tip": "Colour of the hostile side's units and buildings."
+    "hostile_tip": "Colour of the hostile side's units and buildings.",
+    "weather": "Weather",
+    "weather_hint": "Weather the lobby offers. Multipliers: 1 = no change. Vision, binoculars, radar, spotting, spread and speed change the fight; the rest is how it looks.",
+    "weather_copy_tip": "Add a copy of this weather (give it its own id).",
+    "weather_remove_tip": "Remove this weather (the last one stays).",
+    "weather_id": "Id",
+    "weather_id_tip": "Name for LR_WEATHER and the translations.",
+    "weather_name": "Name",
+    "weather_name_tip": "Shown in the lobby.",
+    "weather_desc": "Description",
+    "weather_desc_tip": "Tooltip in the lobby.",
+    "weather_vision": "Vision",
+    "weather_vision_tip": "Vision range of every unit, times this.",
+    "weather_binoculars": "Binoculars",
+    "weather_binoculars_tip": "Binocular range, times this.",
+    "weather_radar": "Radar",
+    "weather_radar_tip": "Radar range (every level), times this.",
+    "weather_spotting": "Spotting delay",
+    "weather_spotting_tip": "Spotting delay of units that have one (troopers), times this: above 1 they take longer to make out.",
+    "weather_spread": "Spread",
+    "weather_spread_tip": "Spread of every weapon, times this.",
+    "weather_speed": "Land speed",
+    "weather_speed_tip": "Top speed of land units, times this (mud, snow).",
+    "weather_tracks": "Track depth",
+    "weather_tracks_tip": "How deep the tracks of land units are drawn, times this (view only).",
+    "weather_track_secs": "Track time",
+    "weather_track_secs_tip": "Seconds a full-depth track takes to fade (view only).",
+    "weather_sky": "Sky",
+    "weather_sky_tip": "Sky id (clear, hazy, overcast, sunset, night, arctic); empty = the map's.",
+    "weather_light": "Sunlight",
+    "weather_light_tip": "Sunlight, times this.",
+    "weather_haze": "Haze",
+    "weather_haze_tip": "Distance over which the haze thickens beyond the ground in view; 0 = the usual far haze.",
+    "weather_rain": "Rain",
+    "weather_rain_tip": "How much rain falls (0-1).",
+    "weather_snow": "Snowfall",
+    "weather_snow_tip": "How much snow falls (0-1).",
+    "weather_wind": "Wind",
+    "weather_wind_tip": "Slants and drives the rain and snow (0-1).",
+    "weather_wet": "Wet ground",
+    "weather_wet_tip": "Ground darker and shinier (0-1).",
+    "weather_cover": "Snow cover",
+    "weather_cover_tip": "Snow on the ground (0-1); above 0.5 it also buries the grass."
   },
   "preset_units": {
     "general_id": "Id",
@@ -1565,5 +1611,35 @@
     "sidewalk": "sidewalks",
     "road_hint": "Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.",
     "remove_all_roads": "Remove all roads"
+  },
+  "weather": {
+    "clear": {
+      "name": "Clear",
+      "desc": "No effect on the fight."
+    },
+    "overcast": {
+      "name": "Overcast",
+      "desc": "Grey sky: vision a little shorter."
+    },
+    "rain": {
+      "name": "Rain",
+      "desc": "Vision and binoculars shorter, guns a little less accurate, the ground soft: tracks stay longer."
+    },
+    "storm": {
+      "name": "Storm",
+      "desc": "Heavy rain and wind: far less vision, radar weakened by the rain, guns scatter, the ground turns to mud."
+    },
+    "snow": {
+      "name": "Snow",
+      "desc": "Snow on the ground: vision shorter, vehicles slower, deep tracks that give away where units went."
+    },
+    "blizzard": {
+      "name": "Blizzard",
+      "desc": "Driving snow: very short vision, radar weakened, guns scatter, vehicles crawl; fresh snow soon covers the tracks."
+    },
+    "fog": {
+      "name": "Fog",
+      "desc": "Thick fog: vision halved, binoculars nearly useless, units hard to make out. Radar works as ever."
+    }
   }
 }

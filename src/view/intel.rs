@@ -164,6 +164,8 @@ pub fn update_intel(
     let bit = 1u16 << team;
     let reveal = reveal(&game, view.me);
     let n = map.nx;
+    // Weather shortens sight and radar (as in `sim::systems::visibility`).
+    let wx = defs.rules.weather_of(game.weather);
 
     // --- fog grid
     let fog = &mut *fog;
@@ -193,10 +195,10 @@ pub fn update_intel(
             let from = hosted.map_or(u.id, |h| h.0);
             // From a building's roof they see further (as in `sim::systems::visibility`).
             let gain = roof.map_or(1.0, |r| r.1);
-            let vision = d.vision * gain;
+            let vision = d.vision * gain * wx.vision;
             let power_out = game.players.get(u.owner as usize).map_or(false, |p| p.power_out);
             // The fog shows the furthest radar reach (what unstealthed units are found within).
-            let reach = d.radar_reach();
+            let reach = d.radar_reach() * wx.radar;
             if reach > 0.0 && !power_out && !paused {
                 alive.insert(u.id);
                 let stale = fog.radar.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL * 1.5 || c.1 != reach);
@@ -225,7 +227,7 @@ pub fn update_intel(
             // Binoculars turn all the time: their cone is redone when it has turned a degree or so.
             if let Some(bd) = d.binoculars.as_ref().filter(|bd| bd.range > 0.0) {
                 spotting.insert(u.id);
-                let range = bd.range * gain;
+                let range = bd.range * gain * wx.binoculars;
                 let stale = fog.cone.get(&u.id).map_or(true, |c| c.0.dist(b.pos) > CELL || crate::map::wrap(c.1 - intel.look).abs() > 0.02 || c.2 != range);
                 if stale && (cone_budget > 0 || !fog.cone.contains_key(&u.id)) {
                     cone_budget -= 1;
