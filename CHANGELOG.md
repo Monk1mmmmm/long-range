@@ -3,10 +3,27 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
-## Unreleased
+## v0.17.0
+
+Gameplay
+- Weather in the lobby: clear, overcast, rain, storm, snow, blizzard, fog. It shortens vision and radar, scatters shots and slows land units; rain and snow fall, the ground gets wet or snowy and units leave tracks.
+- Trees, rocks, wrecks and debris block the line of fire. A blocked tank steps aside to a spot with a clear shot.
+- Reclaimables can no longer be destroyed; blasts shove rubble around. New lobby option: rubble blocks paths. Infantry capture is on by default.
+- Attack circle: units that are not artillery share out the enemies in it.
+- Ctrl-orders: units move in step at the slowest one's speed.
+- Overtaker is cheaper (240 mass / 750 energy).
+- Lobby: player list is a translucent table; option to show every player's income to all.
+
+Graphics
+- New interface theme: Play and Michroma fonts, flat square style, new main menu with title and a rendered backdrop.
+- Grass receives shadows; buildings on slopes no longer stretch, plinths and lot slabs removed; flora streams in faster.
+- Road markings: a single dashed centre line.
 
 Updates
 - Main menu "Check for updates": downloads only the files that changed and a small patch of the program instead of the whole game, installs and restarts. Works from the next release on (this one still has to be downloaded whole).
+
+Fixes
+- No crash in the Replays menu after deleting the last replay.
 
 ## v0.16.1
 
