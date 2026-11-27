@@ -835,6 +835,8 @@ struct AppState {
     update: Option<longrange::update::Updater>,
     /// The built-in game data; a lobby or a host may put a preset in its place for one game.
     base_defs: Defs,
+    /// The menu backdrop picture (`assets/ui/menu_bg.png`), loaded on the first menu frame.
+    backdrop: Option<Option<egui::TextureHandle>>,
 }
 
 /// Back to the built-in game data (after a game or lobby that used a preset or the host's data).
@@ -1966,7 +1968,9 @@ fn menu_ui(world: &mut World) {
             Err(e) => app.message = e,
         }
     }
-    ctx.layer_painter(egui::LayerId::background()).rect_filled(ctx.content_rect(), 0.0, egui::Color32::from_rgb(15, 18, 23));
+    let backdrop = app.backdrop.get_or_insert_with(|| longrange::theme::load_backdrop(&ctx)).clone();
+    // The picture shows in full behind the main menu; the busier screens darken it to keep their text legible.
+    longrange::theme::backdrop(&ctx, backdrop.as_ref(), if matches!(app.screen, Screen::Menu) { 0 } else { 215 });
     // The lobby fills the screen like the preset editor: the players column and the map column share the
     // width, the map picture (kept small) grows with the height and the map list takes what is left under it.
     let screen = ctx.content_rect();
@@ -1982,21 +1986,30 @@ fn menu_ui(world: &mut World) {
             ui.set_max_width(if lobby { lobby_w } else { 560.0 });
             match &mut app.screen {
                 Screen::Menu => {
-                    ui.add_space(30.0);
-                    ui.label(egui::RichText::new(tr!("main_menu.title")).size(56.0).color(egui::Color32::from_rgb(255, 215, 100)).strong());
-                    ui.label(egui::RichText::new(tr!("main_menu.tagline")).size(16.0));
-                    ui.add_space(26.0);
-                    ui.horizontal(|ui| {
-                        ui.label(tr!("common.name"));
-                        if ui.add(egui::TextEdit::singleline(&mut app.name).desired_width(300.0).char_limit(16)).changed() {
+                    use longrange::theme;
+                    ui.add_space(40.0);
+                    theme::title(ui, tr!("main_menu.title"), 62.0);
+                    ui.add_space(34.0);
+                    // A plate behind the column, drawn once the column's height is known.
+                    let slot = ui.painter().add(egui::Shape::Noop);
+                    let top = ui.cursor().min.y;
+                    let bw = 440.0;
+                    let big = egui::vec2(bw, 46.0);
+                    let small = egui::vec2(bw, 36.0);
+                    ui.add_space(20.0);
+                    ui.allocate_ui_with_layout(egui::vec2(bw, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(tr!("common.name").to_uppercase()).font(theme::bold_font(ui.ctx(), 14.0)).color(theme::TEXT_DIM));
+                        ui.add_space(6.0);
+                        let edit = egui::TextEdit::singleline(&mut app.name).desired_width(ui.available_width()).char_limit(16).font(egui::FontId::proportional(16.0));
+                        if ui.add(edit).changed() {
                             // Remembered for the next start.
                             let mut s = world.resource_mut::<longrange::settings::Settings>();
                             s.name = app.name.clone();
                             s.save();
                         }
                     });
-                    ui.add_space(10.0);
-                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.host_game")).size(18.0))).clicked() {
+                    ui.add_space(14.0);
+                    if theme::menu_button(ui, tr!("main_menu.host_game"), big, true).clicked() {
                         match new_lobby(&app.name, &defs) {
                             Ok(l) => {
                                 next = Some(Screen::HostLobby(l));
@@ -2006,22 +2019,22 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 44.0], egui::Button::new(egui::RichText::new(tr!("main_menu.join_game")).size(18.0))).clicked() {
+                    if theme::menu_button(ui, tr!("main_menu.join_game"), big, true).clicked() {
                         next = Some(Screen::Browse(Browser::new()));
                         app.message.clear();
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.replays"))).clicked() {
+                    if theme::menu_button(ui, tr!("main_menu.replays"), small, false).clicked() {
                         next = Some(Screen::Replays(ReplayList::new()));
                         app.message.clear();
                     }
-                    ui.add_space(14.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.game_data_presets"))).clicked() {
+                    ui.add_space(16.0);
+                    if theme::menu_button(ui, tr!("main_menu.game_data_presets"), small, false).clicked() {
                         next = Some(Screen::Presets(PresetUi::new()));
                         app.message.clear();
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.map_editor"))).clicked() {
+                    if theme::menu_button(ui, tr!("main_menu.map_editor"), small, false).clicked() {
                         // The editor is this same program started with --editor, in its own window and process.
                         let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("--editor").spawn());
                         match started {
@@ -2030,23 +2043,27 @@ fn menu_ui(world: &mut World) {
                         }
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("common.settings"))).clicked() {
+                    if theme::menu_button(ui, tr!("common.settings"), small, false).clicked() {
                         app.settings_open = true;
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("update.check"))).clicked() && app.update.is_none() {
+                    if theme::menu_button(ui, tr!("update.check"), small, false).clicked() && app.update.is_none() {
                         app.update = Some(longrange::update::Updater::check());
                     }
-                    ui.add_space(6.0);
-                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.quit"))).clicked() {
+                    ui.add_space(16.0);
+                    if theme::menu_button(ui, tr!("main_menu.quit"), small, false).clicked() {
                         world.write_message(AppExit::Success);
                     }
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new(tr!("main_menu.fullscreen_hint")).size(12.0).weak());
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new(tr!("main_menu.fullscreen_hint")).size(13.0).color(theme::TEXT_DIM));
                     if !app.message.is_empty() {
-                        ui.add_space(10.0);
-                        ui.colored_label(egui::Color32::from_rgb(255, 120, 105), &app.message);
+                        ui.add_space(8.0);
+                        ui.colored_label(egui::Color32::from_rgb(236, 120, 105), &app.message);
                     }
+                    ui.add_space(16.0);
+                    let cx = ui.max_rect().center().x;
+                    let r = egui::Rect::from_min_max(egui::pos2(cx - bw * 0.5 - 20.0, top), egui::pos2(cx + bw * 0.5 + 20.0, ui.cursor().min.y));
+                    ui.painter().set(slot, theme::plate_shape(r, 14.0, egui::Color32::from_rgba_unmultiplied(12, 16, 21, 215), theme::LINE));
                 }
                 Screen::HostLobby(l) => {
                     let first_faction = playable.first().copied().unwrap_or(0) as u8;
@@ -2788,6 +2805,22 @@ fn dev_screenshot(mut commands: Commands, game: Option<Res<Game>>, view: Option<
         let mut it = v.split(',');
         Some((it.next()?.to_string(), it.next().and_then(|s| s.parse().ok()).unwrap_or(5.0), it.next().unwrap_or("").to_string(), it.next().and_then(|s| s.parse().ok()).unwrap_or(0.0)))
     });
+    // `LR_SHOT=<file.png>,<seconds>,menu`: the main menu after that many seconds.
+    if let (Some((path, at, select, _)), None) = (spec, &game) {
+        if select == "menu" {
+            match state.0 {
+                0 if time.elapsed_secs() >= *at => {
+                    commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+                    *state = (1, time.elapsed_secs());
+                }
+                1 if time.elapsed_secs() > state.1 + 1.0 => {
+                    exit.write(AppExit::Success);
+                }
+                _ => {}
+            }
+            return;
+        }
+    }
     let (Some((path, at, select, dist)), Some(game), Some(mut view)) = (spec, game, view) else { return };
     match state.0 {
         0 if game.tick as f32 * DT >= *at => {
@@ -6012,13 +6045,13 @@ fn main() {
     .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))
     .insert_resource(settings)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, update: None, base_defs: defs })
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, update: None, base_defs: defs, backdrop: None })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)
     .add_systems(Update, (fullscreen_toggle, longrange::settings::apply_settings).chain())
     .add_systems(Update, dev_screenshot)
-    .add_systems(bevy_egui::EguiPrimaryContextPass, (longrange::settings::apply_ui_scale, menu_ui));
+    .add_systems(bevy_egui::EguiPrimaryContextPass, (longrange::settings::apply_ui_scale, longrange::theme::apply_theme, menu_ui));
     // `--bench [minutes]`: the benchmark (view/bench.rs). LR_PROFILE=1: frame and tick times in the log.
     let bench = args.iter().position(|a| a == "--bench").map(|k| args.get(k + 1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(25.0));
     if bench.is_some() || std::env::var("LR_PROFILE").is_ok() {
