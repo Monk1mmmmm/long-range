@@ -5,6 +5,21 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+## v0.16.1
+
+Graphics
+- Roads redone: more road types - main asphalt, worn and patched asphalt for side streets, concrete slab roads, cobbled streets in old town centres - besides gravel and dirt tracks, and roads now vary in width.
+- Sidewalks beside town roads, with a kerb and gutter where they meet the road.
+- Lane markings on main asphalt roads: a dashed centre line (solid on wide roads and between the two halves of a divided road) and edge lines where there is no sidewalk; none where main roads cross.
+- No roads drawn under water any more.
+
+Maps
+- The real-life maps' roads restyled to match: road types by class and by how built up the area is (villages get no sidewalks), sidewalks only as wide as the room to the houses, roads cut off at the waterline.
+
+Map editor
+- Road tool: a sidewalk width slider, and the new road types in its list.
+- `--editor --roads NAME ..` restyles a saved map's roads the same way (only map.json changes).
+
 ## v0.16.0
 
 Gameplay
