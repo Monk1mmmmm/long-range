@@ -1035,7 +1035,11 @@
     "gravel": "Gravel",
     "paving": "Paving",
     "asphalt": "Asphalt",
+    "cobble": "Cobblestones",
+    "concrete": "Concrete slabs",
+    "asphalt_worn": "Worn asphalt",
     "dirt_road": "Dirt track",
+    "sidewalk": "Sidewalk",
     "biome_temperate": "Temperate",
     "biome_desert": "Desert",
     "biome_arctic": "Arctic",
@@ -1558,6 +1562,7 @@
     "add_layer": "+ Layer",
     "ground_brush_hint": "Radius and strength above set the brush. Left mouse paints the selected layer, right mouse takes it away. On layer 0 it takes away every layer above.",
     "width": "width",
+    "sidewalk": "sidewalks",
     "road_hint": "Left mouse adds a point, right mouse finishes the road (or deletes the road under the pointer). {} roads.",
     "remove_all_roads": "Remove all roads"
   }

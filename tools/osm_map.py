@@ -23,7 +23,9 @@ Ground textures: grass everywhere, with layers for fields and meadows, forest fl
 industrial gravel, paving in built-up blocks, sand, mud under water and stone on rock and steep
 slopes (masks `layerN.png`, one pixel per cell). Roads come from the highway ways (asphalt, or a
 dirt track for tracks and unpaved roads), drawn wider than true scale like the buildings; trees
-and rocks keep off them, and buildings off the main roads.
+and rocks keep off them, and buildings off the main roads. Afterwards run
+`longrange --editor --roads NAME`: it gives them their look (worn side streets, concrete, cobbles,
+sidewalks in towns) and cuts what runs under water.
 
 North is up (-z). Heights are true scale times
 --relief. One prop is placed per real building where the game building (2-3x the size of a real

@@ -86,6 +86,8 @@ struct Editor {
     biome: Biome,
     road_kind: &'static str,
     road_width: f32,
+    /// Sidewalk width on each side of a new road (0 = none).
+    road_sidewalk: f32,
     /// The road being drawn.
     drawing: Vec<V2>,
 }
@@ -234,7 +236,9 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     }
     for (i, j) in pairs {
         let (a, b) = (ends[i], ends[j]);
-        map.roads.push(crate::surface::Road { kind: "asphalt".into(), width: 4.0, points: crate::surface::winding(a, b, 4.0, seed ^ (i * 31 + j) as u64) });
+        // Wider between towns than out to a start; each a little different.
+        let width = if j < towns_at.len() { 4.4 } else { 3.6 } + rng.below(5) as f32 * 0.15;
+        map.roads.push(crate::surface::Road::new("asphalt", width, crate::surface::winding(a, b, 4.0, seed ^ (i * 31 + j) as u64)));
     }
     // Hostile outpost guarding the centre.
     place(map, &mut occ, "comm_tower", c, PROP_NEUTRAL, 0.0);
@@ -243,6 +247,169 @@ fn add_settlements(map: &mut MapData, defs: &Defs, seed: u64) {
     place(map, &mut occ, "bunker", c + v2(-10.0, -22.0), PROP_HOSTILE, 0.0);
     clear_under_props(map, defs);
     map.clear_features_on_roads(&defs.rules.features, first_road);
+}
+
+/// Gives a map's roads their look from what they are (`--roads NAME`): the width says the class the
+/// map maker (`tools/osm_map.py`) drew them for, the buildings around say whether they run through a
+/// town. Main roads (4 and wider) stay asphalt with edge lines, other paved roads become worn
+/// asphalt, service roads outside towns concrete slabs, narrow streets in the densest old centres
+/// cobblestones; paved roads in towns get sidewalks as wide as the gap to the buildings allows.
+/// Every road is cut where it runs under water. Roads already of a new kind keep it (it can run
+/// again). Returns a report.
+pub fn restyle_roads(map: &mut MapData, defs: &Defs) -> String {
+    use crate::surface::Road;
+    // Buildings as squares (centre, half side), and a coverage grid of 4-unit bins with a summed
+    // table for the share of built ground round a point.
+    let boxes: Vec<(V2, f32)> = map.props.iter().filter_map(|p| defs.id(&p.def).map(|d| (p.pos, defs.get(d).footprint as f32 * CELL * 0.5))).filter(|b| b.1 > 0.0).collect();
+    const BIN: f32 = 4.0;
+    let (bx, by) = ((map.world_x() / BIN).ceil() as usize + 1, (map.world_z() / BIN).ceil() as usize + 1);
+    let mut cov = vec![0u32; bx * by];
+    for (c, h) in &boxes {
+        let (x0, x1) = (((c.x - h) / BIN).floor().max(0.0) as usize, (((c.x + h) / BIN).floor().max(0.0) as usize).min(bx - 1));
+        let (y0, y1) = (((c.y - h) / BIN).floor().max(0.0) as usize, (((c.y + h) / BIN).floor().max(0.0) as usize).min(by - 1));
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                cov[y * bx + x] = 1;
+            }
+        }
+    }
+    let mut sum = vec![0u32; (bx + 1) * (by + 1)];
+    for y in 0..by {
+        for x in 0..bx {
+            sum[(y + 1) * (bx + 1) + x + 1] = cov[y * bx + x] + sum[y * (bx + 1) + x + 1] + sum[(y + 1) * (bx + 1) + x] - sum[y * (bx + 1) + x];
+        }
+    }
+    let built = |p: V2, r: f32| -> f32 {
+        let c = |v: f32, n: usize| ((v / BIN).round().max(0.0) as usize).min(n);
+        let (x0, x1, y0, y1) = (c(p.x - r, bx), c(p.x + r, bx), c(p.y - r, by), c(p.y + r, by));
+        let area = ((x1 - x0) * (y1 - y0)).max(1) as f32;
+        let s = sum[y1 * (bx + 1) + x1] + sum[y0 * (bx + 1) + x0] - sum[y0 * (bx + 1) + x1] - sum[y1 * (bx + 1) + x0];
+        s as f32 / area
+    };
+    // Building lookup by 16-unit bins for the gap from a road to the nearest wall.
+    const GB: f32 = 16.0;
+    let gw = (map.world_x() / GB).ceil() as usize + 1;
+    let gh = (map.world_z() / GB).ceil() as usize + 1;
+    let mut grid: Vec<Vec<usize>> = vec![vec![]; gw * gh];
+    for (i, (c, _)) in boxes.iter().enumerate() {
+        let (x, y) = (((c.x / GB).max(0.0) as usize).min(gw - 1), ((c.y / GB).max(0.0) as usize).min(gh - 1));
+        grid[y * gw + x].push(i);
+    }
+    let wall_gap = |p: V2| -> f32 {
+        let (cx, cy) = ((p.x / GB).floor() as i64, (p.y / GB).floor() as i64);
+        let mut best = 99.0f32;
+        for y in cy - 1..=cy + 1 {
+            for x in cx - 1..=cx + 1 {
+                if x < 0 || y < 0 || x as usize >= gw || y as usize >= gh {
+                    continue;
+                }
+                for &i in &grid[y as usize * gw + x as usize] {
+                    let (c, h) = boxes[i];
+                    let dx = ((p.x - c.x).abs() - h).max(0.0);
+                    let dy = ((p.y - c.y).abs() - h).max(0.0);
+                    best = best.min((dx * dx + dy * dy).sqrt());
+                }
+            }
+        }
+        best
+    };
+    let samples = |r: &Road| -> Vec<V2> {
+        let mut out = vec![];
+        for s in r.points.windows(2) {
+            let n = ((s[0].dist(s[1]) / 2.0).ceil() as usize).max(1);
+            out.extend((0..n).map(|i| s[0] + (s[1] - s[0]) * (i as f32 / n as f32)));
+        }
+        out.extend(r.points.last());
+        out
+    };
+    let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut walks = 0;
+    let mut out: Vec<Road> = vec![];
+    let mut wet_cut = 0;
+    for mut r in std::mem::take(&mut map.roads) {
+        let pts = samples(&r);
+        let town = pts.iter().map(|p| built(*p, 20.0)).sum::<f32>() / pts.len().max(1) as f32;
+        let core = pts.iter().map(|p| built(*p, 12.0)).sum::<f32>() / pts.len().max(1) as f32;
+        let wide = pts.iter().map(|p| built(*p, 48.0)).sum::<f32>() / pts.len().max(1) as f32;
+        // A town street (not a village lane: villages have no sidewalks) and an old dense centre.
+        let urban = wide > 0.33 && town > 0.2;
+        let old = wide > 0.55 && core > 0.7;
+        let h = (r.points[0].x * 7.1 + r.points[0].y * 3.3).to_bits().wrapping_mul(0x9E37_79B9) >> 8;
+        let jitter = 0.92 + 0.16 * (h & 0xFFFF) as f32 / 65535.0;
+        let w = r.width;
+        let mut want = 0.0;
+        if r.kind == "asphalt" {
+            if w >= 3.9 {
+                want = if urban { if w >= 4.5 { 1.3 } else { 1.0 } } else { 0.0 };
+            } else if (w - 2.5).abs() < 0.01 && wide < 0.25 {
+                r.kind = "concrete".into();
+            } else if w < 3.0 && old {
+                r.kind = "cobble".into();
+                want = 0.6;
+                r.width = w * jitter;
+            } else {
+                r.kind = "asphalt_worn".into();
+                want = if (w - 2.5).abs() < 0.01 { 0.0 } else if urban { if w >= 3.0 { 0.9 } else { 0.6 } } else { 0.0 };
+                r.width = w * jitter;
+            }
+        } else if r.kind == "asphalt_worn" || r.kind == "cobble" {
+            want = if r.sidewalk > 0.0 { r.sidewalk.max(0.6) } else { 0.0 };
+        }
+        if want > 0.0 {
+            // As wide as the gap to the buildings allows along most of the road.
+            let mut gaps: Vec<f32> = pts.iter().map(|p| wall_gap(*p) - r.width * 0.5 - 0.1).collect();
+            gaps.sort_by(f32::total_cmp);
+            let g = gaps[gaps.len() / 5];
+            r.sidewalk = if g >= 0.35 { want.min(g) } else { 0.0 };
+            r.sidewalk = (r.sidewalk * 20.0).round() / 20.0;
+        } else if r.kind != "asphalt_worn" && r.kind != "cobble" && r.kind != "asphalt" {
+            r.sidewalk = 0.0;
+        }
+        if r.sidewalk > 0.0 {
+            walks += 1;
+        }
+        // Cut where it runs under water.
+        let dry = |p: V2| map.h(p) > map.water_at(p) + 0.05;
+        // Every original point and half-unit steps between them; (point, original?).
+        let mut walk: Vec<(V2, bool)> = vec![(r.points[0], true)];
+        for seg in r.points.windows(2) {
+            let n = ((seg[0].dist(seg[1]) / 0.5).ceil() as usize).max(1);
+            walk.extend((1..=n).map(|k| (seg[0] + (seg[1] - seg[0]) * (k as f32 / n as f32), k == n)));
+        }
+        let (mut piece, mut pieces, mut cut, mut last) = (Vec::<V2>::new(), Vec::<Vec<V2>>::new(), false, None::<V2>);
+        for (q, orig) in walk {
+            if dry(q) {
+                if piece.is_empty() || orig {
+                    piece.push(q);
+                }
+                last = Some(q);
+            } else {
+                cut = true;
+                if !piece.is_empty() {
+                    // End the piece at the last dry step (the waterline).
+                    if let Some(l) = last.filter(|l| piece.last().is_some_and(|e| e.dist(*l) > 1e-4)) {
+                        piece.push(l);
+                    }
+                    pieces.push(std::mem::take(&mut piece));
+                }
+            }
+        }
+        if !piece.is_empty() {
+            pieces.push(piece);
+        }
+        if cut {
+            wet_cut += 1;
+        }
+        for pts in pieces {
+            let len: f32 = pts.windows(2).map(|s| s[0].dist(s[1])).sum();
+            if len >= 2.0 || !cut {
+                *counts.entry(r.kind.clone()).or_default() += 1;
+                out.push(Road { points: pts, ..r.clone() });
+            }
+        }
+    }
+    map.roads = out;
+    format!("{} roads ({counts:?}), {walks} with sidewalks, {wet_cut} cut at the water", map.roads.len())
 }
 
 /// Removes trees and rocks under the buildings among the props (the game flattens them anyway).
@@ -689,7 +856,7 @@ fn editor_ui(
             Tool::Ground => Color::srgb(1.0, 0.8, 0.4),
             _ => Color::WHITE,
         };
-        ring(&mut gizmos, map, p, if brush { ed.radius } else if ed.tool == Tool::Road { ed.road_width * 0.5 } else { 1.5 }, ring_col);
+        ring(&mut gizmos, map, p, if brush { ed.radius } else if ed.tool == Tool::Road { ed.road_width * 0.5 + ed.road_sidewalk } else { 1.5 }, ring_col);
         if ed.tool == Tool::Ground && (buttons.pressed(MouseButton::Left) || buttons.pressed(MouseButton::Right)) {
             let target = if buttons.pressed(MouseButton::Left) { 1.0 } else { 0.0 };
             if map.paint_mask(ed.layer, p, ed.radius, (ed.strength * dt * 0.4).min(1.0), target) {
@@ -724,7 +891,7 @@ fn editor_ui(
             }
             if buttons.just_pressed(MouseButton::Right) {
                 let changed = if ed.drawing.len() >= 2 {
-                    map.roads.push(crate::surface::Road { kind: ed.road_kind.into(), width: ed.road_width, points: std::mem::take(&mut ed.drawing) });
+                    map.roads.push(crate::surface::Road { kind: ed.road_kind.into(), width: ed.road_width, points: std::mem::take(&mut ed.drawing), sidewalk: ed.road_sidewalk });
                     // Trees and rocks on the new road go.
                     let count = map.features.len();
                     map.clear_features_on_roads(&defs.rules.features, map.roads.len() - 1);
@@ -993,6 +1160,7 @@ fn ground_ui(ui: &mut egui::Ui, ed: &mut Editor, map: &mut MapData, surface: &mu
             }
         });
         ui.add(egui::Slider::new(&mut ed.road_width, 1.0..=12.0).text(tr!("map_editor.width")));
+        ui.add(egui::Slider::new(&mut ed.road_sidewalk, 0.0..=3.0).text(tr!("map_editor.sidewalk")));
         ui.label(egui::RichText::new(tr!("map_editor.road_hint", map.roads.len())).weak());
         if !map.roads.is_empty() && ui.button(tr!("map_editor.remove_all_roads")).clicked() {
             map.roads.clear();
@@ -1053,6 +1221,42 @@ pub fn run() {
         match map.save(&dir) {
             Ok(()) => println!("wrote {} ({}x{} cells, {} deposits, {} objects, {} trees and rocks)", dir.display(), map.nx, map.ny, map.deposits.len(), map.props.len(), map.features.len()),
             Err(e) => eprintln!("failed: {e}"),
+        }
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--roads") {
+        // Restyle the roads of saved maps; only the roads block of map.json changes.
+        for name in args[i + 1..].iter().take_while(|a| !a.starts_with("--")) {
+            let dir = asset_root().join("maps").join(name);
+            let mut map = match MapData::load(&dir) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("cannot load map '{name}': {e}");
+                    continue;
+                }
+            };
+            if map.roads.is_empty() {
+                println!("{name}: no roads");
+                continue;
+            }
+            let report = restyle_roads(&mut map, &defs);
+            let file = dir.join("map.json");
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            let Some(a) = text.find("\"roads\": [") else {
+                eprintln!("{}: no roads block", file.display());
+                continue;
+            };
+            let Some(b) = text[a..].find("\n  ]").map(|b| a + b) else {
+                eprintln!("{}: roads block not closed", file.display());
+                continue;
+            };
+            let lines: Vec<String> = map.roads.iter().map(|r| format!("    {}", serde_json::to_string(&crate::surface::road_line(r)).unwrap_or_default())).collect();
+            let out = format!("{}\"roads\": [\n{}{}", &text[..a], lines.join(",\n"), &text[b..]);
+            match std::fs::write(&file, &out).map_err(|e| e.to_string()).and_then(|_| MapData::load(&dir)) {
+                Ok(m) if m.roads.len() == map.roads.len() => println!("{name}: {report}"),
+                Ok(_) => eprintln!("{name}: the roads did not read back"),
+                Err(e) => eprintln!("{name}: failed: {e}"),
+            }
         }
         return;
     }
@@ -1153,6 +1357,7 @@ pub fn run() {
             biome: Biome::Temperate,
             road_kind: "dirt_road",
             road_width: 3.5,
+            road_sidewalk: 0.0,
             drawing: vec![],
         })
         .insert_resource(map)

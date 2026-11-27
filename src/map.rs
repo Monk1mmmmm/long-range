@@ -945,7 +945,7 @@ impl MapData {
         m.points = m.auto_points();
         // Dirt tracks along the open lanes, rotated like everything else (visual only).
         for k in 0..kk {
-            let road = |a: V2, b: V2, salt: u64| crate::surface::Road { kind: "dirt_road".into(), width: 3.5, points: crate::surface::winding(a, b, 6.0, seed ^ salt) };
+            let road = |a: V2, b: V2, salt: u64| crate::surface::Road::new("dirt_road", 3.5, crate::surface::winding(a, b, 6.0, seed ^ salt));
             let lanes = [road(start0, c, 0x51), road(start0, rot(start0, 1), 0x52)];
             for (i, l) in lanes.into_iter().enumerate() {
                 // With two players the lane between the starts runs through the centre: the two

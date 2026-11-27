@@ -45,6 +45,7 @@ cargo run -- --ground out.png     # every ground texture in one picture, plus ta
 cargo run -- --editor             # map editor (also the main menu's "Map editor": the game starts itself with --editor)
 cargo run -- --editor --generate NAME CELLS[xDEPTH] SEED [PLAYERS] [BIOME]   # generated map with towns, roads, trees, rocks -> assets/maps (BIOME: temperate/desert/arctic/rocky; 256x160 = not square, 2 players)
 cargo run -- --editor --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to a saved map
+cargo run -- --editor --roads NAME ..  # restyle a saved map's roads: kinds by width and town, sidewalks, cut under water (only map.json)
 cargo run -- --editor --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
@@ -583,9 +584,22 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   they show its tiling. `KINDS.color` must match the texture's average (`--ground` prints both): the minimap, lobby
   picture and the land beyond the border use it. Maps saved without layers are painted at load
   (`paint_ground(Temperate)`); random maps get a biome (lobby "Terrain": random from the seed, or chosen) and dirt
-  tracks along the lanes. **Roads** (`MapData.roads`: kind, width, points; map.json lines "kind width x z x z ...",
-  at most 4 kinds per map) are a distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; trees and
-  rocks are kept off them (`scatter_features`, `clear_features_on_roads`). **Scorch**: blasts and deaths near the
+  tracks along the lanes. **Roads** (`MapData.roads`: kind, width, points, `sidewalk`; map.json lines "kind width x z
+  x z ...", the width "4.00+1.20" with sidewalks that wide on each side; at most 8 kinds per map, sidewalks included:
+  two RGBA textures) are a distance-like raster (`road_raster`, edge at 0.5) so edges stay crisp; nothing is drawn
+  under water (the field fades out at the waterline). Kinds (`road_kinds` sorts them into drawing order: sidewalk, tracks,
+  then paved in `KINDS` order, main asphalt last): `asphalt` (main roads, `Kind::lines`), `asphalt_worn` (side streets,
+  patched), `concrete` (slab roads), `cobble` (old centres), `gravel`, `dirt_road`, `sidewalk` (the `SIDEWALK` slot; the
+  shader cuts a kerb + gutter from the road field where a sidewalk runs beside a hard road). Lane markings
+  (`MapData::centre_raster`, own RGBA8 texture): per texel the distance along the road mod 16 and the signed offset from
+  the centre line (both linear, so bilinear filtering keeps the lines exact), drawn/solid flags and half width; dashed centre
+  line (2 on, 2 off), solid from `CENTRE_SOLID` (6.5) and between the two ways of a divided road, edge lines where no sidewalk
+  runs; only on `lines` kinds at least `CENTRE_MIN` (3.5) wide and `CENTRE_MIN_LEN` (15) long (short ways are junction links),
+  none where marked roads cross. `--editor --roads NAME..` restyles a map's roads (`editor::restyle_roads`; only the
+  roads block of map.json changes): OSM widths say the class, the built-up share round a road says town / old centre
+  (buildings are 2x scale: shares run high, villages get no sidewalks), sidewalks only as wide as the gap to the
+  buildings, pieces under water cut off; run it after `tools/osm_map.py`. The shipped OSM maps have been through it. Trees and
+  rocks are kept off roads and sidewalks (`scatter_features`, `clear_features_on_roads`, `Road::reach`). **Scorch**: blasts and deaths near the
   ground darken a view-side map (`SurfaceView::burn` from `fx::spawn_fx`, also unseen ones), permanent, lost when the
   view restarts. Two channels: R char (darkest at the centre, a gradient), G the singed ring round it (darker than the
   ground, lighter than the char); the grass shader reads the same texture. Editor: Ground section (layer list, kind, tile size, Auto paint by biome; Paint tool: left adds the
