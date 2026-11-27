@@ -48,6 +48,7 @@ cargo run -- --editor --scatter NAME [SEED] [AMOUNT]   # add trees and rocks to 
 cargo run -- --editor --roads NAME ..  # restyle a saved map's roads: kinds by width and town, sidewalks, cut under water (only map.json)
 cargo run -- --editor --points NAME   # give a saved map that has none the control points a game would place (only edits map.json)
 scripts/release.sh [--only linux|windows] [--no-upload] [--tag vX] [--draft]   # release bundles (+ gh upload)
+scripts/exe_updates.sh vX              # in-game updater files in dist/: whole exe + patch from the previous release (zstd; release.sh and CI run it)
 .venv/bin/python tools/convert_assets.py "<mod folder>" [--only trooper]   # re-import models/textures/portraits from the mod
 python3 tools/blend.py art/NAME.blend [--watch]   # Blender model -> assets/models/NAME.glb + textures (needs Blender; tools/README.md)
 .venv/bin/python tools/convert_assets.py --props "<maps/mining_town.v0001>"   # map buildings (MAP_PROPS)
@@ -232,7 +233,12 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   default, and one modelled on FAF's "alternative" keymap (reference: FAForever/fa `lua/keymap/alternativeKeyMap.lua`)
   with hotbuild keys chosen by unit role in `hud::hot_key`.
 - Releases: `scripts/release.sh` / `release.ps1` make one archive per platform in `dist/` (the game with the editor in it, + assets)
-  and publish them with `gh`. They first delete everything else in `dist/` (older versions).
+  and publish them with `gh`. Each release also carries the in-game updater's `longrange-<v>-<platform>-exe.zst` and
+  `-from-<previous v>.zst` (`scripts/exe_updates.sh`, needs zstd: `release.ps1` makes none). **In-game updater**
+  (`src/update.rs`, main menu "Check for updates", manual only): compares local files' git blob hashes with the tag's git
+  tree (GitHub API), fetches changed assets from raw.githubusercontent.com and the exe patch (or the whole exe) with the
+  `curl` program into `.update/`, checks them, moves them into place (running exe -> `*.old`) and restarts. Assets must stay
+  byte for byte what git holds (they do: the bundle copies the checkout). Off under `cargo run` / `LR_ASSETS`. They first delete everything else in `dist/` (older versions).
   `.github/workflows/release.yml` does the same on GitHub's machines (Linux + Windows MSVC) when a tag `v*` is pushed
   (or by hand from the Actions tab, "Run workflow" on main, which creates the tag): bump `Cargo.toml`, add the `## vX.Y.Z` CHANGELOG section, tag, push the tag.
   Commit every finished incremental change right away (one commit per change, short message saying what it does),
@@ -275,6 +281,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
 | `src/view/icons.rs` | procedural strategic icons, order icons, mouse cursors |
 | `src/view/cursor.rs` | hardware mouse cursor showing the click's action (`CursorWant` set by the HUD from `hud::Frame::context` / the order mode); takes cursor control from egui |
 | `src/main.rs` | menu, lobby, preset editor, host/client session loop, headless tests |
+| `src/update.rs`, `scripts/exe_updates.sh` | in-game updater: changed assets via the tag's git tree + raw downloads, exe via zstd patch, curl, install + restart |
 | `src/i18n.rs`, `assets/lang/` | localisation: `tr!` / `tx!` / `tr`, language files, completeness test |
 | `src/preset_form.rs` | the preset editor's form view: one `Field` (JSON path, label, kind + default, tooltip) per setting of rules.json, units and weapons; edits a `serde_json::Value`, keys it does not know stay |
 | `src/editor.rs` | map editor and map generation CLI (`longrange --editor`) |

@@ -831,6 +831,8 @@ struct AppState {
     message: String,
     skirmish: bool,
     settings_open: bool,
+    /// The "Check for updates" window (main menu), with its check or download running in the background.
+    update: Option<longrange::update::Updater>,
     /// The built-in game data; a lobby or a host may put a preset in its place for one game.
     base_defs: Defs,
 }
@@ -1819,6 +1821,64 @@ fn browser_ui(ui: &mut egui::Ui, ctx: &egui::Context, b: &mut Browser, defs: &De
 }
 
 /// Main menu and lobbies.
+/// The updater window; true when closed.
+fn update_ui(ctx: &egui::Context, u: &longrange::update::Updater) -> bool {
+    use longrange::update::{mb, State};
+    let mut close = false;
+    egui::Window::new(tr!("update.title")).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        ui.set_width(520.0);
+        ui.label(tr!("update.running", env!("CARGO_PKG_VERSION")));
+        ui.add_space(6.0);
+        match u.state() {
+            State::Busy(t) => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(t);
+                });
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
+            State::UpToDate => {
+                ui.label(tr!("update.up_to_date"));
+            }
+            State::Ready(p) => {
+                ui.label(egui::RichText::new(tr!("update.available", p.tag)).strong());
+                ui.label(tr!("update.size", p.files, p.removed, mb(p.bytes)));
+                ui.add_space(4.0);
+                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&p.notes).size(12.0));
+                });
+                ui.add_space(6.0);
+                if ui.button(tr!("update.install")).clicked() {
+                    u.install(p.clone());
+                }
+            }
+            State::Done(tag) => {
+                ui.label(tr!("update.done", tag));
+                if ui.button(tr!("update.restart")).clicked() {
+                    match longrange::update::restart() {
+                        Ok(()) => std::process::exit(0),
+                        Err(e) => {
+                            ui.colored_label(egui::Color32::from_rgb(255, 120, 105), e);
+                        }
+                    }
+                }
+            }
+            State::Failed(e) => {
+                ui.colored_label(egui::Color32::from_rgb(255, 120, 105), e);
+                ui.hyperlink_to(tr!("update.releases_page"), format!("https://github.com/{}/releases", longrange::update::REPO));
+            }
+        }
+        // No closing while a check or download runs.
+        if !u.busy() {
+            ui.add_space(6.0);
+            if ui.button(tr!("update.close")).clicked() {
+                close = true;
+            }
+        }
+    });
+    close
+}
+
 fn menu_ui(world: &mut World) {
     let Some(mut app) = world.remove_non_send::<AppState>() else { return };
     if matches!(app.screen, Screen::Game(_)) {
@@ -1953,6 +2013,10 @@ fn menu_ui(world: &mut World) {
                     ui.add_space(6.0);
                     if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("common.settings"))).clicked() {
                         app.settings_open = true;
+                    }
+                    ui.add_space(6.0);
+                    if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("update.check"))).clicked() && app.update.is_none() {
+                        app.update = Some(longrange::update::Updater::check());
                     }
                     ui.add_space(6.0);
                     if ui.add_sized([440.0, 34.0], egui::Button::new(tr!("main_menu.quit"))).clicked() {
@@ -2462,6 +2526,13 @@ fn menu_ui(world: &mut World) {
         }
         if close {
             app.settings_open = false;
+        }
+    }
+    if matches!(app.screen, Screen::Menu) && next.is_none() {
+        if let Some(u) = &app.update {
+            if update_ui(&ctx, u) {
+                app.update = None;
+            }
         }
     }
     if let Some(n) = next {
@@ -5828,6 +5899,7 @@ fn tank_tests(defs: &Defs) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    longrange::update::cleanup();
     if args.iter().any(|a| a == "--editor") {
         return longrange::editor::run();
     }
@@ -5901,7 +5973,7 @@ fn main() {
     .insert_resource(defs.clone())
     .insert_resource(longrange::settings::StartSettings(settings.clone()))
     .insert_resource(settings)
-    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, base_defs: defs })
+    .insert_non_send(AppState { screen: Screen::Menu, name, ip: String::new(), message: String::new(), skirmish: args.iter().any(|a| a == "--skirmish" || a == "--bench"), settings_open: false, update: None, base_defs: defs })
     .add_plugins((SimPlugin, view::ViewPlugin))
     .add_systems(Startup, setup)
     .add_systems(PreUpdate, session_update)

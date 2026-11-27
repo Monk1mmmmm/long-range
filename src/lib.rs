@@ -12,4 +12,5 @@ pub mod replay;
 pub mod settings;
 pub mod sim;
 pub mod surface;
+pub mod update;
 pub mod view;

@@ -5,6 +5,9 @@ Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 
 ## Unreleased
 
+Updates
+- Main menu "Check for updates": downloads only the files that changed and a small patch of the program instead of the whole game, installs and restarts. Works from the next release on (this one still has to be downloaded whole).
+
 ## v0.16.1
 
 Graphics

@@ -83,6 +83,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Updater files (whole exe + patch from the previous release, scripts/exe_updates.sh)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          command -v zstd >/dev/null || sudo apt-get install -y zstd
+          scripts/exe_updates.sh "$TAG"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
