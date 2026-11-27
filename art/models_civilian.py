@@ -30,8 +30,6 @@ def block(k, x, y, w, l, floors, fh=1.45, mat="panel_block", roof="roof_tar", pa
 def residential_tower():
     """Five-storey prefab apartment block, L-shaped, with balconies and stair entrances."""
     k = Kit("residential_tower")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.06), (0, 0, 0.03), "asphalt")
     h = block(k, -0.6, -2.2, 6.6, 2.8, 5, door=-1.6, seed=1)
     block(k, 2.4, 1.3, 2.8, 4.4, 5, faces=("back", "left", "right"), seed=7)
     # balconies on the front
@@ -51,8 +49,6 @@ def residential_tower():
 def science_lab():
     """Research institute: three storeys, an observatory dome and an antenna mast."""
     k = Kit("science_lab")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.06), (0, 0, 0.03), "asphalt")
     h = block(k, 0, -0.4, 6.4, 3.6, 3, fh=1.3, mat="plaster_w", door=0.0, win=(0.6, 0.6), seed=3)
     k.box((1.6, 1.0, 1.4), (0, -2.5, 0.7), "glass", faces={"top": "concrete"})  # glass entrance
     k.box((1.8, 1.2, 0.15), (0, -2.5, 1.45), "concrete")
@@ -76,8 +72,6 @@ def science_lab():
 def admin_building():
     """Two-storey town hall: plastered, a columned portico with a pediment, a tiled hip roof and a flag."""
     k = Kit("admin_building")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.06), (0, 0, 0.03), "concrete")
     w, l, h = 6.4, 4.2, 2.8
     k.box((w, l, h), (0, 0.4, h / 2), "plaster_y", faces={"top": "roof_tar"})
     k.box((w + 0.16, l + 0.16, 0.12), (0, 0.4, h - 0.06), "plaster_w")  # cornice
@@ -104,8 +98,6 @@ def admin_building():
 def admin_hall():
     """Palace of culture: a wide hall behind a colonnade, a stepped central tower with a clock."""
     k = Kit("admin_hall")
-    with k.nohit_():
-        k.box((11.9, 11.9, 0.06), (0, 0, 0.03), "concrete")
     w, l, h = 11.0, 6.4, 4.4
     k.box((w, l, h), (0, 0.4, h / 2), "brick_y", faces={"top": "roof_tar"})
     k.box((w + 0.12, l + 0.12, 0.3), (0, 0.4, h + 0.1), "plaster_w")
@@ -133,8 +125,6 @@ def admin_hall():
 def high_command():
     """Office tower: a glass curtain wall in a concrete frame on a low podium, an antenna mast on top."""
     k = Kit("high_command")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.06), (0, 0, 0.03), "concrete")
     k.box((6.6, 5.6, 1.2), (0, 0.3, 0.6), "plaster_w", faces={"top": "roof_tar"})
     k.windows((0, 0.3 - 2.8, 0.6), (0, -1, 0), 6.6, 1.2, 1, 6, win=(0.8, 0.7), sill=0.25, skip=((0, 2), (0, 3)))
     k.box((1.8, 0.8, 1.0), (0, -2.75, 0.5), "glass", faces={"top": "concrete"})
@@ -161,8 +151,6 @@ def high_command():
 def farm():
     """Collective farm yard: a red barn with a slate roof, two silos, a machine shed and hay bales."""
     k = Kit("farm")
-    with k.nohit_():
-        k.box((11.9, 11.9, 0.04), (0, 0, 0.02), "asphalt") if False else None
     bw, bl, bh = 4.4, 7.0, 2.4
     k.box((bw, bl, bh), (-2.6, 0.6, bh / 2), "barn")
     roof = [(-2.6 - bw / 2 - 0.2, bh), (-2.6 - bw / 2 + 0.3, bh + 0.9), (-2.6, bh + 1.75), (-2.6 + bw / 2 - 0.3, bh + 0.9), (-2.6 + bw / 2 + 0.2, bh)]
@@ -193,8 +181,6 @@ def farm():
 def plant():
     """Small brick works: sawtooth north-light roofs, loading doors and a tall brick chimney."""
     k = Kit("plant")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.06), (0, 0, 0.03), "concrete")
     w, l, h = 5.6, 4.6, 2.4
     k.box((w, l, h), (-0.6, 0.4, h / 2), "brick", faces={"top": "roof_tar"})
     for i in range(4):  # sawtooth
@@ -218,8 +204,6 @@ def refinery():
     """Oil refinery: distillation columns, a furnace block, storage spheres, pipe racks and a flare stack."""
     from models_defence import lattice
     k = Kit("refinery")
-    with k.nohit_():
-        k.box((11.9, 11.9, 0.06), (0, 0, 0.03), "concrete")
     k.box((5.0, 3.0, 2.6), (-2.6, 2.6, 1.3), "brick", faces={"top": "roof_tar"})  # furnace house
     k.windows((-2.6, 1.1, 1.3), (0, -1, 0), 5.0, 2.6, 1, 5, win=(0.5, 0.8), sill=1.0)
     for x, r, h in ((-3.8, 0.55, 8.8), (-2.4, 0.45, 7.0), (-1.2, 0.38, 6.0)):
@@ -248,8 +232,6 @@ def refinery():
 def fuel_tank():
     """Fuel storage tank with a spiral-less stair, a bund wall and a pump."""
     k = Kit("fuel_tank")
-    with k.nohit_():
-        k.box((3.9, 3.9, 0.08), (0, 0, 0.04), "concrete")
     for s in (-1, 1):
         k.box((3.8, 0.12, 0.35), (0, s * 1.85, 0.2), "concrete_d")
         k.box((0.12, 3.8, 0.35), (s * 1.85, 0, 0.2), "concrete_d")
@@ -286,8 +268,6 @@ def comm_tower():
     """Communications mast: a red and white lattice with dishes, a rotating antenna and an equipment hut."""
     from models_defence import lattice, dish
     k = Kit("comm_tower")
-    with k.nohit_():
-        k.box((3.9, 3.9, 0.06), (0, 0, 0.03), "concrete")
     k.box((2.2, 1.6, 1.4), (0, 1.0, 0.7), "plaster_w", faces={"top": "roof_tar"})
     k.door((0, 0.2, 0.0), (0, -1, 0), 0.6, 1.0, "metal_door")
     for i in range(5):

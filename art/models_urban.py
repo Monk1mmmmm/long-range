@@ -236,8 +236,6 @@ def adr_apartment_block():
     k = Kit("adr_apartment_block")
     w, l, sh = 7.4, 4.6, 1.1
     h = 4 * sh + 0.5
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete_d")
     k.box((w, l, h), (0, 0, h / 2), "plaster_ochre", faces={"top": "concrete"})
     k.box((w + 0.2, l + 0.2, 0.14), (0, 0, h + 0.05), "stone")
     hip(k, 0, 0, w, l, h + 0.12, 1.0, "terracotta", over=0.3)
@@ -260,8 +258,6 @@ def ce_apartment_block():
     k = Kit("ce_apartment_block")
     sh = 1.0
     h = 5 * sh + 0.4
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete_d")
     for (x, y, w, l) in ((0.0, -2.2, 7.4, 2.8), (-2.3, 1.4, 2.8, 4.4)):
         k.box((w, l, h), (x, y, h / 2), "plaster_cream", faces={"top": "roof_tar"})
         k.box((w + 0.16, l + 0.16, 0.14), (x, y, h + 0.04), "plaster_w")
@@ -288,7 +284,6 @@ def mall():
     """Shopping mall (footprint 6): a two-storey box with a glass curtain wall, a tall entrance atrium, a sign band and roof plant."""
     k = Kit("mall")
     with k.nohit_():
-        k.box((11.9, 11.9, 0.05), (0, 0, 0.025), "asphalt")
         for i in range(0 if LOW else 8):  # parked cars
             k.box((0.9, 0.5, 0.35), (-4.5 + i * 1.3, -5.0, 0.25), ["red", "white", "steel", "black", "yellow"][i % 5])
     w, l, h = 10.6, 7.0, 3.6
@@ -319,8 +314,6 @@ def mall():
 def hospital():
     """Hospital (footprint 6): a white four-storey central block with two wings, a red cross, an ambulance bay and a rooftop helipad."""
     k = Kit("hospital")
-    with k.nohit_():
-        k.box((11.9, 11.9, 0.05), (0, 0, 0.025), "concrete_d")
     sh = 1.1
     h = 4 * sh
     k.box((4.8, 4.2, h + 0.8), (0, 0.8, (h + 0.8) / 2), "plaster_w", faces={"top": "roof_tar"})
@@ -353,7 +346,6 @@ def train_station():
     """Railway station (footprint 6): a long hall with a glazed roof, a clock tower, platform canopies and tracks."""
     k = Kit("train_station")
     with k.nohit_():
-        k.box((11.9, 11.9, 0.05), (0, 0, 0.025), "concrete_d")
         for i in range(4):
             k.box((11.8, 0.1, 0.06), (0, 0.6 + i * 1.6, 0.08), "steel_d")
             for j in range(0 if LOW else 23):
@@ -382,7 +374,6 @@ def school():
     """School (footprint 4): a yellow three-storey main block with a lower wing, a flagpole and a sports field."""
     k = Kit("school")
     with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete_d")
         k.box((3.0, 2.0, 0.04), (2.3, 2.9, 0.06), "shutter_g")
     sh = 1.15
     k.box((7.0, 2.8, 3 * sh), (0, -1.2, 3 * sh / 2), "plaster_y", faces={"top": "roof_tar"})
@@ -403,8 +394,6 @@ def school():
 def hotel():
     """Hotel (footprint 4): a six-storey slab with lit rooms, balconies, a columned entrance canopy and a rooftop sign."""
     k = Kit("hotel")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "asphalt")
     sh = 1.05
     h = 6 * sh
     k.box((5.6, 3.4, h + 0.9), (0, 0.0, (h + 0.9) / 2), "plaster_w", faces={"top": "roof_tar"})
@@ -426,8 +415,6 @@ def hotel():
 def office_tower():
     """Office tower (footprint 4): a glass and concrete tower of twelve floors on a low podium with a plaza."""
     k = Kit("office_tower")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete_l")
     k.box((7.0, 6.0, 1.5), (0, 0.2, 0.75), "concrete_l", faces={"top": "concrete"})
     k.box((7.0, 0.08, 1.1), (0, 0.2 - 3.02, 0.8), "glass")
     k.box((3.8, 3.8, 11.0), (0, 0.4, 7.0), "glass", faces={"top": "roof_tar"})
@@ -448,8 +435,6 @@ def office_tower():
 def theatre():
     """Theatre (footprint 4): a classical hall with a columned portico and pediment, a stage house behind and a copper dome."""
     k = Kit("theatre")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete")
     k.box((6.6, 6.0, 0.4), (0, 0, 0.2), "stone")
     k.box((5.0, 4.4, 3.2), (0, 0.8, 2.0), "plaster_cream", faces={"top": "roof_tar"})
     k.box((5.2, 4.6, 0.2), (0, 0.8, 3.7), "stone")
@@ -502,8 +487,6 @@ def parking_garage():
 def market_hall():
     """Covered market (footprint 4): a brick hall with arched openings, a gable roof with a glazed lantern and stalls out front."""
     k = Kit("market_hall")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete")
     k.box((6.2, 5.6, 2.4), (0, 0.4, 1.2), "brick", faces={"top": "steel_d"})
     k.box((6.3, 5.7, 0.3), (0, 0.4, 0.15), "stone_d")
     gable(k, 0, 0.4, 6.2, 5.6, 2.4, 1.6, "corr_green", "brick", over=0.25, ridge="y")
@@ -526,8 +509,6 @@ def market_hall():
 def fire_station():
     """Fire station (footprint 4): a brick building with three red engine doors, a hose tower and a flat roof."""
     k = Kit("fire_station")
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "concrete")
     k.box((6.6, 4.4, 2.8), (0, 0.4, 1.4), "brick", faces={"top": "roof_tar"})
     k.box((6.7, 4.5, 0.14), (0, 0.4, 2.85), "concrete")
     for x in (-2.0, 0.0, 2.0):
@@ -572,8 +553,6 @@ def police_station():
 def gas_station():
     """Filling station (footprint 2): a canopy on four posts over two pumps, a small shop and a price sign."""
     k = Kit("gas_station")
-    with k.nohit_():
-        k.box((3.9, 3.9, 0.05), (0, 0, 0.025), "concrete_d")
     k.box((3.2, 1.9, 0.14), (0, -0.5, 2.0), "white")
     k.box((3.24, 1.94, 0.1), (0, -0.5, 2.1), "red")
     for sx in (-1.4, 1.4):

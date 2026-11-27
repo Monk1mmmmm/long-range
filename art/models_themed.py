@@ -221,8 +221,6 @@ def sov_block5():
     k = Kit("sov_block5")
     w, l, sh = 7.4, 3.4, 1.2
     h = 5 * sh
-    with k.nohit_():
-        k.box((7.9, 7.9, 0.05), (0, 0, 0.025), "asphalt")
     k.box((w, l, h + 0.3), (0, 0, (h + 0.3) / 2), "panel_grey", faces={"top": "roof_tar"})
     k.box((w + 0.12, l + 0.12, 0.2), (0, 0, 0.3 + h + 0.05), "concrete")
     front_windows(k, 0, -l / 2, w - 0.6, 0.55, 5, sh, 9, win=(0.3, 0.5), trim="white", skip=tuple((0, c) for c in (1, 4, 7)), lit=0.1, seed=10)
