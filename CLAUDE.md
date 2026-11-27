@@ -69,7 +69,7 @@ fight at the first start), `LR_PLAYERS=10` (AI count for `--selftest`), `LR_SEED
 for `--selftest`: one game proves little, compare a few), `LR_SURFACE_DEBUG=n` (ground shader shows one input
 For `--selftest` only: `LR_AI=zones,overseer,simple,...` (the AI type of each player in turn; default one of
 each), `LR_TEAMS=2` (player i plays in team i % n), `LR_POINTS=1200` (control points mode), `LR_COMP=1` (lists
-what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_INFCAP=1` (the lobby option "infantry capture buildings"), `LR_EVERY=300`
+what every player owns), `LR_MOAT=1` (water around the second start: tests transports and island play), `LR_INFCAP=0` (the lobby option "infantry capture buildings" off; on by default), `LR_RUBBLE=0/1` (the lobby option "rubble blocks paths", default from the data), `LR_EVERY=300`
 (report every that many ticks instead of 3000), `LR_AIDEBUG=1` (player 0's attacking body to stderr every 30 s: each unit's
 distance to the step and to the march centre, its order, `*` = firing). For `--combattest` with `LR_TEST=tanks`: `LR_FIGHTS=bastion:1:overtaker:4;...` (own equal-mass fights instead of the built-in list), `LR_OPEN=1` (open ground only). The report prints each AI's state (`Brain::debug`): strategy, army phase, zones held.
 unlit: 1 base layer, 2 scorch, 3 masks 1-3, 4 roads, 5 blended colour, 6 vertex tint), `LR_SHOT=file.png,secs,unit,dist[,shore|x:z]`
@@ -293,10 +293,14 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   `Cen::hit_r` around the box.
   Guns have turret traverse speed, `aim_time` (must hold on target) and `spread`; salvos fire bursts.
 - **Line of fire** (direct fire, `systems::Lane`): a gun follows the shell's real arc (with a spread allowance)
-  and fires only if it reaches the target before the ground, water, a building other than the target, or an own
-  (with friendly fire) or neutral unit. A hull-down target is aimed at higher up (`WeaponState.lift`); with no
-  clear shot (`WeaponState.blocked`) the gun takes another enemy in the clear (not an ordered one), and units on
-  Attack / attack-move whose guns are all blocked close in. `fire` adds half a tick of gravity so shells fly the
+  and fires only if it reaches the target before the ground, water, a building other than the target, an own
+  (with friendly fire) or neutral unit, or a reclaimable with at least `COVER_BLOCK` (0.25) cover (trees, rocks,
+  wrecks, debris; bushes do not count; nothing within `cover_grace` of the shooter). A hull-down target is aimed at
+  higher up (`WeaponState.lift`, up to 0.6 of its height); with no clear shot (`WeaponState.blocked`) the gun takes
+  another enemy in the clear (not an ordered one), and a ground unit whose guns are all blocked - idle, on
+  attack-move or on Attack - steps aside to the nearest spot with a clear line (`firing_spot`: rings up to 26 round
+  it, kept in `Mover.cover` until reached); on Attack with no such spot it closes in, but not nearer than half its
+  range (requested: try to shoot round a boulder, move a little, not drive up to the target). `fire` adds half a tick of gravity so shells fly the
   arc they were laid for. `--combattest` "Line of fire" lines.
 - **Engineers before buildings**: while an enemy engineer (any mobile builder: engineers, commander, scavengers;
   `Cen::engineer`) is in a weapon's reach, enemy buildings rank below every other enemy (`Census::pick_enemy`,
@@ -370,31 +374,42 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   setting "Remembered buildings: Show models in the fog" (`Settings::ghost_models`, default on) turns these models off:
   out of sight only the icons remain. Right-clicking a
   ghost issues ground fire at its position.
-- **Reclaimables** (the user's word for trees, rocks and wrecks together): shells do not stop at them, but a
-  shell flying through one loses its `cover` share of the damage to it (cover, below), and a
-  shell landing on one or a blast (radius, death blasts) wears it down (`systems::hurt_reclaimables`): trees and
-  rocks have `hp` in `rules.json: features` (times the map's scale; `left` drops by damage / hp), wrecks have
-  `rules.wreck_hp` x the unit's hp (armor applies) and lose mass in step. At zero they are gone.
+- **Reclaimables** (the user's word for trees, rocks and wrecks together): **weapons never destroy them** (requested;
+  only reclaiming, a building site on a tree/rock and the wreck caps remove them). Shells do not stop at them, but a
+  shell flying through one loses its `cover` share of the damage to it (cover, below); a shell landing on one or a
+  blast (radius, death blasts; `systems::hurt_reclaimables`) fells trees and shatters rocks (below) and shoves wrecks
+  and debris (`push_wrecks`: impulse = damage away from the blast, or along the shot for cover passes; speed +=
+  `rules.rubble_push` (0.25) x impulse / sqrt(mass still in it); a piece shoved at least `RUBBLE_THROW` (2.5) fast is
+  thrown (falling again, up to 10), others slide (whole unit wrecks up to 2); wrecks of buildings never move).
+  `rubble_motion` (was `debris_fall`) moves them: falling pieces as before (keeping 0.3 of their ground speed on
+  landing), sliding ones with friction 0.8 g and the slope's pull, stopped by a building's footprint. `Wreck.vel` and
+  `falling` are snapshotted. View: wrecks follow the slide (`wreck_visuals`), debris rolls (`debris_visuals`).
   Unfinished buildings are ordinary targets (5% hp at placement, hp grows with progress).
-  **Felling** (`rules.tree_fall`, 0.25): a blast doing that share of a tree's (not a bush's) or rock's hp, or a shell
-  that destroys a standing tree, calls `Features::fell`: `FeatureState.fall` (1 + direction in 255 steps, `sim::fall_yaw`;
-  snapshot field `fallen`) and the height drops to `FALLEN_HEIGHT`; it keeps at least `FALLEN_KEEP` of its value and
-  is destroyed by further hits. View: `flora::ruin` / `fallen_pose` (charred log along the fall, rocks a rubble heap),
+  **Felling** (`rules.tree_fall`, 0.25): one hit (blast, or a shot through it soaking that much) doing that share of a
+  tree's (not a bush's) or rock's `hp` (`rules.json: features`, times the map's scale) calls `Features::fell`:
+  `FeatureState.fall` (1 + direction in 255 steps, `sim::fall_yaw`; snapshot field `fallen`) and the height drops to
+  `FALLEN_HEIGHT`; it keeps its value. View: `flora::ruin` / `fallen_pose` (charred log along the fall, rocks a rubble heap),
   `flora::launch` / `fly` (the tree flies and topples, rock splinters), only for falls seen happening.
 - **Debris** (`rules.debris`): a single hit of at least `min_hit` of a finished building's hp, and its
   destruction, drop pieces of debris. A piece is a `Wreck` with `piece` > 0 (its size; never revived) that
-  first falls (`falling`, `vel`, moved by `systems::debris_fall`; not in `WreckList` until it lands, then it
+  first falls (`falling`, `vel`, moved by `systems::rubble_motion`; not in `WreckList` until it lands, then it
   hurts the units it lands on). Their mass comes out of the building's wreck value: the unit's `Shed`
   component (snapshot field `shed`) counts what it dropped, the wreck and reclaiming the standing building
-  give that much less, so damage + repair makes no mass. Pieces have their own cap (`debris.max`), take
-  shell damage like wrecks, and those at least `sight_size` big block sight (`Wreck::shape`).
+  give that much less, so damage + repair makes no mass. Pieces have their own cap (`debris.max`), are thrown and
+  shoved by blasts like wrecks, and those at least `sight_size` big block sight (`Wreck::shape`).
   View: `Settings::effects` 0 low (pieces appear on landing, boxes without shadows, fewer explosion
   puffs, no flash lights), 1 medium, 2 high (dust where pieces land, `FX_DEBRIS`).
 - **Cover** (`systems::soak_cover`, called in `projectiles` for every flight segment): each tree, rock or wreck
   a shot passes through (closest approach to its axis inside this tick's segment, so each counts once) takes
   its share of the damage: `features[].cover` (default by shape: pine 0.3, broadleaf 0.35, bush 0.15, rock
   0.65) or `rules.wreck_cover`; the shot flies on with the rest. Cover within `rules.cover_grace` of the shooter
-  (`Projectile.from`) does not count, so units fire out from behind their own. Cover wears away under fire.
+  (`Projectile.from`) does not count, so units fire out from behind their own. Cover is never used up.
+- **Rubble blocks paths** (lobby option, `Game.rubble_blocks`; ticked by default from `rules.rubble_blocks_paths`,
+  on in the built-in data, off in Relaxed; the lobby resets it when the data preset changes): `begin_tick` marks the
+  free cells under unit wrecks (the cells their `Wreck::shape` radius covers, at least their own), building ruins
+  (footprint) and debris pieces of at least `debris.sight_size` as `map::OCC_RUBBLE` in `Nav.occ` (`rubble_cells`,
+  `Nav.rubble` remembers them; derived, not state), so land units path round them (infantry too) until reclaimed or
+  shoved away. `can_place` treats them as free: buildings may go on rubble. `--combattest` "Rubble blocks paths" line.
 - **Infantry** (`"categories": ["infantry"]`, `UnitDef::is_infantry`: Trooper, AT/SAM Trooper): idle or
   engaged on attack-move/patrol, `think` sends them to `cover_spot`, behind the nearest tree/rock/wreck (at
   least 0.7 tall) on the far side from the closest known armed enemy within `cover_threat_range`, within
@@ -436,7 +451,7 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   soften close-quarters damage), the holders do not fire out while stormed, and once it is clear one attacker steps in.
   Before this a trench could only be shot out: 6 riflemen on attack-move lost to 4 in a trench. `--combattest` fieldworks
   "Trench fight": 6 storming riflemen take a trench 4 hold, an even fight goes to the defenders.
-- **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, off by default; Cossacks
+- **Infantry capture** (lobby option "Infantry capture buildings", `Game.infantry_capture`, on by default (requested; headless tests: Game default off, `--selftest` on); Cossacks
   style): infantry may take `Order::Capture` (right-click an enemy or neutral building, or the Capture button) on any
   building `sim::seizable` (every turret; not factories or field works; of the garrisons only bunkers and other
   military ones - armed, or built by a side - and only once empty, `systems::can_seize`: held ones are stormed). At the building it queues

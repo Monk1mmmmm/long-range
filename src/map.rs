@@ -1409,6 +1409,11 @@ pub const OCC_WORK: u8 = 3;
 /// through along the bottom, and other land units cannot enter.
 pub const OCC_DEEP: u8 = 4;
 
+/// Occupancy value of a free cell rubble lies on while `Game.rubble_blocks` is on (a unit's
+/// wreck, the ruin of a building, a big piece of debris): land units go round it, buildings may
+/// still be put on it.
+pub const OCC_RUBBLE: u8 = 5;
+
 
 /// Can a unit stand on a cell with this occupancy value?
 pub fn passable(occ: u8) -> bool {

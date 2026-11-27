@@ -180,8 +180,8 @@ impl Default for DebrisRules {
     }
 }
 
-fn wreck_hp() -> f32 {
-    0.5
+fn rubble_push() -> f32 {
+    0.25
 }
 fn revive_cooldown() -> f32 {
     60.0
@@ -382,9 +382,10 @@ pub struct Rules {
     pub start_energy: f32,
     pub wreck_mass_fraction: f32,
     pub max_wrecks: usize,
-    /// A wreck's hit points as a share of the unit's (weapons wear wrecks down).
-    #[serde(default = "wreck_hp")]
-    pub wreck_hp: f32,
+    /// Blasts and shots shove wrecks and debris (never destroyed by weapons): speed gained per
+    /// damage, divided by the square root of the mass still in it. 0: they never move.
+    #[serde(default = "rubble_push")]
+    pub rubble_push: f32,
     /// Seconds before the wreck of a revived unit (or of an unfinished revival site) can be revived again.
     #[serde(default = "revive_cooldown")]
     pub revive_cooldown: f32,
@@ -465,6 +466,9 @@ pub struct Rules {
     /// A remembered enemy building that was destroyed out of sight shows dimmed (SupCom style; view only).
     #[serde(default = "yes")]
     pub ghosts_show_destroyed: bool,
+    /// Default of the lobby option "Rubble blocks paths" (`Game.rubble_blocks`) for this data set.
+    #[serde(default = "yes")]
+    pub rubble_blocks_paths: bool,
     /// AI engineers reclaim trees and rocks when short of resources.
     #[serde(default = "yes")]
     pub ai_reclaim: bool,

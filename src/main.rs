@@ -77,6 +77,9 @@ struct HostLobby {
     reveal_props: bool,
     /// Infantry capture enemy buildings other than factories (`Game.infantry_capture`).
     infantry_capture: bool,
+    /// Wrecks and ruins block land units' paths (`Game.rubble_blocks`); set from the data
+    /// (`rules.rubble_blocks_paths`) whenever the game data changes.
+    rubble_blocks: bool,
     /// Weather: k = `rules.weather[k]`, the length of the list = random (`Game.weather`).
     weather: usize,
     /// Start positions of each premade map.
@@ -199,6 +202,7 @@ impl HostLobby {
         if self.infantry_capture {
             t += &tr!("lobby.summary_infantry_capture", tr!("lobby.yes"));
         }
+        t += &tr!("lobby.summary_rubble_blocks", if self.rubble_blocks { tr!("lobby.yes") } else { tr!("lobby.no") });
         t += &tr!("lobby.summary_weather", self.weather_label(defs));
         if self.map_choice < SIZES.len() {
             let b = self.biome.checked_sub(1).and_then(|k| longrange::surface::BIOMES.get(k).copied()).unwrap_or(longrange::surface::Biome::from_seed(self.seed));
@@ -877,7 +881,8 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         thumbs,
         tab: 0,
         reveal_props: true,
-        infantry_capture: false,
+        infantry_capture: true,
+        rubble_blocks: defs.rules.rubble_blocks_paths,
         weather: 0,
         counts,
         biome: 0,
@@ -942,6 +947,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     }
     world.resource_mut::<Game>().reveal_props = l.reveal_props;
     world.resource_mut::<Game>().infantry_capture = l.infantry_capture;
+    world.resource_mut::<Game>().rubble_blocks = l.rubble_blocks;
     let weather = env_weather(world.resource::<Defs>()).unwrap_or_else(|| l.weather_index(world.resource::<Defs>()));
     world.resource_mut::<Game>().weather = weather;
     for ai in &ais {
@@ -2123,6 +2129,7 @@ fn menu_ui(world: &mut World) {
                                     match Defs::load_preset(&asset_root(), &name) {
                                         Ok(d) => {
                                             l.preset = k;
+                                            l.rubble_blocks = d.rules.rubble_blocks_paths;
                                             let f = d.playable_factions().first().copied().unwrap_or(0) as u8;
                                             for s in l.slots.iter_mut() {
                                                 s.faction = f;
@@ -2171,6 +2178,9 @@ fn menu_ui(world: &mut World) {
                                     l.dirty = true;
                                 }
                                 if ui.checkbox(&mut l.infantry_capture, tr!("lobby.infantry_capture")).on_hover_text(tr!("lobby.infantry_capture_tip")).changed() {
+                                    l.dirty = true;
+                                }
+                                if ui.checkbox(&mut l.rubble_blocks, tr!("lobby.rubble_blocks")).on_hover_text(tr!("lobby.rubble_blocks_tip")).changed() {
                                     l.dirty = true;
                                 }
                             } else {
@@ -2802,8 +2812,11 @@ fn selftest() {
     if let Some(points) = std::env::var("LR_POINTS").ok().and_then(|s| s.parse::<f32>().ok()) {
         enable_control_points(world, points);
     }
-    // LR_INFCAP=1: the lobby option "infantry capture buildings".
-    world.resource_mut::<Game>().infantry_capture = std::env::var("LR_INFCAP").is_ok();
+    // The lobby options "infantry capture buildings" (on by default, LR_INFCAP=0: off) and
+    // "rubble blocks paths" (from the data, LR_RUBBLE=0/1 overrides).
+    world.resource_mut::<Game>().infantry_capture = std::env::var("LR_INFCAP").as_deref() != Ok("0");
+    let rubble = std::env::var("LR_RUBBLE").map_or(world.resource::<Defs>().rules.rubble_blocks_paths, |v| v != "0");
+    world.resource_mut::<Game>().rubble_blocks = rubble;
     // LR_WEATHER=rain (an id of `rules.weather`).
     if let Some(w) = env_weather(world.resource::<Defs>()) {
         world.resource_mut::<Game>().weather = w;
@@ -3343,8 +3356,9 @@ fn combattest() {
         println!("== Sight through a tree line: enemy {:.0} away seen behind the trees: {behind_trees}, after they are gone: {in_the_open}", a.dist(b));
         assert!(!behind_trees && in_the_open, "trees block sight");
     }
-    // 7d. Weapons destroy reclaimables and unfinished buildings: a Pike shells a grove with a rock
-    // and a wreck in it, a Crony shoots an enemy windmill left half built.
+    // 7d. Weapons never destroy reclaimables, only unfinished buildings: a Pike shells a grove with
+    // a rock and a wreck in it (the pines fall, the rock shatters, the wreck is shoved about, all
+    // keep their worth), a Crony shoots an enemy windmill left half built.
     {
         let mut app = headless(defs.clone());
         let mut map = MapData::generate(192, 4242, 2);
@@ -3363,11 +3377,16 @@ fn combattest() {
         spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
         spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
         let mut game = world.resource::<Game>().clone();
+        let wreck_at = spot + v2(1.0, -2.5);
+        let crony = defs.id("crony").unwrap();
+        let wreck_mass = defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction;
         let (wreck, site) = {
             let mut commands = world.commands();
             let id = game.alloc();
-            let crony = defs.id("crony").unwrap();
-            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: defs.get(crony).cost.mass * defs.rules.wreck_mass_fraction, pos: spot + v2(1.0, -2.5), y: 2.0, yaw: 0.0, ..Default::default() });
+            spawn_wreck(&mut commands, Wreck { id, def: crony, mass: wreck_mass, pos: wreck_at, y: 2.0, yaw: 0.0, ..Default::default() });
+            // A small piece of debris next to it (`id + 1`, allocated right after).
+            let piece = game.alloc();
+            spawn_wreck(&mut commands, Wreck { id: piece, def: crony, mass: 3.0, pos: spot + v2(-1.5, 1.5), y: 2.0, yaw: 0.0, piece: 0.6, ..Default::default() });
             let site = longrange::sim::spawn_unit_built(&mut commands, &defs, &mut game, &map, defs.id("windmill").unwrap(), 1, v2(140.0, 100.0), 0.0, Some(0.5), 0);
             (id, site)
         };
@@ -3379,27 +3398,74 @@ fn combattest() {
         world.flush();
         let before = make_snapshot(world);
         order(world, vec![pike], Order::AttackGround { pos: spot, radius: 3.0 });
-        let (mut site_gone, mut wreck_gone, mut grove_gone) = (None, None, None);
+        let mut site_gone = None;
+        let (mut felled, mut moved, mut slid, mut thrown, mut flew) = (None, 0.0f32, false, 0.0f32, false);
+        let piece_at = spot + v2(-1.5, 1.5);
         for t in 0..900u32 {
             world.run_schedule(SimTick);
             if site_gone.is_none() && !world.query::<&Unit>().iter(world).any(|u| u.id == site) {
                 site_gone = Some(t + 1);
             }
-            if wreck_gone.is_none() && !world.query::<&Wreck>().iter(world).any(|w| w.id == wreck) {
-                wreck_gone = Some(t + 1);
+            if felled.is_none() && (0..4).all(|i| world.resource::<Features>().list[i].fall != 0) {
+                felled = Some(t + 1);
             }
-            if grove_gone.is_none() && (0..4).all(|i| !world.resource::<Features>().alive(i)) {
-                grove_gone = Some(t + 1);
+            if let Some(w) = world.query::<&Wreck>().iter(world).find(|w| w.id == wreck) {
+                moved = moved.max(w.pos.dist(wreck_at));
+                slid |= w.vel.v().length() > 0.0;
+            }
+            if let Some(w) = world.query::<&Wreck>().iter(world).find(|w| w.id == wreck + 1) {
+                thrown = thrown.max(w.pos.dist(piece_at));
+                flew |= w.falling;
             }
         }
-        let rock_left = world.resource::<Features>().list[4].left;
+        let fs = world.resource::<Features>();
+        let standing = (0..5).filter(|i| fs.alive(*i)).count();
+        let worth = (0..5).map(|i| fs.list[i].left).fold(1.0f32, f32::min);
+        let kept = world.query::<&Wreck>().iter(world).find(|w| w.id == wreck).map(|w| w.mass);
         let after = make_snapshot(world);
         restore(world, &before);
-        let back = (0..5).filter(|i| world.resource::<Features>().alive(*i)).count() == 5 && world.query::<&Wreck>().iter(world).any(|w| w.id == wreck);
+        let back = (0..5).all(|i| world.resource::<Features>().list[i].fall == 0) && world.query::<&Wreck>().iter(world).any(|w| w.id == wreck && w.pos == wreck_at);
         restore(world, &after);
         let same = state_hash(&make_snapshot(world)) == state_hash(&after);
-        println!("== Weapons vs reclaimables: 4 pines gone after {grove_gone:?} ticks, wreck after {wreck_gone:?}, rock {:.0}% left.  Half-built enemy windmill destroyed after {site_gone:?} ticks.  Rollback restores them: {back}, hash equal {same}", rock_left * 100.0);
-        assert!(grove_gone.is_some() && wreck_gone.is_some() && rock_left < 1.0 && site_gone.is_some() && back && same, "weapons vs reclaimables and sites");
+        println!("== Weapons vs reclaimables: 4 pines felled after {felled:?} ticks (rock shattered: {}), {standing} of 5 still there ({:.0}% worth at least), wreck {} ({kept:?} of {wreck_mass:.0} mass) shoved {moved:.2} away (slid: {slid}), a small piece {thrown:.1} (thrown: {flew}).  Half-built enemy windmill destroyed after {site_gone:?} ticks.  Rollback restores them: {back}, hash equal {same}", world.resource::<Features>().list[4].fall != 0, worth * 100.0, if kept.is_some() { "kept" } else { "GONE" });
+        assert!(felled.is_some() && standing == 5 && worth >= 1.0 && kept == Some(wreck_mass) && thrown > 1.0 && site_gone.is_some() && back && same, "weapons vs reclaimables and sites");
+    }
+    // 7d2. Rubble blocks paths (lobby option): a tank drives past a line of wrecks lying across its
+    // way; with the option on it goes round them and never enters a cell they lie on.
+    {
+        let mut res = [(false, None::<u32>); 2];
+        for (k, on) in [false, true].into_iter().enumerate() {
+            let (mut app, map) = flat_world(192);
+            let world = app.world_mut();
+            world.resource_mut::<Game>().rubble_blocks = on;
+            let tank = spawn(world, &map, "overtaker", 0, v2(120.0, 99.0), 0.0);
+            let crony = defs.id("crony").unwrap();
+            let mut game = world.resource::<Game>().clone();
+            {
+                let mut commands = world.commands();
+                for j in 0..7 {
+                    let at = v2(151.0, 93.0 + j as f32 * 2.0);
+                    let id = game.alloc();
+                    spawn_wreck(&mut commands, Wreck { id, def: crony, mass: 300.0, pos: at, y: map.h(at), yaw: 1.57, ..Default::default() });
+                }
+            }
+            world.insert_resource(game);
+            world.flush();
+            order(world, vec![tank], Order::Move(v2(180.0, 99.0)));
+            let lying: Vec<(i32, i32)> = (0..7).map(|j| map.cell_of(v2(151.0, 93.0 + j as f32 * 2.0))).collect();
+            for t in 0..600u32 {
+                world.run_schedule(SimTick);
+                let p = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == tank).map(|(_, b)| b.pos).unwrap();
+                let (nav, map) = (world.resource::<Nav>(), world.resource::<MapData>());
+                let (cx, cy) = map.cell_of(p);
+                res[k].0 |= lying.contains(&(cx, cy)) || nav.occ[map.idx(cx, cy)] == longrange::map::OCC_RUBBLE;
+                if res[k].1.is_none() && p.dist(v2(180.0, 99.0)) < 2.0 {
+                    res[k].1 = Some(t + 1);
+                }
+            }
+        }
+        println!("== Rubble blocks paths: off - drove over a wreck: {}, there after {:?} ticks; on - drove over one: {}, there after {:?} ticks", res[0].0, res[0].1, res[1].0, res[1].1);
+        assert!(res[0].0 && res[0].1.is_some() && !res[1].0 && res[1].1.is_some(), "rubble blocks paths");
     }
     // 7e. Debris: hard hits on a finished enemy factory break pieces off, which drop next to its
     // walls; a rollback while they fall brings them back in the air. Destroyed, it spills more
@@ -4129,29 +4195,40 @@ fn infantry_tests(defs: &Defs) {
         assert!(found[0].is_some() && found[1].is_none(), "counter-battery radar finds the gun only with the rule on");
     }
 
-    // 1. A boulder between a tank and its target soaks up part of every shot.
-    let mut lost = [0.0f32; 2];
+    // 1. A boulder between a tank and its target 10 in front of it: the tank does not shoot
+    // through it (line of fire) but steps aside a little to get a clear shot, and shells sent through it
+    // anyway (ground fire at the target) lose part of their damage to it, which never wears it away.
+    let mut lost = [0.0f32; 4];
     let mut left = 1.0;
-    for (k, rock) in [false, true].into_iter().enumerate() {
-        let boulder = [("boulder", v2(146.0, 100.0))];
+    let (mut stepped, mut gap) = (0.0f32, 0.0f32);
+    for (k, (rock, ground)) in [(false, false), (true, false), (false, true), (true, true)].into_iter().enumerate() {
+        // (Ground fire: right in front of the target, so every shell flies through it.)
+        let boulder = [("boulder", v2(if ground { 146.0 } else { 140.0 }, 100.0))];
         let (mut app, map) = world_with(if rock { &boulder[..] } else { &[] });
         let world = app.world_mut();
-        spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
+        let tank = spawn(world, &map, "crony", 0, v2(100.0, 100.0), 0.0);
         // Radar sees through the rock (sight does not).
         spawn(world, &map, "radar_car", 0, v2(96.0, 106.0), 0.0);
         let target = spawn(world, &map, "overtaker", 1, v2(150.0, 100.0), 3.14);
         set_hp(world, target, 1.0e6);
+        if ground {
+            order(world, 0, vec![tank], Order::AttackGround { pos: v2(150.0, 100.0), radius: 0.5 });
+        }
         for _ in 0..300 {
             world.run_schedule(SimTick);
         }
         lost[k] = 1.0e6 - hp(world, target);
-        if rock {
+        if rock && ground {
             left = world.resource::<Features>().list[0].left;
         }
+        if rock && !ground {
+            let p = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == tank).map(|(_, b)| b.pos).unwrap();
+            (stepped, gap) = (p.dist(v2(100.0, 100.0)), p.dist(v2(150.0, 100.0)));
+        }
     }
-    println!("== Cover: a Crony shelling an Overtaker for 30 s does {:.0} damage in the open, {:.0} with a boulder in between ({:.0}% of the boulder left)", lost[0], lost[1], left * 100.0);
-    // (Shells dig the target into a pit; its rim makes the guns aim higher, partly over the boulder.)
-    assert!(lost[0] > 0.0 && lost[1] > 0.0 && lost[1] < lost[0] * 0.7, "cover");
+    println!("== Cover: a Crony with an Overtaker 50 away for 30 s does {:.0} damage in the open, {:.0} with a boulder in between (stepped {:.1} aside, {:.0} from the target); ground fire at it {:.0} in the open, {:.0} through the boulder ({:.0}% of the boulder left)", lost[0], lost[1], stepped, gap, lost[2], lost[3], left * 100.0);
+    assert!(lost[0] > 0.0 && lost[1] > lost[0] * 0.3 && stepped > 1.0 && stepped < 30.0 && gap > 30.0, "a tank behind cover steps aside to shoot");
+    assert!(lost[2] > 0.0 && lost[3] > 0.0 && lost[3] < lost[2] * 0.7 && left >= 1.0, "cover soaks shots and is not worn away");
 
     // 1b. Armor angle: a Crony shelling an Overtaker for 30 s that faces it, shows it its side, or
     // turns its back on it.

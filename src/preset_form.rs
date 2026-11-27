@@ -74,6 +74,7 @@ pub const RULE_SWITCHES: &[Field] = &[
     yes("sight_blocked_by_terrain", tx!("preset_rules.switch_sight_blocked_by_terrain"), tx!("preset_rules.switch_sight_blocked_by_terrain_tip")),
     yes("sight_blocked_by_reclaimables", tx!("preset_rules.switch_sight_blocked_by_reclaimables"), tx!("preset_rules.switch_sight_blocked_by_reclaimables_tip")),
     yes("sight_blocked_by_buildings", tx!("preset_rules.switch_sight_blocked_by_buildings"), tx!("preset_rules.switch_sight_blocked_by_buildings_tip")),
+    yes("rubble_blocks_paths", tx!("preset_rules.switch_rubble_blocks_paths"), tx!("preset_rules.switch_rubble_blocks_paths_tip")),
     yes("radar_blocked_by_terrain", tx!("preset_rules.switch_radar_blocked_by_terrain"), tx!("preset_rules.switch_radar_blocked_by_terrain_tip")),
     yes("counter_battery", tx!("preset_rules.switch_counter_battery"), tx!("preset_rules.switch_counter_battery_tip")),
     yes("ghosts_show_destroyed", tx!("preset_rules.switch_ghosts_show_destroyed"), tx!("preset_rules.switch_ghosts_show_destroyed_tip")),
@@ -117,7 +118,7 @@ pub const RULE_INTEL: &[Field] = &[
 pub const RULE_WRECKS: &[Field] = &[
     num("wreck_mass_fraction", tx!("preset_rules.wrecks_wreck_mass_fraction"), 0.6, 10.0, tx!("preset_rules.wrecks_wreck_mass_fraction_tip")),
     f("max_wrecks", tx!("preset_rules.wrecks_max_wrecks"), Kind::Int(400, 0, 100000), tx!("preset_rules.wrecks_max_wrecks_tip")),
-    num("wreck_hp", tx!("preset_rules.wrecks_wreck_hp"), 0.5, 100.0, tx!("preset_rules.wrecks_wreck_hp_tip")),
+    num("rubble_push", tx!("preset_rules.wrecks_rubble_push"), 0.25, 10.0, tx!("preset_rules.wrecks_rubble_push_tip")),
     num("revive_cooldown", tx!("preset_rules.wrecks_revive_cooldown"), 60.0, 3600.0, tx!("preset_rules.wrecks_revive_cooldown_tip")),
     num("wreck_cover", tx!("preset_rules.wrecks_wreck_cover"), 0.5, 1.0, tx!("preset_rules.wrecks_wreck_cover_tip")),
     num("tree_fall", tx!("preset_rules.wrecks_tree_fall"), 0.25, 10.0, tx!("preset_rules.wrecks_tree_fall_tip")),

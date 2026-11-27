@@ -724,10 +724,17 @@ fn ghost_visuals(
     }
 }
 
+/// A whole wreck's resting orientation: on the ground's slope, collapsed slightly askew.
+fn wreck_rot(map: &MapData, w: &Wreck) -> Quat {
+    Quat::from_rotation_arc(Vec3::Y, map.normal(w.pos.x, w.pos.y)) * yaw_quat(w.yaw) * Quat::from_rotation_z(((w.id % 7) as f32 - 3.0) * 0.04)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn wreck_visuals(
     mut commands: Commands,
     fresh: Query<(Entity, &Wreck), Without<WreckVisual>>,
+    mut placed: Query<(&Wreck, &mut Transform), With<WreckVisual>>,
+    time: Res<Time>,
     defs: Res<Defs>,
     map: Res<MapData>,
     mut cache: ResMut<ModelCache>,
@@ -755,11 +762,26 @@ fn wreck_visuals(
         };
         // Collapsed and slightly askew.
         let squash = if ruin { 1.0 } else if d.is_structure() { 0.35 } else { 0.8 };
-        let rot = Quat::from_rotation_arc(Vec3::Y, map.normal(w.pos.x, w.pos.y)) * yaw_quat(w.yaw) * Quat::from_rotation_z(((w.id % 7) as f32 - 3.0) * 0.04);
+        let rot = wreck_rot(&map, w);
         commands
             .entity(e)
             .insert((WreckVisual, Transform::from_translation(w.pos.at(w.y)).with_rotation(rot).with_scale(Vec3::new(1.0, squash, 1.0)), Visibility::Visible))
             .add_child(root);
+    }
+    // Blasts shove wrecks about (`sim::systems::push_wrecks`): follow the slide smoothly, jump
+    // when a rollback or a jump in a replay moved one far.
+    let k = 1.0 - (-14.0 * time.delta_secs()).exp();
+    for (w, mut t) in &mut placed {
+        if w.piece > 0.0 {
+            continue;
+        }
+        let want = w.pos.at(w.y);
+        let d = t.translation.distance(want);
+        if d < 1e-3 {
+            continue;
+        }
+        t.translation = if d > 4.0 { want } else { t.translation.lerp(want, k) };
+        t.rotation = wreck_rot(&map, w);
     }
 }
 
