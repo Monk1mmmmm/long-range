@@ -449,6 +449,7 @@
     "select_ctrl_a_air_ctrl_d": "Select: Ctrl+A air  Ctrl+D land army  Ctrl+B engineers  Ctrl+X all  Ctrl+C all on screen  Ctrl+Z same type  Ctrl+H factories",
     "ctrl_shift_d_a_nearest_land": "        Ctrl+Shift+D / A nearest land / air factory   . next idle builder   , commander   Ctrl+K self-destruct",
     "ctrl_r_distribute": "        Ctrl+R share the selection's queued orders out among it   / nearest extractor of the lowest tier (Shift+/ adds the next)",
+    "ctrl_move_in_step": "        Ctrl+right-click: the selection moves in step, at the pace of its slowest unit",
     "build_menu_click_then_click_the": "Build menu: click, then click the map; drag for a row of buildings; sandbags and trenches: draw any line with the right button; pumps: drag a circle.",
     "factory_menu_left_click_queues": "Factory menu: left-click queues (Shift x5), right-click removes.",
     "ctrl_0_9_set_group_0": "Ctrl+0-9 set group, 0-9 recall (double tap: centre).  Selection panel: click a type to keep only it.",

@@ -4022,6 +4022,26 @@ fn apc_tests(defs: &Defs) {
             assert!(ax < 130.0, "a river 6 deep stops an amphibious carrier");
         }
     }
+    // 4. Ctrl-orders (`Command::Pace`): a carrier, a tank and a trooper side by side move in step.
+    {
+        let (mut app, map) = world_with(None);
+        let world = app.world_mut();
+        let ids: Vec<u32> = ["apc", "overtaker", "trooper"].iter().enumerate().map(|(i, n)| spawn(world, &map, n, 0, v2(60.0, 110.0 + i as f32 * 10.0), 0.0)).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: ids.clone(), orders: (0..3).map(|i| Order::Move(v2(200.0, 110.0 + i as f32 * 10.0))).collect(), queue: false }));
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Pace { ids: ids.clone() }));
+        for _ in 0..150 {
+            world.run_schedule(SimTick);
+        }
+        let xs: Vec<f32> = ids.iter().map(|id| body(world, *id).unwrap().0.x).collect();
+        let spread = xs.iter().cloned().fold(f32::MIN, f32::max) - xs.iter().cloned().fold(f32::MAX, f32::min);
+        println!("== Pace: after 15 s carrier / Overtaker / trooper at x {:.0} / {:.0} / {:.0} (spread {spread:.1})", xs[0], xs[1], xs[2]);
+        assert!(spread < 3.0 && xs[2] > 70.0, "units ordered with Ctrl move at the slowest one's speed");
+        for _ in 0..1200 {
+            world.run_schedule(SimTick);
+        }
+        let paces: Vec<f32> = world.query::<(&Unit, &Mover)>().iter(world).filter(|(u, _)| ids.contains(&u.id)).map(|(_, m)| m.pace).collect();
+        assert!(paces.iter().all(|p| *p == 0.0), "the pace ends with the orders");
+    }
 }
 
 /// Scavengers on every kind of reclaimable, reviving a building, and a commander killed inside a

@@ -85,6 +85,9 @@ pub enum Command {
     /// Pause or resume: builders stop working, extractors and radars switch off and stop drawing energy.
     Pause { ids: Vec<u32>, on: bool },
     Resign,
+    /// Sent after `Orders` given with Ctrl held: the mobile units among `ids` (planes aside) move no
+    /// faster (nor speed up quicker) than the slowest of them until they run out of orders or get a new order.
+    Pace { ids: Vec<u32> },
 }
 
 #[derive(Resource, Default)]
@@ -296,6 +299,11 @@ pub struct Mover {
     pub drop_to: V2,
     #[serde(default)]
     pub drop_h: f32,
+    /// Top speed and acceleration while moving in step with a group (`Command::Pace`); 0 = its own.
+    #[serde(default)]
+    pub pace: f32,
+    #[serde(default)]
+    pub pace_accel: f32,
 }
 
 /// A unit's wreck, or a piece of debris a building dropped (`piece` > 0).

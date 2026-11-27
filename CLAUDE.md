@@ -511,6 +511,9 @@ drops terrain at the screen sides (edit `fov/near/far` in place).
   Overtaker unopposed; with a radar tower an MBFAG downs 4 of 6, a T1 AA turret all 6.
 - **Movement**: land units accelerate/brake and choose between driving forward and reversing by comparing
   turn time + travel time for both (`systems.rs::locomotion`).
+  Orders given with Ctrl held (`hud`: any non-build order, not a Ctrl+key shortcut) are followed by `Command::Pace`:
+  land and hover units in it get `Mover.pace` / `pace_accel` = the slowest one's speed and acceleration, cleared by a
+  new order, Stop or running out of orders. `--combattest` (`LR_TEST=apc`) "Pace" line.
 - **Adaptive maps** (SupCom style; `frankivsk_mini`, `frankivsk`, `liberec`, made by `tools/merge_variants.py` from the former
   per-player-count maps): `map.json` holds the union of the starts plus `variants` (`{starts: [indices in slot order], points}`:
   one way to play per player count) and `attached` (`{pos, start}` / `{pos, variant}` per deposit, matched by position).

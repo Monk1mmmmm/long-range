@@ -3652,6 +3652,22 @@ pub fn ui_system(mut p: UiParams) -> Result {
     if out[out_before.min(out.len())..].iter().any(|c| matches!(c, Command::Orders { .. })) {
         p.ui_sounds.0.push(("ack", 0.4));
     }
+    // Ctrl held while giving orders (not a Ctrl+key shortcut, not building, where Ctrl changes the
+    // spots): the units move in step, at the pace of the slowest of them.
+    let shortcut = p.keys.get_just_pressed().any(|k| !matches!(k, KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::AltLeft | KeyCode::AltRight));
+    if ctrl && !shortcut {
+        let mut ids: Vec<u32> = vec![];
+        for c in &out[out_before.min(out.len())..] {
+            if let Command::Orders { ids: i, orders, .. } = c {
+                if !orders.iter().any(|o| matches!(o, Order::Build { .. })) {
+                    ids.extend(i.iter().filter(|id| !ids.contains(id)).copied().collect::<Vec<_>>());
+                }
+            }
+        }
+        if ids.len() > 1 {
+            out.push(Command::Pace { ids });
+        }
+    }
 
     // --- mode hint, banners
     let label = match view.mode {
@@ -3736,6 +3752,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
             tr!("hud_help.select_ctrl_a_air_ctrl_d"),
             tr!("hud_help.ctrl_shift_d_a_nearest_land"),
             tr!("hud_help.ctrl_r_distribute"),
+            tr!("hud_help.ctrl_move_in_step"),
             tr!("hud_help.build_menu_click_then_click_the"),
             tr!("hud_help.factory_menu_left_click_queues"),
             tr!("hud_help.ctrl_0_9_set_group_0"),

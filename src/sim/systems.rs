@@ -359,6 +359,8 @@ fn apply_commands(
                             m.path.clear();
                             m.stuck = 0;
                             m.cover = None;
+                            m.pace = 0.0;
+                            m.pace_accel = 0.0;
                             // A new order cuts a weapon's set-up/recoil hold short: the unit obeys at once.
                             m.hold = 0.0;
                         }
@@ -396,6 +398,8 @@ fn apply_commands(
                     ord.0.clear();
                     if let Some(mut m) = mover {
                         m.path.clear();
+                        m.pace = 0.0;
+                        m.pace_accel = 0.0;
                         // Infantry look for cover around where they were stopped.
                         m.anchor = b.pos;
                         m.cover = None;
@@ -526,6 +530,28 @@ fn apply_commands(
                 for id in ids {
                     if owned(id).is_some() {
                         effects.damage.push((id, 1.0e9, 0));
+                    }
+                }
+            }
+            Command::Pace { ids } => {
+                // Ids are owned, mobile, out of transports and no planes (they cannot slow down).
+                let group: Vec<(Entity, f32, f32)> = ids
+                    .iter()
+                    .filter_map(|id| census.get(*id).filter(|c| c.owner == pl && !c.hosted))
+                    .filter_map(|c| {
+                        let mv = &defs.get(c.def).mv;
+                        (matches!(mv.kind, MoveKind::Land | MoveKind::Hover) && mv.speed > 0.0).then_some((c.e, mv.speed, mv.accel))
+                    })
+                    .collect();
+                if group.len() < 2 {
+                    continue;
+                }
+                let slow = group.iter().map(|g| g.1).fold(f32::MAX, f32::min);
+                let accel = group.iter().map(|g| g.2).fold(f32::MAX, f32::min);
+                for (e, ..) in group {
+                    if let Ok((_, _, _, _, Some(mut m), _, _, _)) = q.get_mut(e) {
+                        m.pace = slow;
+                        m.pace_accel = accel;
                     }
                 }
             }
@@ -2456,6 +2482,11 @@ fn locomotion(
         let mv = &df.mv;
         let old = body.pos;
         let turn = mv.turn.to_radians();
+        if orders.0.is_empty() {
+            // Moving in step ends with the orders it was given for.
+            m.pace = 0.0;
+            m.pace_accel = 0.0;
+        }
         if m.drop > 0.0 {
             // An airdrop fall: glides down onto its spot and does nothing else until it lands.
             m.drop = (m.drop - DT).max(0.0);
@@ -2516,8 +2547,10 @@ fn locomotion(
                     let dist = to.len();
                     if dist > 0.4 {
                         body.yaw = turn_toward(body.yaw, to.angle(), turn * DT);
-                        want_speed = mv.speed.min((2.0 * mv.accel * dist).sqrt() + 0.5);
-                        m.speed += (want_speed - m.speed).clamp(-mv.accel * 2.0 * DT, mv.accel * DT);
+                        let top = if m.pace > 0.0 { mv.speed.min(m.pace) } else { mv.speed };
+                        want_speed = top.min((2.0 * mv.accel * dist).sqrt() + 0.5);
+                        let accel = if m.pace_accel > 0.0 { mv.accel.min(m.pace_accel) } else { mv.accel };
+                        m.speed += (want_speed - m.speed).clamp(-mv.accel * 2.0 * DT, accel * DT);
                         body.pos = body.pos + to.norm() * (m.speed * DT).min(dist);
                     }
                 }
@@ -2584,7 +2617,10 @@ fn locomotion(
                 let face = if m.reversing { wrap(desired + PI) } else { desired };
                 body.yaw = turn_toward(body.yaw, face, turn * DT);
                 let off = wrap(face - body.yaw).abs();
-                let top = if m.reversing { mv.reverse } else { mv.speed } * wx_speed;
+                let mut top = if m.reversing { mv.reverse } else { mv.speed } * wx_speed;
+                if m.pace > 0.0 {
+                    top = top.min(m.pace * wx_speed);
+                }
                 let mut want = if off < 0.35 {
                     top
                 } else if off < 1.0 {
@@ -2594,7 +2630,8 @@ fn locomotion(
                 };
                 let brake = mv.accel * 2.5;
                 want = want.min((2.0 * brake * remaining).sqrt() + 0.4);
-                m.speed += (want - m.speed).clamp(-brake * DT, mv.accel * DT);
+                let accel = if m.pace_accel > 0.0 { mv.accel.min(m.pace_accel) } else { mv.accel };
+                m.speed += (want - m.speed).clamp(-brake * DT, accel * DT);
                 let step = (m.speed * DT).min(dist).max(0.0);
                 let dir = V2::from_angle(body.yaw) * if m.reversing { -1.0 } else { 1.0 };
                 let np = body.pos + dir * step;
