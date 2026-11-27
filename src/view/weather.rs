@@ -138,7 +138,16 @@ pub fn weather_sync(
     for (k, (u, ph)) in p.drops.iter().enumerate() {
         let w = wrap(*u);
         let to_cam = (ct.translation - w).normalize_or_zero();
-        let i = (k * 4) as u32;
+        // Snow thins out towards the camera (up close the flakes are big on screen and hide the
+        // view): a steady share of each drop's own chance, so flakes do not blink.
+        if snow {
+            let near = ((ct.translation - w).length() / d - 0.15) / 0.4;
+            let keep = 0.08 + 0.92 * near.clamp(0.0, 1.0).powi(2);
+            if hash01(k as u32 ^ 0x6E4F) > keep {
+                continue;
+            }
+        }
+        let i = pos.len() as u32;
         if snow {
             let s = flake * (0.7 + 0.6 * hash01(k as u32 ^ 0x3A1));
             let (r, uu) = (right * s, up * s);
