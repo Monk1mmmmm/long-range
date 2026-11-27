@@ -2809,11 +2809,57 @@ pub fn ui_system(mut p: UiParams) -> Result {
             hud.text(Pos2::new(x + w * 0.5, y + 30.0), Align2::CENTER_CENTER, &line, font(12.0), c);
         }
     }
-    for (k, pl) in game.players.iter().enumerate() {
-        let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
-        let score = if game.mode == MODE_POINTS { tr!("hud_top_bar.points_left", game.scores.get(pl.team as usize).copied().unwrap_or(0.0)) } else { String::new() };
-        let t = tr!("hud_top_bar.player_line", pl.name, if pl.alive { "" } else { tr!("hud_top_bar.player_defeated") }, pl.team + 1, score);
-        hud.text(Pos2::new(sw - 10.0, TOP + 6.0 + k as f32 * 16.0), Align2::RIGHT_TOP, t, font(13.0), if pl.alive { c } else { rgba(130, 130, 130, 255) });
+    // Player list: one row per player on a dark translucent panel. Columns: colour, name, team,
+    // points left (control points mode), and the mass and energy income when the lobby made it
+    // public (`Game.eco_public`) or for observers.
+    {
+        let show_eco = observer || game.eco_public;
+        let row_h = 18.0;
+        let pad = 7.0;
+        let fnt = font(13.0);
+        let width = |t: &str| hud.layout_no_wrap(t.to_string(), fnt.clone(), Color32::WHITE).size().x;
+        let names: Vec<String> = game.players.iter().map(|pl| if pl.alive { pl.name.clone() } else { format!("{}{}", pl.name, tr!("hud_top_bar.player_defeated")) }).collect();
+        let name_w = names.iter().map(|n| width(n)).fold(60.0, f32::max);
+        let team_w = 28.0;
+        let pts_w = if game.mode == MODE_POINTS { 50.0 } else { 0.0 };
+        let eco_w = if show_eco { 62.0 } else { 0.0 };
+        let w = pad + 10.0 + 6.0 + name_w + 10.0 + team_w + pts_w + eco_w * 2.0 + pad;
+        let x0 = sw - 8.0 - w;
+        let y0 = TOP + 4.0;
+        let h = pad * 2.0 - 4.0 + row_h * game.players.len() as f32;
+        if !game.players.is_empty() {
+            hud.rect_filled(rect(x0, y0, w, h), 4.0, rgba(0, 0, 0, 150));
+        }
+        for (k, pl) in game.players.iter().enumerate() {
+            let c = rgb(defs.rules.player_colors[pl.color as usize % defs.rules.player_colors.len()]);
+            let dim = rgba(130, 130, 130, 255);
+            let y = y0 + pad - 2.0 + k as f32 * row_h;
+            let cy = y + row_h * 0.5;
+            if pl.team == team && !observer {
+                hud.rect_filled(rect(x0 + 2.0, y, w - 4.0, row_h), 2.0, rgba(255, 255, 255, 18));
+            }
+            let mut x = x0 + pad;
+            hud.rect_filled(rect(x, cy - 5.0, 10.0, 10.0), 2.0, if pl.alive { c } else { dim });
+            x += 16.0;
+            hud.text(Pos2::new(x, cy), Align2::LEFT_CENTER, &names[k], fnt.clone(), if pl.alive { Color32::WHITE } else { dim });
+            x += name_w + 10.0;
+            hud.text(Pos2::new(x, cy), Align2::LEFT_CENTER, format!("T{}", pl.team + 1), font(12.0), if pl.alive { rgba(190, 190, 190, 255) } else { dim });
+            x += team_w;
+            if game.mode == MODE_POINTS {
+                let sc = game.scores.get(pl.team as usize).copied().unwrap_or(0.0);
+                hud.text(Pos2::new(x + pts_w - 6.0, cy), Align2::RIGHT_CENTER, format!("{:.0}", sc.ceil()), font(12.0), if pl.alive { rgba(215, 215, 215, 255) } else { dim });
+                x += pts_w;
+            }
+            if show_eco {
+                for (name, inc, col) in [("mass", pl.income_m, rgba(190, 215, 240, 255)), ("energy", pl.income_e, rgba(255, 215, 65, 255))] {
+                    if let Some(tx) = res_tex.get(name) {
+                        hud.image(tx.id(), rect(x, cy - 7.0, 14.0, 14.0), UV, if pl.alive { col } else { dim });
+                    }
+                    hud.text(Pos2::new(x + eco_w - 4.0, cy), Align2::RIGHT_CENTER, format!("+{:.1}", if pl.alive { inc } else { 0.0 }), font(12.0), if pl.alive { rgba(110, 255, 130, 255) } else { dim });
+                    x += eco_w;
+                }
+            }
+        }
     }
 
     // --- minimap

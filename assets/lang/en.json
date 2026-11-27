@@ -58,6 +58,7 @@
     "no": "no",
     "summary_switched_off": "\nSwitched off: {}",
     "summary_props": "\nMap buildings known from the start: {}",
+    "summary_eco_public": "\nEconomy visible to everyone: {}",
     "summary_infantry_capture": "\nInfantry capture buildings: {}",
     "summary_rubble_blocks": "\nRubble blocks paths: {}",
     "summary_terrain": "\nTerrain: {}",
@@ -100,6 +101,8 @@
     "terrain_button": "Terrain: {}",
     "terrain_tip": "Ground of the random map; Random picks one from the map's seed",
     "reveal_props": "Neutral and hostile buildings known from the start",
+    "eco_public": "Mass and energy income visible to everyone",
+    "eco_public_tip": "Off: only observers see every player's income in the player list.",
     "infantry_capture": "Infantry capture buildings (not factories)",
     "rubble_blocks": "Rubble blocks paths",
     "rubble_blocks_tip": "Wrecks, ruins of buildings and big pieces of debris stand in the way of land units (they drive round them) until they are reclaimed. Buildings may still be put on them. Ticked by default unless the game data says otherwise.",
@@ -261,8 +264,6 @@
     "holds_bleed": "holds {:.0} of {}   -{:.1}/s",
     "holds": "holds {:.0} of {}",
     "points_short_bleed": "{:.0}  -{:.1}/s",
-    "points_left": "   {:.0} pts",
-    "player_line": "{}{} (team {}){}",
     "player_defeated": " - defeated"
   },
   "hud_map": {

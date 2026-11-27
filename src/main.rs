@@ -77,6 +77,8 @@ struct HostLobby {
     reveal_props: bool,
     /// Infantry capture enemy buildings other than factories (`Game.infantry_capture`).
     infantry_capture: bool,
+    /// Everyone sees every player's mass and energy income in the player list (`Game.eco_public`).
+    eco_public: bool,
     /// Wrecks and ruins block land units' paths (`Game.rubble_blocks`); set from the data
     /// (`rules.rubble_blocks_paths`) whenever the game data changes.
     rubble_blocks: bool,
@@ -202,6 +204,7 @@ impl HostLobby {
         if self.infantry_capture {
             t += &tr!("lobby.summary_infantry_capture", tr!("lobby.yes"));
         }
+        t += &tr!("lobby.summary_eco_public", if self.eco_public { tr!("lobby.yes") } else { tr!("lobby.no") });
         t += &tr!("lobby.summary_rubble_blocks", if self.rubble_blocks { tr!("lobby.yes") } else { tr!("lobby.no") });
         t += &tr!("lobby.summary_weather", self.weather_label(defs));
         if self.map_choice < SIZES.len() {
@@ -883,6 +886,7 @@ fn new_lobby(name: &str, defs: &Defs) -> Result<HostLobby, String> {
         tab: 0,
         reveal_props: true,
         infantry_capture: true,
+        eco_public: false,
         rubble_blocks: defs.rules.rubble_blocks_paths,
         weather: 0,
         counts,
@@ -948,6 +952,7 @@ fn start_game(world: &mut World, mut l: HostLobby) -> Result<Session, String> {
     }
     world.resource_mut::<Game>().reveal_props = l.reveal_props;
     world.resource_mut::<Game>().infantry_capture = l.infantry_capture;
+    world.resource_mut::<Game>().eco_public = l.eco_public;
     world.resource_mut::<Game>().rubble_blocks = l.rubble_blocks;
     let weather = env_weather(world.resource::<Defs>()).unwrap_or_else(|| l.weather_index(world.resource::<Defs>()));
     world.resource_mut::<Game>().weather = weather;
@@ -2179,6 +2184,9 @@ fn menu_ui(world: &mut World) {
                                     l.dirty = true;
                                 }
                                 if ui.checkbox(&mut l.infantry_capture, tr!("lobby.infantry_capture")).on_hover_text(tr!("lobby.infantry_capture_tip")).changed() {
+                                    l.dirty = true;
+                                }
+                                if ui.checkbox(&mut l.eco_public, tr!("lobby.eco_public")).on_hover_text(tr!("lobby.eco_public_tip")).changed() {
                                     l.dirty = true;
                                 }
                                 if ui.checkbox(&mut l.rubble_blocks, tr!("lobby.rubble_blocks")).on_hover_text(tr!("lobby.rubble_blocks_tip")).changed() {

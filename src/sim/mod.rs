@@ -435,6 +435,10 @@ pub struct Game {
     /// style: free, while no armed unit of the building's side stands near it.
     #[serde(default)]
     pub infantry_capture: bool,
+    /// Lobby option: the player list shows every player's mass and energy income to everyone
+    /// (off: only observers see it). View only.
+    #[serde(default)]
+    pub eco_public: bool,
     /// Lobby option (its default from `rules.rubble_blocks_paths`): wrecks, ruins and big pieces of
     /// debris block land units' paths (`map::OCC_RUBBLE` cells in `Nav.occ`) until reclaimed.
     #[serde(default)]
