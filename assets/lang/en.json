@@ -237,6 +237,8 @@
     "distance_blur_gl": "Not available with the OpenGL renderer: its shader compiler cannot build the depth-of-field effect. Use Vulkan or DirectX 12 for it.",
     "building_detail": "Buildings",
     "building_detail_tip": "High: the map's theme (wall and roof paints and which house models it uses), every building differs in colour and wear, sharper textures with mipmaps, and destroyed buildings leave broken, burnt-out ruins with holes instead of a sunk wreck. Ultra: houses also get overhanging eaves and window sills, and windows and bare metal reflect the sky.",
+    "weather_detail": "Weather",
+    "weather_detail_tip": "Falling rain and snow around the camera. Off: none falls, the ground still shows wet or snowy. More drops cost frame rate on weak graphics cards.",
     "grass_detail": "Grass",
     "grass_detail_tip": "Tufts of grass on grassy ground near the camera. High: normal density. Ultra: denser and further out, with bending blades and wildflowers. Costs frame rate on weak graphics cards.",
     "water_detail": "Water",

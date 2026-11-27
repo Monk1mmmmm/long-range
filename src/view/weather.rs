@@ -69,9 +69,10 @@ pub fn weather_sync(
     // Rain or snow, whichever is heavier (a weather with both shows the snow).
     let snow = wx.snow >= wx.rain;
     let amount = wx.snow.max(wx.rain).clamp(0.0, 1.0);
-    let per = match settings.effects {
-        0 => 1500.0,
-        1 => 3000.0,
+    let per = match settings.weather_detail {
+        0 => 0.0,
+        1 => 1500.0,
+        2 => 3000.0,
         _ => 5000.0,
     } * if snow { 0.7 } else { 1.0 };
     let count = (per * amount) as usize;
@@ -133,7 +134,7 @@ pub fn weather_sync(
     let mut col = Vec::with_capacity(count * 4);
     let mut idx: Vec<u32> = Vec::with_capacity(count * 6);
     let streak = vel.normalize() * (size * 0.035);
-    let (rain_w, flake) = (size * 0.0011, size * 0.0032);
+    let (rain_w, flake) = (size * 0.0011, size * 0.0016);
     for (k, (u, ph)) in p.drops.iter().enumerate() {
         let w = wrap(*u);
         let to_cam = (ct.translation - w).normalize_or_zero();

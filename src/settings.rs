@@ -76,11 +76,14 @@ pub struct Settings {
     pub water_detail: u8,
     /// Blur of what lies far beyond the point the camera looks at (depth of field, `view::blur_sync`), 0 (off) to 1 (strong).
     pub distance_blur: f32,
+    /// Falling rain and snow round the camera (`view::weather`): 0 off, 1 low, 2 medium, 3 high
+    /// (number of drops). The ground still shows wet or snowy when off.
+    pub weather_detail: u8,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, storage_gap: true, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true, building_detail: 1, grass_detail: 0, water_detail: 1, distance_blur: 0.0 }
+        Settings { backend: "auto".into(), shadows: 2, antialiasing: "off".into(), vsync: true, fullscreen: false, hotkeys: "default".into(), name: String::new(), menu_icon: 17.0, icon_scale: 1.0, icon_dist: 150.0, model_lod: true, sfx_volume: 0.6, flora_detail: 1, projectile_px: 5.0, effects: 2, ghost_models: true, neutral_icons: true, auto_garrison: false, storage_gap: true, save_replays: true, language: String::new(), ui_scale: 1.0, sky: true, haze: true, clouds: true, terrain_detail: true, building_detail: 1, grass_detail: 0, water_detail: 1, distance_blur: 0.0, weather_detail: 3 }
     }
 }
 
@@ -733,6 +736,9 @@ pub const WATER_DETAIL: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.m
 /// Names of the levels of `Settings::grass_detail`.
 pub const GRASS_DETAIL: [&str; 3] = [tx!("settings.off"), tx!("settings.high"), tx!("settings.ultra")];
 
+/// Names of the levels of `Settings::weather_detail`.
+pub const WEATHER_DETAIL: [&str; 4] = [tx!("settings.off"), tx!("settings.preset_low"), tx!("settings.medium"), tx!("settings.high")];
+
 /// Names of the graphics presets (`apply_preset`).
 pub const PRESETS: [&str; 4] = [tx!("settings.preset_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
 
@@ -752,6 +758,7 @@ pub fn apply_preset(s: &mut Settings, level: usize) {
     s.water_detail = [0, 1, 2, 3][l];
     s.grass_detail = [0, 0, 1, 2][l];
     s.distance_blur = [0.0, 0.0, 0.4, 0.7][l];
+    s.weather_detail = [1, 2, 3, 3][l];
 }
 
 /// The preset whose options the settings match, if any.
@@ -910,6 +917,13 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         egui::ComboBox::from_id_salt("water").selected_text(tr(WATER_DETAIL[s.water_detail.min(3) as usize])).show_ui(ui, |ui| {
             for (k, l) in WATER_DETAIL.iter().enumerate() {
                 ui.selectable_value(&mut s.water_detail, k as u8, tr(l));
+            }
+        });
+        ui.end_row();
+        ui.label(tr!("settings.weather_detail")).on_hover_text(tr!("settings.weather_detail_tip"));
+        egui::ComboBox::from_id_salt("weather").selected_text(tr(WEATHER_DETAIL[s.weather_detail.min(3) as usize])).show_ui(ui, |ui| {
+            for (k, l) in WEATHER_DETAIL.iter().enumerate() {
+                ui.selectable_value(&mut s.weather_detail, k as u8, tr(l));
             }
         });
         ui.end_row();
