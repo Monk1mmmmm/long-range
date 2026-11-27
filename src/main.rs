@@ -1844,8 +1844,27 @@ fn update_ui(ctx: &egui::Context, u: &longrange::update::Updater) -> bool {
                 ui.label(egui::RichText::new(tr!("update.available", p.tag)).strong());
                 ui.label(tr!("update.size", p.files, p.removed, mb(p.bytes)));
                 ui.add_space(4.0);
-                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                    ui.label(egui::RichText::new(&p.notes).size(12.0));
+                ui.label(egui::RichText::new(tr!("update.changes")).strong());
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for (k, (tag, body)) in p.notes.iter().enumerate() {
+                        egui::CollapsingHeader::new(egui::RichText::new(tag).strong()).default_open(k == 0).show(ui, |ui| {
+                            // The CHANGELOG section: category lines ("Graphics") and "- " bullets.
+                            for line in body.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                                if let Some(b) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label("•");
+                                        ui.label(egui::RichText::new(b).size(12.5));
+                                    });
+                                } else {
+                                    ui.add_space(4.0);
+                                    ui.label(egui::RichText::new(line.trim_start_matches('#').trim()).strong());
+                                }
+                            }
+                            if body.is_empty() {
+                                ui.label(egui::RichText::new(tr!("update.no_notes")).weak());
+                            }
+                        });
+                    }
                 });
                 ui.add_space(6.0);
                 if ui.button(tr!("update.install")).clicked() {

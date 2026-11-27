@@ -41,6 +41,8 @@
     "done": "{} is installed. Restart the game to play it.",
     "restart": "Restart now",
     "close": "Close",
+    "changes": "What is new:",
+    "no_notes": "No notes for this version.",
     "releases_page": "Download it from the releases page instead",
     "dev_build": "Updating works only in a game unpacked from a release (not with cargo run or LR_ASSETS).",
     "no_curl": "Could not run curl: {}",

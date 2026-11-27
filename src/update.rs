@@ -29,8 +29,8 @@ pub struct FileGet {
 #[derive(Clone)]
 pub struct Plan {
     pub tag: String,
-    /// The release notes of every version newer than the running one, newest first.
-    pub notes: String,
+    /// (tag, release notes = its CHANGELOG section) of every version newer than the running one, newest first.
+    pub notes: Vec<(String, String)>,
     pub files: usize,
     pub removed: usize,
     /// Expected download size: changed files + the exe patch (or the whole exe when no patch fits).
@@ -201,7 +201,7 @@ fn plan(s: &Mutex<State>) -> Result<Option<Plan>, String> {
     let Some(latest) = newer.first() else { return Ok(None) };
     let tag = latest["tag_name"].as_str().unwrap_or("").to_string();
     let ver = tag.trim_start_matches('v').to_string();
-    let notes = newer.iter().map(|r| format!("{}\n{}", r["tag_name"].as_str().unwrap_or(""), r["body"].as_str().unwrap_or("").trim())).collect::<Vec<_>>().join("\n\n");
+    let notes = newer.iter().map(|r| (r["tag_name"].as_str().unwrap_or("").to_string(), r["body"].as_str().unwrap_or("").trim().replace('\r', ""))).collect();
     let asset = |name: &str| {
         latest["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"] == name)).map(|x| (x["browser_download_url"].as_str().unwrap_or("").to_string(), x["size"].as_u64().unwrap_or(0)))
     };
