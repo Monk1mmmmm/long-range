@@ -3,6 +3,11 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.17.3
+
+Fixes
+- Map editor: placing anything no longer crashes it. The editor now also shows buildings in the map's building theme.
+
 ## v0.17.2
 
 New units
