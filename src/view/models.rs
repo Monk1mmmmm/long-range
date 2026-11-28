@@ -1043,8 +1043,10 @@ impl ModelCache {
             let width = albedo.width();
             let themed = defs.get(def).has_category("themed");
             let roofs = if var > 0 && !themed { roof_mask(parts, meshes, &albedo) } else { vec![] };
-            let wall_paint = self.theme.walls[(var as usize * 3 + def as usize) % self.theme.walls.len()];
-            let roof_paint = self.theme.roofs[(var as usize * 5 + def as usize * 2 + 1) % self.theme.roofs.len()];
+            // (No theme set yet: plain plaster and tiles rather than a division by zero.)
+            let pick = |list: &[[f32; 3]], k: usize, or: [f32; 3]| if list.is_empty() { or } else { list[k % list.len()] };
+            let wall_paint = pick(&self.theme.walls, var as usize * 3 + def as usize, [0.9, 0.86, 0.78]);
+            let roof_paint = pick(&self.theme.roofs, var as usize * 5 + def as usize * 2 + 1, [0.6, 0.28, 0.2]);
             // Mean brightness of this model's coloured roof tiles and of its plaster: the paints replace the
             // hue and keep each texel's own light and dark (tile edges, stains, window frames).
             let (mut roof_sum, mut roof_n, mut wall_sum, mut wall_n) = (0.0f32, 0u32, 0.0f32, 0u32);

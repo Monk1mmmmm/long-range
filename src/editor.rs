@@ -514,6 +514,8 @@ fn rebuild(commands: &mut Commands, ed: &mut Editor, map: &mut MapData, defs: &D
     flora.dirty.clear();
     flora.all_dirty = false;
     spawn_flora(commands, map, defs, flora, meshes);
+    // The map's building theme (paints, look-alikes), as the game shows it.
+    cache.set_theme(&map.theme);
     for p in &map.props {
         let Some(d) = defs.id(&p.def) else { continue };
         let (ci, rgb) = match p.owner {
