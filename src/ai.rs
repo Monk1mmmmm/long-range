@@ -121,6 +121,8 @@ pub struct Mine {
     pub hp: f32,
     /// Its queued build orders.
     pub builds: Vec<(DefId, V2)>,
+    /// Factories: where finished units go first (`Factory::rally_point`).
+    pub rally: Option<V2>,
 }
 
 /// A free spot for building `d` near `center` (rings outwards), skipping the places `ok` turns
@@ -312,9 +314,29 @@ pub fn ai_system(
                     fq: factory.map(|f| f.queue.len()),
                     hp: census.get(u.id).map_or(1.0, |c| c.hp / c.max_hp.max(1.0)),
                     builds: orders.0.iter().filter_map(|o| if let Order::Build { def, pos } = o { Some((*def, *pos)) } else { None }).collect(),
+                    rally: factory.and_then(|f| f.rally_point()),
                 })
                 .collect();
             mine.sort_by_key(|m| m.id);
+            // Units just out of a factory still on its rally orders: only land fighters keep them (a
+            // transport assisting the factory may carry them); engineers, scavengers, transports and
+            // aircraft are stopped, so the brain finds them idle as before factories had rally orders.
+            let rallies: Vec<&Vec<Order>> = q.iter().filter(|(u, ..)| u.owner == me).filter_map(|(_, _, _, f, ..)| f.map(|f| &f.rally)).filter(|r| !r.is_empty()).collect();
+            let mut halt: Vec<u32> = vec![];
+            for (u, _, orders, ..) in q.iter().filter(|(u, _, o, ..)| u.owner == me && !o.0.is_empty()) {
+                let d = defs.get(u.def);
+                let fighter = !d.is_air() && d.build.is_none() && d.transport.is_none() && d.armed();
+                if !fighter && rallies.iter().any(|r| **r == orders.0) {
+                    halt.push(u.id);
+                }
+            }
+            if !halt.is_empty() {
+                halt.sort_unstable();
+                for m in mine.iter_mut().filter(|m| halt.binary_search(&m.id).is_ok()) {
+                    (m.order, m.orders) = (None, 0);
+                }
+                out.push(Command::Stop { ids: halt });
+            }
             let cx = Ctx { census: &census, defs: &defs, map: &map, nav: &nav, game: &game, features: &features, wrecks: &wrecks };
             brain::run(&mut ai.brain, &mut ai.rng, ai.kind, ai.reclaim, me, &cx, &mine, &mut out);
             queue.0.extend(out.into_iter().map(|c| (me, c)));

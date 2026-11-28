@@ -1620,6 +1620,16 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     let threat = |m: &Mine| b.info[m.def as usize].threat.max(b.info[m.def as usize].aa * 0.3);
     // Where the army falls back to and gathers: our safe zone closest to the enemy.
     let (_, rally) = b.rally(map, start);
+    // Land factories send what they finish there (the order the march gives new units anyway), so a
+    // transport assisting one carries it (`ai.rs` stops engineers and the like coming out).
+    let land_facs: Vec<&Mine> = mine.iter().filter(|m| !m.uc && m.fq.is_some() && defs.get(m.def).builds.iter().any(|x| !defs.get(*x).is_air() && !defs.get(*x).is_structure())).collect();
+    if !off("rally") {
+        for f in &land_facs {
+            if f.rally.map_or(true, |r| r.dist(rally) > 5.0) {
+                out.push(Command::Orders { ids: vec![f.id], orders: vec![Order::AttackMove(rally)], queue: false });
+            }
+        }
+    }
     // Known enemy ground strength around a point: units in sight and remembered turrets that
     // reach it. Long-range batteries further off than the units looked for are no part of this
     // fight: falling back would not take the army out of their reach (a heavy battery covers half
@@ -1731,7 +1741,8 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     let riders = |id: u32| aboard.get(&id).copied().unwrap_or(0);
     // A transport with no orders, or only a move to where it already stands (a crowded rally
     // point can leave it a step short of its goal for ever), is free for a job.
-    let parked = |t: &Mine| t.orders == 0 || (t.orders == 1 && matches!(t.order, Some(Order::Move(q)) if q.dist(t.pos) < 10.0));
+    // An empty transport assisting a factory (waiting for what comes out) is free too.
+    let parked = |t: &Mine| t.orders == 0 || (t.orders == 1 && matches!(t.order, Some(Order::Move(q)) if q.dist(t.pos) < 10.0)) || (t.orders == 1 && matches!(t.order, Some(Order::Assist(_))) && riders(t.id) == 0);
     // Buildings our infantry may walk into, with the room left in them.
     let mut refuges: Vec<(u32, V2, i32)> = census
         .list
@@ -2562,17 +2573,23 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
     // (new units on their way from the factories to the rally point, reinforcements following the
     // attack, defenders, raiders), sets them down short of where they are going and comes back;
     // they then carry on with their own order. Air transports keep away from known anti-air.
+    // With nobody on a long walk, a transport assists a land factory whose rally point is far: it
+    // carries what comes out there (`systems::factory_lifts`), one transport per factory.
     let party_ids = b.party.clone();
     let mut lifted: Vec<u32> = vec![];
+    let mut assisted: Vec<(u32, V2)> = live.iter().filter_map(|t| if let Some(Order::Assist(f)) = t.order { census.get(f).filter(|c| defs.get(c.def).is_factory()).map(|c| (c.id, c.pos)) } else { None }).collect();
     for t in spare_lift {
         let td = defs.get(t.def);
         let air = td.is_air();
         let cap = td.transport.as_ref().map_or(0, |c| c.capacity as i32);
         let far = if air { 110.0 } else { 80.0 };
+        if t.orders == 1 && matches!(t.order, Some(Order::Assist(f)) if assisted.iter().any(|a| a.0 == f)) {
+            continue;
+        }
         // Walkers this transport can take, with where they are headed.
         let mut cands: Vec<(&Mine, V2, Order)> = land
             .iter()
-            .filter(|m| fits(td, defs.get(m.def)) && !b.body.contains(&m.id) && !b.boarding.contains_key(&m.id) && !party_ids.contains(&m.id) && !lifted.contains(&m.id) && !used.contains(&m.id))
+            .filter(|m| fits(td, defs.get(m.def)) && !b.body.contains(&m.id) && !b.boarding.contains_key(&m.id) && !party_ids.contains(&m.id) && !lifted.contains(&m.id) && !used.contains(&m.id) && !assisted.iter().any(|a| a.1.dist(m.pos) < 35.0))
             .filter_map(|m| {
                 let o = orders.get(&m.id).copied().or(m.order)?;
                 let q = match o {
@@ -2584,7 +2601,19 @@ fn army(b: &mut Brain, pf: &Profile, me: u8, cx: &Ctx, mine: &[Mine], out: &mut 
             .collect();
         cands.sort_by(|x, y| (x.0.pos.dist(t.pos), x.0.id).partial_cmp(&(y.0.pos.dist(t.pos), y.0.id)).unwrap());
         let Some(&(first, goal, _)) = cands.first() else {
-            go(&mut orders, t, Order::Move(rally));
+            let fac = land_facs
+                .iter()
+                .filter(|f| !assisted.iter().any(|a| a.0 == f.id) && !off("rally"))
+                .filter(|f| f.rally.is_some_and(|r| r.dist(f.pos) > far && (!air || aa_on_route(b, f.pos, r) <= 0.0)))
+                .filter(|f| defs.get(f.def).builds.iter().any(|x| fits(td, defs.get(*x))))
+                .min_by(|x, y| (x.pos.dist(t.pos), x.id).partial_cmp(&(y.pos.dist(t.pos), y.id)).unwrap());
+            match fac {
+                Some(f) => {
+                    orders.insert(t.id, Order::Assist(f.id));
+                    assisted.push((f.id, f.pos));
+                }
+                None => go(&mut orders, t, Order::Move(rally)),
+            }
             continue;
         };
         // Set down a little short of the goal, on the side they come from.
