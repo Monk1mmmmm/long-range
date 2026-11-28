@@ -22,6 +22,7 @@ pub mod marks;
 pub mod models;
 pub mod perf;
 pub mod sky;
+pub mod smoke;
 pub mod sound;
 pub mod surface;
 pub mod terrain;
@@ -878,6 +879,7 @@ impl Plugin for ViewPlugin {
         app.init_resource::<LocalCommands>().init_resource::<marks::Marks>().init_resource::<sound::UiSounds>();
         app.add_plugins(surface::SurfacePlugin);
         app.add_plugins(grass::GrassPlugin);
+        app.add_plugins(smoke::SmokePlugin);
         app.add_plugins(water::WaterPlugin);
         app.add_systems(Startup, sound::load);
         app.add_systems(
@@ -887,7 +889,7 @@ impl Plugin for ViewPlugin {
             (
                 (vmark::<0>, tick_sync, vmark::<1>, terrain::terrain_sync, vmark::<2>, terrain::map_edge_sync, vmark::<3>, flora::flora_sync, grass::grass_sync, model_detail_sync, models::model_lod_swap, gloss_sync, vmark::<4>, intel::update_intel, vmark::<5>, unit_visuals, foundation_fit, vmark::<6>).chain(),
                 (wreck_visuals, vmark::<7>, ghost_visuals, vmark::<8>, debris::debris_visuals, vmark::<9>, unit_transforms, vmark::<10>, drive_anims, vmark::<11>, animate_parts, vmark::<12>).chain(),
-                (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, vmark::<15>, light_follow, blur_sync, vmark::<16>).chain(),
+                (fx::projectile_visuals, vmark::<13>, fx::spawn_fx, vmark::<14>, fx::update_fx, smoke::update_billows, vmark::<15>, light_follow, blur_sync, vmark::<16>).chain(),
                 (weather::lay_tracks, weather::weather_sync).chain(),
             )
                 .chain()

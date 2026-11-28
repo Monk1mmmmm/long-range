@@ -43,8 +43,10 @@ fn scenarios() -> Vec<Scenario> {
         s("effects low", 90.0, false, |s| s.effects = 0),
         s("effects medium", 90.0, false, |s| s.effects = 1),
         s("effects high", 90.0, false, |s| s.effects = 2),
+        s("effects ultra", 90.0, false, |s| s.effects = 3),
         s("effects low, game running", 90.0, true, |s| s.effects = 0),
         s("effects high, game running", 90.0, true, |s| s.effects = 2),
+        s("effects ultra, game running", 90.0, true, |s| s.effects = 3),
         s("water low", 90.0, false, |s| s.water_detail = 0),
         s("water high", 90.0, false, |s| s.water_detail = 2),
         s("water ultra (reflections)", 90.0, false, |s| s.water_detail = 3),
@@ -85,7 +87,7 @@ fn highest(s: &mut Settings) {
     s.shadows = 2;
     s.antialiasing = "msaa4".into();
     s.flora_detail = 2;
-    s.effects = 2;
+    s.effects = 3;
     s.model_lod = false;
     s.ghost_models = true;
     s.sky = true;

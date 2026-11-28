@@ -1,5 +1,7 @@
-//! Projectile visuals and explosion effects (simple growing/shrinking unlit blobs).
+//! Projectile visuals and explosion effects: growing/shrinking blobs at low to high effects, lit
+//! billboard smoke and fire at ultra (`smoke.rs`, `ultra_fx`).
 use super::intel::FogGrid;
+use super::smoke::{self, Billow, SmokeAssets};
 use super::terrain::GameScene;
 use super::ViewState;
 use crate::map::*;
@@ -104,6 +106,7 @@ pub fn projectile_visuals(
     time: Res<Time>,
     fog: Res<FogGrid>,
     settings: Res<crate::settings::Settings>,
+    smoke: Option<Res<SmokeAssets>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     fresh: Query<(Entity, &Projectile), Without<ProjVisual>>,
     mut q: Query<(&Projectile, &mut Transform, &mut Visibility, &mut ProjVisual, &mut MeshMaterial3d<StandardMaterial>)>,
@@ -157,6 +160,14 @@ pub fn projectile_visuals(
         if p.kind == PROJ_MISSILE && want == Visibility::Visible {
             pv.trail -= time.delta_secs();
             if pv.trail <= 0.0 {
+                if let (Some(sa), true) = (smoke.as_deref(), settings.effects >= 3) {
+                    // Ultra: a dense, lingering exhaust trail.
+                    pv.trail = 0.025;
+                    let seed = (pos.x * 97.0 + pos.z * 61.0 + pos.y * 13.0) as i32 as u32;
+                    let b = Billow { drag: 1.5, lift: 0.1, alpha: 0.4, ..Billow::new(-vel * 0.04 + Vec3::Y * 0.2, 1.5, 0.1, 0.6) };
+                    smoke::spawn(&mut commands, sa, &sa.trail, pos, b, seed);
+                    continue;
+                }
                 // Fewer trail puffs at the low effects level.
                 pv.trail = if settings.effects == 0 { 0.12 } else { 0.04 };
                 commands.spawn((
@@ -181,12 +192,21 @@ pub fn spawn_fx(
     map: Res<MapData>,
     view: Res<super::ViewState>,
     settings: Res<crate::settings::Settings>,
+    defs: Res<crate::data::Defs>,
+    game: Res<Game>,
+    smoke: Option<Res<SmokeAssets>>,
     sounds: Option<Res<super::sound::Sounds>>,
     mut surface: Option<ResMut<super::surface::SurfaceView>>,
 ) {
     let mut lights = 0;
     let mut heard: Vec<(usize, f32, f32)> = vec![];
     let level = settings.effects.min(2);
+    let ultra = smoke.as_deref().filter(|_| settings.effects >= 3);
+    // Smoke drifts with the weather's wind (a light breeze when calm).
+    let wind = {
+        let w = super::weather::wind_dir(&map) * (0.5 + defs.rules.weather_of(game.weather).wind * 1.2);
+        Vec3::new(w.x, 0.0, w.y)
+    };
     for (k, f) in log.pending.drain(..).enumerate() {
         let pos = f.pos.v();
         // Dust where debris lands: high effects only, and silent.
@@ -221,6 +241,9 @@ pub fn spawn_fx(
                 heard.push((i, volume.min(1.0), 0.9 + ((k * 37 + (pos.x * 13.0) as usize) % 21) as f32 * 0.01));
             }
         }
+        if let Some(sa) = ultra {
+            ultra_fx(&mut commands, sa, &map, &f, wind, k as u32);
+        }
         let mut puff = |mat: &Handle<StandardMaterial>, at: Vec3, vel: Vec3, max: f32, start: f32, end: f32| {
             commands.spawn((
                 Mesh3d(assets.sphere.clone()),
@@ -233,6 +256,7 @@ pub fn spawn_fx(
         };
         let s = f.size;
         match f.kind {
+            FX_DEBRIS | FX_MUZZLE if ultra.is_some() => {}
             FX_DEBRIS => {
                 for k in 0..2 {
                     let a = k as f32 * 3.1 + pos.x;
@@ -247,6 +271,7 @@ pub fn spawn_fx(
             }
             _ => {
                 let on_ground = pos.y - map.height(pos.x, pos.z) < 1.0;
+                if ultra.is_none() {
                 puff(&assets.flash, pos, Vec3::ZERO, 0.16 + s * 0.02, s * 0.3, s * 0.9);
                 puff(&assets.fire, pos + Vec3::Y * 0.1 * s, Vec3::Y * 0.8, 0.32 + s * 0.04, s * 0.25, s * 0.7);
                 // Low effects: one puff of smoke and no flash of light.
@@ -257,6 +282,7 @@ pub fn spawn_fx(
                     let mat = if on_ground && k % 2 == 0 { &assets.dust } else { &assets.smoke };
                     puff(mat, pos + off, Vec3::new(a.cos() * 0.4, 1.2 + (k as f32 * 0.37) % 0.8, a.sin() * 0.4), 1.0 + s * 0.15 + (k as f32 * 0.21) % 0.6, s * 0.25, s * 0.6);
                 }
+                }
                 if level >= 2 {
                     let ground = map.height(pos.x, pos.z);
                     let big = s.clamp(0.5, 5.0);
@@ -264,9 +290,11 @@ pub fn spawn_fx(
                     let mut spawn = |mesh: &Handle<Mesh>, mat: &Handle<StandardMaterial>, at: Vec3, p: Puff| {
                         commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Transform::from_translation(at).with_scale(Vec3::splat(p.start)), p, NotShadowCaster, GameScene));
                     };
-                    // A hot core and a deep red fireball round it, rising.
-                    spawn(&assets.sphere, &assets.hot, pos, Puff::new(Vec3::Y * 0.5, 0.25 + big * 0.05, s * 0.2, s * 0.55));
-                    for k in 0..3 {
+                    // A hot core and a deep red fireball round it, rising (ultra: billboard fire instead).
+                    if ultra.is_none() {
+                        spawn(&assets.sphere, &assets.hot, pos, Puff::new(Vec3::Y * 0.5, 0.25 + big * 0.05, s * 0.2, s * 0.55));
+                    }
+                    for k in 0..if ultra.is_none() { 3 } else { 0 } {
                         let a = hash(k) * 6.28;
                         let off = Vec3::new(a.cos(), 0.4 + hash(k + 9), a.sin()) * s * 0.28;
                         spawn(&assets.sphere, &assets.ember, pos + off, Puff::new(Vec3::new(a.cos() * 0.5, 1.4, a.sin() * 0.5), 0.5 + big * 0.1 + hash(k + 3) * 0.3, s * 0.2, s * 0.65));
@@ -291,7 +319,7 @@ pub fn spawn_fx(
                         spawn(&assets.chunk, &assets.rock, pos, Puff { grav: 9.0, floor: ground + size * 0.4, spin: 6.0 + hash(k + 180) * 8.0, ..Puff::new(Vec3::new(a.cos() * out, up, a.sin() * out), 3.0 + hash(k + 200) * 2.0, size, size) });
                     }
                     // A black column that lingers and rises, and soot settling round the spot.
-                    for k in 0..(2 + (big as u32)) {
+                    for k in 0..if ultra.is_none() { 2 + big as u32 } else { 0 } {
                         let a = hash(k + 220) * 6.28;
                         spawn(&assets.sphere, &assets.soot, pos + Vec3::new(a.cos(), 0.5, a.sin()) * s * 0.2, Puff { delay: 0.1 + k as f32 * 0.25, ..Puff::new(Vec3::new(a.cos() * 0.15, 1.1, a.sin() * 0.15), 3.5 + hash(k + 240) * 2.0, s * 0.3, s * 0.9 + 0.5) });
                     }
@@ -342,6 +370,85 @@ pub fn update_fx(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, 
             commands.entity(e).despawn();
         } else {
             l.intensity *= 0.8;
+        }
+    }
+}
+
+/// Ultra effects of one event: billboard fire, smoke and dust (`smoke.rs`). Sparks, flying chunks,
+/// the shock ring and the flash of light stay `spawn_fx`'s.
+fn ultra_fx(commands: &mut Commands, sa: &SmokeAssets, map: &MapData, f: &Fx, wind: Vec3, n: u32) {
+    let pos = f.pos.v();
+    let s = f.size.max(0.1);
+    let ground = map.height(pos.x, pos.z);
+    let on_ground = pos.y - ground < 1.0 + s * 0.3;
+    let salt = ((pos.x * 31.0 + pos.z * 17.0 + pos.y * 7.0) as i32 as u32).wrapping_mul(40503) ^ n.wrapping_mul(0x9E37_79B9);
+    let hash = |k: u32| ((k.wrapping_add(salt).wrapping_mul(2654435761) ^ salt.rotate_left(13)).wrapping_mul(0x2C1B_3C6D) >> 8 & 0xFFFF) as f32 / 65535.0;
+    let dir = |k: u32| {
+        let a = hash(k) * std::f32::consts::TAU;
+        Vec3::new(a.cos(), 0.0, a.sin())
+    };
+    let mut seed = 0u32;
+    let mut put = |commands: &mut Commands, mat: &Handle<smoke::SmokeMaterial>, at: Vec3, b: Billow| {
+        seed += 1;
+        smoke::spawn(commands, sa, mat, at, b, salt.wrapping_add(seed * 7919));
+    };
+    match f.kind {
+        FX_DEBRIS => {
+            for k in 0..2 {
+                let d = dir(k);
+                put(commands, &sa.dust, pos + d * s * 0.3 + Vec3::Y * s * 0.2, Billow { drag: 1.5, lift: 0.1, wind: wind * 0.5, alpha: 0.8, ..Billow::new(d * 0.6 + Vec3::Y * 0.4, 1.4 + hash(k + 5) * 0.8, s * 0.4, s * 1.4) });
+            }
+        }
+        FX_MUZZLE => {
+            put(commands, &sa.flash, pos, Billow { drag: 0.0, ..Billow::new(Vec3::ZERO, 0.09, s * 0.9, s * 1.8) });
+            if s > 0.25 {
+                // A cloud of propellant smoke hanging at the muzzle.
+                for k in 0..1 + (s * 2.0) as u32 {
+                    let d = dir(k);
+                    put(commands, &sa.muzzle, pos + d * s * 0.2, Billow { drag: 2.0, lift: 0.15, wind, alpha: 0.35 + hash(k + 3) * 0.2, ..Billow::new(d * s * 1.5 + Vec3::Y * 0.4, 1.2 + s * 0.6 + hash(k + 9) * 0.8, s * 0.45, s * (1.3 + hash(k + 11) * 0.6)) });
+                }
+            }
+        }
+        _ => {
+            let death = f.kind == FX_DEATH;
+            let big = s.clamp(0.3, 6.0);
+            let root = big.sqrt();
+            // The flash: a burst of light over the first frames.
+            put(commands, &sa.flash, pos + Vec3::Y * s * 0.2, Billow { drag: 0.0, ..Billow::new(Vec3::ZERO, 0.12 + s * 0.015, s * 1.0, s * 2.4) });
+            // The fireball: puffs thrown out, quickly braked, rising and cooling into smoke.
+            let fires = 3 + (big * 1.5) as u32 + if death { 3 } else { 0 };
+            for k in 0..fires.min(14) {
+                let d = dir(k + 20);
+                let up = 0.3 + hash(k + 21) * 0.9;
+                let v = (d * (2.0 + hash(k + 22) * 3.0) + Vec3::Y * up * 3.0) * root;
+                let at = pos + (d * 0.3 + Vec3::Y * 0.2) * s;
+                put(commands, &sa.fire, at, Billow { drag: 4.5, lift: 1.6, wind: wind * 0.3, delay: hash(k + 23) * 0.05, ..Billow::new(v, (0.55 + hash(k + 24) * 0.4) * (0.8 + root * 0.25), s * 0.45, s * (1.0 + hash(k + 25) * 0.5)) });
+            }
+            // Smoke rolling up out of it.
+            let smokes = 2 + (big * 0.8) as u32 + if death { 2 } else { 0 };
+            for k in 0..smokes.min(8) {
+                let d = dir(k + 40);
+                let v = (d * (0.6 + hash(k + 41) * 1.6) + Vec3::Y * (1.2 + hash(k + 42) * 1.8)) * root;
+                let at = pos + (d * 0.35 + Vec3::Y * 0.3) * s;
+                let mat = if on_ground && k % 3 == 2 { &sa.dust } else { &sa.smoke };
+                put(commands, mat, at, Billow { drag: 1.3, lift: 0.35, wind, delay: 0.05 + hash(k + 43) * 0.3, alpha: 0.5 + hash(k + 44) * 0.25, ..Billow::new(v, 2.0 + hash(k + 45) * 1.5 + s * 0.3, s * 0.4, s * (1.1 + hash(k + 46) * 0.6) + 0.3) });
+            }
+            if on_ground {
+                // A skirt of dust thrown out low along the ground.
+                for k in 0..(3 + (big * 0.8) as u32).min(7) {
+                    let d = dir(k + 60);
+                    let at = Vec3::new(pos.x, ground + s * 0.25, pos.z) + d * s * 0.4;
+                    put(commands, &sa.dust, at, Billow { drag: 3.0, lift: 0.08, wind: wind * 0.6, alpha: 0.45 + hash(k + 61) * 0.2, ..Billow::new(d * (3.0 + hash(k + 62) * 3.0) * root + Vec3::Y * 0.3, 1.2 + hash(k + 63) * 1.0 + s * 0.15, s * 0.3, s * (0.9 + hash(k + 64) * 0.5)) });
+                }
+            }
+            if death || s >= 3.0 {
+                // A black column that keeps rising long after the blast, leaning with the wind.
+                for k in 0..(2 + (big * 0.5) as u32).min(5) {
+                    let d = dir(k + 80);
+                    let at = pos + d * s * 0.2 + Vec3::Y * s * 0.3;
+                    put(commands, &sa.soot, at, Billow { drag: 0.6, lift: 0.25, wind: wind * 1.3, delay: 0.2 + k as f32 * 0.4, alpha: 0.55, ..Billow::new(d * 0.2 + Vec3::Y * (1.0 + hash(k + 81)), 4.5 + hash(k + 82) * 2.5 + s * 0.3, s * 0.35, s * 1.3 + 0.8) });
+                }
+            }
         }
     }
 }

@@ -214,7 +214,7 @@
     "off": "Off",
     "low": "Low",
     "effects": "Effects",
-    "effects_tip": "Low: debris appears where it lands instead of falling, explosions are smaller and give no light. For slow graphics cards.",
+    "effects_tip": "Low: debris appears where it lands instead of falling, explosions are smaller and give no light. For slow graphics cards. Ultra: lit, billowing smoke, dust and fireballs instead of simple blobs.",
     "remembered_buildings": "Remembered buildings",
     "remembered_buildings_tip": "Buildings (also neutral ones) you have seen and lost sight of stay on the map. On: drawn with their models as last seen. Off: only their icons.",
     "show_models_in_the_fog": "Show models in the fog",

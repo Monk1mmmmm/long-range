@@ -36,7 +36,7 @@ fn hash01(k: u32) -> f32 {
 }
 
 /// Wind direction of a game (fixed, from the map seed) on the ground plane.
-fn wind_dir(map: &MapData) -> Vec2 {
+pub(super) fn wind_dir(map: &MapData) -> Vec2 {
     let a = hash01(map.seed as u32 ^ 0x5157) * std::f32::consts::TAU;
     Vec2::new(a.cos(), a.sin())
 }

@@ -748,7 +748,7 @@ pub fn apply_preset(s: &mut Settings, level: usize) {
     let l = level.min(3);
     s.shadows = [0, 1, 2, 2][l];
     s.flora_detail = [0, 1, 2, 3][l];
-    s.effects = [0, 1, 2, 2][l];
+    s.effects = [0, 1, 2, 3][l];
     s.terrain_detail = l > 0;
     s.sky = true;
     s.haze = l > 0;
@@ -771,7 +771,7 @@ pub fn preset_of(s: &Settings) -> Option<usize> {
 }
 
 /// Names of the effect levels (`Settings::effects`).
-pub const EFFECTS: [&str; 3] = [tx!("settings.effects_low"), tx!("settings.medium"), tx!("settings.high")];
+pub const EFFECTS: [&str; 4] = [tx!("settings.effects_low"), tx!("settings.medium"), tx!("settings.high"), tx!("settings.ultra")];
 
 /// Draws the settings widgets. Returns true when the window should close.
 pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings, adapter: &str, errors: &[String], in_game: bool) -> bool {
@@ -883,7 +883,7 @@ pub fn settings_ui(ui: &mut egui::Ui, s: &mut Settings, started_with: &Settings,
         });
         ui.end_row();
         ui.label(tr!("settings.effects")).on_hover_text(tr!("settings.effects_tip"));
-        egui::ComboBox::from_id_salt("effects").selected_text(tr(EFFECTS[s.effects.min(2) as usize])).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("effects").selected_text(tr(EFFECTS[s.effects.min(3) as usize])).show_ui(ui, |ui| {
             for (k, l) in EFFECTS.iter().enumerate() {
                 ui.selectable_value(&mut s.effects, k as u8, tr(l));
             }
