@@ -3,6 +3,21 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.17.1
+
+Gameplay
+- Factory rally points take order queues: Shift adds move, attack-move or patrol points, and finished units leave with the whole route.
+- Transports assisting a factory pick up what comes out, fly it along the rally route and set it down at the last move point, then come back for more. AI players do this too.
+- Control points: infantry inside garrisoned buildings and trenches hold and capture points.
+
+Graphics
+- Ultra effects level: lit billboard smoke, dust and fireballs drifting with the wind instead of spheres.
+- Falling rain and snow get their own graphics setting (off/low/medium/high); smaller snowflakes that thin out towards the camera.
+- Land beyond the map border is textured near the edge, with weather and snow there too.
+
+Fixes
+- No red strips beside dormers on roofs.
+
 ## v0.17.0
 
 Gameplay
