@@ -44,6 +44,8 @@ fn shape_sd(shape: &str, x: f32, y: f32) -> f32 {
         "factory" => (x.abs() - 0.94).max(y.abs() - 0.58),
         "commander" => (x * x + y * y).sqrt() - 0.72,
         "civilian" => (x.abs().max(y.abs()) - 0.56).abs() - 0.07,
+        // A hull seen from the side: flat deck, sloping bow and stern.
+        "ship" => poly(x, y, &[(-0.82, -0.3), (0.82, -0.3), (0.5, 0.45), (-0.5, 0.45)]),
         _ => x.abs().max(y.abs()) - 0.6,
     }
 }
@@ -101,6 +103,7 @@ fn glyph_sd(g: &str, x: f32, y: f32) -> f32 {
         // What a factory makes, as the outline of that unit class.
         "land" => ((x.abs() + y.abs()) * 0.7071 - 0.26).abs() - 0.05,
         "tri" => poly(x, y, &[(0.0, -0.36), (0.4, 0.26), (-0.4, 0.26)]).abs() - 0.05,
+        "ship" => poly(x, y, &[(-0.42, -0.14), (0.42, -0.14), (0.26, 0.22), (-0.26, 0.22)]).abs() - 0.05,
         _ => f32::MAX,
     }
 }

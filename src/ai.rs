@@ -301,7 +301,8 @@ pub fn ai_system(
         if ai.kind != AiKind::Simple {
             let mut mine: Vec<Mine> = q
                 .iter()
-                .filter(|(u, ..)| u.owner == me)
+                // Drones and decoys look after themselves.
+                .filter(|(u, ..)| u.owner == me && !defs.get(u.def).spawned)
                 .map(|(u, b, orders, factory, uc, upg, hosted)| Mine {
                     id: u.id,
                     def: u.def,

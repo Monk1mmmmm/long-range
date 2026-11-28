@@ -195,8 +195,8 @@ pub const WEATHER_FIELDS: &[Field] = &[
 // units
 
 const MOVE_KINDS: &[&str] = &["none", "land", "hover", "plane"];
-const SHAPES: &[&str] = &["land", "bot", "air", "structure", "factory", "commander", "civilian"];
-const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "line", "ring", "scope", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri"];
+const SHAPES: &[&str] = &["land", "bot", "air", "ship", "structure", "factory", "commander", "civilian"];
+const GLYPHS: &[&str] = &["plus", "dot", "arc", "chevron", "line", "ring", "scope", "wave", "eng", "mass", "bolt", "store", "cargo", "frame", "bar", "land", "tri", "ship"];
 const WEAPON_KINDS: &[&str] = &["direct", "arc", "high_arc", "missile", "bomb"];
 const TARGETS: &[&str] = &["land", "air"];
 const PRIORITIES: &[&str] = &["none", "armored", "infantry"];
@@ -237,6 +237,9 @@ pub const UNIT_BODY: &[Field] = &[
     num("move.turn", tx!("preset_units.body_move_turn"), 0.0, 3600.0, tx!("preset_units.body_move_turn_tip")),
     num("move.altitude", tx!("preset_units.body_move_altitude"), 0.0, 1000.0, tx!("preset_units.body_move_altitude_tip")),
     no("move.amphibious", tx!("preset_units.body_move_amphibious"), tx!("preset_units.body_move_amphibious_tip")),
+    no("move.naval", tx!("preset_units.body_move_naval"), tx!("preset_units.body_move_naval_tip")),
+    no("shore", tx!("preset_units.body_shore"), tx!("preset_units.body_shore_tip")),
+    no("decoy", tx!("preset_units.body_decoy"), tx!("preset_units.body_decoy_tip")),
 ];
 
 pub const UNIT_INTEL: &[Field] = &[
@@ -271,6 +274,28 @@ pub const UNIT_BINOCULARS: &[Field] = &[
     num("angle", tx!("preset_units.binoculars_angle"), 20.0, 170.0, tx!("preset_units.binoculars_angle_tip")),
     num("turn", tx!("preset_units.binoculars_turn"), 40.0, 3600.0, tx!("preset_units.binoculars_turn_tip")),
     num("scan", tx!("preset_units.binoculars_scan"), 60.0, 180.0, tx!("preset_units.binoculars_scan_tip")),
+];
+
+pub const UNIT_DRONE: &[Field] = &[
+    f("unit", tx!("preset_units.drone_unit"), Kind::Pick(Src::Unit, false), tx!("preset_units.drone_unit_tip")),
+    num("cooldown", tx!("preset_units.drone_cooldown"), 40.0, 3600.0, tx!("preset_units.drone_cooldown_tip")),
+    num("leash", tx!("preset_units.drone_leash"), 100.0, 5000.0, tx!("preset_units.drone_leash_tip")),
+];
+
+pub const UNIT_JAMMER: &[Field] = &[
+    num("radius", tx!("preset_units.jammer_radius"), 35.0, 5000.0, tx!("preset_units.jammer_radius_tip")),
+    num("time", tx!("preset_units.jammer_time"), 4.0, 600.0, tx!("preset_units.jammer_time_tip")),
+];
+
+pub const UNIT_DECOYS: &[Field] = &[
+    f("unit", tx!("preset_units.decoys_unit"), Kind::Pick(Src::Unit, false), tx!("preset_units.decoys_unit_tip")),
+    f("count", tx!("preset_units.decoys_count"), Kind::Int(4, 1, 50), tx!("preset_units.decoys_count_tip")),
+    num("radius", tx!("preset_units.decoys_radius"), 140.0, 5000.0, tx!("preset_units.decoys_radius_tip")),
+    num("cooldown", tx!("preset_units.decoys_cooldown"), 15.0, 3600.0, tx!("preset_units.decoys_cooldown_tip")),
+];
+
+pub const UNIT_SATELLITE: &[Field] = &[
+    num("vision", tx!("preset_units.satellite_vision"), 45.0, 5000.0, tx!("preset_units.satellite_vision_tip")),
 ];
 
 pub const UNIT_TRANSPORT: &[Field] = &[
@@ -819,6 +844,10 @@ pub fn unit_form(ui: &mut egui::Ui, v: &mut Value, ctx: &FormCtx) -> bool {
     section(ui, tr!("common.sight_and_radar"), false, |ui| {
         ch |= grid(ui, v, UNIT_INTEL, ctx, "intel");
         ch |= optional(ui, v, "binoculars", tr!("preset_units.binoculars"), tr!("preset_units.binoculars_tip"), json!({ "range": 140, "angle": 20, "turn": 40, "scan": 60 }), UNIT_BINOCULARS, ctx, "binoculars");
+        ch |= optional(ui, v, "drone", tr!("preset_units.drone"), tr!("preset_units.drone_tip"), json!({ "unit": "recon_drone", "cooldown": 40, "leash": 100 }), UNIT_DRONE, ctx, "drone");
+        ch |= optional(ui, v, "jammer", tr!("preset_units.jammer"), tr!("preset_units.jammer_tip"), json!({ "radius": 35, "time": 4 }), UNIT_JAMMER, ctx, "jammer");
+        ch |= optional(ui, v, "decoys", tr!("preset_units.decoys"), tr!("preset_units.decoys_tip"), json!({ "unit": "decoy", "count": 4, "radius": 140, "cooldown": 15 }), UNIT_DECOYS, ctx, "decoys");
+        ch |= optional(ui, v, "satellite", tr!("preset_units.satellite"), tr!("preset_units.satellite_tip"), json!({ "vision": 45 }), UNIT_SATELLITE, ctx, "satellite");
     });
     section(ui, tr!("common.economy"), false, |ui| ch |= grid(ui, v, UNIT_ECO, ctx, "eco"));
     section(ui, tr!("preset_units.weapons"), true, |ui| ch |= weapons(ui, v, ctx));

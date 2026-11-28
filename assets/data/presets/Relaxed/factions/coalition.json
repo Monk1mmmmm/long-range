@@ -468,6 +468,154 @@
    }
   },
   {
+   "id": "patrol_boat",
+   "cargo": 0,
+   "categories": [
+    "armored",
+    "naval"
+   ],
+   "name": "Chaika",
+   "desc": "Patrol boat with twin heavy machine guns that fire at ground and air targets alike. Fast and lightly armored. Sails on deep water only.",
+   "tier": 2,
+   "hp": 1430,
+   "armor": "LightTank",
+   "cost": {
+    "mass": 650,
+    "energy": 6000,
+    "time": 1800
+   },
+   "size": [
+    2.2,
+    1.4,
+    6.0
+   ],
+   "icon": {
+    "shape": "ship",
+    "glyphs": [
+     "plus"
+    ]
+   },
+   "model": {
+    "mesh": "models/patrol_boat.glb",
+    "albedo": "models/patrol_boat_albedo.png",
+    "team_mask": "models/patrol_boat_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "portrait": "icons/units/apc_heavy.png",
+   "built_by": "naval",
+   "move": {
+    "kind": "land",
+    "naval": true,
+    "speed": 5.5,
+    "reverse": 2.0,
+    "accel": 1.6,
+    "turn": 45
+   },
+   "vision": 45,
+   "weapons": [
+    {
+     "name": "Twin Heavy Machine Gun",
+     "prefer": "infantry",
+     "damage": 4,
+     "damage_type": "SmallArms",
+     "range": 65,
+     "reload": 0.4,
+     "speed": 90,
+     "kind": "direct",
+     "salvo": 4,
+     "salvo_delay": 0.05,
+     "spread": 0.6,
+     "turret": {
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle",
+      "yaw_speed": 120,
+      "pitch_speed": 120
+     },
+     "targets": [
+      "land",
+      "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "gunboat",
+   "cargo": 0,
+   "categories": [
+    "armored",
+    "naval"
+   ],
+   "name": "Shtorm",
+   "desc": "Gunboat with a 30 mm autocannon firing bursts at ground and air targets, and its own radar. Well armored. Sails on deep water only.",
+   "tier": 2,
+   "hp": 2470,
+   "armor": "MediumTank",
+   "cost": {
+    "mass": 1100,
+    "energy": 9500,
+    "time": 2600
+   },
+   "size": [
+    3.0,
+    2.0,
+    8.5
+   ],
+   "icon": {
+    "shape": "ship",
+    "glyphs": [
+     "plus",
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/gunboat.glb",
+    "albedo": "models/gunboat_albedo.png",
+    "team_mask": "models/gunboat_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "portrait": "icons/units/flak_carrier.png",
+   "built_by": "naval",
+   "move": {
+    "kind": "land",
+    "naval": true,
+    "speed": 4.4,
+    "reverse": 1.8,
+    "accel": 1.2,
+    "turn": 35
+   },
+   "vision": 45,
+   "radar": 120,
+   "weapons": [
+    {
+     "name": "30 mm Autocannon",
+     "damage": 16,
+     "damage_type": "Autocannon",
+     "radius": 1.0,
+     "range": 90,
+     "reload": 1.4,
+     "speed": 120,
+     "kind": "direct",
+     "salvo": 4,
+     "salvo_delay": 0.1,
+     "spread": 0.6,
+     "turret": {
+      "yaw_bone": "Turret",
+      "pitch_bone": "Turret_Barrel",
+      "muzzle_bone": "Turret_Muzzle",
+      "yaw_speed": 90,
+      "pitch_speed": 90
+     },
+     "targets": [
+      "land",
+      "air"
+     ]
+    }
+   ]
+  },
+  {
    "id": "buggy",
    "cargo": 4,
    "name": "Buggy",
@@ -840,6 +988,308 @@
      },
      "targets": [
       "air"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "drone_operator",
+   "stealth": 3,
+   "assault": 3,
+   "categories": [
+    "infantry"
+   ],
+   "name": "Recon Drone Operator",
+   "desc": "Infantry with a recon quadcopter that scouts far ahead and locks its camera on enemies; a lost drone is replaced after 40 s. Armed only with a pistol.",
+   "tier": 3,
+   "hp": 91,
+   "regen": 0.6,
+   "armor": "Light",
+   "cost": {
+    "mass": 220,
+    "energy": 2200,
+    "time": 900
+   },
+   "size": [
+    1.25,
+    1.5,
+    1.25
+   ],
+   "hit_box": [
+    0.8,
+    1.15,
+    0.7
+   ],
+   "icon": {
+    "shape": "bot",
+    "glyphs": [
+     "ring"
+    ]
+   },
+   "model": {
+    "mesh": "models/trooper.glb",
+    "albedo": "models/trooper_albedo.png",
+    "team_mask": "models/trooper_team.png",
+    "normal": "models/trooper_normal.png",
+    "scale": 0.1562
+   },
+   "portrait": "icons/units/trooper.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.2,
+    "reverse": 2.0,
+    "accel": 5.0,
+    "turn": 150
+   },
+   "vision": 45,
+   "drone": {
+    "unit": "recon_drone",
+    "cooldown": 40,
+    "leash": 110
+   },
+   "weapons": [
+    {
+     "name": "Pistol",
+     "prefer": "infantry",
+     "damage": 2,
+     "range": 10,
+     "reload": 0.5,
+     "speed": 30,
+     "kind": "direct",
+     "damage_type": "SmallArms",
+     "spread": 0.8,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "strike_operator",
+   "stealth": 3,
+   "assault": 3,
+   "categories": [
+    "infantry"
+   ],
+   "name": "Strike Drone Operator",
+   "desc": "Infantry with a kamikaze quadcopter as strong as an anti-tank missile that flies over obstacles to its target; a new drone is ready 40 s after the last. Armed only with a pistol.",
+   "tier": 3,
+   "hp": 91,
+   "regen": 0.6,
+   "armor": "Light",
+   "cost": {
+    "mass": 260,
+    "energy": 2600,
+    "time": 900
+   },
+   "size": [
+    1.25,
+    1.5,
+    1.25
+   ],
+   "hit_box": [
+    0.8,
+    1.15,
+    0.7
+   ],
+   "icon": {
+    "shape": "bot",
+    "glyphs": [
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/at_trooper.glb",
+    "albedo": "models/at_trooper_albedo.png",
+    "team_mask": "models/at_trooper_team.png",
+    "normal": "models/at_trooper_normal.png",
+    "scale": 0.1562
+   },
+   "portrait": "icons/units/trooper.png",
+   "built_by": "land",
+   "move": {
+    "kind": "land",
+    "speed": 4.2,
+    "reverse": 2.0,
+    "accel": 5.0,
+    "turn": 150
+   },
+   "vision": 45,
+   "drone": {
+    "unit": "strike_drone",
+    "cooldown": 40,
+    "leash": 120
+   },
+   "weapons": [
+    {
+     "name": "Pistol",
+     "prefer": "infantry",
+     "damage": 2,
+     "range": 10,
+     "reload": 0.5,
+     "speed": 30,
+     "kind": "direct",
+     "damage_type": "SmallArms",
+     "spread": 0.8,
+     "turret": {
+      "yaw_speed": 180,
+      "pitch_speed": 180,
+      "yaw_bone": "Torso",
+      "pitch_bone": "Arm_Right_B02",
+      "muzzle_bone": "Arm_Right_Muzzle"
+     }
+    }
+   ]
+  },
+  {
+   "id": "recon_drone",
+   "cargo": 0,
+   "wreck": false,
+   "categories": [
+    "drone"
+   ],
+   "stealth": 1,
+   "name": "Recon Drone",
+   "desc": "A Recon Drone Operator's quadcopter. Flies ahead of its operator, its camera locks onto enemies, and it keeps clear of known anti-air. Falls when jammed.",
+   "tier": 3,
+   "hp": 78,
+   "armor": "Air",
+   "cost": {
+    "mass": 30,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    0.5,
+    0.2,
+    0.7
+   ],
+   "hit_box": [
+    0.7,
+    0.6,
+    0.8
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "ring"
+    ]
+   },
+   "model": {
+    "mesh": "models/air_scout.glb",
+    "albedo": "models/air_scout_albedo.png",
+    "team_mask": "models/air_scout_team.png",
+    "scale": 0.6,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Prop",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 1800
+     }
+    ]
+   },
+   "portrait": "icons/units/air_scout.png",
+   "move": {
+    "kind": "hover",
+    "speed": 9.0,
+    "accel": 6.0,
+    "turn": 300,
+    "altitude": 12
+   },
+   "vision": 30,
+   "binoculars": {
+    "range": 150,
+    "angle": 20,
+    "turn": 60,
+    "scan": 180
+   }
+  },
+  {
+   "id": "strike_drone",
+   "cargo": 0,
+   "wreck": false,
+   "categories": [
+    "drone"
+   ],
+   "stealth": 1,
+   "name": "Strike Drone",
+   "desc": "A Strike Drone Operator's kamikaze quadcopter. Flies over anything in the way and dives into its target with an anti-tank charge. Falls when jammed.",
+   "tier": 3,
+   "hp": 46,
+   "armor": "Air",
+   "cost": {
+    "mass": 30,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    0.5,
+    0.2,
+    0.6
+   ],
+   "hit_box": [
+    0.6,
+    0.6,
+    0.7
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "chevron"
+    ]
+   },
+   "model": {
+    "mesh": "models/dove.glb",
+    "albedo": "models/dove_albedo.png",
+    "team_mask": "models/dove_team.png",
+    "scale": 0.7,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Prop",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 2000
+     }
+    ]
+   },
+   "portrait": "icons/units/dove.png",
+   "move": {
+    "kind": "hover",
+    "speed": 11.0,
+    "accel": 7.0,
+    "turn": 360,
+    "altitude": 8
+   },
+   "vision": 20,
+   "weapons": [
+    {
+     "name": "Shaped Charge",
+     "damage": 300,
+     "range": 6,
+     "reload": 1.0,
+     "speed": 25,
+     "kind": "missile",
+     "damage_type": "AP",
+     "radius": 1.5,
+     "turn_rate": 400,
+     "ammo": 1,
+     "suicide": true,
+     "targets": [
+      "land"
      ]
     }
    ]
@@ -1744,8 +2194,16 @@
     "energy": 12000,
     "time": 4000
    },
-   "size": [1.7, 1.4, 2.45],
-   "hit_box": [1.62, 1.38, 2.35],
+   "size": [
+    1.7,
+    1.4,
+    2.45
+   ],
+   "hit_box": [
+    1.62,
+    1.38,
+    2.35
+   ],
    "icon": {
     "shape": "land",
     "glyphs": [
@@ -1946,7 +2404,7 @@
     "categories": [
      "structure"
     ],
-    "tier": 3
+    "tier": 4
    }
   },
   {
@@ -2686,6 +3144,87 @@
    ]
   },
   {
+   "id": "cruise_missile",
+   "cargo": 0,
+   "wreck": false,
+   "categories": [
+    "missile"
+   ],
+   "stealth": 1,
+   "name": "Trembita",
+   "desc": "Cruise missile: like a suicide drone, but much faster, with a far heavier warhead and a longer strike reach. Not affected by jammers. Very expensive.",
+   "tier": 3,
+   "hp": 156,
+   "armor": "Air",
+   "cost": {
+    "mass": 1200,
+    "energy": 12000,
+    "time": 3000
+   },
+   "size": [
+    0.6,
+    0.4,
+    2.0
+   ],
+   "hit_box": [
+    0.9,
+    0.6,
+    2.4
+   ],
+   "icon": {
+    "shape": "air",
+    "glyphs": [
+     "chevron",
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/dove.glb",
+    "albedo": "models/dove_albedo.png",
+    "team_mask": "models/dove_team.png",
+    "scale": 2.0,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Prop",
+      "axis": [
+       0,
+       0,
+       1
+      ],
+      "speed": 2000
+     }
+    ]
+   },
+   "portrait": "icons/units/dove.png",
+   "built_by": "air",
+   "move": {
+    "kind": "plane",
+    "speed": 24,
+    "turn": 60,
+    "altitude": 10
+   },
+   "vision": 24,
+   "weapons": [
+    {
+     "name": "Cruise Warhead",
+     "damage": 2200,
+     "range": 30,
+     "reload": 1.0,
+     "speed": 45,
+     "kind": "missile",
+     "damage_type": "Explosive",
+     "radius": 8.0,
+     "turn_rate": 240,
+     "ammo": 1,
+     "suicide": true,
+     "targets": [
+      "land"
+     ]
+    }
+   ]
+  },
+  {
    "id": "pump",
    "name": "Mass Pump",
    "desc": "Extracts mass from a deposit. Upgradeable (U).",
@@ -3167,6 +3706,58 @@
     "tier": 2
    },
    "upgrade": "land_factory3"
+  },
+  {
+   "id": "naval_factory",
+   "name": "Naval Yard",
+   "desc": "Builds tier 2 warships. Goes on a shore, half on land and half over deep water, however steep the bank. Expensive.",
+   "tier": 2,
+   "hp": 5000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 1600,
+    "energy": 14000,
+    "time": 2600
+   },
+   "size": [
+    12.0,
+    4.0,
+    12.0
+   ],
+   "hit_box": [
+    12.0,
+    4.0,
+    11.5
+   ],
+   "icon": {
+    "shape": "factory",
+    "glyphs": [
+     "ship"
+    ]
+   },
+   "model": {
+    "mesh": "models/land_factory2.glb",
+    "albedo": "models/land_factory2_albedo.png",
+    "team_mask": "models/land_factory2_team.png",
+    "scale": 1.5,
+    "brightness": 1.0
+   },
+   "portrait": "icons/units/land_factory2.png",
+   "footprint": 6,
+   "shore": true,
+   "built_by": "structure",
+   "vision": 22,
+   "eco": {
+    "store_mass": 160
+   },
+   "build": {
+    "rate": 40,
+    "range": 0,
+    "categories": [
+     "naval"
+    ],
+    "tier": 2
+   }
   },
   {
    "id": "land_factory3",
@@ -3823,7 +4414,7 @@
   {
    "id": "radar_tower2",
    "name": "Radar Tower Mk2",
-   "desc": "T2 radar: finds unstealthed units within 250 and stealth 1 units (T2 aircraft) within 160. Blocked by terrain. Costly to run. Built by tier 2+ engineers or upgraded from a Radar Tower (U).",
+   "desc": "T2 radar: finds unstealthed units within 250 and stealth 1 units (T2 aircraft) within 160. Blocked by terrain. Costly to run. Built by tier 2+ engineers or upgraded from a Radar Tower (U). Its jammer brings down enemy drones within 45 after 2.5 s.",
    "tier": 2,
    "hp": 700,
    "armor": "Structure",
@@ -3881,6 +4472,10 @@
    "vision": 22,
    "radar": 250,
    "radar2": 160,
+   "jammer": {
+    "radius": 45,
+    "time": 2.5
+   },
    "upgrade": "radar_tower3",
    "build": {
     "rate": 10,
@@ -3895,7 +4490,7 @@
   {
    "id": "radar_tower3",
    "name": "Radar Tower Mk3",
-   "desc": "T3 radar: finds unstealthed units within 360, stealth 1 units within 250 and stealth 2 units (T3 aircraft) within 150. Infantry never show on radar. Blocked by terrain. Very costly to run. Built by tier 3 engineers or upgraded from a Radar Tower Mk2 (U).",
+   "desc": "T3 radar: finds unstealthed units within 360, stealth 1 units within 250 and stealth 2 units (T3 aircraft) within 150. Infantry never show on radar. Blocked by terrain. Very costly to run. Built by tier 3 engineers or upgraded from a Radar Tower Mk2 (U). Its jammer brings down enemy drones within 70 after 1 s, and it puts out four false radar echoes that wander around it.",
    "tier": 3,
    "hp": 1500,
    "armor": "Structure",
@@ -3963,6 +4558,16 @@
    "radar": 360,
    "radar2": 250,
    "radar3": 150,
+   "jammer": {
+    "radius": 70,
+    "time": 1.0
+   },
+   "decoys": {
+    "unit": "decoy",
+    "count": 4,
+    "radius": 140,
+    "cooldown": 15
+   },
    "build": {
     "rate": 10,
     "range": 0,
@@ -3971,6 +4576,118 @@
    },
    "eco": {
     "upkeep": 67.5
+   }
+  },
+  {
+   "id": "decoy",
+   "cargo": 0,
+   "wreck": false,
+   "decoy": true,
+   "name": "Radar Decoy",
+   "desc": "A false radar echo put out by a Radar Tower Mk3. Enemy radar sees a unit; there is nothing there.",
+   "tier": 3,
+   "hp": 1,
+   "armor": "Structure",
+   "cost": {
+    "mass": 1,
+    "energy": 1,
+    "time": 1
+   },
+   "size": [
+    2.0,
+    1.5,
+    3.0
+   ],
+   "icon": {
+    "shape": "land",
+    "glyphs": [
+     "ring",
+     "wave"
+    ]
+   },
+   "model": {
+    "boxes": []
+   },
+   "move": {
+    "kind": "land",
+    "speed": 3.5,
+    "turn": 60
+   }
+  },
+  {
+   "id": "satellite_uplink",
+   "name": "Satellite Uplink",
+   "desc": "Experimental: links up with a reconnaissance satellite. Every enemy unit shows on radar wherever it is (infantry still hide) and everything around enemy commanders is in sight. Enormously expensive to build and run. Built by tier 3 engineers.",
+   "tier": 4,
+   "hp": 9000,
+   "armor": "Structure",
+   "cost": {
+    "mass": 14000,
+    "energy": 160000,
+    "time": 14000
+   },
+   "size": [
+    10.0,
+    9.0,
+    10.0
+   ],
+   "hit_box": [
+    9.0,
+    9.0,
+    9.0
+   ],
+   "icon": {
+    "shape": "structure",
+    "glyphs": [
+     "wave",
+     "ring"
+    ]
+   },
+   "model": {
+    "mesh": "models/radar_tower3.glb",
+    "albedo": "models/radar_tower3_albedo.png",
+    "team_mask": "models/radar_tower3_team.png",
+    "scale": 1.6,
+    "brightness": 1.0,
+    "spin": [
+     {
+      "bone": "Radar",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": 20
+     },
+     {
+      "bone": "Radar2",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": -30
+     },
+     {
+      "bone": "Radar3",
+      "axis": [
+       0,
+       1,
+       0
+      ],
+      "speed": 45
+     }
+    ]
+   },
+   "portrait": "icons/units/radar_tower3.png",
+   "footprint": 5,
+   "built_by": "structure",
+   "vision": 30,
+   "satellite": {
+    "vision": 45
+   },
+   "eco": {
+    "upkeep": 900
    }
   },
   {

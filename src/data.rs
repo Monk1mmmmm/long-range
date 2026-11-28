@@ -646,6 +646,81 @@ pub struct Move {
     /// Land units only: also floats over water of any depth (on its surface, at full speed).
     #[serde(default)]
     pub amphibious: bool,
+    /// Land units only: a ship. It sails on water deep enough for amphibious units (`map::OCC_DEEP`
+    /// cells) and nowhere else, on the surface.
+    #[serde(default)]
+    pub naval: bool,
+}
+
+// **Drones** (unit JSON `drone: {unit, cooldown, leash}`; T3 Recon / Strike Drone Operator): the unit keeps one
+// drone of type `unit` (`spawned`, never built) in the air near it (`systems::drones`, `sim::Bay` on the operator,
+// `sim::Tether` on the drone). A drone shot down, jammed or spent comes back `cooldown` seconds later. The drone
+// stays within `leash` of its operator: idle, a recon drone hovers ahead of it and backs off from known anti-air,
+// a strike drone waits beside it and flies at the operator's target (attack order) or the nearest known enemy
+// within the leash, preferring armour. Orders given to a drone are kept within the leash. Without its operator a
+// drone falls.
+/// A drone a unit carries and keeps in the air near it.
+#[derive(Deserialize, Clone, Debug)]
+pub struct DroneDef {
+    /// Unit type of the drone.
+    pub unit: String,
+    /// Seconds until a new drone is ready after the last one is lost.
+    #[serde(default = "drone_cooldown")]
+    pub cooldown: f32,
+    /// How far from its operator the drone may fly.
+    #[serde(default = "drone_leash")]
+    pub leash: f32,
+    #[serde(skip)]
+    pub def: DefId,
+}
+fn drone_cooldown() -> f32 {
+    40.0
+}
+fn drone_leash() -> f32 {
+    100.0
+}
+
+// **Electronic warfare** (unit JSON `jammer: {radius, time}`, radar towers Mk2 / Mk3): enemy drones (category
+// `drone`: recon and strike drones, Dove) inside the radius of a working jammer (finished, switched on, its side not
+// out of power) lose their link: after `time` seconds in it they fall (`sim::Jam` counts up, drains outside at the
+// same rate). Mk2: 45 / 2.5 s, Mk3: 70 / 1 s. Cruise missiles fly on their own and are not jammed.
+/// Brings down enemy drones near it.
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct JammerDef {
+    pub radius: f32,
+    /// Seconds a drone survives inside the radius.
+    pub time: f32,
+}
+
+// **Decoys** (unit JSON `decoys: {unit, count, radius, cooldown}`, Radar Tower Mk3): the building keeps `count`
+// false radar echoes (`spawned` units of type `unit`, `UnitDef::is_decoy`: a land unit with `decoy: true`) wandering
+// within `radius` of it, one more every `cooldown` seconds while fewer. Enemy radar shows them like any unit and
+// guns that shoot radar contacts fire at them; nothing ever hits them (shots and blasts pass, `Cen::decoy`), and a
+// team that gets one in sight sees there is nothing there (`visibility` clears its radar bit). They vanish when the
+// building stops working.
+/// False radar echoes a building puts out.
+#[derive(Deserialize, Clone, Debug)]
+pub struct DecoyDef {
+    pub unit: String,
+    pub count: u8,
+    pub radius: f32,
+    #[serde(default = "decoy_cooldown")]
+    pub cooldown: f32,
+    #[serde(skip)]
+    pub def: DefId,
+}
+fn decoy_cooldown() -> f32 {
+    15.0
+}
+
+// **Satellite uplink** (unit JSON `satellite: {vision}`, T4 experimental, built by Mk3 engineers): while it works
+// (finished, switched on, its side not out of power) its team has every enemy unit on radar wherever it is (no
+// line of sight; stealth 3 infantry still never shows) and sees everything within `vision` of every enemy
+// commander (`visibility`; fog view: `intel::update_intel`).
+/// Radar over the whole map and sight around enemy commanders.
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct SatelliteDef {
+    pub vision: f32,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -1067,6 +1142,25 @@ pub struct UnitDef {
     /// Sound played when the unit is selected (one of `view::sound::UI_SOUNDS`); empty = by role.
     #[serde(default)]
     pub select_sound: String,
+    /// Structures: built on a shore, of any steepness (naval factory): its footprint takes both
+    /// ground and water deep enough for ships (`sim::can_place`).
+    #[serde(default)]
+    pub shore: bool,
+    /// The drone it keeps in the air (see `DroneDef`).
+    #[serde(default)]
+    pub drone: Option<DroneDef>,
+    /// Brings down enemy drones near it (see `JammerDef`).
+    #[serde(default)]
+    pub jammer: Option<JammerDef>,
+    /// False radar echoes it puts out (see `DecoyDef`).
+    #[serde(default)]
+    pub decoys: Option<DecoyDef>,
+    /// A false radar echo (see `DecoyDef`): never hit, never seen.
+    #[serde(default)]
+    pub decoy: bool,
+    /// Radar over the whole map (see `SatelliteDef`).
+    #[serde(default)]
+    pub satellite: Option<SatelliteDef>,
 
     #[serde(skip)]
     pub idx: DefId,
@@ -1079,6 +1173,10 @@ pub struct UnitDef {
     /// What this unit can build, resolved from categories and tiers.
     #[serde(skip)]
     pub builds: Vec<DefId>,
+    /// Some unit's drone or some building's decoy: it is made by that unit, never built, and the
+    /// AI leaves it alone.
+    #[serde(skip)]
+    pub spawned: bool,
 }
 
 impl UnitDef {
@@ -1090,6 +1188,32 @@ impl UnitDef {
     }
     pub fn is_plane(&self) -> bool {
         self.mv.kind == MoveKind::Plane
+    }
+    /// A ship (`move.naval`).
+    pub fn is_naval(&self) -> bool {
+        self.mv.naval && self.mv.kind == MoveKind::Land
+    }
+    /// How it gets about on the occupancy grid (`map::WAY_LAND`, `WAY_AMPH`, `WAY_SEA`).
+    pub fn way(&self) -> u8 {
+        if self.is_naval() {
+            crate::map::WAY_SEA
+        } else if self.mv.amphibious {
+            crate::map::WAY_AMPH
+        } else {
+            crate::map::WAY_LAND
+        }
+    }
+    /// Stands on the water's surface rather than the bottom (amphibious units, ships).
+    pub fn floats(&self) -> bool {
+        self.mv.amphibious || self.is_naval()
+    }
+    /// A drone (category `drone`): radar towers with a `jammer` bring it down.
+    pub fn is_drone(&self) -> bool {
+        self.has_category("drone")
+    }
+    /// A false radar echo (`decoy`).
+    pub fn is_decoy(&self) -> bool {
+        self.decoy && !self.is_structure()
     }
     pub fn is_factory(&self) -> bool {
         self.is_structure() && self.build.as_ref().map_or(false, |b| !b.categories.is_empty())
@@ -1553,6 +1677,21 @@ impl Defs {
             }
         }
         // Resolve references.
+        // Drones and decoys are made by the units that carry them, never built.
+        let mut spawned: Vec<DefId> = vec![];
+        for u in units.iter_mut() {
+            if let Some(dr) = u.drone.as_mut() {
+                dr.def = *by_name.get(&dr.unit).ok_or(format!("{}: unknown drone '{}'", u.id, dr.unit))?;
+                spawned.push(dr.def);
+            }
+            if let Some(dc) = u.decoys.as_mut() {
+                dc.def = *by_name.get(&dc.unit).ok_or(format!("{}: unknown decoy '{}'", u.id, dc.unit))?;
+                spawned.push(dc.def);
+            }
+        }
+        for d in spawned {
+            units[d as usize].spawned = true;
+        }
         let snapshot = units.clone();
         let mut icons: HashMap<(IconDef, u8), String> = HashMap::new();
         for u in units.iter_mut() {
@@ -1597,6 +1736,15 @@ impl Defs {
             }
             if u.mv.amphibious && u.mv.kind != MoveKind::Land {
                 return Err(format!("{}: only land units can be amphibious", u.id));
+            }
+            if u.mv.naval && (u.mv.kind != MoveKind::Land || u.mv.amphibious) {
+                return Err(format!("{}: only land units that are not amphibious can be naval", u.id));
+            }
+            if u.drone.as_ref().is_some_and(|dr| snapshot[dr.def as usize].is_structure()) || u.decoys.as_ref().is_some_and(|dc| !snapshot[dc.def as usize].is_decoy()) {
+                return Err(format!("{}: a drone must be a mobile unit, a decoy a mobile unit with \"decoy\": true", u.id));
+            }
+            if u.shore && !u.is_structure() {
+                return Err(format!("{}: only structures are built on a shore", u.id));
             }
             if !u.is_structure() && u.footprint != 0 {
                 return Err(format!("{}: mobile units must not have a footprint", u.id));

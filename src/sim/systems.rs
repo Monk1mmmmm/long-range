@@ -15,16 +15,16 @@ pub fn register(app: &mut App) {
         (
             // Inner tuples need their own chain(): the outer one only orders the groups.
             (mark::<0>, begin_tick, mark::<1>, census_build, mark::<2>, crate::ai::ai_system, mark::<3>, apply_commands, mark::<4>, visibility, mark::<5>, income, mark::<6>).chain(),
-            (think, mark::<7>, assaults, mark::<8>, factories, mark::<9>, build_progress, mark::<10>, locomotion, mark::<11>, separation, mark::<12>, carry, mark::<13>, garrisons, mark::<14>).chain(),
-            (weapons, mark::<15>, projectiles, mark::<16>, rubble_motion, mark::<17>, apply_reclaim, mark::<18>, apply_capture, mark::<19>, deaths, mark::<20>, apply_ground, mark::<21>, control_points, mark::<22>, victory, mark::<23>).chain(),
+            (think, mark::<7>, drones, mark::<8>, assaults, mark::<9>, factories, mark::<10>, build_progress, mark::<11>, locomotion, mark::<12>, separation, mark::<13>, carry, mark::<14>, garrisons, mark::<15>).chain(),
+            (weapons, mark::<16>, projectiles, mark::<17>, rubble_motion, mark::<18>, apply_reclaim, mark::<19>, apply_capture, mark::<20>, deaths, mark::<21>, apply_ground, mark::<22>, control_points, mark::<23>, victory, mark::<24>).chain(),
         )
             .chain(),
     );
 }
 
 /// The tick's systems in the order `register` runs them (names for `SimProfile`).
-pub const SYSTEM_NAMES: [&str; 23] = [
-    "begin_tick", "census_build", "ai_system", "apply_commands", "visibility", "income", "think", "assaults", "factories", "build_progress", "locomotion", "separation", "carry", "garrisons", "weapons", "projectiles", "rubble_motion", "apply_reclaim", "apply_capture", "deaths", "apply_ground", "control_points", "victory",
+pub const SYSTEM_NAMES: [&str; 24] = [
+    "begin_tick", "census_build", "ai_system", "apply_commands", "visibility", "income", "think", "drones", "assaults", "factories", "build_progress", "locomotion", "separation", "carry", "garrisons", "weapons", "projectiles", "rubble_motion", "apply_reclaim", "apply_capture", "deaths", "apply_ground", "control_points", "victory",
 ];
 
 /// Wall time each tick system took, summed over the ticks run while it is present (`LR_PROFILE=1`
@@ -254,6 +254,7 @@ fn census_build(
             ferry_wait,
             beacon,
             engineer: !d.is_structure() && (d.is_engineer() || d.is_scavenger()),
+            decoy: d.is_decoy(),
         });
     }
     wrecks.0.clear();
@@ -849,10 +850,39 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
     });
     let step = |secs: f32| if secs > 0.0 { ((SPOTTED as f32 * DT / secs) as u32).clamp(1, SPOTTED as u32) as u16 } else { SPOTTED };
     let forget = step(defs.rules.spot_forget);
-    for (c, (mut seen, mut radar, near, fresh)) in census.list.iter_mut().zip(found) {
+    // Satellite uplinks: their teams have every enemy on radar and see round every enemy commander.
+    let mut sat = [0.0f32; 16];
+    for c in census.list.iter().filter(|c| !c.hosted && working(&game, c)) {
+        if let Some(s) = defs.get(c.def).satellite {
+            sat[c.team as usize & 15] = sat[c.team as usize & 15].max(s.vision);
+        }
+    }
+    let any_sat = sat.iter().any(|v| *v > 0.0);
+    let commanders: Vec<(V2, u8)> = if any_sat {
+        census.list.iter().filter(|c| c.hp > 0.0 && defs.factions.iter().any(|f| f.commander == Some(c.def))).map(|c| (c.pos, c.team)).collect()
+    } else {
+        vec![]
+    };
+    for (c, (mut seen, mut radar, mut near, fresh)) in census.list.iter_mut().zip(found) {
         los_cache.cur.extend(fresh);
         let Ok(mut i) = q.get_mut(c.e) else { continue };
         radar |= traced.get(&c.id).copied().unwrap_or(0);
+        if any_sat && c.team != TEAM_NEUTRAL {
+            let stealth = defs.get(c.def).stealth;
+            for (t, v) in sat.iter().enumerate().filter(|(_, v)| **v > 0.0) {
+                let (t, bit) = (t as u8, 1u16 << t);
+                if !hostile(t, c.team) {
+                    continue;
+                }
+                if stealth < 3 {
+                    radar |= bit;
+                }
+                if commanders.iter().any(|(p, ct)| hostile(t, *ct) && p.dist(c.pos) <= *v) {
+                    seen |= bit;
+                    near |= bit;
+                }
+            }
+        }
         // Spotting delay: a team that has the unit in view gets on with making it out, quickly
         // while it moves or fires, slowly while it keeps still; out of view the progress drains.
         let d = defs.get(c.def);
@@ -876,6 +906,12 @@ fn visibility(mut census: ResMut<Census>, game: Res<Game>, defs: Res<Defs>, map:
                     seen &= !bit;
                 }
             }
+        }
+        if c.decoy {
+            // A false echo: on radar only, and gone for whoever has its spot in sight.
+            let own = 1u16 << c.team;
+            radar = (radar & !seen) | own;
+            seen = own;
         }
         c.seen = seen;
         c.radar = radar;
@@ -2417,17 +2453,29 @@ fn factories(
             let side = if pd.is_air() { v2(0.0, 1.0) } else { exit_side(body.pos, rally0) };
             let yaw = if side.x > 0.5 { 0.0 } else if side.x < -0.5 { PI } else if side.y > 0.0 { PI * 0.5 } else { PI * 1.5 };
             let mut exit = body.pos + side * (df.footprint as f32 * CELL * 0.5 + 1.5);
-            if !pd.is_air() && nav.at(&map, exit) != 0 {
+            if !pd.is_air() && !pd.is_naval() && nav.at(&map, exit) != 0 {
                 let (cx, cy) = map.cell_of(exit);
                 if let Some((x, y)) = nearest_free(&nav.occ, map.dims(), cx, cy) {
                     exit = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
                 }
             }
+            let mut side = side;
+            if pd.is_naval() {
+                // Ships leave a shipyard on its water side.
+                if let Some(e) = shore_exit(&map, &nav.occ, body.pos, df.footprint) {
+                    side = (e - body.pos).norm();
+                    exit = e;
+                }
+            }
+            let yaw = if pd.is_naval() { side.angle() } else { yaw };
             let mut rally = rally0.unwrap_or(exit + side * 6.0);
+            if rally0.is_none() && pd.is_naval() && !crate::map::passable_for(nav.at(&map, rally), crate::map::WAY_SEA) {
+                rally = exit;
+            }
             // The default rally point can fall on a building next to the factory (an
             // extractor): units then pushed against it forever and the AI never gave
             // them new orders. Move it to the nearest free cell like the exit.
-            if rally0.is_none() && !pd.is_air() && nav.at(&map, rally) != 0 {
+            if rally0.is_none() && !pd.is_air() && !pd.is_naval() && nav.at(&map, rally) != 0 {
                 let (cx, cy) = map.cell_of(rally);
                 if let Some((x, y)) = nearest_free(&nav.occ, map.dims(), cx, cy) {
                     rally = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
@@ -2435,7 +2483,7 @@ fn factories(
             }
             let pos = if pd.is_air() { body.pos } else { exit };
             commands.entity(p.e).remove::<Hosted>().insert((
-                Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: if pd.is_air() { PI * 0.5 } else { yaw }, vel: v2(0.0, 0.0) },
+                Body { pos, y: if pd.floats() { map.surface(pos) } else { map.h(pos) } + pd.mv.altitude, yaw: if pd.is_air() { PI * 0.5 } else { yaw }, vel: v2(0.0, 0.0) },
                 Orders(if route.is_empty() { vec![Order::Move(rally)] } else { route.clone() }),
                 Mover { anchor: rally, path_goal: pos, ..default() },
             ));
@@ -2678,19 +2726,19 @@ fn locomotion(
     let n = map.nx as i32;
     let needs_path = |df: &crate::data::UnitDef, m: &Mover| -> Option<V2> {
         let g = m.goal?;
-        (df.mv.kind == MoveKind::Land && m.hold <= 0.0 && (m.path.is_empty() || m.path_goal.dist(g) > 3.0)).then_some(g)
+        (df.mv.kind == MoveKind::Land && !df.decoy && m.hold <= 0.0 && (m.path.is_empty() || m.path_goal.dist(g) > 3.0)).then_some(g)
     };
     // Path searches (A*, the slowest thing a tick can do) are planned first: the first `paths_left`
     // land units in id order that need a new path, exactly those the loop below would serve. They
     // only read the occupancy grid, which nothing changes in here, so they run in parallel.
-    let mut wanted: Vec<(u32, V2, V2, bool)> = vec![];
+    let mut wanted: Vec<(u32, V2, V2, u8)> = vec![];
     for (u, body, m, _) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         if wanted.len() as i32 >= nav.paths_left {
             break;
         }
         let df = defs.get(u.def);
         if let Some(g) = needs_path(df, m) {
-            wanted.push((u.id, body.pos, g, df.mv.amphibious));
+            wanted.push((u.id, body.pos, g, df.way()));
         }
     }
     nav.paths_left -= wanted.len() as i32;
@@ -2703,6 +2751,10 @@ fn locomotion(
     paths.reverse();
     for (u, mut body, mut m, mut orders) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
+        // Decoys are moved by `drones`.
+        if df.decoy {
+            continue;
+        }
         let mv = &df.mv;
         let old = body.pos;
         let turn = mv.turn.to_radians();
@@ -2716,7 +2768,7 @@ fn locomotion(
             m.drop = (m.drop - DT).max(0.0);
             let t = 1.0 - m.drop / DROP_SECS;
             body.pos = m.drop_from + (m.drop_to - m.drop_from) * t;
-            let ground = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
+            let ground = if df.floats() { map.surface(body.pos) } else { map.h(body.pos) };
             body.y = ground + m.drop_h * (1.0 - t * t);
             m.speed = 0.0;
             m.path.clear();
@@ -2790,7 +2842,7 @@ fn locomotion(
                     m.stuck = 0;
                     m.speed = 0.0;
                     body.vel = v2(0.0, 0.0);
-                    body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
+                    body.y = if df.floats() { map.surface(body.pos) } else { map.h(body.pos) };
                     continue;
                 };
                 if m.path.is_empty() || m.path_goal.dist(g) > 3.0 {
@@ -2804,7 +2856,7 @@ fn locomotion(
                 let occ = &nav.occ;
                 let blocked = |p: V2| -> bool {
                     let (cx, cy) = ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
-                    !map.inside(cx, cy) || !crate::map::passable_for(occ[(cy * n + cx) as usize], mv.amphibious)
+                    !map.inside(cx, cy) || !crate::map::passable_for(occ[(cy * n + cx) as usize], df.way())
                 };
                 while m.path.len() > 1 && body.pos.dist(*m.path.last().unwrap()) < 1.0 {
                     m.path.pop();
@@ -2883,8 +2935,8 @@ fn locomotion(
                 } else if m.stuck > 0 {
                     m.stuck -= 1;
                 }
-                // Amphibious units float on the water, others stand on the ground.
-                body.y = if mv.amphibious { map.surface(body.pos) } else { map.h(body.pos) };
+                // Amphibious units and ships float on the water, others stand on the ground.
+                body.y = if df.floats() { map.surface(body.pos) } else { map.h(body.pos) };
             }
         }
         body.pos = v2(body.pos.x.clamp(0.5, world - 0.5), body.pos.y.clamp(0.5, world_z - 0.5));
@@ -2902,18 +2954,18 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
         pos: V2,
         r: f32,
         air: bool,
-        amph: bool,
+        way: u8,
         moving: bool,
     }
     let mut items: Vec<It> = vec![];
     let mut grid: HashMap<(i32, i32, bool), Vec<usize>> = HashMap::new();
     for (e, u, b, m) in q.iter().sort_by_key::<&Unit, _>(|u| u.id) {
         let d = defs.get(u.def);
-        if d.is_plane() {
+        if d.is_plane() || d.decoy {
             continue;
         }
         grid.entry(((b.pos.x / G) as i32, (b.pos.y / G) as i32, d.is_air())).or_default().push(items.len());
-        items.push(It { e, pos: b.pos, r: d.radius(), air: d.is_air(), amph: d.mv.amphibious, moving: m.goal.is_some() });
+        items.push(It { e, pos: b.pos, r: d.radius(), air: d.is_air(), way: d.way(), moving: m.goal.is_some() });
     }
     for (i, a) in items.iter().enumerate() {
         let mut acc = v2(0.0, 0.0);
@@ -2940,11 +2992,11 @@ fn separation(mut q: Query<(Entity, &Unit, &mut Body, &Mover), (Without<UnderCon
         if acc.len2() > 0.0 {
             let push = if acc.len() > 0.5 { acc.norm() * 0.5 } else { acc };
             let np = map.clamp(a.pos + push);
-            if a.air || nav.at(&map, np) == 0 || (a.amph && nav.at(&map, np) == crate::map::OCC_DEEP) {
+            if a.air || (nav.at(&map, np) == 0 && a.way != crate::map::WAY_SEA) || (a.way != crate::map::WAY_LAND && nav.at(&map, np) == crate::map::OCC_DEEP) {
                 if let Ok((_, _, mut body, _)) = q.get_mut(a.e) {
                     body.pos = np;
                     if !a.air {
-                        body.y = if a.amph { map.surface(np) } else { map.h(np) };
+                        body.y = if a.way != crate::map::WAY_LAND { map.surface(np) } else { map.h(np) };
                     }
                 }
             }
@@ -3086,7 +3138,7 @@ impl Lane<'_> {
             if c.id == target || c.id == self.shooter || c.id == self.host || c.hp <= 0.0 || c.hosted || c.fieldwork {
                 return;
             }
-            if if c.air { !w.hits_air } else { !w.hits_land } {
+            if c.decoy || if c.air { !w.hits_air } else { !w.hits_land } {
                 return;
             }
             let own = c.team == self.team;
@@ -3731,7 +3783,7 @@ fn projectiles(
                 let max = p.turn.to_radians() * DT;
                 let nd = if ang <= max || ang < 1e-4 { want } else { cur.lerp(want, max / ang).normalize_or_zero() };
                 vel = nd * speed;
-                if t.hit_dist(a) < speed * DT {
+                if !t.decoy && t.hit_dist(a) < speed * DT {
                     hit = Some((t.center(), t.id));
                 }
             }
@@ -3756,7 +3808,7 @@ fn projectiles(
                 if c.fieldwork && c.id != p.target {
                     return;
                 }
-                if if c.air { !p.hits_air } else { !p.hits_land } {
+                if c.decoy || if c.air { !p.hits_air } else { !p.hits_land } {
                     return;
                 }
                 if let Some(t) = c.hit_seg(a, b).filter(|t| best.map_or(true, |x| *t < x.0)) {
@@ -3812,7 +3864,7 @@ fn projectiles(
         // armored ones less again.
         if p.radius > 0.0 && p.splash > 0.0 {
             census.near(flat(at), p.radius + 6.0, |c| {
-                if c.id == victim || c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
+                if c.id == victim || c.decoy || c.hp <= 0.0 || c.hosted || (c.team == team && !ff) || (c.air && !p.hits_air) || own(c.id) {
                     return;
                 }
                 let d = c.hit_dist(at);
@@ -4233,7 +4285,7 @@ fn guarded(census: &Census, defs: &Defs, t: &Cen) -> bool {
     let r = defs.rules.infantry_capture_guard;
     let mut any = false;
     census.near(t.pos, r + t.radius, |c| {
-        if !any && c.team == t.team && !c.structure && !c.hosted && c.done && c.hp > 0.0 && c.pos.dist(t.pos) <= r + t.radius && defs.get(c.def).armed() {
+        if !any && c.team == t.team && !c.structure && !c.decoy && !c.hosted && c.done && c.hp > 0.0 && c.pos.dist(t.pos) <= r + t.radius && defs.get(c.def).armed() {
             any = true;
         }
     });
@@ -4484,7 +4536,7 @@ fn deaths(
         }
         census.near(pos, radius + 4.0, |c| {
             let d = c.hit_dist(pos.at(y));
-            if d < radius && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
+            if d < radius && !c.decoy && c.hp > 0.0 && !c.hosted && (c.team != team || defs.rules.friendly_fire || owner >= NEUTRAL) {
                 effects.damage.push((c.id, damage * blast_share(d, radius) * splash_armor(&defs, c), blast_type));
             }
         });
@@ -4708,7 +4760,7 @@ fn control_points(mut game: ResMut<Game>, census: Res<Census>, defs: Res<Defs>) 
         // and the riders of a building on it.
         let mut teams = 0u16;
         census.near(p.pos, rules.cp_radius, |c| {
-            if c.done && !c.hosted && !c.air && !c.structure && c.hp > 0.0 && c.team < 14 {
+            if c.done && !c.hosted && !c.air && !c.structure && !c.decoy && c.hp > 0.0 && c.team < 14 {
                 teams |= 1 << c.team;
             }
             if c.structure && !inside.is_empty() {
@@ -4787,5 +4839,220 @@ fn victory(mut game: ResMut<Game>) {
         game.winner = Some(teams[0]);
     } else if teams.is_empty() {
         game.winner = Some(255);
+    }
+}
+
+/// A building or unit does its job: finished, switched on, its side not out of power.
+fn working(game: &Game, c: &Cen) -> bool {
+    c.done && !c.paused && !c.upgrading && game.players.get(c.owner as usize).map_or(true, |p| !p.power_out)
+}
+
+/// Keeps the lead of a drone or decoy within `leash` of its keeper at `home`.
+fn on_leash(p: V2, home: V2, leash: f32) -> V2 {
+    let d = p - home;
+    if d.len() > leash {
+        home + d.norm() * leash
+    } else {
+        p
+    }
+}
+
+/// Drones, decoys and jamming (see `DroneDef`, `DecoyDef`, `JammerDef`): keepers launch new ones
+/// when theirs are lost, drones are steered (after `think`, so their own orders are kept on the
+/// leash), decoys wander, and drones inside enemy jammers fall.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn drones(
+    mut q: Query<(&Unit, &mut Body, &mut Orders, Option<&mut Mover>, Option<&mut Bay>, Option<&Tether>, Option<&mut Jam>, Option<&mut Weapons>), (Without<UnderConstruction>, Without<Hosted>)>,
+    census: Res<Census>,
+    defs: Res<Defs>,
+    map: Res<MapData>,
+    mut game: ResMut<Game>,
+    mut rng: ResMut<SimRng>,
+    mut effects: ResMut<Effects>,
+    mut commands: Commands,
+) {
+    // What keepers ordered their guns at (a strike drone goes for it).
+    let mut focus: Vec<(u32, u32)> = vec![];
+    // Working jammers: (position, radius, time, team).
+    let mut jammers: Vec<(V2, f32, f32, u8)> = vec![];
+    for c in &census.list {
+        if let Some(j) = defs.get(c.def).jammer.filter(|_| !c.hosted && working(&game, c)) {
+            jammers.push((c.pos, j.radius, j.time.max(0.1), c.team));
+        }
+    }
+    let mut spawns: Vec<(DefId, u8, V2, f32, u32)> = vec![];
+    for (u, body, _, _, bay, _, _, ws) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        if let Some(ws) = ws.filter(|w| w.focus != 0) {
+            focus.push((u.id, ws.focus));
+        }
+        let Some(mut bay) = bay else { continue };
+        let Some(c) = census.get(u.id) else { continue };
+        let d = defs.get(u.def);
+        let lost = bay.out.len();
+        bay.out.retain(|id| census.get(*id).is_some());
+        let lost = lost - bay.out.len();
+        if let Some(dr) = &d.drone {
+            if lost > 0 {
+                bay.cd = dr.cooldown;
+            }
+            bay.cd = (bay.cd - DT).max(0.0);
+            if bay.out.is_empty() && bay.cd <= 0.0 && c.done && c.hp > 0.0 {
+                spawns.push((dr.def, u.owner, body.pos, body.yaw, u.id));
+            }
+        } else if let Some(dc) = &d.decoys {
+            if !working(&game, c) {
+                // Switched off: its echoes vanish.
+                for id in bay.out.drain(..) {
+                    effects.damage.push((id, 1.0e9, 0));
+                    effects.reclaimed.push(id);
+                }
+                bay.cd = dc.cooldown;
+                continue;
+            }
+            bay.cd = (bay.cd - DT).max(0.0);
+            if bay.out.len() < dc.count as usize && bay.cd <= 0.0 {
+                bay.cd = dc.cooldown;
+                for _ in 0..6 {
+                    let p = map.clamp(body.pos + V2::from_angle(rng.0.f() * std::f32::consts::TAU) * (rng.0.f().sqrt() * dc.radius));
+                    let (cx, cy) = map.cell_of(p);
+                    if map.inside(cx, cy) && crate::map::passable(map.blocked[map.idx(cx, cy)]) {
+                        spawns.push((dc.def, u.owner, p, rng.0.f() * std::f32::consts::TAU, u.id));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    for (def, owner, pos, yaw, keeper) in spawns {
+        let id = spawn_tethered(&mut commands, &defs, &mut game, &map, def, owner, pos, yaw, keeper);
+        for (u, _, _, _, bay, _, _, _) in q.iter_mut() {
+            if u.id == keeper {
+                if let Some(mut bay) = bay {
+                    bay.out.push(id);
+                }
+                break;
+            }
+        }
+    }
+    for (u, mut body, mut orders, mover, _, tether, jam, ws) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
+        let d = defs.get(u.def);
+        let Some(me) = census.get(u.id) else { continue };
+        // --- jamming: a drone inside an enemy jammer loses its link and falls
+        if let Some(mut jam) = jam {
+            let mut rate: f32 = 0.0;
+            for &(p, r, t, team) in &jammers {
+                if hostile(team, me.team) && p.dist(body.pos) < r {
+                    rate = rate.max(1.0 / t);
+                }
+            }
+            jam.0 = if rate > 0.0 { jam.0 + rate * DT } else { (jam.0 - DT * 0.25).max(0.0) };
+            if jam.0 >= 1.0 && me.hp > 0.0 {
+                effects.damage.push((u.id, 1.0e9, 0));
+                continue;
+            }
+        }
+        let Some(t) = tether else { continue };
+        let Some(keeper) = census.get(t.0).filter(|k| k.hp > 0.0) else {
+            // Its keeper is gone: a drone falls, an echo stops.
+            effects.damage.push((u.id, 1.0e9, 0));
+            if d.decoy {
+                effects.reclaimed.push(u.id);
+            }
+            continue;
+        };
+        let Some(mut m) = mover else { continue };
+        let kd = defs.get(keeper.def);
+        if let Some(dc) = kd.decoys.as_ref().filter(|_| d.decoy) {
+            // --- a decoy drives about near its building like a vehicle on patrol
+            orders.0.clear();
+            let old = body.pos;
+            let goal = match m.goal.filter(|g| g.dist(body.pos) > 2.0 && g.dist(keeper.pos) <= dc.radius + 1.0) {
+                Some(g) => g,
+                None => {
+                    let g = map.clamp(keeper.pos + V2::from_angle(rng.0.f() * std::f32::consts::TAU) * (rng.0.f().sqrt() * dc.radius));
+                    m.goal = Some(g);
+                    g
+                }
+            };
+            let to = goal - body.pos;
+            let speed = d.mv.speed.max(0.5);
+            body.yaw = turn_toward(body.yaw, to.angle(), d.mv.turn.max(30.0).to_radians() * DT);
+            let next = body.pos + V2::from_angle(body.yaw) * (speed * DT).min(to.len());
+            let (cx, cy) = map.cell_of(next);
+            if map.inside(cx, cy) && crate::map::passable(map.blocked[map.idx(cx, cy)]) {
+                body.pos = next;
+            } else {
+                m.goal = None;
+            }
+            body.y = map.h(body.pos);
+            body.vel = (body.pos - old) * (1.0 / DT);
+            continue;
+        }
+        let Some(dr) = &kd.drone else { continue };
+        let leash = dr.leash;
+        let home = keeper.pos;
+        // Known enemy anti-air that could reach it (or the spot it is going to).
+        let threat = |p: V2| -> Option<V2> {
+            let mut best: Option<(f32, V2)> = None;
+            census.near(p, 140.0, |c| {
+                if c.hp <= 0.0 || c.hosted || !hostile(me.team, c.team) || !c.known_to(me.team) || c.decoy {
+                    return;
+                }
+                let reach = defs.get(c.def).weapons.iter().filter(|w| w.hits_air).map(|w| w.range).fold(0.0, f32::max);
+                let dd = c.pos.dist(p);
+                if reach > 0.0 && dd < reach + 10.0 && best.map_or(true, |b| dd - reach < b.0) {
+                    best = Some((dd - reach, c.pos));
+                }
+            });
+            best.map(|b| b.1)
+        };
+        let suicide = d.weapons.iter().any(|w| w.suicide);
+        if !orders.0.is_empty() {
+            // Its own orders, kept on the leash.
+            if let Some(g) = m.goal {
+                let held = on_leash(g, home, leash);
+                if held.dist(g) > 0.5 && body.pos.dist(held) < 2.0 && matches!(orders.0.first(), Some(Order::Move(_))) {
+                    orders.0.remove(0);
+                }
+                m.goal = Some(held);
+            }
+            continue;
+        }
+        let mut goal;
+        if suicide {
+            // A strike drone: the keeper's ordered target, else the nearest known enemy within the
+            // leash, armour first; with nothing to hit it waits beside its keeper.
+            let ordered = focus.iter().find(|f| f.0 == keeper.id).and_then(|f| census.get(f.1)).filter(|c| census.valid_target(c, me.team, true, false) && c.pos.dist(home) <= leash);
+            let target = ordered.or_else(|| census.pick_enemy(home, me.team, leash, 0.0, true, false, |c| defs.get(c.def).is_armored()).filter(|c| !c.structure || c.engineer));
+            match target {
+                Some(c) => {
+                    goal = c.pos;
+                    if let Some(mut ws) = ws {
+                        ws.focus = c.id;
+                    }
+                }
+                None => {
+                    goal = home - keeper.face * 3.0 + keeper.face.perp() * 2.0;
+                    if let Some(a) = threat(goal) {
+                        goal = home + (home - a).norm() * 4.0;
+                    }
+                }
+            }
+        } else {
+            // A recon drone hovers well ahead of its keeper, short of known anti-air.
+            goal = home;
+            for share in [0.6, 0.4, 0.2] {
+                let p = home + keeper.face * (leash * share);
+                if threat(p).is_none() {
+                    goal = p;
+                    break;
+                }
+            }
+            if let Some(a) = threat(body.pos) {
+                // Already within reach of anti-air: back off, away from it.
+                goal = body.pos + (body.pos - a).norm() * 25.0;
+            }
+        }
+        m.goal = Some(map.clamp(on_leash(goal, home, leash)));
     }
 }

@@ -1805,6 +1805,1448 @@
      }
     }
    ]
+  },
+  {
+   "id": "adr_stone_house",
+   "name": "Stone House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.83,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.83,
+    3.83
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/adr_stone_house.glb",
+    "albedo": "models/adr_stone_house_albedo.png",
+    "team_mask": "models/adr_stone_house_team.png",
+    "mesh_low": "models/adr_stone_house_low.glb",
+    "albedo_low": "models/adr_stone_house_low_albedo.png",
+    "team_mask_low": "models/adr_stone_house_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "adr_townhouse",
+   "name": "Town House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.93,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    4.93,
+    3.73
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/adr_townhouse.glb",
+    "albedo": "models/adr_townhouse_albedo.png",
+    "team_mask": "models/adr_townhouse_team.png",
+    "mesh_low": "models/adr_townhouse_low.glb",
+    "albedo_low": "models/adr_townhouse_low_albedo.png",
+    "team_mask_low": "models/adr_townhouse_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ce_plaster_house",
+   "name": "Plaster House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.13,
+    4.0
+   ],
+   "hit_box": [
+    3.88,
+    4.13,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ce_plaster_house.glb",
+    "albedo": "models/ce_plaster_house_albedo.png",
+    "team_mask": "models/ce_plaster_house_team.png",
+    "mesh_low": "models/ce_plaster_house_low.glb",
+    "albedo_low": "models/ce_plaster_house_low_albedo.png",
+    "team_mask_low": "models/ce_plaster_house_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ce_gabled_townhouse",
+   "name": "Gabled Townhouse",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.08,
+    4.0
+   ],
+   "hit_box": [
+    3.29,
+    5.08,
+    3.8
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ce_gabled_townhouse.glb",
+    "albedo": "models/ce_gabled_townhouse_albedo.png",
+    "team_mask": "models/ce_gabled_townhouse_team.png",
+    "mesh_low": "models/ce_gabled_townhouse_low.glb",
+    "albedo_low": "models/ce_gabled_townhouse_low_albedo.png",
+    "team_mask_low": "models/ce_gabled_townhouse_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "vil_log_house",
+   "name": "Log House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.16,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.16,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/vil_log_house.glb",
+    "albedo": "models/vil_log_house_albedo.png",
+    "team_mask": "models/vil_log_house_team.png",
+    "mesh_low": "models/vil_log_house_low.glb",
+    "albedo_low": "models/vil_log_house_low_albedo.png",
+    "team_mask_low": "models/vil_log_house_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "vil_white_house",
+   "name": "Whitewashed House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.33,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.33,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/vil_white_house.glb",
+    "albedo": "models/vil_white_house_albedo.png",
+    "team_mask": "models/vil_white_house_team.png",
+    "mesh_low": "models/vil_white_house_low.glb",
+    "albedo_low": "models/vil_white_house_low_albedo.png",
+    "team_mask_low": "models/vil_white_house_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "sov_stalinka",
+   "name": "Stalin-Era Block",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.3,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    4.3,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/sov_stalinka.glb",
+    "albedo": "models/sov_stalinka_albedo.png",
+    "team_mask": "models/sov_stalinka_team.png",
+    "mesh_low": "models/sov_stalinka_low.glb",
+    "albedo_low": "models/sov_stalinka_low_albedo.png",
+    "team_mask_low": "models/sov_stalinka_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "sov_block5",
+   "name": "Panel Block",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 1500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 90,
+    "energy": 450,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    6.9,
+    8.0
+   ],
+   "hit_box": [
+    7.52,
+    6.9,
+    4.49
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/sov_block5.glb",
+    "albedo": "models/sov_block5_albedo.png",
+    "team_mask": "models/sov_block5_team.png",
+    "mesh_low": "models/sov_block5_low.glb",
+    "albedo_low": "models/sov_block5_low_albedo.png",
+    "team_mask_low": "models/sov_block5_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ind_flat_house",
+   "name": "Flat-Roofed House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 300,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 15,
+    "energy": 75,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.34,
+    4.0
+   ],
+   "hit_box": [
+    3.7,
+    3.34,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ind_flat_house.glb",
+    "albedo": "models/ind_flat_house_albedo.png",
+    "team_mask": "models/ind_flat_house_team.png",
+    "mesh_low": "models/ind_flat_house_low.glb",
+    "albedo_low": "models/ind_flat_house_low_albedo.png",
+    "team_mask_low": "models/ind_flat_house_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "church_orthodox",
+   "name": "Orthodox Church",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.76,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    5.76,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/church_orthodox.glb",
+    "albedo": "models/church_orthodox_albedo.png",
+    "team_mask": "models/church_orthodox_team.png",
+    "mesh_low": "models/church_orthodox_low.glb",
+    "albedo_low": "models/church_orthodox_low_albedo.png",
+    "team_mask_low": "models/church_orthodox_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "church_baroque",
+   "name": "Baroque Church",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.6,
+    4.0
+   ],
+   "hit_box": [
+    3.6,
+    5.6,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/church_baroque.glb",
+    "albedo": "models/church_baroque_albedo.png",
+    "team_mask": "models/church_baroque_team.png",
+    "mesh_low": "models/church_baroque_low.glb",
+    "albedo_low": "models/church_baroque_low_albedo.png",
+    "team_mask_low": "models/church_baroque_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "church_gothic",
+   "name": "Gothic Church",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    6.6,
+    4.0
+   ],
+   "hit_box": [
+    3.6,
+    6.6,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/church_gothic.glb",
+    "albedo": "models/church_gothic_albedo.png",
+    "team_mask": "models/church_gothic_team.png",
+    "mesh_low": "models/church_gothic_low.glb",
+    "albedo_low": "models/church_gothic_low_albedo.png",
+    "team_mask_low": "models/church_gothic_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "shop_adriatic",
+   "name": "Stone Shop",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.53,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    2.53,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/shop_adriatic.glb",
+    "albedo": "models/shop_adriatic_albedo.png",
+    "team_mask": "models/shop_adriatic_team.png",
+    "mesh_low": "models/shop_adriatic_low.glb",
+    "albedo_low": "models/shop_adriatic_low_albedo.png",
+    "team_mask_low": "models/shop_adriatic_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "shop_central",
+   "name": "Corner Shop",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.63,
+    4.0
+   ],
+   "hit_box": [
+    3.8,
+    3.63,
+    3.54
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/shop_central.glb",
+    "albedo": "models/shop_central_albedo.png",
+    "team_mask": "models/shop_central_team.png",
+    "mesh_low": "models/shop_central_low.glb",
+    "albedo_low": "models/shop_central_low_albedo.png",
+    "team_mask_low": "models/shop_central_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "shop_soviet",
+   "name": "Gastronom",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.4,
+    4.0
+   ],
+   "hit_box": [
+    3.82,
+    2.4,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/shop_soviet.glb",
+    "albedo": "models/shop_soviet_albedo.png",
+    "team_mask": "models/shop_soviet_team.png",
+    "mesh_low": "models/shop_soviet_low.glb",
+    "albedo_low": "models/shop_soviet_low_albedo.png",
+    "team_mask_low": "models/shop_soviet_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "shop_village",
+   "name": "Village Shop",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    2.63,
+    4.0
+   ],
+   "hit_box": [
+    3.76,
+    2.63,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/shop_village.glb",
+    "albedo": "models/shop_village_albedo.png",
+    "team_mask": "models/shop_village_team.png",
+    "mesh_low": "models/shop_village_low.glb",
+    "albedo_low": "models/shop_village_low_albedo.png",
+    "team_mask_low": "models/shop_village_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "adr_apartments",
+   "name": "Seaside Apartments",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.05,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    5.05,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/adr_apartments.glb",
+    "albedo": "models/adr_apartments_albedo.png",
+    "team_mask": "models/adr_apartments_team.png",
+    "mesh_low": "models/adr_apartments_low.glb",
+    "albedo_low": "models/adr_apartments_low_albedo.png",
+    "team_mask_low": "models/adr_apartments_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ce_tenement",
+   "name": "Tenement House",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    5.67,
+    4.0
+   ],
+   "hit_box": [
+    3.88,
+    5.67,
+    3.48
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ce_tenement.glb",
+    "albedo": "models/ce_tenement_albedo.png",
+    "team_mask": "models/ce_tenement_team.png",
+    "mesh_low": "models/ce_tenement_low.glb",
+    "albedo_low": "models/ce_tenement_low_albedo.png",
+    "team_mask_low": "models/ce_tenement_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "adr_apartment_block",
+   "name": "Mediterranean Apartment Block",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 1500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 90,
+    "energy": 450,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    6.73,
+    8.0
+   ],
+   "hit_box": [
+    7.9,
+    6.73,
+    5.53
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar",
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/adr_apartment_block.glb",
+    "albedo": "models/adr_apartment_block_albedo.png",
+    "team_mask": "models/adr_apartment_block_team.png",
+    "mesh_low": "models/adr_apartment_block_low.glb",
+    "albedo_low": "models/adr_apartment_block_low_albedo.png",
+    "team_mask_low": "models/adr_apartment_block_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "ce_apartment_block",
+   "name": "Corner Tenement Block",
+   "desc": "Residential building.",
+   "tier": 0,
+   "hp": 1500,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 90,
+    "energy": 450,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    7.22,
+    8.0
+   ],
+   "hit_box": [
+    7.9,
+    7.22,
+    7.9
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar",
+     "dot"
+    ]
+   },
+   "model": {
+    "mesh": "models/ce_apartment_block.glb",
+    "albedo": "models/ce_apartment_block_albedo.png",
+    "team_mask": "models/ce_apartment_block_team.png",
+    "mesh_low": "models/ce_apartment_block_low.glb",
+    "albedo_low": "models/ce_apartment_block_low_albedo.png",
+    "team_mask_low": "models/ce_apartment_block_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "residential",
+    "themed"
+   ]
+  },
+  {
+   "id": "mall",
+   "name": "Shopping Mall",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    4.8,
+    12.0
+   ],
+   "hit_box": [
+    11.6,
+    4.8,
+    10.8
+   ],
+   "footprint": 6,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/mall.glb",
+    "albedo": "models/mall_albedo.png",
+    "team_mask": "models/mall_team.png",
+    "mesh_low": "models/mall_low.glb",
+    "albedo_low": "models/mall_low_albedo.png",
+    "team_mask_low": "models/mall_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "hospital",
+   "name": "Hospital",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    5.41,
+    12.0
+   ],
+   "hit_box": [
+    11.36,
+    5.41,
+    6.5
+   ],
+   "footprint": 6,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/hospital.glb",
+    "albedo": "models/hospital_albedo.png",
+    "team_mask": "models/hospital_team.png",
+    "mesh_low": "models/hospital_low.glb",
+    "albedo_low": "models/hospital_low_albedo.png",
+    "team_mask_low": "models/hospital_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "train_station",
+   "name": "Railway Station",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 2200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 150,
+    "energy": 750,
+    "time": 100
+   },
+   "size": [
+    12.0,
+    6.05,
+    12.0
+   ],
+   "hit_box": [
+    11.4,
+    6.05,
+    11.03
+   ],
+   "footprint": 6,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/train_station.glb",
+    "albedo": "models/train_station_albedo.png",
+    "team_mask": "models/train_station_team.png",
+    "mesh_low": "models/train_station_low.glb",
+    "albedo_low": "models/train_station_low_albedo.png",
+    "team_mask_low": "models/train_station_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "school",
+   "name": "School",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    3.6,
+    8.0
+   ],
+   "hit_box": [
+    7.8,
+    3.6,
+    7.74
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/school.glb",
+    "albedo": "models/school_albedo.png",
+    "team_mask": "models/school_team.png",
+    "mesh_low": "models/school_low.glb",
+    "albedo_low": "models/school_low_albedo.png",
+    "team_mask_low": "models/school_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "hotel",
+   "name": "Hotel",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    8.15,
+    8.0
+   ],
+   "hit_box": [
+    5.7,
+    8.15,
+    7.4
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/hotel.glb",
+    "albedo": "models/hotel_albedo.png",
+    "team_mask": "models/hotel_team.png",
+    "mesh_low": "models/hotel_low.glb",
+    "albedo_low": "models/hotel_low_albedo.png",
+    "team_mask_low": "models/hotel_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "office_tower",
+   "name": "Office Tower",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    14.2,
+    8.0
+   ],
+   "hit_box": [
+    7.0,
+    14.2,
+    6.4
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/office_tower.glb",
+    "albedo": "models/office_tower_albedo.png",
+    "team_mask": "models/office_tower_team.png",
+    "mesh_low": "models/office_tower_low.glb",
+    "albedo_low": "models/office_tower_low_albedo.png",
+    "team_mask_low": "models/office_tower_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "theatre",
+   "name": "Theatre",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    6.1,
+    8.0
+   ],
+   "hit_box": [
+    6.6,
+    6.1,
+    7.0
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/theatre.glb",
+    "albedo": "models/theatre_albedo.png",
+    "team_mask": "models/theatre_team.png",
+    "mesh_low": "models/theatre_low.glb",
+    "albedo_low": "models/theatre_low_albedo.png",
+    "team_mask_low": "models/theatre_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "parking_garage",
+   "name": "Parking Garage",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    6.9,
+    8.0
+   ],
+   "hit_box": [
+    7.8,
+    6.9,
+    7.5
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/parking_garage.glb",
+    "albedo": "models/parking_garage_albedo.png",
+    "team_mask": "models/parking_garage_team.png",
+    "mesh_low": "models/parking_garage_low.glb",
+    "albedo_low": "models/parking_garage_low_albedo.png",
+    "team_mask_low": "models/parking_garage_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "market_hall",
+   "name": "Market Hall",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    4.7,
+    8.0
+   ],
+   "hit_box": [
+    6.73,
+    4.7,
+    7.6
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/market_hall.glb",
+    "albedo": "models/market_hall_albedo.png",
+    "team_mask": "models/market_hall_team.png",
+    "mesh_low": "models/market_hall_low.glb",
+    "albedo_low": "models/market_hall_low_albedo.png",
+    "team_mask_low": "models/market_hall_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "fire_station",
+   "name": "Fire Station",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 1200,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 60,
+    "energy": 300,
+    "time": 100
+   },
+   "size": [
+    8.0,
+    7.3,
+    8.0
+   ],
+   "hit_box": [
+    7.4,
+    7.3,
+    5.8
+   ],
+   "footprint": 4,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/fire_station.glb",
+    "albedo": "models/fire_station_albedo.png",
+    "team_mask": "models/fire_station_team.png",
+    "mesh_low": "models/fire_station_low.glb",
+    "albedo_low": "models/fire_station_low_albedo.png",
+    "team_mask_low": "models/fire_station_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "police_station",
+   "name": "Police Station",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    4.8,
+    4.0
+   ],
+   "hit_box": [
+    3.64,
+    4.8,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/police_station.glb",
+    "albedo": "models/police_station_albedo.png",
+    "team_mask": "models/police_station_team.png",
+    "mesh_low": "models/police_station_low.glb",
+    "albedo_low": "models/police_station_low_albedo.png",
+    "team_mask_low": "models/police_station_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
+  },
+  {
+   "id": "gas_station",
+   "name": "Filling Station",
+   "desc": "Public building.",
+   "tier": 0,
+   "hp": 400,
+   "armor": "Civilian",
+   "cost": {
+    "mass": 20,
+    "energy": 100,
+    "time": 100
+   },
+   "size": [
+    4.0,
+    3.5,
+    4.0
+   ],
+   "hit_box": [
+    3.9,
+    3.5,
+    3.9
+   ],
+   "footprint": 2,
+   "icon": {
+    "shape": "civilian",
+    "glyphs": [
+     "bar"
+    ]
+   },
+   "model": {
+    "mesh": "models/gas_station.glb",
+    "albedo": "models/gas_station_albedo.png",
+    "team_mask": "models/gas_station_team.png",
+    "mesh_low": "models/gas_station_low.glb",
+    "albedo_low": "models/gas_station_low_albedo.png",
+    "team_mask_low": "models/gas_station_low_team.png",
+    "scale": 1,
+    "brightness": 1.0
+   },
+   "categories": [
+    "civilian",
+    "civic",
+    "themed"
+   ]
   }
  ]
 }

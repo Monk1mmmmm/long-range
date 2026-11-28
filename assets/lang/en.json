@@ -692,11 +692,11 @@
     },
     "radar_tower2": {
       "name": "Radar Tower Mk2",
-      "desc": "T2 radar: finds unstealthed units within 250 and stealth 1 units (T2 aircraft) within 160. Blocked by terrain. Costly to run. Built by tier 2+ engineers or upgraded from a Radar Tower (U)."
+      "desc": "T2 radar: finds unstealthed units within 250 and stealth 1 units (T2 aircraft) within 160. Blocked by terrain. Costly to run. Built by tier 2+ engineers or upgraded from a Radar Tower (U). Its jammer brings down enemy drones within 45 after 2.5 s."
     },
     "radar_tower3": {
       "name": "Radar Tower Mk3",
-      "desc": "T3 radar: finds unstealthed units within 360, stealth 1 units within 250 and stealth 2 units (T3 aircraft) within 150. Infantry never show on radar. Blocked by terrain. Very costly to run. Built by tier 3 engineers or upgraded from a Radar Tower Mk2 (U)."
+      "desc": "T3 radar: finds unstealthed units within 360, stealth 1 units within 250 and stealth 2 units (T3 aircraft) within 150. Infantry never show on radar. Blocked by terrain. Very costly to run. Built by tier 3 engineers or upgraded from a Radar Tower Mk2 (U). Its jammer brings down enemy drones within 70 after 1 s, and it puts out four false radar echoes that wander around it."
     },
     "eng_station": {
       "name": "Engineering Station",
@@ -1021,6 +1021,46 @@
     "bunker": {
       "name": "Bunker",
       "desc": "Fortified position. Hostile garrisons shoot at anything in range."
+    },
+    "naval_factory": {
+      "name": "Naval Yard",
+      "desc": "Builds tier 2 warships. Goes on a shore, half on land and half over deep water, however steep the bank. Expensive."
+    },
+    "patrol_boat": {
+      "name": "Chaika",
+      "desc": "Patrol boat with twin heavy machine guns that fire at ground and air targets alike. Fast and lightly armored. Sails on deep water only."
+    },
+    "gunboat": {
+      "name": "Shtorm",
+      "desc": "Gunboat with a 30 mm autocannon firing bursts at ground and air targets, and its own radar. Well armored. Sails on deep water only."
+    },
+    "recon_drone": {
+      "name": "Recon Drone",
+      "desc": "A Recon Drone Operator's quadcopter. Flies ahead of its operator, its camera locks onto enemies, and it keeps clear of known anti-air. Falls when jammed."
+    },
+    "strike_drone": {
+      "name": "Strike Drone",
+      "desc": "A Strike Drone Operator's kamikaze quadcopter. Flies over anything in the way and dives into its target with an anti-tank charge. Falls when jammed."
+    },
+    "drone_operator": {
+      "name": "Recon Drone Operator",
+      "desc": "Infantry with a recon quadcopter that scouts far ahead and locks its camera on enemies; a lost drone is replaced after 40 s. Armed only with a pistol."
+    },
+    "strike_operator": {
+      "name": "Strike Drone Operator",
+      "desc": "Infantry with a kamikaze quadcopter as strong as an anti-tank missile that flies over obstacles to its target; a new drone is ready 40 s after the last. Armed only with a pistol."
+    },
+    "cruise_missile": {
+      "name": "Trembita",
+      "desc": "Cruise missile: like a suicide drone, but much faster, with a far heavier warhead and a longer strike reach. Not affected by jammers. Very expensive."
+    },
+    "decoy": {
+      "name": "Radar Decoy",
+      "desc": "A false radar echo put out by a Radar Tower Mk3. Enemy radar sees a unit; there is nothing there."
+    },
+    "satellite_uplink": {
+      "name": "Satellite Uplink",
+      "desc": "Experimental: links up with a reconnaissance satellite. Every enemy unit shows on radar wherever it is (infantry still hide) and everything around enemy commanders is in sight. Enormously expensive to build and run. Built by tier 3 engineers."
     }
   },
   "weapons": {
@@ -1054,7 +1094,12 @@
     "sam_missile": "SAM Missile",
     "twin_heavy_railgun": "Twin Heavy Railgun",
     "120_mm_gun": "120 mm Gun",
-    "garrison_mg": "Garrison MG"
+    "garrison_mg": "Garrison MG",
+    "pistol": "Pistol",
+    "twin_heavy_machine_gun": "Twin Heavy Machine Gun",
+    "30_mm_autocannon": "30 mm Autocannon",
+    "shaped_charge": "Shaped Charge",
+    "cruise_warhead": "Cruise Warhead"
   },
   "terrain": {
     "grass": "Grass",
@@ -1499,7 +1544,41 @@
     "reactive_armor_tip": "Explosive tiles that go off when a missile hits (AT troopers, Robins) and stop most of its damage, one hit per charge.",
     "explodes_when_destroyed": "Explodes when destroyed",
     "explodes_tip": "A blast that hurts everything around it.",
-    "icon_and_model": "Icon and model"
+    "icon_and_model": "Icon and model",
+    "body_move_naval": "Ship",
+    "body_move_naval_tip": "Land units only: sails on deep water (where amphibious units float) and nowhere else.",
+    "body_shore": "Built on a shore",
+    "body_shore_tip": "Structures: goes on a shoreline, of any steepness, half on land and half over deep water (a naval yard). Ships it builds leave on the water side.",
+    "body_decoy": "Decoy",
+    "body_decoy_tip": "A false radar echo: enemy radar shows it, nothing hits it, and it vanishes for whoever gets its spot in sight. Made by a building with decoys.",
+    "drone": "Drone",
+    "drone_tip": "Keeps a drone of this type in the air near the unit; a lost drone comes back after the cooldown.",
+    "drone_unit": "Drone type",
+    "drone_unit_tip": "The unit type of the drone (a mobile unit nobody builds).",
+    "drone_cooldown": "Cooldown",
+    "drone_cooldown_tip": "Seconds until a new drone is ready after the last one is lost.",
+    "drone_leash": "Leash",
+    "drone_leash_tip": "How far from the unit its drone may fly.",
+    "jammer": "Jammer",
+    "jammer_tip": "Brings down enemy drones (category drone) that stay inside its radius.",
+    "jammer_radius": "Radius",
+    "jammer_radius_tip": "How far the jammer reaches.",
+    "jammer_time": "Time",
+    "jammer_time_tip": "Seconds a drone survives inside the radius.",
+    "decoys": "Radar decoys",
+    "decoys_tip": "Puts out false radar echoes that wander around the building while it works.",
+    "decoys_unit": "Decoy type",
+    "decoys_unit_tip": "The unit type of the echoes (one with Decoy ticked).",
+    "decoys_count": "Count",
+    "decoys_count_tip": "How many echoes it keeps out.",
+    "decoys_radius": "Radius",
+    "decoys_radius_tip": "How far from the building the echoes wander.",
+    "decoys_cooldown": "Cooldown",
+    "decoys_cooldown_tip": "Seconds between two new echoes.",
+    "satellite": "Satellite uplink",
+    "satellite_tip": "While it works, every enemy unit shows on its team's radar anywhere on the map (stealth 3 still hides), and everything near enemy commanders is in sight.",
+    "satellite_vision": "Commander sight",
+    "satellite_vision_tip": "How far around every enemy commander its team sees."
   },
   "preset_weapons": {
     "name": "Name",

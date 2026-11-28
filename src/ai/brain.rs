@@ -593,7 +593,7 @@ impl Brain {
         let mut anext = 0u16;
         let mut aflood = |acomp: &mut Vec<u16>, q: V2| -> u16 {
             let (sx, sy) = map.cell_of(q);
-            let ok = |k: usize| passable_for(map.blocked[k], true);
+            let ok = |k: usize| passable_for(map.blocked[k], crate::map::WAY_AMPH);
             if !map.inside(sx, sy) || !ok(sy as usize * n + sx as usize) {
                 return 0;
             }
@@ -1088,7 +1088,7 @@ fn eco(b: &mut Brain, rng: &mut Rng, pf: &Profile, reclaim: bool, me: u8, cx: &C
     let commander = defs.factions[p.faction as usize].commander;
     let is_pump = |d: &UnitDef| d.needs_deposit;
     let is_power = |d: &UnitDef| d.is_structure() && d.eco.energy > 0.0;
-    let is_fac = |d: &UnitDef, air: bool| d.is_factory() && d.builds.iter().any(|x| defs.get(*x).is_air() == air && !defs.get(*x).is_structure());
+    let is_fac = |d: &UnitDef, air: bool| d.is_factory() && !d.shore && d.builds.iter().any(|x| defs.get(*x).is_air() == air && !defs.get(*x).is_structure() && !defs.get(*x).is_naval());
     let is_radar = |d: &UnitDef| d.is_structure() && d.has_radar() && !d.armed();
 
     // Build spots that came to nothing are left alone for a while.

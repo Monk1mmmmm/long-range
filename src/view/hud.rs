@@ -1313,7 +1313,7 @@ pub fn ui_system(mut p: UiParams) -> Result {
         );
     }
     // Units inside a transport cannot be selected until they are set down.
-    view.sel.retain(|id| infos.get(id).map_or(false, |u| u.owner == me && (u.host == 0 || u.built.is_some())));
+    view.sel.retain(|id| infos.get(id).map_or(false, |u| u.owner == me && !defs.get(u.def).decoy && (u.host == 0 || u.built.is_some())));
     // (id, position, mass, piece size: 0 = a whole wreck). Falling debris cannot be clicked yet.
     let wrecks: Vec<(u32, V2, f32, f32)> = p.wrecks.iter().filter(|w| !w.falling).map(|w| (w.id, w.pos, w.mass, w.piece)).collect();
 

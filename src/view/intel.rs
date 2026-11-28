@@ -237,6 +237,33 @@ pub fn update_intel(
                 }
             }
         }
+        // A working satellite uplink: radar everywhere, sight round every enemy commander (as in
+        // `sim::systems::visibility`).
+        let sat = q
+            .iter()
+            .filter(|(u, _, _, uc, hosted, paused)| game.team_of(u.owner) == team && uc.is_none() && hosted.is_none() && !paused && game.players.get(u.owner as usize).map_or(true, |p| !p.power_out))
+            .filter_map(|(u, ..)| defs.get(u.def).satellite.map(|s| s.vision))
+            .fold(0.0f32, f32::max);
+        if sat > 0.0 {
+            for a in fog.alpha.iter_mut() {
+                *a = (*a).min(FOG_RADAR);
+            }
+            let r = (sat / CELL).ceil() as i32;
+            for (u, b, ..) in &q {
+                let t = game.team_of(u.owner);
+                if t == team || !hostile(team, t) || !defs.factions.iter().any(|f| f.commander == Some(u.def)) {
+                    continue;
+                }
+                let (cx, cy) = ((b.pos.x / CELL) as i32, (b.pos.y / CELL) as i32);
+                for y in (cy - r).max(0)..=(cy + r).min(fog.ny as i32 - 1) {
+                    for x in (cx - r).max(0)..=(cx + r).min(fog.n as i32 - 1) {
+                        if v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL).dist(b.pos) <= sat {
+                            fog.alpha[y as usize * fog.n + x as usize] = 0;
+                        }
+                    }
+                }
+            }
+        }
         fog.radar.retain(|id, _| alive.contains(id));
         fog.sight.retain(|id, _| looking.contains(id));
         fog.cone.retain(|id, _| spotting.contains(id));

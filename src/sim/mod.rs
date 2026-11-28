@@ -382,6 +382,22 @@ impl Wreck {
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Reactive(pub u8);
 
+/// Drones or decoys a unit keeps out (`UnitDef::drone`, `UnitDef::decoys`): their ids, and seconds
+/// until the next one is ready.
+#[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
+pub struct Bay {
+    pub out: Vec<u32>,
+    pub cd: f32,
+}
+
+/// A drone or decoy: the unit that keeps it out.
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
+pub struct Tether(pub u32);
+
+/// A drone (category `drone`): how far an enemy jammer has got with cutting its link (0..1).
+#[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
+pub struct Jam(pub f32);
+
 /// Mass of its wreck value a building has already dropped as debris (taken off its wreck and
 /// off what reclaiming it gives).
 #[derive(Component, Clone, Copy, Serialize, Deserialize, Debug)]
@@ -651,6 +667,28 @@ pub fn can_place(defs: &Defs, map: &MapData, occ: &[u8], d: DefId, p: V2) -> boo
         return false;
     }
     let (x0, y0) = foot_origin(p, f);
+    if df.shore {
+        // A shipyard: on the waterline, half on land and half over water deep enough for ships,
+        // however steep the bank. Deposits stay free.
+        let (mut wet, mut cells) = (0, 0);
+        for y in y0..y0 + f {
+            for x in x0..x0 + f {
+                if !map.inside(x, y) {
+                    return false;
+                }
+                let o = occ[map.idx(x, y)];
+                let ground = map.blocked.get(map.idx(x, y)).copied().unwrap_or(1);
+                if !matches!(o, 0 | 1 | crate::map::OCC_DEEP | crate::map::OCC_RUBBLE) {
+                    return false;
+                }
+                wet += (ground == crate::map::OCC_DEEP) as i32;
+                cells += 1;
+            }
+        }
+        let half = f as f32 * CELL * 0.5;
+        let on_dep = map.deposits.iter().any(|dp| (dp.x - p.x).abs() < half && (dp.y - p.y).abs() < half);
+        return !on_dep && wet * 5 >= cells && wet * 5 <= cells * 4 && shore_exit(map, occ, p, f).is_some();
+    }
     let (mut lo, mut hi) = (f32::MAX, f32::MIN);
     for y in y0..y0 + f {
         for x in x0..x0 + f {
@@ -678,6 +716,34 @@ pub fn can_place(defs: &Defs, map: &MapData, occ: &[u8], d: DefId, p: V2) -> boo
     } else {
         !on_dep
     }
+}
+
+/// The way a building on a shore (`UnitDef::shore`) of footprint `f` at `p` faces: towards the
+/// water in its footprint, in steps of a quarter turn (its model's front is the open water side).
+pub fn shore_yaw(map: &MapData, p: V2, f: i32) -> f32 {
+    let (x0, y0) = foot_origin(p, f);
+    let mut sum = v2(0.0, 0.0);
+    for y in y0..y0 + f {
+        for x in x0..x0 + f {
+            if map.inside(x, y) && map.blocked[map.idx(x, y)] == crate::map::OCC_DEEP {
+                sum = sum + (v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL) - p);
+            }
+        }
+    }
+    let a = if sum.len2() > 1e-6 { sum.angle() } else { 0.0 };
+    let q = std::f32::consts::FRAC_PI_2;
+    wrap((a / q).round() * q)
+}
+
+/// Where ships leave a shipyard at `p` (footprint `f`): the nearest cell of open water outside it,
+/// on the side it faces. `None`: no water to sail out onto.
+pub fn shore_exit(map: &MapData, occ: &[u8], p: V2, f: i32) -> Option<V2> {
+    let dir = V2::from_angle(shore_yaw(map, p, f));
+    let out = p + dir * (f as f32 * CELL * 0.5 + CELL * 1.5);
+    let (cx, cy) = map.cell_of(out);
+    let (x, y) = crate::map::nearest_free_for(occ, map.dims(), cx, cy, crate::map::WAY_SEA)?;
+    let e = v2((x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL);
+    (e.dist(out) < CELL * 6.0).then_some(e)
 }
 
 /// Can this unit ride in a transport?
@@ -785,6 +851,8 @@ pub struct Cen {
     pub beacon: Option<V2>,
     /// A mobile constructor (engineer, commander, scavenger): shot before buildings.
     pub engineer: bool,
+    /// A false radar echo (`UnitDef::is_decoy`): shots and blasts pass through it.
+    pub decoy: bool,
 }
 impl Cen {
     /// An unfinished revival site: scavengers build it, engineers do not.
@@ -1586,10 +1654,23 @@ pub fn spawn_unit_built(commands: &mut Commands, defs: &Defs, game: &mut Game, m
 /// `spawn_unit_built`, for a construction site revived from wreck `revival` (0 = none).
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, built: Option<f32>, hosted: u32, revival: u32) -> u32 {
+    spawn_full(commands, defs, game, map, def, owner, pos, yaw, built, hosted, revival, 0)
+}
+
+/// A finished drone or decoy of unit `tether`.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_tethered(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, tether: u32) -> u32 {
+    spawn_full(commands, defs, game, map, def, owner, pos, yaw, None, 0, 0, tether)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_full(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &MapData, def: DefId, owner: u8, pos: V2, yaw: f32, built: Option<f32>, hosted: u32, revival: u32, tether: u32) -> u32 {
     let d = defs.get(def);
     let id = game.alloc();
     let team = game.team_of(owner);
-    let y = map.h(pos) + d.mv.altitude;
+    // Shipyards stand at the waterline (on the ground where it is higher), ships on the water.
+    let y = if d.shore || d.floats() { map.surface(pos) } else { map.h(pos) } + d.mv.altitude;
+    let yaw = if d.shore && d.is_structure() { shore_yaw(map, pos, d.footprint) } else { yaw };
     let hp = d.hp * built.map_or(1.0, |b| 0.05 + 0.95 * b.clamp(0.0, 1.0));
     let weapons = d.armed().then(|| Weapons { list: d.weapons.iter().map(|_| WeaponState { yaw, ..default() }).collect(), ..default() });
     let (builder, factory, structure) = (d.build.is_some(), d.is_factory(), d.mv.kind == MoveKind::None);
@@ -1614,6 +1695,9 @@ pub fn spawn_site(commands: &mut Commands, defs: &Defs, game: &mut Game, map: &M
         shed: None,
         revival: (revival != 0).then_some(Revival(revival)),
         reactive: d.reactive.map(|r| Reactive(r.charges)),
+        bay: (d.drone.is_some() || d.decoys.is_some()).then(Bay::default),
+        tether: (tether != 0).then_some(Tether(tether)),
+        jam: d.is_drone().then_some(Jam(0.0)),
     };
     commands.queue(move |world: &mut World| {
         let e = claim(world, KIND_UNIT, id);
@@ -1773,6 +1857,12 @@ unit_state! {
         revival: Revival,
         /// Reactive armor charges left.
         reactive: Reactive,
+        /// Drones or decoys kept out.
+        bay: Bay,
+        /// A drone's or decoy's keeper.
+        tether: Tether,
+        /// A drone's jamming.
+        jam: Jam,
     }
 }
 
@@ -2003,6 +2093,9 @@ mod tests {
             shed: Some(Shed(8.0)),
             revival: Some(Revival(14)),
             reactive: Some(Reactive(3)),
+            bay: Some(Bay { out: vec![15], cd: 2.0 }),
+            tether: Some(Tether(16)),
+            jam: Some(Jam(0.5)),
         }
     }
 
@@ -2034,6 +2127,9 @@ mod tests {
             shed: None,
             revival: None,
             reactive: None,
+            bay: None,
+            tether: None,
+            jam: None,
             ..full_unit()
         };
         bare.write(&mut world.entity_mut(e));

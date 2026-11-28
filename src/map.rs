@@ -1437,12 +1437,22 @@ pub fn passable(occ: u8) -> bool {
     occ == 0 || occ == OCC_WORK
 }
 
-/// Can a land unit, amphibious or not, stand on a cell with this occupancy value?
-pub fn passable_for(occ: u8, amphibious: bool) -> bool {
-    passable(occ) || (amphibious && occ == OCC_DEEP)
+/// How a unit gets about on the occupancy grid (`UnitDef::way`): on land, on land and over deep
+/// water (amphibious), or on deep water only (ships).
+pub const WAY_LAND: u8 = 0;
+pub const WAY_AMPH: u8 = 1;
+pub const WAY_SEA: u8 = 2;
+
+/// Can a unit that gets about this `way` stand on a cell with this occupancy value?
+pub fn passable_for(occ: u8, way: u8) -> bool {
+    match way {
+        WAY_SEA => occ == OCC_DEEP,
+        WAY_AMPH => passable(occ) || occ == OCC_DEEP,
+        _ => passable(occ),
+    }
 }
 
-fn free(occ: &[u8], (n, ny): (i32, i32), x: i32, y: i32, amph: bool) -> bool {
+fn free(occ: &[u8], (n, ny): (i32, i32), x: i32, y: i32, amph: u8) -> bool {
     x >= 0 && y >= 0 && x < n && y < ny && passable_for(occ[(y * n + x) as usize], amph)
 }
 
@@ -1451,7 +1461,7 @@ fn idims((n, ny): Dims) -> (i32, i32) {
 }
 
 /// True if a straight walk from a to b stays on free cells.
-pub fn line_clear(occ: &[u8], n: Dims, a: V2, b: V2, amph: bool) -> bool {
+pub fn line_clear(occ: &[u8], n: Dims, a: V2, b: V2, amph: u8) -> bool {
     let d = b - a;
     let steps = (d.len() / (CELL * 0.4)).ceil().max(1.0) as i32;
     let side = d.norm().perp() * 0.5;
@@ -1468,11 +1478,11 @@ pub fn line_clear(occ: &[u8], n: Dims, a: V2, b: V2, amph: bool) -> bool {
 
 /// Nearest free cell to (cx, cy), searching outward in rings.
 pub fn nearest_free(occ: &[u8], n: Dims, cx: i32, cy: i32) -> Option<(i32, i32)> {
-    nearest_free_for(occ, n, cx, cy, false)
+    nearest_free_for(occ, n, cx, cy, WAY_LAND)
 }
 
-/// Nearest cell to (cx, cy) a land unit can stand on (amphibious ones also under water).
-pub fn nearest_free_for(occ: &[u8], n: Dims, cx: i32, cy: i32, amph: bool) -> Option<(i32, i32)> {
+/// Nearest cell to (cx, cy) a unit getting about this way (`WAY_LAND`...) can stand on.
+pub fn nearest_free_for(occ: &[u8], n: Dims, cx: i32, cy: i32, amph: u8) -> Option<(i32, i32)> {
     let ni = idims(n);
     if free(occ, ni, cx, cy, amph) {
         return Some((cx, cy));
@@ -1500,9 +1510,9 @@ pub fn nearest_free_for(occ: &[u8], n: Dims, cx: i32, cy: i32, amph: bool) -> Op
 }
 
 /// A* over the occupancy grid. Returns waypoints in reverse order (pop from the back),
-/// ending at `to` or the nearest reachable point. `amph`: the unit also drives under water
-/// (`OCC_DEEP` cells).
-pub fn find_path(occ: &[u8], n: Dims, from: V2, to: V2, amph: bool, sc: &mut PathScratch) -> Vec<V2> {
+/// ending at `to` or the nearest reachable point. `amph`: how the unit gets about (`WAY_LAND`,
+/// `WAY_AMPH`: also over `OCC_DEEP` cells, `WAY_SEA`: only there).
+pub fn find_path(occ: &[u8], n: Dims, from: V2, to: V2, amph: u8, sc: &mut PathScratch) -> Vec<V2> {
     let dn = idims(n);
     let (ni, nj) = dn;
     let cell = |p: V2| ((p.x / CELL).floor() as i32, (p.y / CELL).floor() as i32);
@@ -1701,7 +1711,7 @@ mod tests {
         assert_eq!(m.center(), v2(60.0, 20.0));
         assert!(!m.inside(10, 25) && m.inside(55, 15));
         let to = v2(110.0, 5.0);
-        let path = find_path(&m.blocked, m.dims(), v2(5.0, 5.0), to, false, &mut PathScratch::default());
+        let path = find_path(&m.blocked, m.dims(), v2(5.0, 5.0), to, WAY_LAND, &mut PathScratch::default());
         assert!(path[0].dist(to) < 0.01, "{path:?}");
         assert!(path.iter().any(|p| p.y > 30.0), "goes round the wall through the gap: {path:?}");
         assert!((m.h(v2(119.0, 39.0)) - 5.0).abs() < 0.01);

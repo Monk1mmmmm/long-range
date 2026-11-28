@@ -340,6 +340,8 @@ drops terrain at screen sides (edit `fov/near/far` in place).
   takes 0.1 of it (`LightTank`, `MediumTank`); other classes take what they take from `Normal` (Light 1,
   Structure 0.6, Commander 0.5, Air 1, Civilian 0.3). Requested: armour shrugs off rifles and machine guns.
 - **Armoured carriers** (`apc`, `apc_amph`, `apc_heavy`, `apc_heavy3`; roster at `amphibious`): `move.amphibious` units float over deep water (`map::OCC_DEEP`, `passable_for`); the zone AI uses `Role::Carrier`.
+- **Navy** (`move.naval`, `UnitDef::is_naval`; T2 Naval Yard `shore: true`, Chaika / Shtorm): ships sail only on `map::OCC_DEEP` cells (`map::WAY_SEA`; `find_path` and friends take a way mode `WAY_LAND` / `WAY_AMPH` / `WAY_SEA` instead of an amphibious flag), float on `map.surface`; a shore building's footprint needs 20-80 % deep cells, any slope (`can_place`), faces the water (`shore_yaw`), ships leave on that side (`shore_exit`). AI never builds the yard. `--combattest` `LR_TEST=newunits`.
+- **Drones, jammers, decoys, satellite** (unit JSON `drone`, `jammer`, `decoys`/`decoy`, `satellite`; `systems::drones` after `think`, components `Bay` / `Tether` / `Jam`): details at `DroneDef`, `JammerDef`, `DecoyDef`, `SatelliteDef` in `data.rs`. Drones and decoys are `UnitDef::spawned` (the AI's `Mine` list skips them); decoys are moved by `drones` (not `locomotion`), never hit (`Cen::decoy`), only ever on enemy radar. Satellite intel is worked out in `visibility` and the fog view (`intel::update_intel`). The new units reuse other units' meshes except the two ships (placeholders to be replaced by own models).
 - **Control points** (`Game.mode == MODE_POINTS`): from `MapData.points` (or `auto_points`); a team holding fewer points than its strongest opponent bleeds (`systems::control_points`).
 - **Far meshes** (`view/decimate.rs`, `model_lod_swap`): parts with >= 60 triangles get a vertex-clustered mesh shown at distance.
 - **Model LOD** (`model_lod` setting): models are hidden where the HUD draws the strategic icon (`view::as_icon`, `view::model_lod`).
@@ -370,7 +372,7 @@ drops terrain at screen sides (edit `fov/near/far` in place).
 
 ## Not done yet / ideas
 
-- No music, navy, air staging or shields. One playable faction (format supports more).
+- No music, air staging or shields. One playable faction (format supports more).
 - No friendly-fire by default (`rules.friendly_fire`).
 - **AI types** (`ai::AiKind`, per lobby slot): Simple (old), Overseer, Zones, Adaptive, Rusher, Turtle; all but Simple share `ai/brain.rs` and differ by `Profile`. The engine design (zones, bounds, counters, storming, scavengers, garrisons, lifts, landings, build spots, `LR_AIOFF`) is in the comment above `Brain`. Test a change with duels against `simple` on a few seeds (`LR_PLAYERS=2 LR_AI=zones,simple LR_SEED=n`); new types should win all.
 - Hostile side only holds positions; it has no AI.

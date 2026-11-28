@@ -3913,6 +3913,203 @@ fn combattest() {
     binocular_tests(&defs);
     scavenger_tests(&defs);
     apc_tests(&defs);
+    new_unit_tests(&defs);
+}
+
+/// Ships and the naval yard, drone operators, jammers, radar decoys, the cruise missile and the
+/// satellite uplink (`--combattest`, or alone with `LR_TEST=newunits`).
+fn new_unit_tests(defs: &Defs) {
+    let faction = defs.playable_factions()[0] as u8;
+    // A 192-cell range; with `sea`: low land west of x = 150 (a bank ships' guns clear), sea east of it
+    // (water level 0, sea floor at -5).
+    let world_for = |sea: bool| -> (App, MapData) {
+        let mut app = headless(defs.clone());
+        let mut map = MapData::generate(192, 4242, 2);
+        map.water = 0.0;
+        let vx = map.vx();
+        for (i, h) in map.heights.iter_mut().enumerate() {
+            let x = (i % vx) as f32 * CELL;
+            *h = if sea && x > 150.0 { -5.0 } else if sea { 0.6 } else { 2.0 };
+        }
+        map.rebuild_blocked();
+        let setup: Vec<PlayerSetup> = (0..2).map(|i| PlayerSetup { name: format!("P{i}"), team: i as u8, is_ai: false, slot: i, color: i as u8, faction }).collect();
+        setup_game(app.world_mut(), map.clone(), &setup);
+        for p in app.world_mut().resource_mut::<Game>().players.iter_mut() {
+            p.mass = 1.0e6;
+            p.energy = 1.0e7;
+            p.max_mass = 1.0e6;
+            p.max_energy = 1.0e7;
+        }
+        (app, map)
+    };
+    let put = |world: &mut World, map: &MapData, name: &str, owner: u8, pos: V2, yaw: f32| -> u32 {
+        let mut game = world.resource::<Game>().clone();
+        let id = {
+            let mut commands = world.commands();
+            spawn_unit(&mut commands, defs, &mut game, map, defs.id(name).unwrap_or_else(|| panic!("no unit {name}")), owner, pos, yaw, true, 0)
+        };
+        world.insert_resource(game);
+        world.flush();
+        id
+    };
+    let hp = |world: &mut World, id: u32| world.query::<(&Unit, &Health)>().iter(world).find(|(u, _)| u.id == id).map_or(0.0, |(_, h)| h.0);
+    let of = |world: &mut World, name: &str, owner: u8| -> Vec<(u32, V2)> {
+        let d = defs.id(name).unwrap();
+        let mut v: Vec<(u32, V2)> = world.query::<(&Unit, &Body)>().iter(world).filter(|(u, _)| u.def == d && u.owner == owner).map(|(u, b)| (u.id, b.pos)).collect();
+        v.sort_by_key(|x| x.0);
+        v
+    };
+    // Storage caps what a side holds: refill both every tick, so only the units are tested.
+    let step = |world: &mut World| {
+        for p in world.resource_mut::<Game>().players.iter_mut() {
+            p.mass = p.mass.max(1.0e5);
+            p.energy = p.energy.max(1.0e6);
+        }
+        world.run_schedule(SimTick);
+    };
+    let tick = |world: &mut World, n: u32| {
+        for _ in 0..n {
+            step(world);
+        }
+    };
+
+    // --- naval yard on the shore, ships out of it
+    {
+        let (mut app, map) = world_for(true);
+        let world = app.world_mut();
+        let yard = defs.id("naval_factory").unwrap();
+        let occ = world.resource::<Nav>().occ.clone();
+        let inland = can_place(defs, &map, &occ, yard, snap(defs, &map, yard, v2(120.0, 190.0)));
+        let offshore = can_place(defs, &map, &occ, yard, snap(defs, &map, yard, v2(190.0, 190.0)));
+        let spot = snap(defs, &map, yard, v2(150.0, 190.0));
+        let shore = can_place(defs, &map, &occ, yard, spot);
+        let f = put(world, &map, "naval_factory", 0, spot, 0.0);
+        world.resource_mut::<Nav>().dirty = true;
+        for name in ["patrol_boat", "gunboat"] {
+            world.resource_mut::<CommandQueue>().0.push((0, Command::Produce { factory: f, def: defs.id(name).unwrap(), count: 1 }));
+        }
+        tick(world, 1300);
+        let boats: Vec<(u32, V2)> = of(world, "patrol_boat", 0).into_iter().chain(of(world, "gunboat", 0)).collect();
+        let wet = boats.iter().all(|(_, p)| p.x > 150.0);
+        println!("== Naval yard: inland {inland}, offshore {offshore}, on the shore {shore}; ships out {} (all on water {wet})", boats.len());
+        assert!(!inland && !offshore && shore && boats.len() == 2 && wet, "naval yard");
+        // Ships sail on the sea only: a move order inland stops them at the shore.
+        let ids: Vec<u32> = boats.iter().map(|b| b.0).collect();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: ids.clone(), orders: vec![Order::Move(v2(60.0, 190.0))], queue: false }));
+        tick(world, 300);
+        let west = of(world, "patrol_boat", 0).into_iter().chain(of(world, "gunboat", 0)).map(|b| b.1.x).fold(f32::MAX, f32::min);
+        println!("   ordered inland: westmost ship at x = {west:.0} (shore at 150)");
+        assert!(west > 146.0, "ships stay on water");
+        // They fire at ground and air: a tank on the beach and a gunship overhead.
+        let tank = put(world, &map, "overtaker", 1, v2(140.0, 230.0), 0.0);
+        let heli = put(world, &map, "gunship", 1, v2(165.0, 215.0), 0.0);
+        let (t0, h0) = (hp(world, tank), hp(world, heli));
+        tick(world, 300);
+        let (t1, h1) = (hp(world, tank), hp(world, heli));
+        println!("   vs tank on the shore: hp {t0:.0} -> {t1:.0}; vs gunship: hp {h0:.0} -> {h1:.0}");
+        assert!(t1 < t0 && h1 < h0, "ships hit ground and air");
+    }
+
+    // --- drone operators
+    for (op, guard) in [("strike_operator", ""), ("strike_operator", "radar_tower2"), ("drone_operator", "")] {
+        let (mut app, map) = world_for(false);
+        let world = app.world_mut();
+        let me = put(world, &map, op, 0, v2(100.0, 190.0), 0.0);
+        let tank = put(world, &map, "overtaker", 1, v2(190.0, 190.0), std::f32::consts::PI);
+        // Strike drones need their target known: a radar shows the tank to the operator's side.
+        if op == "strike_operator" {
+            put(world, &map, "radar_tower", 0, v2(95.0, 200.0), 0.0);
+        }
+        if !guard.is_empty() {
+            put(world, &map, guard, 1, v2(185.0, 175.0), 0.0);
+        }
+        let h0 = hp(world, tank);
+        let mut furthest = 0.0f32;
+        let mut seen_at: Option<u32> = None;
+        let mut drones_seen = 0;
+        let drone_name = if op == "strike_operator" { "strike_drone" } else { "recon_drone" };
+        for t in 0..900 {
+            step(world);
+            let me_pos = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.id == me).map(|(_, b)| b.pos).unwrap_or_default();
+            let ds = of(world, drone_name, 0);
+            if ds.first().is_some_and(|d| drones_seen == 0 || d.0 != 0) && !ds.is_empty() {
+                drones_seen = drones_seen.max(ds[0].0);
+            }
+            for d in &ds {
+                furthest = furthest.max(d.1.dist(me_pos));
+            }
+            if seen_at.is_none() && world.query::<(&Unit, &Intel)>().iter(world).any(|(u, i)| u.id == tank && i.seen & 1 != 0) {
+                seen_at = Some(t);
+            }
+            if op == "strike_operator" && t == 5 {
+                // Attack order on the tank: the strike drone flies at it.
+                world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![me], orders: vec![Order::Attack(tank)], queue: false }));
+            }
+        }
+        let h1 = hp(world, tank);
+        let now = of(world, drone_name, 0).len();
+        println!("== {op}{}: tank hp {h0:.0} -> {h1:.0}; drone furthest {furthest:.0} from its operator; tank seen after {:?} s; drones up now {now}",
+            if guard.is_empty() { String::new() } else { format!(" vs a tank guarded by a {guard}") }, seen_at.map(|t| t as f32 / 10.0));
+        match (op, guard) {
+            ("strike_operator", "") => assert!(h1 < h0 - 150.0, "strike drone hits"),
+            ("strike_operator", _) => assert!(h1 >= h0 - 1.0, "jammer stops strike drones"),
+            _ => assert!(furthest > 40.0 && furthest <= 111.0 && seen_at.is_some(), "recon drone scouts on its leash"),
+        }
+    }
+
+    // --- radar decoys
+    {
+        let (mut app, map) = world_for(false);
+        let world = app.world_mut();
+        put(world, &map, "radar_tower3", 0, v2(80.0, 190.0), 0.0);
+        put(world, &map, "radar_tower3", 1, v2(300.0, 190.0), 0.0);
+        put(world, &map, "pike", 1, v2(220.0, 190.0), std::f32::consts::PI);
+        tick(world, 900);
+        let decoys = of(world, "decoy", 0);
+        let ids: Vec<u32> = decoys.iter().map(|d| d.0).collect();
+        let on_radar = world.query::<(&Unit, &Intel)>().iter(world).filter(|(u, i)| ids.contains(&u.id) && i.radar & 2 != 0 && i.seen & 2 == 0).count();
+        let shells = world.query::<&Projectile>().iter(world).count();
+        println!("== Radar decoys: {} out (want 4), {on_radar} on the enemy's radar, never seen; shells in the air now {shells}", decoys.len());
+        assert!(decoys.len() == 4 && on_radar > 0, "decoys");
+    }
+
+    // --- cruise missile
+    {
+        let (mut app, map) = world_for(false);
+        let world = app.world_mut();
+        let m = put(world, &map, "cruise_missile", 0, v2(40.0, 190.0), 0.0);
+        let targets: Vec<u32> = (0..3).map(|k| put(world, &map, "overtaker", 1, v2(300.0, 186.0 + k as f32 * 4.0), 0.0)).collect();
+        put(world, &map, "radar_tower3", 1, v2(310.0, 170.0), 0.0);
+        put(world, &map, "radar_tower", 0, v2(260.0, 120.0), 0.0);
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![m], orders: vec![Order::Attack(targets[1])], queue: false }));
+        let mut hit = None;
+        for t in 0..600 {
+            step(world);
+            if hit.is_none() && hp(world, targets[1]) <= 0.0 {
+                hit = Some(t);
+            }
+        }
+        let alive = targets.iter().filter(|id| hp(world, **id) > 0.0).count();
+        println!("== Cruise missile at 3 Overtakers 260 away (jammer near them): target gone after {:?} s, {alive}/3 left", hit.map(|t| t as f32 / 10.0));
+        assert!(hit.is_some(), "cruise missile");
+    }
+
+    // --- satellite uplink
+    {
+        let (mut app, map) = world_for(false);
+        let world = app.world_mut();
+        let enemy_cmd = world.query::<(&Unit, &Body)>().iter(world).find(|(u, _)| u.owner == 1 && Some(u.def) == defs.factions[faction as usize].commander).map(|(u, b)| (u.id, b.pos)).unwrap();
+        let far = put(world, &map, "overtaker", 1, v2(30.0, 360.0), 0.0);
+        let near = put(world, &map, "trooper", 1, enemy_cmd.1 + v2(10.0, 0.0), 0.0);
+        put(world, &map, "satellite_uplink", 0, v2(60.0, 60.0), 0.0);
+        tick(world, 20);
+        let intel = |world: &mut World, id: u32| world.query::<(&Unit, &Intel)>().iter(world).find(|(u, _)| u.id == id).map_or((0, 0), |(_, i)| (i.seen, i.radar));
+        let (cs, _) = intel(world, enemy_cmd.0);
+        let (_, fr) = intel(world, far);
+        let (ns, _) = intel(world, near);
+        println!("== Satellite uplink: enemy commander seen {}, far tank on radar {}, trooper by the commander seen {}", cs & 1 != 0, fr & 1 != 0, ns & 1 != 0);
+        assert!(cs & 1 != 0 && fr & 1 != 0 && ns & 1 != 0, "satellite uplink");
+    }
 }
 
 /// The armoured carriers (Tavria, Slavuta, Zaporozhets): small arms barely scratch them, their
@@ -6054,6 +6251,9 @@ fn main() {
         }
         if std::env::var("LR_TEST").as_deref() == Ok("apc") {
             return apc_tests(&load_defs());
+        }
+        if std::env::var("LR_TEST").as_deref() == Ok("newunits") {
+            return new_unit_tests(&load_defs());
         }
         return combattest();
     }
