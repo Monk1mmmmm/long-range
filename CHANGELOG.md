@@ -3,6 +3,12 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.17.4
+
+New models
+- Own models and portraits for the Naval Yard (quay, boat shed with a slipway between two jetties, gantry crane), the recon and strike quadcopters (spinning rotors), the Trembita cruise missile, the Satellite Uplink (turning dish) and both drone operators (control station backpack, FPV rig). They used to borrow other units' looks.
+- Portraits of their own for the Chaika and Shtorm boats.
+
 ## v0.17.3
 
 Fixes
