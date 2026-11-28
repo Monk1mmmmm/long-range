@@ -3,6 +3,23 @@
 Each `## vX.Y.Z` section is used as the text of the GitHub release with that tag
 (`scripts/release.sh` / `scripts/release.ps1` pick it up automatically).
 
+## v0.17.2
+
+New units
+- Naval Yard (T2): built on a shore of any steepness, half on land and half over deep water. Builds the Chaika patrol boat (twin heavy machine guns) and the Shtorm gunboat (30 mm autocannon, own radar). Both ships fire at ground and air targets and sail on deep water only.
+- Recon Drone Operator (T3 infantry): keeps a recon quadcopter flying well ahead within its range. The drone's camera locks onto enemies, and it keeps clear of known anti-air. A lost drone is replaced after 40 s.
+- Strike Drone Operator (T3 infantry): its kamikaze quadcopter hits as hard as an anti-tank missile and flies over anything in the way to the operator's target. A new one is ready 40 s after the last.
+- Both operators carry only a pistol and are weaker than troopers in a straight fight.
+- Trembita cruise missile (T3 air factory): like a suicide drone, but much faster, with a far heavier warhead and a longer strike reach. Very expensive. Jammers do not affect it.
+- Satellite Uplink (T4 experimental, built by Mk3 engineers): every enemy unit shows on radar anywhere on the map (infantry still hide) and everything around enemy commanders is in sight. Enormously expensive to build and run.
+
+Gameplay
+- Radar Tower Mk2 jams enemy drones within 45 (they fall after 2.5 s). Mk3 jams within 70 (1 s) and puts out four false radar echoes that wander around it. Enemy radar shows them and guns shoot at them, but nothing is there.
+- The Relaxed preset follows the built-in data again (weather, new units).
+
+Notes
+- The ships have their own models. The other new units use stand-in models of existing units for now.
+
 ## v0.17.1
 
 Gameplay
