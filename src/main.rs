@@ -3838,6 +3838,48 @@ fn combattest() {
         println!("== Ferry: 6 tanks waiting at the beacon, all across and at their queued goal after {done:?} ticks in {trips} trips; route kept: {route}");
         assert!(done.is_some() && trips >= 2 && route, "ferry");
     }
+    // 9c. A transport assisting a factory carries what comes out along the factory's queued rally
+    // orders (through the waypoint, set down at the last move) and comes back for more; the units
+    // set down go on with the rest (a patrol).
+    {
+        let (mut app, map) = flat_world(192);
+        let world = app.world_mut();
+        let fac = spawn(world, &map, "land_factory", 0, v2(60.0, 60.0), 0.0);
+        let stork = spawn(world, &map, "air_transport", 0, v2(60.0, 85.0), 0.0);
+        world.flush();
+        let (via, drop, beat) = (v2(140.0, 60.0), v2(250.0, 250.0), v2(280.0, 250.0));
+        order(world, vec![fac], Order::Move(via));
+        for o in [Order::Move(drop), Order::Patrol(beat)] {
+            world.resource_mut::<CommandQueue>().0.push((0, Command::Orders { ids: vec![fac], orders: vec![o], queue: true }));
+        }
+        order(world, vec![stork], Order::Assist(fac));
+        let crony = defs.id("crony").unwrap();
+        world.resource_mut::<CommandQueue>().0.push((0, Command::Produce { factory: fac, def: crony, count: 4 }));
+        let (mut trips, mut was_full, mut most, mut through, mut done) = (0, false, 0, false, None);
+        for t in 0..9000u32 {
+            // Plenty to build with (the test range has no economy).
+            let p = &mut world.resource_mut::<Game>().players[0];
+            (p.mass, p.energy) = (p.max_mass, p.max_energy);
+            world.run_schedule(SimTick);
+            let n = world.query::<&Hosted>().iter(world).filter(|h| h.0 == stork).count();
+            if n > 0 && !was_full {
+                trips += 1;
+            }
+            was_full = n > 0;
+            most = most.max(n);
+            let mut q = world.query::<(&Unit, &Body)>();
+            through |= n > 0 && q.iter(world).any(|(u, b)| u.id == stork && b.pos.dist(via) < 12.0);
+            let mut q = world.query::<(&Unit, &Body, &Orders, Has<Hosted>)>();
+            let there = q.iter(world).filter(|(u, b, o, h)| u.def == crony && !h && b.pos.dist(beat) < 45.0 && b.pos.dist(drop) < 45.0 && o.0.iter().all(|o| matches!(o, Order::Patrol(_)))).count();
+            if there == 4 && done.is_none() {
+                done = Some(t);
+                break;
+            }
+        }
+        let rally = world.query::<(&Unit, &Factory)>().iter(world).find(|(u, _)| u.id == fac).map(|(_, f)| f.rally.clone()).unwrap();
+        println!("== Factory lift: rally {} orders, 4 tanks carried in {trips} trips (up to {most} at once, through the waypoint: {through}), all patrolling at the far end after {done:?} ticks", rally.len());
+        assert!(rally.len() == 4 && done.is_some() && trips >= 2 && through, "factory lift");
+    }
     // 10. Control points: the team that holds fewer points loses its score and then the game.
     {
         let (mut app, map) = flat_world(192);

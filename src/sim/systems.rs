@@ -366,9 +366,23 @@ fn apply_commands(
                         Order::Assist(t) if !df.is_scavenger() && census.get(*t).map_or(false, |t| t.reviving()) => continue,
                         _ => {}
                     }
+                    // A factory's rally orders: what its finished units leave with (Shift queues more).
                     if let Some(mut f) = factory {
-                        if let Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) = o {
-                            f.rally = Some(p);
+                        let Some(p) = order_point(&o) else { continue };
+                        if !append {
+                            f.rally.clear();
+                        }
+                        if f.rally.len() >= RALLY_MAX {
+                            continue;
+                        }
+                        let back = f.rally.iter().rev().find_map(order_point);
+                        let patrols = f.rally.iter().any(|x| matches!(x, Order::Patrol(_)));
+                        f.rally.push(o);
+                        // A patrol loops back to the point before it, as a unit's does to where it stood.
+                        if matches!(o, Order::Patrol(_)) && !patrols {
+                            let side = exit_side(b.pos, Some(p));
+                            let out = b.pos + side * (df.footprint as f32 * CELL * 0.5 + 6.0);
+                            f.rally.push(Order::Patrol(map.clamp(back.unwrap_or(out))));
                         }
                         continue;
                     }
@@ -995,6 +1009,7 @@ fn think(
     mut effects: ResMut<Effects>,
     terrain: Res<Ground>,
     mut features: ResMut<Features>,
+    facs: Query<&Factory>,
     mut commands: Commands,
 ) {
     // Free cargo slots of a transport, counting what was loaded earlier in this tick.
@@ -1003,6 +1018,7 @@ fn think(
         let coming: i32 = effects.loaded.iter().filter(|l| l.1 == tid).filter_map(|l| census.get(l.0)).map(|c| defs.get(c.def).cargo as i32).sum();
         cap as i32 - aboard - coming
     };
+    let lifts = factory_lifts(&q, &census, &defs, &facs);
     for (u, body, mut orders, mut mover, mut builder, mut weapons) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         if df.is_factory() {
@@ -1306,6 +1322,48 @@ fn think(
                                 pop = true;
                             }
                         }
+                    }
+                }
+            }
+            // A transport assisting a factory: it takes the units coming out and carries them along the
+            // rally route (`factory_lifts`).
+            Some(Order::Assist(tid)) if ferries(df) && !is_struct && lifts.iter().any(|l| l.factory == tid) => {
+                let lift = lifts.iter().find(|l| l.factory == tid).unwrap();
+                let fac = census.get(tid).unwrap();
+                let free = room(&effects, id, df.transport.as_ref().map_or(0, |t| t.capacity));
+                let aboard = census.list.iter().any(|t| t.host == id) || effects.loaded.iter().any(|l| l.1 == id);
+                let mut best: Option<(f32, u32)> = None;
+                for t in lift.fresh.iter().filter_map(|f| census.get(*f)) {
+                    let td = defs.get(t.def);
+                    if t.owner != owner || !t.done || t.hosted || t.hp <= 0.0 || !fits(df, td) || td.cargo as i32 > free || effects.loaded.iter().any(|l| l.0 == t.id) {
+                        continue;
+                    }
+                    let d = pos.dist(t.pos);
+                    if best.map_or(true, |b| d < b.0 || (d == b.0 && t.id < b.1)) {
+                        best = Some((d, t.id));
+                    }
+                }
+                // The unit in the works fits in too: wait for it.
+                let coming = census.get(fac.building).is_some_and(|b| fits(df, defs.get(b.def)) && defs.get(b.def).cargo as i32 <= free);
+                if let Some(t) = best.and_then(|b| census.get(b.1)) {
+                    if pos.dist(t.pos) <= 2.5 + t.radius + df.radius() + scoop {
+                        commands.entity(t.e).insert(Hosted(id));
+                        effects.loaded.push((t.id, id));
+                        // What the rider does once set down: the rally orders past the drop point.
+                        commands.entity(t.e).try_insert(Orders(lift.after.clone()));
+                    } else {
+                        goal = Some(t.pos);
+                    }
+                } else if aboard && !coming {
+                    // Off along the rally route; back to the factory after setting them down.
+                    let mut trip: Vec<Order> = lift.via.iter().map(|p| Order::Move(*p)).collect();
+                    trip.push(Order::Unload { pos: lift.drop, radius: FERRY_DROP, occupy: false });
+                    orders.0.splice(0..0, trip);
+                } else {
+                    // Waiting at the exit.
+                    let spot = fac.pos + exit_side(fac.pos, Some(lift.first)) * (fac.radius + 6.0);
+                    if pos.dist(spot) > arrive.max(2.0) {
+                        goal = Some(spot);
                     }
                 }
             }
@@ -1866,6 +1924,66 @@ fn think(
     }
 }
 
+/// A factory that transports assist (`Order::Assist`), with a rally route long enough to carry its
+/// units along. Built at the start of `think`.
+struct Lift {
+    factory: u32,
+    /// The first rally point (the exit faces it).
+    first: V2,
+    /// Points flown through on the way, then the drop point: the last of the rally orders before any patrol.
+    via: Vec<V2>,
+    drop: V2,
+    /// The riders' orders once set down: the rally orders past the drop point.
+    after: Vec<Order>,
+    /// Units just out of it, still with the rally orders untouched, near it, by id.
+    fresh: Vec<u32>,
+}
+
+/// Rally routes ending closer to the factory than this are walked.
+const LIFT_MIN: f32 = 25.0;
+
+#[allow(clippy::type_complexity)]
+fn factory_lifts(q: &Query<(&Unit, &Body, &mut Orders, Option<&mut Mover>, Option<&mut Builder>, Option<&mut Weapons>), (Without<UnderConstruction>, Without<Hosted>)>, census: &Census, defs: &Defs, facs: &Query<&Factory>) -> Vec<Lift> {
+    let mut lifts: Vec<Lift> = vec![];
+    for (u, _, o, ..) in q.iter() {
+        let Some(Order::Assist(fid)) = o.0.first() else { continue };
+        if !ferries(defs.get(u.def)) || lifts.iter().any(|l| l.factory == *fid) {
+            continue;
+        }
+        let Some((fc, f)) = census.get(*fid).filter(|c| c.owner == u.owner && c.done).and_then(|c| facs.get(c.e).ok().map(|f| (c, f))) else { continue };
+        let pts: Vec<V2> = f.rally.iter().filter_map(order_point).collect();
+        let Some(&first) = pts.first() else { continue };
+        let n = f.rally.iter().take_while(|o| !matches!(o, Order::Patrol(_))).count();
+        let (k, after) = if n > 0 { (n - 1, n) } else { (0, 0) };
+        let drop = pts[k];
+        if drop.dist(fc.pos) < LIFT_MIN {
+            continue;
+        }
+        lifts.push(Lift { factory: *fid, first, via: pts[..k].to_vec(), drop, after: f.rally[after..].to_vec(), fresh: vec![] });
+    }
+    if lifts.is_empty() {
+        return lifts;
+    }
+    for (u, b, o, ..) in q.iter() {
+        for l in lifts.iter_mut() {
+            let Some(fc) = census.get(l.factory) else { continue };
+            if u.owner == fc.owner && b.pos.dist(fc.pos) <= fc.radius + LIFT_PICK && facs.get(fc.e).is_ok_and(|f| f.rally == o.0) {
+                l.fresh.push(u.id);
+            }
+        }
+    }
+    for l in lifts.iter_mut() {
+        l.fresh.sort_unstable();
+    }
+    lifts
+}
+
+/// How far from a factory's edge an assisting transport fetches the units coming out.
+const LIFT_PICK: f32 = 15.0;
+
+/// Most rally orders a factory keeps.
+const RALLY_MAX: usize = 16;
+
 /// Ferry routes: units within `FERRY_PICK` of the beacon are fetched, a transport waits for those
 /// heading there from within `FERRY_COMING`; beacons closer than `FERRY_SAME` are the same one.
 /// Riders are set down over a circle of `FERRY_DROP`.
@@ -2290,7 +2408,8 @@ fn factories(
     for (u, body, mut f, mut builder, upgrading) in q.iter_mut().sort_by_key::<&Unit, _>(|u| u.id) {
         let df = defs.get(u.def);
         builder.work = 0;
-        let rally0 = f.rally;
+        let rally0 = f.rally_point();
+        let route = f.rally.clone();
         // Sends a finished unit out of the factory to the rally point.
         let release = |p: &Cen, commands: &mut Commands| {
             let pd = defs.get(p.def);
@@ -2317,7 +2436,7 @@ fn factories(
             let pos = if pd.is_air() { body.pos } else { exit };
             commands.entity(p.e).remove::<Hosted>().insert((
                 Body { pos, y: map.h(pos) + pd.mv.altitude, yaw: if pd.is_air() { PI * 0.5 } else { yaw }, vel: v2(0.0, 0.0) },
-                Orders(vec![Order::Move(rally)]),
+                Orders(if route.is_empty() { vec![Order::Move(rally)] } else { route.clone() }),
                 Mover { anchor: rally, path_goal: pos, ..default() },
             ));
         };

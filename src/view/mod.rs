@@ -495,7 +495,7 @@ fn drive_anims(
                     // Out, held while the finished unit leaves, then back. A land factory's door opens
                     // only on the side the unit leaves by.
                     let building = factory.map_or(0, |f| if f.carrier != 0 { f.carrier } else { f.building });
-                    let side = crate::sim::systems::exit_side(i.cur.0, factory.and_then(|f| f.rally));
+                    let side = crate::sim::systems::exit_side(i.cur.0, factory.and_then(|f| f.rally_point()));
                     let mine = match s.anim.kind {
                         AnimKind::GateE => side.x > 0.5,
                         AnimKind::GateW => side.x < -0.5,

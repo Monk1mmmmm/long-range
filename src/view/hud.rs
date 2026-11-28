@@ -660,7 +660,7 @@ impl Frame<'_> {
         let end = *path.last().unwrap();
         let rally: Vec<u32> = units.iter().filter(|u| self.d(u.def).is_factory()).map(|u| u.id).collect();
         if !rally.is_empty() {
-            out.push(Command::Orders { ids: rally, orders: vec![Order::Move(end)], queue: false });
+            out.push(Command::Orders { ids: rally, orders: vec![mk(end)], queue });
         }
         let mut movers: Vec<&Info> = units.iter().copied().filter(|u| !self.d(u.def).is_structure()).collect();
         // Infantry in selected buildings leave them and go too.
@@ -2193,17 +2193,18 @@ pub fn ui_system(mut p: UiParams) -> Result {
     }
     // Order queues: of the selection, or (shift held, as in SupCom) of every own unit.
     let queued: Vec<&Info> = if shift {
-        infos.values().filter(|u| u.owner == me && u.host == 0 && (!u.orders.is_empty() || u.factory.as_ref().is_some_and(|f| f.rally.is_some()))).collect()
+        infos.values().filter(|u| u.owner == me && u.host == 0 && (!u.orders.is_empty() || u.factory.as_ref().is_some_and(|f| !f.rally.is_empty()))).collect()
     } else {
         selected.iter().take(60).copied().collect()
     };
     for u in queued {
         let mut last = u.pos;
-        if let Some(r) = u.factory.as_ref().and_then(|f| f.rally) {
-            ground_line(g, map, last, r, Color::srgba(0.3, 0.8, 1.0, 0.8));
+        // A factory's rally orders, drawn like a unit's queue.
+        let rally = u.factory.as_ref().map(|f| f.rally.as_slice()).unwrap_or_default();
+        for r in rally.iter().filter_map(order_point) {
             ring(g, map, r, 0.5, Color::srgba(0.3, 0.8, 1.0, 0.8));
         }
-        for o in &u.orders {
+        for o in rally.iter().chain(&u.orders) {
             let (pt, c) = match o {
                 Order::Move(pt) => (Some(*pt), Color::srgba(0.3, 0.8, 1.0, 0.7)),
                 Order::AttackMove(pt) => (Some(*pt), Color::srgba(1.0, 0.4, 0.3, 0.7)),

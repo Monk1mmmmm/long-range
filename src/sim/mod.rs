@@ -216,7 +216,9 @@ pub struct Builder {
 pub struct Factory {
     pub queue: Vec<Job>,
     pub repeat: bool,
-    pub rally: Option<V2>,
+    /// The orders every finished unit leaves with (Move / AttackMove / Patrol; Shift adds more): the
+    /// first one's point is the rally point. Empty = a spot just outside the exit.
+    pub rally: Vec<Order>,
     /// Unit currently under construction inside.
     pub building: u32,
     /// A finished transport still inside, being filled with the riders of its job (0 = none).
@@ -243,6 +245,18 @@ impl Factory {
     /// Is `building` the front queue entry (and not a rider for `carrier`)?
     pub fn front_in_works(&self) -> bool {
         self.building != 0 && self.carrier == 0
+    }
+    /// Where finished units go first.
+    pub fn rally_point(&self) -> Option<V2> {
+        self.rally.iter().find_map(order_point)
+    }
+}
+
+/// The point of a move-type order.
+pub fn order_point(o: &Order) -> Option<V2> {
+    match o {
+        Order::Move(p) | Order::AttackMove(p) | Order::Patrol(p) => Some(*p),
+        _ => None,
     }
 }
 
@@ -1981,7 +1995,7 @@ mod tests {
             capture: Some(Capture { by: 2, progress: 0.5 }),
             weapons: Some(Weapons { focus: 4, ..default() }),
             builder: Some(Builder { work: 11, site: Some(p) }),
-            factory: Some(Factory { queue: vec![Job::plain(1), Job { def: 2, cargo: vec![3, 3] }], repeat: true, rally: Some(p), building: 12, carrier: 13, cargo: vec![3] }),
+            factory: Some(Factory { queue: vec![Job::plain(1), Job { def: 2, cargo: vec![3, 3] }], repeat: true, rally: vec![Order::Move(p), Order::Patrol(p)], building: 12, carrier: 13, cargo: vec![3] }),
             hosted: Some(Hosted(13)),
             paused: Some(Paused),
             structure: Some(Structure),
