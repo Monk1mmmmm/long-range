@@ -4573,12 +4573,31 @@ fn control_points(mut game: ResMut<Game>, census: Res<Census>, defs: Res<Defs>) 
             alive |= 1 << p.team;
         }
     }
+    // Riders inside buildings (garrisons, trenches) hold a point too: (building id, rider's team).
+    let mut inside: Vec<(u32, u8)> = Vec::new();
+    for c in &census.list {
+        if c.hosted && c.done && c.hp > 0.0 && c.team < 14 {
+            if let Some(h) = census.get(c.host) {
+                if defs.get(h.def).is_garrison() {
+                    inside.push((h.id, c.team));
+                }
+            }
+        }
+    }
     for p in game.points.iter_mut() {
-        // Only finished ground units of living players hold a point (no aircraft, no buildings).
+        // Only finished ground units of living players hold a point (no aircraft, no buildings),
+        // and the riders of a building on it.
         let mut teams = 0u16;
         census.near(p.pos, rules.cp_radius, |c| {
             if c.done && !c.hosted && !c.air && !c.structure && c.hp > 0.0 && c.team < 14 {
                 teams |= 1 << c.team;
+            }
+            if c.structure && !inside.is_empty() {
+                for &(b, t) in &inside {
+                    if b == c.id {
+                        teams |= 1 << t;
+                    }
+                }
             }
         });
         teams &= alive;
