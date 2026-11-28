@@ -162,3 +162,32 @@ def commander():
     for s in (-1, 1):
         k.box((0.22 * f, 0.34 * f, 0.08 * f), (s * 0.4 * f, -0.12 * f, 1.1 * f), "team", rot=(0, s * 20, 0), bevel=0.01 * f)
     return k
+
+
+@model
+def drone_operator():
+    """Recon Drone Operator: a control station backpack with a tall antenna and a folded spare quadcopter."""
+    k = Variant("drone_operator", "trooper", 0.1562)
+    k.on("Torso", "Station")
+    k.box((0.34, 0.16, 0.36), (0, 0.22, 0.86), "olive", faces={"back": "team", "top": "steel_d"}, bevel=0.015)
+    k.box((0.012, 0.012, 0.7), (0.12, 0.26, 1.38), "black")  # whip antenna
+    k.box((0.05, 0.05, 0.12), (-0.11, 0.26, 1.08), "black")  # link antenna stub
+    k.box((0.26, 0.05, 0.26), (0, 0.33, 0.84), "tank", faces={"back": "team"})  # spare drone, arms folded
+    for s in (-1, 1):
+        for t in (-1, 1):
+            k.cyl(0.035, 0.03, (s * 0.12, 0.36, 0.84 + t * 0.12), "black", axis="y", seg=8)
+    return k
+
+
+@model
+def strike_operator():
+    """Strike Drone Operator: FPV goggles and a backpack with a quadcopter and two spare warheads."""
+    k = Variant("strike_operator", "trooper", 0.1562)
+    k.on("Torso", "Rig")
+    k.box((0.34, 0.15, 0.34), (0, 0.22, 0.86), "olive", faces={"back": "steel_d"}, bevel=0.015)
+    for s in (-1, 1):  # spare warheads either side of the pack
+        along(k, (s * 0.2, 0.22, 0.68), (s * 0.2, 0.22, 1.02), 0.045, "olive", seg=8, caps={1: "yellow"})
+    k.box((0.012, 0.012, 0.4), (0.1, 0.26, 1.2), "black")  # antenna
+    k.box((0.22, 0.04, 0.2), (0, 0.32, 0.86), "gun", faces={"back": "team"})  # strapped FPV drone
+    k.box((0.16, 0.06, 0.06), (0, -0.1, 1.22), "black")  # goggles over the helmet's visor
+    return k

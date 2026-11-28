@@ -1,9 +1,9 @@
-"""Defences and sensors of the playable faction: SAM launcher, radar towers, watch tower and field works
+"""Defences and sensors of the playable faction: SAM launcher, radar towers, satellite uplink, watch tower and field works
 (sandbags, trench, bunker), in the same look as the other buildings."""
 import math
 
 from kit import Kit, along, model
-from models_buildings import hazard_edge, slab, upgrade_rig
+from models_buildings import annex, hazard_edge, slab, upgrade_rig
 
 
 def lattice(k, x, y, w0, w1, z0, z1, mat="steel", step=0.9, leg=0.07, brace=0.035):
@@ -197,4 +197,44 @@ def field_bunker():
     k.cyl(0.1, 0.35, (0.5, 0.3, 1.7), "gun", seg=8)
     k.box((0.5, 0.5, 0.04), (0, 0, 1.72), "team")
     k.box((0.7, 0.05, 0.9), (0, -1.7, 0.45), "metal_door", rot=(0, 0, 0))
+    return k
+
+
+@model
+def satellite_uplink():
+    """T4 Satellite Uplink: a big dish (part Dish, turns slowly about the vertical) on a pedestal, an operations
+    block, generator, fuel tank and antenna masts on a concrete pad."""
+    k = Kit("satellite_uplink")
+    slab(k, 10.0, 10.0, 0.2)
+    hazard_edge(k, 10.0, 10.0, z=0.2)
+    # pedestal
+    k.cyl(1.4, 0.5, (0, 0, 0.2), "concrete_d", seg=16)
+    k.cyl(0.85, 1.8, (0, 0, 0.7), "steel", seg=16, caps={1: "steel_d"})
+    k.cyl(1.0, 0.2, (0, 0, 2.3), "team", seg=16)
+    # operations block, generator, fuel tank
+    annex(k, -3.0, 3.1, 3.4, 3.0, 2.6, floors=2, mat="plaster_w")
+    k.box((3.4, 0.04, 0.3), (-3.0, 1.58, 2.3), "team")
+    k.box((1.6, 1.6, 1.0), (3.2, 3.6, 0.7), "steel", faces={"top": "vent"})
+    k.cyl(0.55, 1.4, (3.4, -3.3, 0.2), "tank", seg=12, caps={1: "steel_d"})
+    with k.nohit_():
+        for x, y, h in ((4.3, 1.0, 5.0), (-4.3, -2.0, 4.2), (4.3, -1.6, 3.4)):
+            k.box((0.1, 0.1, h), (x, y, 0.2 + h / 2), "steel_d")
+            k.box((0.3, 0.3, 0.04), (x, y, 0.2 + h * 0.6), "steel_d")
+            k.cyl(0.05, 0.25, (x, y, 0.2 + h), "red", seg=6)
+        k.cyl(0.02, 1.2, (-1.6, 2.2, 2.7), "black", seg=6)
+    # the dish on a turning yoke
+    d = k.part("Dish", (0, 0, 2.5))
+    with k.into(d):
+        k.cyl(1.2, 0.25, (0, 0, 2.5), "steel_d", seg=16)  # turntable ring
+        k.box((3.2, 0.8, 0.35), (0, 0, 2.9), "steel_d")
+        for s in (-1, 1):  # yoke arms
+            k.box((0.32, 0.9, 2.4), (s * 1.45, 0, 4.1), "steel", faces={"left": "team", "right": "team"}, bevel=0.03)
+        with k.at((0, 0, 5.0), rot=(35, 0, 0)):
+            k.cyl(0.45, 0.8, (0, 0, -0.9), "steel_d", seg=10)  # hub behind the reflector
+            k.cyl(0.7, 0.7, (0, 0, -0.2), "white", seg=24, r2=3.4, caps={1: "steel"})  # reflector
+            k.cyl(2.4, 0.03, (0, 0, 0.5), "white", seg=24)
+            for a in (0, 120, 240):  # feed struts
+                with k.at((0, 0, 0), rot=(0, 0, a)):
+                    along(k, (3.0, 0, 0.5), (0, 0, 2.8), 0.04, "steel_d", seg=6)
+            k.cyl(0.16, 0.45, (0, 0, 2.6), "black", seg=8)  # feed horn
     return k

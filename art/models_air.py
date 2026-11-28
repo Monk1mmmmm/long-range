@@ -246,3 +246,70 @@ def fast_transport():
         prop(k, "Prop_L" if s < 0 else "Prop_R", (x, -0.98, 0.78), 0.55, blades=4)
     k.box((0.85, 0.04, 0.75), (0, 1.62, 0.5), "metal_door", rot=(-8, 0, 0))  # rear ramp
     return k
+
+
+
+def quad(k, arm, rot_r, z, body):
+    """Four rotors Rotor1..Rotor4 on diagonal arms from the body centre; arm = rotor offset on x and y."""
+    from kit import along
+    for i, (sx, sy) in enumerate(((-1, -1), (1, -1), (-1, 1), (1, 1))):
+        along(k, (sx * body * 0.3, sy * body * 0.3, z), (sx * arm, sy * arm, z), 0.028, "gun", seg=6)
+        k.cyl(0.05, 0.08, (sx * arm, sy * arm, z - 0.06), "steel_d", seg=8)  # motor
+        rotor(k, f"Rotor{i + 1}", (sx * arm, sy * arm, z + 0.04), rot_r, blades=2, mat="black")
+
+
+@model
+def recon_drone():
+    """T3 recon quadcopter (Drone Operator's): flat body, four rotors, camera gimbal ball underneath."""
+    k = Kit("recon_drone")
+    z = 0.36
+    k.box((0.42, 0.5, 0.14), (0, 0, z), "tank", faces={"top": "team"}, bevel=0.025)
+    k.box((0.3, 0.1, 0.06), (0, -0.28, z + 0.01), "glass")  # nose sensor
+    k.box((0.24, 0.2, 0.05), (0, 0.1, z + 0.09), "steel_d", faces={"top": "vent"})
+    quad(k, 0.5, 0.25, z, 0.42)
+    k.cyl(0.04, 0.1, (0, -0.05, z - 0.14), "steel_d", seg=8)
+    k.sphere(0.1, (0, -0.05, z - 0.21), "black", seg=10, rings=6)
+    k.sphere(0.045, (0, -0.14, z - 0.22), "glass", seg=8, rings=4)
+    for s in (-1, 1):  # landing skids
+        k.box((0.03, 0.5, 0.03), (s * 0.18, 0.0, 0.02), "gun")
+        k.box((0.03, 0.03, 0.2), (s * 0.18, -0.18, 0.12), "gun")
+        k.box((0.03, 0.03, 0.2), (s * 0.18, 0.18, 0.12), "gun")
+    return k
+
+
+@model
+def strike_drone():
+    """T3 FPV strike quadcopter (Strike Drone Operator's): small frame with a camera, a warhead slung under it."""
+    k = Kit("strike_drone")
+    z = 0.3
+    k.box((0.24, 0.4, 0.07), (0, 0, z), "gun", faces={"top": "team"}, bevel=0.015)
+    k.box((0.1, 0.06, 0.07), (0, -0.2, z + 0.06), "black")  # FPV camera
+    k.cyl(0.015, 0.2, (0.05, 0.18, z + 0.04), "black", seg=6)  # antenna
+    quad(k, 0.36, 0.16, z, 0.3)
+    # warhead: a round with a cone nose
+    k.cyl(0.07, 0.34, (0, 0.12, z - 0.14), "olive", axis="-y", seg=10)
+    k.cyl(0.07, 0.16, (0, -0.22, z - 0.14), "olive", axis="-y", seg=10, r2=0.025)
+    k.cyl(0.072, 0.04, (0, -0.1, z - 0.14), "yellow", axis="-y", seg=10)
+    k.cyl(0.04, 0.08, (0, 0.12, z - 0.14), "black", axis="y", seg=8)
+    for dy in (-0.05, 0.1):
+        k.box((0.025, 0.03, 0.1), (0, dy, z - 0.06), "steel_d")  # straps to the frame
+    return k
+
+
+@model
+def cruise_missile():
+    """T3 cruise missile (Trembita): slim body, ogive nose, pop-out wings, cruciform tail, belly intake."""
+    k = Kit("cruise_missile")
+    r = 0.175
+    k.cyl(r, 2.7, (0, -1.1, 0), "tank", axis="y", seg=12)
+    k.cyl(r, 0.5, (0, -1.1, 0), "white", axis="-y", seg=12, r2=0.03)
+    k.cyl(r * 1.02, 0.1, (0, -0.5, 0), "team", axis="y", seg=12)
+    k.cyl(r * 1.02, 0.1, (0, 0.5, 0), "team", axis="y", seg=12)
+    k.cyl(r * 0.7, 0.14, (0, 1.6, 0), "black", axis="y", seg=10)  # nozzle
+    for s in (-1, 1):  # wings
+        k.prism([(s * r, -0.1), (s * 0.95, 0.12), (s * 0.95, 0.38), (s * r, 0.4)], "z", -0.015, 0.015, "tank")
+    for a in (0, 90, 180, 270):  # cruciform tail
+        with k.at((0, 0, 0), rot=(0, a, 0)):
+            k.prism([(r, 1.1), (0.52, 1.35), (0.52, 1.62), (r, 1.62)], "z", -0.012, 0.012, "team")
+    k.box((0.16, 0.5, 0.12), (0, 0.85, -r - 0.04), "steel_d", faces={"front": "black"}, taper=(0.8, 0.8))  # intake
+    return k

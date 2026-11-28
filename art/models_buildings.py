@@ -533,3 +533,47 @@ def eng_station():
         k.box((0.1, 0.1, 0.08), (0, -1.7, top - 0.78), "gun")
     k.key("doors", jib, [(1, None, (0, 0, 0)), (30, None, (0, 0, 150)), (60, None, (0, 0, 360))])
     return k
+
+
+@model
+def naval_factory():
+    """T2 Naval Yard, built half on the shore and half over the water (its front, -y): a quay on piles, a
+    covered boat shed with a slipway running down into the water between two jetties, a gantry crane and an
+    office. The quay's skirt reaches 3 units down, so it meets steep and flat shores alike."""
+    k = Kit("naval_factory")
+    q = 0.6  # quay top above the water
+    # quay on the land half, with its face walls carried down into the shore
+    k.box((12.0, 6.4, q + 3.0), (0, 2.8, (q - 3.0) / 2), "concrete_d", faces={"top": "concrete"})
+    hazard_edge(k, 12.0, 6.4, (0, 2.8), z=q)
+    # jetties on piles along both sides, out over the water
+    for x in (-4.9, 4.9):
+        k.box((1.8, 6.2, 0.3), (x, -3.5, q - 0.15), "concrete", faces={"top": "concrete"})
+        k.box((0.12, 6.2, 0.12), (x + (0.85 if x < 0 else -0.85), -3.5, q + 0.06), "hazard")
+        with k.nohit_():
+            for y in (-6.2, -4.4, -2.6, -0.8):
+                for dx in (-0.6, 0.6):
+                    k.cyl(0.14, 3.3, (x + dx, y + 0.1, -3.0), "concrete_old", seg=8)
+            for y in (-6.0, -3.0):  # bollards
+                k.cyl(0.1, 0.25, (x, y, q), "black", seg=8)
+    # slipway: a ramp from the shed door down under the water, rails on it
+    k.box((5.6, 6.0, 0.3), (0, -2.6, -0.85), "concrete_old", rot=(-12, 0, 0))
+    for x in (-1.4, 1.4):
+        k.box((0.14, 6.0, 0.1), (x, -2.6, -0.65), "steel_d", rot=(-12, 0, 0))
+    # covered boat shed on the quay, its open end towards the water
+    with k.at((0, 0, q)):
+        shed(k, 6.4, 5.4, 3.4, 1.2, loc=(0, 3.2))
+        k.box((5.2, 0.08, 3.0), (0, 0.48, 1.5), "black")  # the dark opening
+        k.box((6.6, 0.4, 0.35), (0, 0.5, 3.4), "steel_d")  # door lintel
+        annex(k, -4.6, 4.4, 2.4, 2.8, 2.8, floors=3, mat="plaster_w")
+        stack(k, 4.9, 5.0, 0.22, 3.6)
+        k.box((1.6, 1.6, 0.9), (4.6, 2.2, 0.45), "corr_d", faces={"top": "vent"})
+    # gantry crane straddling the slipway at the water's edge
+    with k.nohit_():
+        for x in (-3.4, 3.4):
+            for y in (-1.6, 0.0):
+                k.box((0.22, 0.22, 5.0), (x, y, q + 2.5), "yellow")
+            k.box((0.18, 1.8, 0.18), (x, -0.8, q + 1.2), "yellow")
+        k.box((7.2, 0.4, 0.5), (0, -0.8, q + 5.1), "yellow", faces={"front": "hazard", "back": "hazard"})
+        k.box((0.9, 0.9, 0.6), (0.8, -0.8, q + 4.6), "steel_d")  # trolley
+        k.cyl(0.02, 2.2, (0.8, -0.8, q + 2.3), "black", seg=4)
+    return k

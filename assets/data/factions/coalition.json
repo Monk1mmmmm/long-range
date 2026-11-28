@@ -478,7 +478,7 @@
     "scale": 1,
     "brightness": 1.0
    },
-   "portrait": "icons/units/apc_heavy.png",
+   "portrait": "icons/units/patrol_boat.png",
    "built_by": "naval",
    "move": {
     "kind": "land",
@@ -552,7 +552,7 @@
     "scale": 1,
     "brightness": 1.0
    },
-   "portrait": "icons/units/flak_carrier.png",
+   "portrait": "icons/units/gunboat.png",
    "built_by": "naval",
    "move": {
     "kind": "land",
@@ -988,13 +988,13 @@
     ]
    },
    "model": {
-    "mesh": "models/trooper.glb",
-    "albedo": "models/trooper_albedo.png",
-    "team_mask": "models/trooper_team.png",
-    "normal": "models/trooper_normal.png",
+    "mesh": "models/drone_operator.glb",
+    "albedo": "models/drone_operator_albedo.png",
+    "team_mask": "models/drone_operator_team.png",
+    "normal": "models/drone_operator_normal.png",
     "scale": 0.1562
    },
-   "portrait": "icons/units/trooper.png",
+   "portrait": "icons/units/drone_operator.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1067,13 +1067,13 @@
     ]
    },
    "model": {
-    "mesh": "models/at_trooper.glb",
-    "albedo": "models/at_trooper_albedo.png",
-    "team_mask": "models/at_trooper_team.png",
-    "normal": "models/at_trooper_normal.png",
+    "mesh": "models/strike_operator.glb",
+    "albedo": "models/strike_operator_albedo.png",
+    "team_mask": "models/strike_operator_team.png",
+    "normal": "models/strike_operator_normal.png",
     "scale": 0.1562
    },
-   "portrait": "icons/units/trooper.png",
+   "portrait": "icons/units/strike_operator.png",
    "built_by": "land",
    "move": {
     "kind": "land",
@@ -1146,24 +1146,35 @@
     ]
    },
    "model": {
-    "mesh": "models/air_scout.glb",
-    "albedo": "models/air_scout_albedo.png",
-    "team_mask": "models/air_scout_team.png",
+    "mesh": "models/recon_drone.glb",
+    "albedo": "models/recon_drone_albedo.png",
+    "team_mask": "models/recon_drone_team.png",
     "scale": 0.6,
     "brightness": 1.0,
     "spin": [
      {
-      "bone": "Prop",
-      "axis": [
-       0,
-       0,
-       1
-      ],
-      "speed": 1800
+      "bone": "Rotor1",
+      "axis": [0, 1, 0],
+      "speed": 2400
+     },
+     {
+      "bone": "Rotor2",
+      "axis": [0, 1, 0],
+      "speed": -2400
+     },
+     {
+      "bone": "Rotor3",
+      "axis": [0, 1, 0],
+      "speed": -2400
+     },
+     {
+      "bone": "Rotor4",
+      "axis": [0, 1, 0],
+      "speed": 2400
      }
     ]
    },
-   "portrait": "icons/units/air_scout.png",
+   "portrait": "icons/units/recon_drone.png",
    "move": {
     "kind": "hover",
     "speed": 9.0,
@@ -1214,24 +1225,35 @@
     ]
    },
    "model": {
-    "mesh": "models/dove.glb",
-    "albedo": "models/dove_albedo.png",
-    "team_mask": "models/dove_team.png",
+    "mesh": "models/strike_drone.glb",
+    "albedo": "models/strike_drone_albedo.png",
+    "team_mask": "models/strike_drone_team.png",
     "scale": 0.7,
     "brightness": 1.0,
     "spin": [
      {
-      "bone": "Prop",
-      "axis": [
-       0,
-       0,
-       1
-      ],
-      "speed": 2000
+      "bone": "Rotor1",
+      "axis": [0, 1, 0],
+      "speed": 2600
+     },
+     {
+      "bone": "Rotor2",
+      "axis": [0, 1, 0],
+      "speed": -2600
+     },
+     {
+      "bone": "Rotor3",
+      "axis": [0, 1, 0],
+      "speed": -2600
+     },
+     {
+      "bone": "Rotor4",
+      "axis": [0, 1, 0],
+      "speed": 2600
      }
     ]
    },
-   "portrait": "icons/units/dove.png",
+   "portrait": "icons/units/strike_drone.png",
    "move": {
     "kind": "hover",
     "speed": 11.0,
@@ -3044,24 +3066,13 @@
     ]
    },
    "model": {
-    "mesh": "models/dove.glb",
-    "albedo": "models/dove_albedo.png",
-    "team_mask": "models/dove_team.png",
-    "scale": 2.0,
-    "brightness": 1.0,
-    "spin": [
-     {
-      "bone": "Prop",
-      "axis": [
-       0,
-       0,
-       1
-      ],
-      "speed": 2000
-     }
-    ]
+    "mesh": "models/cruise_missile.glb",
+    "albedo": "models/cruise_missile_albedo.png",
+    "team_mask": "models/cruise_missile_team.png",
+    "scale": 0.7,
+    "brightness": 1.0
    },
-   "portrait": "icons/units/dove.png",
+   "portrait": "icons/units/cruise_missile.png",
    "built_by": "air",
    "move": {
     "kind": "plane",
@@ -3544,16 +3555,8 @@
     "energy": 14000,
     "time": 2600
    },
-   "size": [
-    12.0,
-    4.0,
-    12.0
-   ],
-   "hit_box": [
-    12.0,
-    4.0,
-    11.5
-   ],
+   "size": [12.0, 5.3, 12.0],
+   "hit_box": [12.0, 5.3, 12.0],
    "icon": {
     "shape": "factory",
     "glyphs": [
@@ -3561,13 +3564,13 @@
     ]
    },
    "model": {
-    "mesh": "models/land_factory2.glb",
-    "albedo": "models/land_factory2_albedo.png",
-    "team_mask": "models/land_factory2_team.png",
-    "scale": 1.5,
+    "mesh": "models/naval_factory.glb",
+    "albedo": "models/naval_factory_albedo.png",
+    "team_mask": "models/naval_factory_team.png",
+    "scale": 1,
     "brightness": 1.0
    },
-   "portrait": "icons/units/land_factory2.png",
+   "portrait": "icons/units/naval_factory.png",
    "footprint": 6,
    "shore": true,
    "built_by": "structure",
@@ -4352,16 +4355,8 @@
     "energy": 160000,
     "time": 14000
    },
-   "size": [
-    10.0,
-    9.0,
-    10.0
-   ],
-   "hit_box": [
-    9.0,
-    9.0,
-    9.0
-   ],
+   "size": [10.0, 7.6, 10.0],
+   "hit_box": [10.0, 7.6, 10.0],
    "icon": {
     "shape": "structure",
     "glyphs": [
@@ -4370,42 +4365,20 @@
     ]
    },
    "model": {
-    "mesh": "models/radar_tower3.glb",
-    "albedo": "models/radar_tower3_albedo.png",
-    "team_mask": "models/radar_tower3_team.png",
-    "scale": 1.6,
+    "mesh": "models/satellite_uplink.glb",
+    "albedo": "models/satellite_uplink_albedo.png",
+    "team_mask": "models/satellite_uplink_team.png",
+    "scale": 1,
     "brightness": 1.0,
     "spin": [
      {
-      "bone": "Radar",
-      "axis": [
-       0,
-       1,
-       0
-      ],
-      "speed": 20
-     },
-     {
-      "bone": "Radar2",
-      "axis": [
-       0,
-       1,
-       0
-      ],
-      "speed": -30
-     },
-     {
-      "bone": "Radar3",
-      "axis": [
-       0,
-       1,
-       0
-      ],
-      "speed": 45
+      "bone": "Dish",
+      "axis": [0, 1, 0],
+      "speed": 6
      }
     ]
    },
-   "portrait": "icons/units/radar_tower3.png",
+   "portrait": "icons/units/satellite_uplink.png",
    "footprint": 5,
    "built_by": "structure",
    "vision": 30,
